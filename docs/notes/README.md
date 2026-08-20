@@ -7,7 +7,9 @@ These are **not** auto-loaded. Open the one you need.
 
 ## Index
 
-*(empty — add entries as findings are deepened out of CLAUDE.md)*
+- [[phase-0-1-test-protocol]] — step-by-step protocol for the Phase 0 and Phase 1 tests.
+  Not a finding yet: it carries a **Results** section that gets filled in on the run, at which
+  point it becomes the finding record for both gates.
 
 ## Conventions
 

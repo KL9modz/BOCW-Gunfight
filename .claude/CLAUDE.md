@@ -194,6 +194,7 @@ The MP path is the undocumented one. **Validate it with a hello-world before wri
 ## Test plan
 
 Ordered so the cheapest tests kill the most expensive work.
+Step-by-step protocol, with record sheets and decision tables, for Phases 0–1: [[phase-0-1-test-protocol]]
 
 ### Phase 0 — no tools, no exposure (~1 hr) ← **START HERE**
 - **T0.1** Count total lobby slots on TDM vs Gunfight. **That number is `com_maxclients`.**
