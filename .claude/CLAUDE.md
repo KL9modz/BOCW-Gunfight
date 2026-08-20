@@ -99,14 +99,16 @@ the mod only needs to reach it one step earlier.
 Not by design — **by a crashed thread**:
 1. Timer expires → `checktimelimit()` (`globallogic.gsc:3276`, called every iteration of the
    `updategametypedvars()` while-loop) invokes `level.ontimelimit`.
-2. `ontimelimit()` sets `var_31f5f23 = 1` and threads `overtime()`.
-3. `overtime()` does `zone = level.zones[ 0 ]` then dereferences `zone.gameobject`. `level.zones` is
-   **undefined** (assigned only at the END of `setupzones()`, past the early return) → **thread dies**,
-   *before* its `setgameendtime()` call, so the clock is never extended.
+2. `ontimelimit()` (`gunfight.gsc:915`) sets `var_31f5f23 = 1`, threads `overtime()`, and returns (`:921`).
+3. `overtime()` (`gunfight.gsc:931`) does `zone = level.zones[ 0 ]` (`:944`) then dereferences
+   `zone.gameobject` (`:946`). `level.zones` is **undefined** (assigned only at the END of
+   `setupzones()`, past the early return) → **thread dies at `:946`**, *before* its `setgameendtime()`
+   call (`:951`), so the clock is never extended.
 4. Next loop iteration: `timeleft <= 0` still → `ontimelimit()` again → `var_31f5f23 === 1` → falls
    through to `function_c4915ac()` → health decision. Correct outcome, one tick late, via an exception.
 
-⚠ `overtime()`'s own `if ( !isdefined( zone ) )` guard sits **below** the dereference and is unreachable.
+⚠ `overtime()`'s own `if ( !isdefined( zone ) )` guard (`gunfight.gsc:958`) sits **below** the
+dereference (`:946`) and is unreachable. ✅ Whole chain verified against `ate47/bocw-source` @ `edd94bd`.
 
 ### The five presentation bugs, all from that one early return
 | Symptom | Skipped work |
@@ -223,4 +225,8 @@ Bots before humans.
 - **Does `com_maxclients` survive a mode change in a custom lobby?** (Phase 1 — gates all 6v6 work)
 - **Is the Gunfight timer field exposed in the rules menu?** (Phase 0 — may moot the timer work)
 - **Spawn density at 12 players with `alwaysusestartspawns = 1`.** Gated behind Phase 1
-- **MP injection priming sequence** — undocumented; every public guide uses Zombies. Candidates ranked + hello-world: [[mp-load-path]]
+- **MP injection priming sequence** — game-side **resolved** (`edd94bd`): `mp_common/load.gsc` exists,
+  the gametype entry is `event_handler[gametype_init] main`, and event dispatch is additive, so injected
+  `autoexec` + `callback::on_game_playing` can reassign `level.ontimelimit` with no detour. The **only**
+  residual unknown is whether the `dev_csc_inj` injector honors injected registrations — a hello-world
+  question, not a source one. Full analysis: [[mp-load-path]]
