@@ -1,0 +1,19 @@
+# Reference dumps — pull these to a SIBLING folder, never vendor them.
+# ate47/bocw-source is ~618 MB extracted.
+bocw-source/
+t9-src/
+reference/
+*.tar.gz
+
+# Compiler / injector build output
+*.gscc
+*.exe
+*.dll
+*.vsix
+bin/
+obj/
+
+# Local-only notes and anything account-shaped
+*.local.json
+*.local.md
+secrets*
