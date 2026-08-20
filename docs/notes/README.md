@@ -10,6 +10,10 @@ These are **not** auto-loaded. Open the one you need.
 - [[phase-0-1-test-protocol]] — step-by-step protocol for the Phase 0 and Phase 1 tests.
   Not a finding yet: it carries a **Results** section that gets filled in on the run, at which
   point it becomes the finding record for both gates.
+- [[mp-load-path]] — how injected GSC reaches the **MP** Gunfight VM. Bootstrap candidates ranked,
+  with the hello-world that decides between them. Hypothesis until the hello-world passes.
+- [[tac-risk-model]] — threat model and **participant disclosure** for the mod: where TAC and
+  server telemetry can observe it, host vs joiner. Risk identification, **not** evasion.
 
 ## Conventions
 

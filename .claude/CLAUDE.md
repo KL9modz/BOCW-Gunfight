@@ -21,7 +21,7 @@ for private/custom lobbies hosted from the owner's machine.
   Out of scope by decision, not by oversight.
 - ⚠ **Joiners' exposure is UNKNOWN.** Injected GSC runs host-side and TAC's documented detections are
   local (hooks, debuggers, overlays), so joiners are *expected* to be unexposed. Nobody outside
-  Activision can verify server-side telemetry. **Tell participants; it's their accounts.**
+  Activision can verify server-side telemetry. **Tell participants; it's their accounts** — disclosure model and checklist: [[tac-risk-model]].
 
 ## Anti-cheat reality
 
@@ -223,4 +223,4 @@ Bots before humans.
 - **Does `com_maxclients` survive a mode change in a custom lobby?** (Phase 1 — gates all 6v6 work)
 - **Is the Gunfight timer field exposed in the rules menu?** (Phase 0 — may moot the timer work)
 - **Spawn density at 12 players with `alwaysusestartspawns = 1`.** Gated behind Phase 1
-- **MP injection priming sequence** — undocumented; every public guide uses Zombies
+- **MP injection priming sequence** — undocumented; every public guide uses Zombies. Candidates ranked + hello-world: [[mp-load-path]]
