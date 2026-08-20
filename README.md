@@ -17,8 +17,10 @@ This repo holds the reverse-engineering notes, the fix design, and the test plan
 
 ## Status
 
-Research phase. Nothing built yet. The findings are documented against the decompiled T9 source
-([`ate47/bocw-source`](https://github.com/ate47/bocw-source)) with file and line references.
+Research complete for the MP path; Phase 3 source written, untested in-game. Findings are documented
+against the decompiled T9 source ([`ate47/bocw-source`](https://github.com/ate47/bocw-source)) with file
+and line references. The mod and its hello-world validator live in [`src/`](src/) — additive hooks, zero
+stock files modified — and await the staged in-game rollout in [`src/README.md`](src/README.md).
 
 Headline results so far:
 
@@ -36,7 +38,7 @@ See `.claude/CLAUDE.md` for the full picture, including a confirmed dead-ends li
 ```
 .claude/CLAUDE.md   agent operating manual: findings, fix design, test plan
 docs/notes/         per-finding deep dives
-src/                mod source (empty until Phase 3)
+src/                mod source: hello_world/ validator + gunfight_mod/ (staged, additive)
 tools/              helper scripts
 ```
 

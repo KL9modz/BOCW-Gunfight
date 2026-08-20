@@ -219,7 +219,8 @@ code reading end-to-end. Any divergence = re-trace that path before building.
 
 ### Phase 3 — the mod (exposure begins here)
 Hello-world first, then one change at a time: zones guard → latch flags → `ontimelimit` → timer.
-Bots before humans.
+Bots before humans. **Source written**, awaiting in-game validation: `src/hello_world/` (proves the MP
+hook) and `src/gunfight_mod/` (staged via `level.gfmod` switches). Build/rollout: `src/README.md`.
 
 ---
 
