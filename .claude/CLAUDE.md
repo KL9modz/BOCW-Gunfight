@@ -66,6 +66,12 @@ clamps to `[level.timelimitmin, level.timelimitmax]`. Those come from
 `globallogic.gsc:365` → `util::registertimelimit( 0, 1440 )` → `util.gsc:790` sets min 0 / max **1440
 MINUTES**. The clamp is not a constraint. The only cap is the menu: `time_limit_seconds.json` declares
 20 values but publishes 6 (`"optionscount": 6` → 0/20/30/40/50/60s). **40 is `value4`, the default.**
+✅ **The timer is LIVE-WRITABLE mid-round.** `globallogic.gsc` `updategametypedvars()` loops at **0.25s**
+and every iteration calls `[[ level.gettimelimit ]]()` (which re-reads `getgametypesetting(#"timelimit")`
+fresh) then assigns `level.timelimit` on change. `setgametypesetting()` is writable at runtime —
+Gunfight calls it on itself at `gunfight.gsc:104` and `:106`. So
+`setgametypesetting( #"timelimit", N )` lands within ~0.25s with **no restart and no pre-match menu
+value required.**
 
 **Maps** — `onstartgametype()` does `if ( !setupzones() ) { return; }`. `setupzones()` calls
 `getzonearray()` → `getentarray( "gunfight_zone_center", "targetname" )` and returns false on
@@ -74,6 +80,26 @@ never an arbitrary whitelist. ⚠ **All four map-entity lookups in the whole gam
 code** (`gunfight.gsc:813, 836, 874, 875`). Bypass them and the per-map dependency count is **zero**.
 ✅ Spawns are NOT a problem: `gunfight.gsc:77` `spawning::addsupportedspawnpointtype( "tdm" )` — every
 MP map ships TDM spawn points.
+
+### Start spawns — script-safe at any team size; the residual risk is engine-side
+`usestartspawns()` (`hashed/script/script_44b0b8420eabacad.gsc:504` — the file `gunfight.gsc` pulls in
+via `#using script_44b0b8420eabacad`) returns true whenever `level.alwaysusestartspawns` is set, and
+Gunfight pins it to 1 at `gunfight.gsc:100`. So **Gunfight uses start spawns for EVERY spawn,
+permanently**, not just the first.
+
+`spawning_shared.gsc:295` is the selection, and it has a **fallback**:
+```
+if ( usestartspawns() ) { spawn = self function_f53e594f(); }
+if ( squad_spawn::function_403f2d91( self ) ) { spawn = squad_spawn::getspawnpoint( self ); }
+if ( !isdefined( spawn ) ) { spawn = function_99ca1277( self, predictedspawn ); }
+```
+Exhausted start spawns degrade to normal selection against `level.default_spawn_lists`, which every map
+has. **No early return, no failure branch — the script layer cannot break at 12 players.**
+
+⚠ **The residual risk is not readable from the dump.** `function_f53e594f()` →
+`function_77b7335( self.team, "start_spawn" )`, which is **called in 3 places and defined nowhere** —
+an engine builtin. Whether it returns `undefined` on exhaustion (graceful) or hands back an occupied
+point (telefrag) is engine-internal. **Only the Phase 1 live test answers this.**
 
 **6v6** — the chain, and why it is not script-fixable:
 1. `team_assignment.gsc:94` `function_efe5a681( team )`:
@@ -142,6 +168,27 @@ on round start:
 
 ⚠ The `level.zones = []` guard alone is **not sufficient** — `overtime()` would still index `[0]` on an
 empty array and dereference undefined. **The `ontimelimit` reassignment is mandatory, not optional.**
+
+### Skipping `overtime()` is clean — verified, no side effects
+Both overtime flags are **gametype-local with no consumers outside `gunfight.gsc`**:
+
+| Flag | Written | Read |
+|---|---|---|
+| `level.usingextratime` | `:43` (0), `:953` (1, inside `overtime()`) | `:1150` only, in `gettimelimit()` |
+| `level.var_31f5f23` | `:917`, `:919` (the latch itself) | `:185` only, gated on `level.tournamentmatch === 1` |
+
+Never calling `overtime()` leaves `usingextratime` at 0 and `gettimelimit()` returns the base limit.
+⚠ `control.gsc` and `dem.gsc` declare their own independent variables of the same names — a grep hit
+there is NOT a dependency. `function_c4915ac()` routes through the **same `endround()`** the OT capture
+path uses.
+
+### ✅ The fix needs NO re-entrancy guard — stock already has one
+`checktimelimit()` invokes `level.ontimelimit` on **every** iteration of the 0.25s
+`updategametypedvars()` loop while `timeleft <= 0`, so the reassigned handler fires repeatedly. That is
+harmless, because `level.var_c7cce1ff` (the round-already-ended latch) is checked at the top of **both**
+`function_c4915ac()` (`:1092`) and `endround()` (`:1165`), and set by `endround()` (`:1175`). First call
+ends the round and latches; every later call early-returns. **Do not add a guard of your own here** — it
+would be redundant and would obscure that stock owns this invariant.
 
 Every iteration reverts by simply not injecting.
 
@@ -219,7 +266,20 @@ Bots before humans.
 ---
 
 ## Open questions
+
+⚠ **All four require the GAME. None are answerable from the dump** — that work is done. Do not go
+looking for them in `bocw-source`; the front end is compiled LUA and the spawn resolver is an engine
+builtin (see the two notes above).
+
 - **Does `com_maxclients` survive a mode change in a custom lobby?** (Phase 1 — gates all 6v6 work)
-- **Is the Gunfight timer field exposed in the rules menu?** (Phase 0 — may moot the timer work)
-- **Spawn density at 12 players with `alwaysusestartspawns = 1`.** Gated behind Phase 1
+- **Is the Gunfight timer field exposed in the rules menu?** (Phase 0 — convenience only now; the timer
+  is settable at runtime regardless, see *Timer* above)
+- **Does the engine's `function_77b7335` telefrag or return undefined when start spawns run out?**
+  (Phase 1 — the only real 6v6 risk left; the script layer is proven safe)
 - **MP injection priming sequence** — undocumented; every public guide uses Zombies
+
+### Closed by tracing (do not re-open)
+- ~~Spawn density breaks the script at 12 players~~ → **no**, `spawning_shared.gsc:295` has a fallback
+- ~~Skipping `overtime()` may desync the round state machine~~ → **no**, both flags are gametype-local
+- ~~The `ontimelimit` hook needs a re-entrancy guard~~ → **no**, `level.var_c7cce1ff` already is one
+- ~~The timer may need a pre-match menu value~~ → **no**, `setgametypesetting` lands live in ~0.25s
