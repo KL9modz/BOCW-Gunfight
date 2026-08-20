@@ -1,16 +1,16 @@
 # MP load path — getting injected GSC to run in the Gunfight VM
 
-**Conclusion.** The MP bootstrap is a *solved architecture problem* and a *single open injector question*.
-The game exposes an **additive event/registration system**: functions tagged `autoexec` run when their
-script loads, functions tagged `event_handler[gametype_init]` run when that event fires, and both feed
-handler *lists* that the dispatcher iterates — so injected code can register **alongside** stock with
-**no detour and no `replacefunc`**. The only thing not answerable from source is whether the
-`dev_csc_inj` injector loads a buffer such that its `autoexec` / `event_handler` registrations are
-honored by the VM. That is the one thing the hello-world tests. Everything else below is confirmed
-against `ate47/bocw-source` @ `edd94bd`.
+**Conclusion.** The MP bootstrap is **solved** — mechanism, hook point, and dispatch ordering all
+verified from source and toolchain docs. Inject with the `dev_csc_inj` injector set to `mode=mp`,
+`script=scripts\mp_common\bb.gsc` (the injector's own documented MP hook). Your injected script's
+`autoexec` runs on load, registers `callback::on_start_gametype(&apply)`, and `apply()` reassigns
+`level.ontimelimit` — which lands at `globallogic.gsc:5536`, **before** gunfight's `onstartgametype`
+(`:5537`) and the timer loop (`:5539`). The additive `autoexec`+`callback` model is not a hope: stock
+`bb.gsc` uses it and the toolchain's own T9 example uses it (see [[pipeline-toolchain-survey]]). What
+remains is a one-line hello-world to confirm the hook fires in a **custom Gunfight** lobby specifically.
 
-⚠ Line numbers are against dump revision **`edd94bd`**. Quote the surrounding code, not just the line,
-if the dump has moved.
+⚠ Line numbers: game refs against `ate47/bocw-source` @ `edd94bd`; toolchain refs against
+`AuroraDoesCode/t7-compiler-custom` `dev_csc_inj` @ `4de00c8`. Quote surrounding code if a dump moved.
 
 ---
 
@@ -33,9 +33,9 @@ Two compile-time attributes and one runtime call, all additive:
 
 | Mechanism | How it fires | Evidence @ `edd94bd` |
 |---|---|---|
-| `function autoexec f()` | runs automatically when the **script is loaded** into the VM | `scripts/mp_common/load.gsc:28` `function autoexec function_aeb1baea()`; the attribute appears on 12+ functions across `scripts/mp_common/` |
+| `function autoexec f()` | runs automatically when the **script is loaded** into the VM | `scripts/mp_common/bb.gsc:12` (the MP hook) and `load.gsc:28`; the attribute appears on 12+ functions across `scripts/mp_common/` |
 | `function event_handler[E] f(*es)` | runs when event **E** fires; registered at link time | every MP gametype uses `event_handler[gametype_init] main` — `gunfight.gsc:39`, `dm.gsc:22`, `war.gsc:9`, `dom.gsc:30`, … |
-| `callback::on_game_playing( &f )` | runtime registration; fires at match "playing" transition | `gunfight.gsc:71` (stock registers its own `&ongameplaying` this way) |
+| `callback::on_start_gametype( &f )` | runtime registration; fires at `globallogic.gsc:5536` | the slot the mod uses; `bb.gsc:24` registers `on_spawned` the same way |
 
 **Why "additive" is the load-bearing word.** The event dispatcher reads a *list* and iterates it —
 `scripts/core_common/callbacks_shared.gsc` (~`:35`):
@@ -50,95 +50,112 @@ Firing an event calls **every** handler registered for it, not one. An injected 
 more entry in that list. This is the same mechanism stock uses to let many systems hook one lifecycle
 event, so injected code is not doing anything the engine does not already do to itself.
 
-## Recommended shape — additive, no detour
+## Injector config — how the buffer reaches the MP VM
+
+The `dev_csc_inj` injector **hooks a stock script** named in `gsc.conf` (it does not overwrite it): when
+the hooked stock function runs, the injected script's linked functions run too. `mode=` selects the VM.
+For this mod:
 
 ```
-// injected into the MP VM
-function autoexec mod_boot()
+game=T9
+mode=mp
+script=scripts\mp_common\bb.gsc     # the injector's documented MP hook point
+```
+
+`bb.gsc` is a stock MP-common script present in every MP match (verified `bocw-source@edd94bd`,
+`scripts/mp_common/bb.gsc:12` `autoexec __init__system__` → `system::register(#"bb", &preinit, ...)`),
+so it runs in a custom Gunfight lobby. ZM uses `zm_common/load.gsc`; Frontend uses
+`core_common/load_shared.gsc` — recorded so nobody re-hunts them. Source: `t7-compiler-custom`
+`dev_csc_inj@4de00c8`, `Default Project/T9/gsc.conf`.
+
+## Recommended shape — additive, no detour
+
+Mirror the toolchain's own T9 example (`Default Project/T9/scripts/headers.gsc`) and stock `bb.gsc`:
+
+```
+// injected into the MP VM, script hooks scripts\mp_common\bb.gsc
+autoexec mod_boot()
 {
-    callback::on_game_playing( &mod_apply );   // additive: runs alongside stock ongameplaying
+    system::register( #"gunfight_mod", &mod_init, undefined, undefined, undefined );
 }
 
-function mod_apply()
+mod_init()
 {
-    // runs AFTER gametype_init, so stock's gunfight.gsc:58 assignment is already in place
-    level.ontimelimit = &my_health_decision;   // our value overwrites stock's -> function_c4915ac()
+    callback::on_start_gametype( &mod_apply );   // additive, alongside stock
+}
+
+mod_apply()
+{
+    // fires at globallogic.gsc:5536 — BEFORE gunfight onstartgametype (:5537) and the timer loop (:5539)
+    level.ontimelimit = &my_health_decision;     // overwrites stock's gunfight.gsc:58 -> function_c4915ac()
     // zones guard + latch flags + world uimodel sets per CLAUDE.md's fixup shape
 }
 ```
 
-⚠ **Do not reassign at `gametype_init`.** Stock sets `level.ontimelimit` there (`:58`); a second
-`event_handler[gametype_init]` has **no guaranteed ordering** against stock's, so it may run *before*
-stock and get overwritten. `on_game_playing` fires strictly after `gametype_init` and long before the
-40s timer expires, so reassigning there wins deterministically. This ordering point is the one real
-subtlety in the whole path.
+⚠ **Why `on_start_gametype` is the right slot — verified ordering.** `globallogic.gsc`
+`callback_startgametype()` runs, in order:
 
-Per-round re-entry (round-2+ music, the latch flags) hangs off the round-start path, not
-`on_game_playing` (which fires once per match) — pin the exact round notify in Phase 3 against
-`scripts/mp_common/gametypes/round.gsc`. The pointer reassignment itself is match-level and only needs
-to happen once.
+```
+5536:  callback::callback( #"on_start_gametype" );   // <- mod_apply() fires here
+5537:  [[ level.onstartgametype ]]();                 // <- gunfight zone setup / early return runs AFTER us
+5539:  level thread updategametypedvars();            // <- timer loop (checktimelimit) starts LATER
+```
 
-## Candidate ranking — resolved
+`gametype_init` (which sets `level.ontimelimit` at `gunfight.gsc:58`) runs earlier still, so at `:5536`
+the stock pointer is already installed and we cleanly overwrite it — with the timer loop not yet
+started. The latch flags likewise: gunfight's early-return at `:5537` *skips* setting them, so anything
+we set at `:5536` survives untouched.
 
-| # | Candidate | Status |
-|---|---|---|
-| 1 | `scripts/mp_common/load.gsc` exists | **CONFIRMED PRESENT** (3016 B). But it is not a callable `load::main()` — it is `autoexec`-driven. The takeaway is the **`autoexec` mechanism**, not a call target |
-| — | **injected `autoexec` + `callback::on_game_playing`** | **RECOMMENDED.** Additive, no detour, deterministic ordering. Lowest detection surface — see below |
-| 2 | `replacefunc` detour on `onstartgametype` / `main` | **FALLBACK ONLY.** Use only if the injector does not honor injected `autoexec`/`event_handler`. A detour is a hook, which is exactly what TAC flags (R2 in [[tac-risk-model]]) — prefer additive registration |
-| 3–4 | earlier core-init detour / bare level-notify | **DROPPED.** Subsumed by the additive model; no longer needed |
+Per-round re-entry (round-2+ music) hangs off the round-start path, not `on_start_gametype` (once per
+match) — pin the exact round notify in Phase 3 against `scripts/mp_common/gametypes/round.gsc`. The
+pointer reassignment is match-level and only needs to happen once.
 
-The old candidate list assumed we might have to seize a call site. We don't — the engine hands us a
-registration slot.
+## Fallback
 
-## The one unknown, precisely scoped
+If a hello-world shows the `bb.gsc` hook does **not** fire in a custom Gunfight lobby (it should — it is
+MP-common), fall back to a `replacefunc` detour on `gunfight::main` or `onstartgametype`, re-invoking the
+stock body. A detour is a hook, which is the R2 vector in [[tac-risk-model]], so prefer the additive
+`bb.gsc` path.
 
-**Does `dev_csc_inj` load an injected buffer so the VM honors its `autoexec` / `event_handler` /
-`callback::` registrations?** This is a property of the *injector runtime*, not the game source, so it
-cannot be read out of `bocw-source`. Two outcomes:
+## Hello-world — now a confirmation, not an exploration
 
-- **Honored** → the recommended additive shape works as written. Done.
-- **Not honored** (injector only executes an entrypoint it calls directly) → fall back to a
-  `replacefunc` detour on `gunfight::main` or `onstartgametype`, re-invoking the stock body, and accept
-  the added hook-detection surface.
+The mechanism is verified from source and toolchain docs; the hello-world only confirms the hook fires
+in a **custom Gunfight** lobby and checks timing.
 
-## Hello-world — the test that settles it
-
-Cheapest first:
-
-1. **autoexec fires?** Inject a script whose only content is
-   `function autoexec f(){ logprint( "MODLOADED mp autoexec\n" ); }`. Start a Gunfight custom match.
-   String in the console log → autoexec is honored, and the recommended shape is unblocked.
-2. **runtime callback fires?** Add `callback::on_game_playing( &g )` inside `f`, with `g` logging.
-   String at match start → `on_game_playing` path confirmed.
-3. **pointer reassignable?** In `g`, log `isdefined( level.ontimelimit )`, reassign it to a stub, and
-   confirm the stub runs when the timer expires on a stock map.
-
-If step 1 is silent, skip to the `replacefunc` fallback and hello-world *that* instead.
+1. **hook fires?** Compile with `mode=mp`, `script=scripts\mp_common\bb.gsc`, injected content
+   `autoexec f(){ logprint( "MODLOADED mp bb\n" ); }`. Start a Gunfight custom match. String in the
+   console log → hook confirmed.
+2. **callback fires?** Add `system::register` → `callback::on_start_gametype(&g)`, `g` logging. String
+   at gametype start → path confirmed.
+3. **pointer reassignable?** In `g`, log `isdefined( level.ontimelimit )`, reassign to a stub, confirm
+   the stub runs when the timer expires on a stock map.
 
 **Records to keep** (this becomes the finding when filled):
 
-- Injector build / `dev_csc_inj` commit: `_____`
-- Game build / patch: `_____`
-- autoexec honored: yes / no
-- `on_game_playing` fired: yes / no — earliest point the string appeared: `_____`
+- Injector build / `dev_csc_inj` commit: `_____`  · Game build / patch: `_____`
+- `bb.gsc` hook fired in custom Gunfight: yes / no
+- `on_start_gametype` callback fired: yes / no — earliest point the string appeared: `_____`
 - `level.ontimelimit` reassignment took effect at timer expiry: yes / no
 - Fell back to `replacefunc`: yes / no
 
 ## Resolved vs. still-open
 
-**Resolved against `edd94bd`:**
-- `mp_common/load.gsc` exists — yes.
-- The MP gametype entry is `event_handler[gametype_init] main`, pointers installed at `gunfight.gsc:53–59`.
-- Event dispatch is additive (`callbacks_shared.gsc` iterates `ent._callbacks[event]`).
-- A runtime hook (`on_game_playing`) is available and used by stock (`gunfight.gsc:71`).
+**Resolved** (game `edd94bd`, toolchain `4de00c8`):
+- MP hook point = `scripts\mp_common\bb.gsc`, `mode=mp` — the injector's documented MP injection point.
+- Injector hooks (not overwrites) the named stock script; injected `autoexec` then runs on load.
+- Load model = `autoexec` → `system::register` → `callback::on_start_gametype` — used by both stock
+  `bb.gsc` and the toolchain's own example, so honoring injected `autoexec` is the documented contract.
+- Dispatch ordering verified: `mod_apply` at `globallogic.gsc:5536`, before `onstartgametype` (`:5537`)
+  and the timer loop (`:5539`); pointer install (`gunfight.gsc:58`) is earlier still.
 
-**Still open:**
-- Injector honors injected registration? → hello-world, above. **The only blocker.**
-- CSC (client script): none of the fix needs it — the pointer and the health decision are all
-  server/game-VM. Do not spend time on a `.csc` bootstrap.
+**Still open (small):**
+- Empirical: does the `bb.gsc` hook fire in a *custom Gunfight* lobby, and with what timing → hello-world.
+- CSC (client script): none of the fix needs it — pointer and health decision are server/game-VM. Do not
+  spend time on a `.csc` bootstrap.
 
 ## Exposure
 
-The additive approach installs **no hook**, so it avoids the R2 (API-hook) vector in [[tac-risk-model]]
-that a `replacefunc` detour would sit in. Injection itself (R1, R3) still applies and is host-only. Read
-[[tac-risk-model]] before injecting on any account you are not prepared to lose.
+The additive `bb.gsc` path installs **no hook** in the injected script itself, avoiding the R2 (API-hook)
+vector in [[tac-risk-model]] that a `replacefunc` fallback would sit in. Injection itself (R1, R3) still
+applies and is host-only. Read [[tac-risk-model]] before injecting on any account you are not prepared to
+lose.

@@ -15,6 +15,9 @@ These are **not** auto-loaded. Open the one you need.
   One residual unknown (does the injector honor injected registration) with the hello-world for it.
 - [[tac-risk-model]] — threat model and **participant disclosure** for the mod: where TAC and
   server telemetry can observe it, host vs joiner. Risk identification, **not** evasion.
+- [[pipeline-toolchain-survey]] — the six commonly-cited tool/mod repos, checked in-session. Which
+  help the compile→inject pipeline (two do), which are dead/closed, and where the MP hook point
+  (`mp_common/bb.gsc`) and injector load model came from.
 
 ## Conventions
 

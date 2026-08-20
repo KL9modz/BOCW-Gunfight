@@ -156,8 +156,8 @@ Every iteration reverts by simply not injecting.
   for Gunfight anyway.
 - **`level.maxteamplayers`** — multiteam-only, see above. Not the 6v6 lever.
 - **`com_maxclients` from script** — read-only, 7 refs, zero writes. Not the 6v6 lever either.
-- **`xensik/gsc-tool` for T9** — support is marked **WIP**. Not the toolchain.
-- **`ProjectDonetsk/T9` (Defcon)** — archived, unmaintained. Its named successor **`xifil/t9-mod` 404s**.
+- **`xensik/gsc-tool` for T9** — support still marked **WIP** (re-verified Aug 2026); compile/decompile only, no injection. Not the toolchain.
+- **`ProjectDonetsk/T9` (Defcon)** — archived, unmaintained. Named successor **`xifil/t9-mod` still 404s** (re-verified Aug 2026). Also **`ProjectHiNAtyu/T9_BOCW_GSC_Wiki`** (prose only, files withheld) — no pipeline content. Survey: [[pipeline-toolchain-survey]].
 - **BOCW front-end / playlist data** — **not in any public dump.** The UI is compiled LUA; `bocw-source`'s
   `ui/` holds only two graphics cfgs. `arena_playlist_game_modes_maps.json` is almost entirely hashed and
   just points at another bundle by hash. This is where the map list and per-mode `com_maxclients` live,
@@ -174,7 +174,7 @@ Every iteration reverts by simply not injecting.
 | [`ate47/bocw-source`](https://github.com/ate47/bocw-source) | **Primary reference.** Name-resolved T9 dump, unknowns under `hashed/`. ~103 MB tar, ~618 MB extracted |
 | [`ate47/atian-cod-tools`](https://github.com/ate47/atian-cod-tools) | Decompiler, fastfile/XAsset dumper, CDB/WNI hash storage. Produced the dump above |
 | VS Code + `vscode-txgsc-1.0.8.vsix` | Editor, extension ships inside the compiler repo |
-| [`AuroraDoesCode/t7-compiler-custom`](https://github.com/AuroraDoesCode/t7-compiler-custom) | **Compiler + injector.** Branch **`dev_csc_inj`**, install `t7c_installer.exe` from Releases |
+| [`AuroraDoesCode/t7-compiler-custom`](https://github.com/AuroraDoesCode/t7-compiler-custom) | **Compiler + injector.** Branch **`dev_csc_inj`**, install `t7c_installer.exe` from Releases. Injector **hooks** a stock script named in `gsc.conf`; **MP hook = `scripts\mp_common\bb.gsc`, `mode=mp`** (verified `4de00c8`). Survey: [[pipeline-toolchain-survey]] |
 
 **Test PC** (secondary): BOCW via Battle.net, throwaway account, the compiler's injector component.
 
@@ -188,8 +188,10 @@ Lower-value references: `shiversoftdev/t9-src` (alternate dump, more hashed — 
 `ModzCentral01/Cold-war-Mods` (working example of the load path; Zombies-weighted),
 `ProjectHiNAtyu/T9_BOCW_GSC_Wiki` (notes only, withholds usable files).
 
-⚠ **Every public BOCW GSC workflow primes through a ZOMBIES match** (`scripts/zm_common/load.gsc`).
-The MP path is the undocumented one. **Validate it with a hello-world before writing the real mod.**
+⚠ **Every public *tutorial* primes through a ZOMBIES match** (`scripts/zm_common/load.gsc`) — but the
+MP hook is not actually a mystery: the injector's own `gsc.conf` names it **`scripts\mp_common\bb.gsc`**
+(`mode=mp`), and `bb.gsc` uses the same `autoexec`→`system::register`→`callback::` model as the fix. Full
+path + verified dispatch ordering: [[mp-load-path]]. **Still hello-world it** before the real mod.
 
 ---
 
@@ -225,8 +227,9 @@ Bots before humans.
 - **Does `com_maxclients` survive a mode change in a custom lobby?** (Phase 1 — gates all 6v6 work)
 - **Is the Gunfight timer field exposed in the rules menu?** (Phase 0 — may moot the timer work)
 - **Spawn density at 12 players with `alwaysusestartspawns = 1`.** Gated behind Phase 1
-- **MP injection priming sequence** — game-side **resolved** (`edd94bd`): `mp_common/load.gsc` exists,
-  the gametype entry is `event_handler[gametype_init] main`, and event dispatch is additive, so injected
-  `autoexec` + `callback::on_game_playing` can reassign `level.ontimelimit` with no detour. The **only**
-  residual unknown is whether the `dev_csc_inj` injector honors injected registrations — a hello-world
-  question, not a source one. Full analysis: [[mp-load-path]]
+- **MP injection priming sequence** — **RESOLVED** from source + toolchain (`edd94bd` / `4de00c8`).
+  Inject `mode=mp`, `script=scripts\mp_common\bb.gsc` (the injector's documented MP hook); injected
+  `autoexec` → `system::register` → `callback::on_start_gametype(&f)` reassigns `level.ontimelimit` at
+  `globallogic.gsc:5536`, before `onstartgametype` (`:5537`) and the timer loop (`:5539`). Same model
+  stock `bb.gsc` uses. Only a confirming hello-world remains (does the hook fire in a *custom Gunfight*
+  lobby). Full path: [[mp-load-path]]; toolchain survey: [[pipeline-toolchain-survey]]
