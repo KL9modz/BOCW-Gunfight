@@ -1,8 +1,10 @@
-# Reference dumps — pull these to a SIBLING folder, never vendor them.
-# ate47/bocw-source is ~618 MB extracted.
+# Reference dumps and the toolchain — these live in a SIBLING folder, never in here.
+# tools/check-gsc.ps1 resolves them via $PSScriptRoot\..\.. See docs/notes/test-pc-setup.md.
 bocw-source/
+bocw-source-main/
 t9-src/
 reference/
+ACTS/
 *.tar.gz
 
 # Compiler / injector build output

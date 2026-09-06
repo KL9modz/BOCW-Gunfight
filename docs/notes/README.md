@@ -7,7 +7,8 @@ These are **not** auto-loaded. Open the one you need.
 
 ## Index
 
-*(empty — add entries as findings are deepened out of CLAUDE.md)*
+- [test-pc-setup](test-pc-setup.md) — headless closet test box over RDP: reachability, RDP tuning,
+  the Activision-account trap, the toolchain mirror, and the ACTS auto-update gotchas.
 
 ## Conventions
 

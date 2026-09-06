@@ -242,6 +242,10 @@ The MP path is the undocumented one. **Validate it with a hello-world before wri
 
 Ordered so the cheapest tests kill the most expensive work.
 
+Test-box build (headless closet PC, RDP from the dev PC), account setup, and the toolchain mirror:
+[[test-pc-setup]]. ⚠ It carries its own gate — **confirm BOCW launches and is watchable over RDP
+before Phase 1**, since Phase 2's music/VO/HUD checks depend on it.
+
 ### Phase 0 — no tools, no exposure (~1 hr) ← **START HERE**
 - **T0.1** Count total lobby slots on TDM vs Gunfight. **That number is `com_maxclients`.**
 - **T0.2** Walk every Gunfight rules page. Is a time-limit field present? Does it offer 20/30/40/50/60?

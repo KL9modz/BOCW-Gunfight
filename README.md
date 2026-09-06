@@ -36,9 +36,25 @@ See `.claude/CLAUDE.md` for the full picture, including a confirmed dead-ends li
 ```
 .claude/CLAUDE.md   agent operating manual: findings, fix design, test plan
 docs/notes/         per-finding deep dives
-src/                mod source (empty until Phase 3)
-tools/              helper scripts
+src/                GSC source. gunfight_tweaks.gsc is the smoke test; the mod lands here in Phase 3
+tools/              check-gsc.ps1 — offline validation harness
 ```
+
+Two large dependencies live **beside** this repo, never inside it — `tools/check-gsc.ps1` resolves
+both via `$PSScriptRoot\..\..`:
+
+```
+<parent>/
+├── ACTS/                 75 MB   compiler + injector (pin the version)
+├── bocw-source-main/    229 MB   decompiled T9 dump
+└── BOCW-Gunfight/                this repo
+```
+
+```powershell
+.\tools\check-gsc.ps1 .\src\gunfight_tweaks.gsc   # compile + round-trip + resolve every API call
+```
+
+Fresh-machine walkthrough: [`docs/notes/test-pc-setup.md`](docs/notes/test-pc-setup.md).
 
 ## Scope
 
