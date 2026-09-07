@@ -34,6 +34,42 @@ Gunfight needs the overtime capture zone. Nothing else about it is map-specific.
 > `0` there too means the workstream is misaimed; `>0` means ICBM is a per-map oddity and this
 > headline survives.
 
+### The zero is not a measurement artifact — both escape hatches closed
+
+The probe reads ~8s after `on_start_gametype`, while stock reads *during* it. If anything consumed or
+deleted the centers in between, a later read would return 0 with the model intact. It does not:
+
+- **Nothing deletes them.** `grep -E 'delete\(\)|\bdelete\b'` across `gunfight.gsc` returns **zero**.
+  `setupzones()`'s loop is entirely additive — it annotates `zone.trig`, `zone.trigorigin`, spawns an
+  objectiveanchor script_model, creates a gameobject, sets clientfields, `notsolid()`s visuals.
+- **Nothing spawns them either.** All four dump-wide references are `getentarray` **reads**.
+
+So the entities persist for the life of the level, and the measured `0` is a real absence.
+
+### Four consumers, not one — and they are shared map data
+
+| Where | Gated? |
+|---|---|
+| `gunfight.gsc:813` (centers, server) | **no** — unconditional |
+| `gunfight.gsc:836` (triggers, server) | no |
+| `gunfight.csc:230` (triggers, client) | yes — `getgametypesetting( #"hash_4091f2d0019b1f4a" )`, shared with `control.csc:266` and `dom.csc:159` |
+| `hashed/script/script_336275a0ba841d18.gsc:140` | yes — `getgametypesetting( #"hash_cd096e90260a26b" )` |
+
+That fourth file is **Onslaught** — it sets `level.var_e2f95698 = #"zm_commander_onslaught"` and
+`#using`s `zombie_utility`, `zombie_eye_glow`, `gib`. So `gunfight_zone_center` is shared map data
+consumed by Gunfight, its client script, *and* the Zombies mode built on these maps. **A map lacking
+them breaks more than Gunfight**, which makes a deliberate per-map omission less plausible.
+
+⚠ Only the server-side read is ungated. Two of the four sit behind gametype settings — worth
+remembering before concluding anything from a single consumer's behaviour.
+
+### `setupzones()` has TWO failure paths — do not conflate them
+
+`false` does not always mean "zero zones". It also returns false when zones *were* found but
+`print_map_errors()` reports mis-triggered ones (the partial-zone case in **DANGER** below). For the
+2026-09-07 match it genuinely was zero, because the probe counted the entities directly — but the two
+cases have different causes and different fixes.
+
 ```gsc
 // gunfight.gsc:119, inside onstartgametype()
 if ( !setupzones() )

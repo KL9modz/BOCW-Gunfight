@@ -65,9 +65,11 @@ function private mod_apply()
 {
     cfg = level.gfmod;
 
-    // Defensive only. With timelimit_fix on, overtime() is never threaded, so the
-    // level.zones[0] crash site (gunfight.gsc:944) is already unreachable — this just
-    // guarantees nothing else can index level.zones undefined either.
+    // ✅ VERIFIED NECESSARY, not merely defensive. `level.zones = zones` is assigned at
+    // gunfight.gsc:907 and NOWHERE ELSE — on the success path only, after the size check.
+    // When setupzones() returns false, level.zones is never assigned and stays UNDEFINED
+    // for the entire match. Measured 2026-09-07: a stock Gunfight map (ICBM) returned zero
+    // zone entities, so that path is live on shipping maps, not just modded ones.
     if ( cfg.zones_guard && !isdefined( level.zones ) )
         level.zones = [];
 
