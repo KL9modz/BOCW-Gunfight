@@ -1,11 +1,28 @@
 # src — the mod source
 
-Two projects. Build the first, prove the hook, then build the second.
+Three projects. Prove the hook, measure, then change behaviour.
 
 ```
-hello_world/    minimal validator — proves the MP hook fires in a custom Gunfight lobby
-gunfight_mod/   the real mod — additive, zero stock files modified
+hello_world/    minimal validator — proves the MP hook fires. ✅ CONFIRMED in-game 2026-09-07
+mp_probe/       read-only diagnostics — answers several open questions in one match
+gunfight_mod/   the real mod — additive, zero stock files modified. NOT YET INJECTED
 ```
+
+**`mp_probe/` is the cheap one to reach for.** It writes nothing but its own counter and
+answers, per match, questions that otherwise cost menu-walking or guesswork:
+
+| Tag | Question | Why it matters |
+|---|---|---|
+| `1xxxxx` | `com_maxclients` | The team-size ceiling. If it changes after a mode switch, **6v6 is reachable with no code** |
+| `2xxxxx` | live `timelimit` setting | Phase 0 **T0.2** answered numerically instead of by walking menus |
+| `3xxxxx` / `4xxxxx` | `timelimitmin` / `timelimitmax` | Confirms the clamp is `[0, 1440]` and not the constraint |
+| `5xxxxx` | `gunfight_zone_center` count | **The map dependency.** `0` = unlocked map, `>0` = stock zoned. Classifies any map in one number |
+| `6xxxxx` | `on_start` firing count | per-match vs per-round cadence |
+| `7xxxxx` | players in match | sanity |
+
+Output is `PROBE_ID * 100000 + VALUE`, one every 2s — so `100012` is probe 1, value 12. Strip
+the leading digit. `99999` as the value means undefined at read time. Tagging is necessary
+because a literal label renders as nothing on retail (see **Observability** below).
 
 Each is a compiler project: a `gsc.conf` (names the injection hook) plus `scripts/*.gsc`.
 Full mechanism and evidence: [`../docs/notes/mp-load-path.md`](../docs/notes/mp-load-path.md).
