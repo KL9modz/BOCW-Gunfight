@@ -13,6 +13,17 @@ Stock Gunfight imposes three restrictions that make it unusable for the intended
 | Team size | 3v3 | 6v6 |
 | Round timer | 40s, not editable in the rules menu | tunable |
 
+⚠ Two rows of that table are now known to be imprecise, both measured in-game 2026-09-07:
+
+- **Team size** — `com_maxclients` measured **8**, not 6. **4v4 is already reachable with no code.**
+  6v6 still needs 12 and is still out of script's reach. Settle whether 4v4 suffices before building
+  anything to raise the ceiling: [`docs/notes/team-sizes.md`](docs/notes/team-sizes.md).
+- **Round timer** — the live `timelimit` gametype setting read **0**, not 40. `gettimelimit()`
+  divides it by 60 (`gunfight.gsc:1139`), so the stored value is in **seconds** and **0 means no
+  limit**. Whatever produces the 40s players experience, it is not simply this setting sitting at 40.
+  Verify before building `timer_override` against it — that is the same class of mistake as
+  `jump_height` being inert in MP ([`docs/notes/mp-dvars.md`](docs/notes/mp-dvars.md)).
+
 This repo holds the reverse-engineering notes, the fix design, and the test plan.
 
 ## Status
@@ -22,8 +33,15 @@ Research phase. Nothing built yet. The findings are documented against the decom
 
 Headline results so far:
 
-- **Map restriction is a data dependency, not a whitelist.** Gunfight aborts init when a map lacks
-  `gunfight_zone_center` entities. Spawns are not a problem, the mode uses TDM spawn points.
+- **Map restriction is a data dependency, not a whitelist** — and it is *softer* than this file
+  previously claimed. ⚠ It does **not** abort. When a map lacks `gunfight_zone_center` entities,
+  `setupzones()` returns false and `onstartgametype()` takes a plain early return
+  (`gunfight.gsc:119-121`), skipping only its presentation tail. `abort_level` is never called from
+  `gunfight.gsc`. **The match runs.** VERIFIED in-game 2026-09-07: a zoneless map played a full
+  Gunfight match. Spawns are not a problem either — the mode uses TDM spawn points.
+- **The zone absence only bites when the round timer expires.** `ontimelimit()` threads `overtime()`,
+  which dereferences `level.zones[0]` (`:944`). No timer expiry, no crash. That is why the zoneless
+  match above survived: its `timelimit` setting read **0**, meaning no limit, so `overtime()` never ran.
 - **The round timer is not hardcoded.** It reads a gametype setting and clamps to 1440 minutes. Only
   the menu caps it.
 - **The health-based round decision already exists in stock.** It does not need to be written.

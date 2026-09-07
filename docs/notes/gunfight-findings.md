@@ -7,6 +7,18 @@ unless stated. Gametype string is **`gunfight`** (enum `0x2f`).
 
 Gunfight needs the overtime capture zone. Nothing else about it is map-specific.
 
+> ✅ **VERIFIED in-game 2026-09-07, and the dependency is softer than "hard" suggests.**
+> `src/mp_probe/` read `getentarray("gunfight_zone_center","targetname").size` = **0** on a map that
+> then played a full Gunfight match. So a zoneless map does **not** abort — the early return below
+> costs only the presentation tail. `abort_level` is never called from `gunfight.gsc`; its four call
+> sites are in `spawning_shared`, `supplydrop`, `globallogic_utils` and zm `spawnlogic`.
+>
+> The zone absence is dormant until the round timer expires, because that is the only path to
+> `overtime()` and its `level.zones[0]` dereference at `:944`. In that verified match the live
+> `timelimit` gametype setting read **0** — no limit — so `ontimelimit()` never fired.
+>
+> **Restated precisely: zero zones is safe; zero zones *plus* a timer expiry is the bug.**
+
 ```gsc
 // gunfight.gsc:119, inside onstartgametype()
 if ( !setupzones() )

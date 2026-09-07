@@ -1,5 +1,24 @@
 # Team sizes
 
+> ✅ **MEASURED in-game 2026-09-07: `com_maxclients` = 8.**
+> `src/mp_probe/` read `getdvarint( #"com_maxclients", 0 )` in a live private Gunfight lobby. The
+> ceiling is **8**, not 6 and not 12.
+>
+> This re-scopes the workstream, and nothing in these notes anticipated it — the goal table jumps
+> straight from stock 3v3 to 6v6 and never considers that the ceiling might already sit *above* stock.
+>
+> - **4v4 is reachable right now**, with no code, no DLL, and no ceiling change.
+> - **6v6 still needs 12** and remains out of script's reach — script only ever reads this dvar.
+>
+> ⚠ So the open question is no longer only "can we raise the ceiling" but "**is 4v4 enough?**" If it
+> is, the entire `com_maxclients` workstream — including any DLL-level attempt to reach 12 — is
+> unnecessary. That is a product decision, not a technical one, and it should be settled before
+> anyone builds against it.
+>
+> One caveat on the measurement: it is a single sample from one lobby. Whether 8 is a Gunfight
+> constant, a private-match constant, or something that re-evaluates on mode change is exactly the
+> Phase 1 question — inject the probe, read it under Gunfight, switch to TDM, read it again.
+
 **Gunfight does not hardcode 2v2.** Grepping `gunfight.gsc` for `teamcount`,
 `maxteamplayers`, `multiteam` returns **zero hits** — the 2v2 comes entirely from
 the playlist/gametype settings. That is the good news.
