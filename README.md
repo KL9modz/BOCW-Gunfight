@@ -15,14 +15,27 @@ Stock Gunfight imposes three restrictions that make it unusable for the intended
 
 ⚠ Two rows of that table are now known to be imprecise, both measured in-game 2026-09-07:
 
-- **Team size** — `com_maxclients` measured **8**, not 6. **4v4 is already reachable with no code.**
-  6v6 still needs 12 and is still out of script's reach. Settle whether 4v4 suffices before building
-  anything to raise the ceiling: [`docs/notes/team-sizes.md`](docs/notes/team-sizes.md).
-- **Round timer** — the live `timelimit` gametype setting read **0**, not 40. `gettimelimit()`
-  divides it by 60 (`gunfight.gsc:1139`), so the stored value is in **seconds** and **0 means no
-  limit**. Whatever produces the 40s players experience, it is not simply this setting sitting at 40.
-  Verify before building `timer_override` against it — that is the same class of mistake as
-  `jump_height` being inert in MP ([`docs/notes/mp-dvars.md`](docs/notes/mp-dvars.md)).
+- **Team size** — `com_maxclients` measured **8**, which is **not a ceiling**: 3v3 Gunfight = 6
+  players + 2 spectators. The probe read a *lobby config*. ⚠ An earlier note here claimed "4v4 is
+  already reachable" — that treated a playlist value as an engine limit. **Disregard it.** The real
+  finding is better: these same maps already run **Faceoff 6v6 stock**, so twelve clients is a
+  configuration the game already ships. The task is running Gunfight *inside* such a lobby, not
+  raising a ceiling: [`docs/notes/team-sizes.md`](docs/notes/team-sizes.md).
+- **Round timer** — ✅ **the setting is live, readable, and menu-settable.** Measured **0** in one
+  lobby and **30** in another. `gettimelimit()` divides it by 60 (`gunfight.gsc:1139`) and the clamp
+  bounds are minutes, so the value is stored in **seconds**: `0` = no limit, `30` = 30-second rounds.
+  Both are published menu values, which answers Phase 0 **T0.2** affirmatively — the rules menu *does*
+  expose the timer across `0 / 20 / 30 / 40 / 50 / 60`.
+
+  ⚠ An earlier note said this setting "is not where the 40s comes from" and advised re-scoping
+  `timer_override`. **That came from a single lobby that happened to read 0 and does not survive a
+  second sample. Disregard it.** `timer_override` targets the right setting; it is only *needed*
+  above 60s, exactly as `src/gunfight_mod/`'s config comment already said.
+
+  ⚠ **The crash hazard is now live.** With a non-zero timer on a zoneless map the round timer can
+  actually expire, reaching `ontimelimit()` → `overtime()` → `level.zones[0]`. Both clean test
+  matches so far ended by elimination. Since *every* stock map reads zero zones, this is reachable in
+  ordinary custom play — and it is exactly what `timelimit_fix` exists to prevent.
 
 This repo holds the reverse-engineering notes, the fix design, and the test plan.
 

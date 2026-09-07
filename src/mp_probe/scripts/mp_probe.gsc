@@ -32,17 +32,22 @@
 //    meaningless. Only a human watching the actual jump caught it. See [[mp-dvars]].
 //
 // ── HOW TO READ THE OUTPUT ────────────────────────────────────────────────────
-// Values print one every 2s as a tagged number:  PROBE_ID * 100000 + VALUE
+// Values print one every 5s as a tagged number:  PROBE_ID * 100000 + VALUE
 // So 100012 is probe 1, value 12. Strip the leading digit; the rest is the answer.
-// 99999 as the value means UNDEFINED at read time (e.g. 399999 = probe 3 undefined).
+// 99999 as the value means UNDEFINED at read time.
 //
-//   1xxxxx  com_maxclients            <- the team-size ceiling. THE Phase 1 question.
-//   2xxxxx  getgametypesetting timelimit  <- live round timer. THE Phase 0 T0.2 question.
-//   3xxxxx  level.timelimitmin        <- expect 0
-//   4xxxxx  level.timelimitmax        <- expect 1440, confirming the clamp is not the constraint
-//   5xxxxx  gunfight_zone_center count <- THE map dependency. 0 = unlocked map, >0 = stock zoned
-//   6xxxxx  on_start firing count     <- 1 then never = per-match; 1,2,3 = per-round
+// Emitted in this order, with the two live questions LAST so they stay on screen:
+//
+//   1xxxxx  com_maxclients               per-playlist client count. 8 in a 3v3 Gunfight lobby
+//                                        (6 players + 2 spectators). Read 12 in a Faceoff lobby
+//                                        to confirm it is playlist config, not an engine ceiling.
+//   2xxxxx  getgametypesetting timelimit  round timer in SECONDS. 0 = no limit. Observed 0 and 30.
 //   7xxxxx  players currently in match
+//   5xxxxx  gunfight_zone_center count   0 on both stock Gunfight maps tested. Kept to classify
+//                                        any new map or lobby type.
+//   6xxxxx  on_start firing count        AMBIGUOUS ON PURPOSE — see the note at the emit site.
+//
+// Probes 3 and 4 (timelimitmin=0 / timelimitmax=1440) were removed once confirmed stable.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #using scripts\core_common\callbacks_shared;
@@ -78,23 +83,41 @@ function private report()
 {
     wait( 8 );
 
+    // ⚠ ORDER AND PACING ARE DELIBERATE. The first version emitted seven values at 2s
+    // apart and klaze could read only two of them — iprintlnbold lines scroll, and 14
+    // seconds of unlabelled digits is not a readable instrument. Fixes: fewer values,
+    // 5s spacing, and the two live questions emitted LAST so they are the most recent
+    // text on screen when the player looks up.
+    //
+    // Probes 3 and 4 (timelimitmin / timelimitmax) were REMOVED. They read 0 and 1440,
+    // are confirmed and stable, and cost 4 seconds of attention every round for nothing.
+
     // getdvarint takes a HASHED name plus a default — stock form, gunfight.gsc:160 and
     // team_assignment.gsc:1302. Script only ever reads this dvar; it is set by the engine
-    // at session creation. If this changes after a mode switch, 6v6 is reachable.
+    // at session creation. Reading 12 in a Faceoff lobby confirms it is per-playlist.
     emit( 1, getdvarint( #"com_maxclients", 0 ) );
 
-    // globallogic.gsc:305 clamps this into [timelimitmin, timelimitmax] for the round timer.
+    // globallogic.gsc:305 clamps this into [timelimitmin, timelimitmax] for the round
+    // timer. Stored in SECONDS — gettimelimit() divides by 60 (gunfight.gsc:1139) and the
+    // clamp bounds are minutes. Observed 0 (no limit) and 30 (30s rounds) in two lobbies,
+    // both menu values, so the setting is live and settable.
     emit( 2, getgametypesetting( #"timelimit" ) );
-    emit( 3, level.timelimitmin );
-    emit( 4, level.timelimitmax );
 
-    // gunfight.gsc:813 — the ONLY hard map dependency in the gametype. Counting it here
-    // classifies any map in one number, without needing the round to play out.
+    emit( 7, getplayers().size );
+
+    // ── The two live questions, emitted last so they linger on screen ──
+
+    // gunfight.gsc:813. Confirmed 0 on two stock Gunfight maps; kept so any NEW map or
+    // lobby type can be classified in one number.
     zones = getentarray( "gunfight_zone_center", "targetname" );
     emit( 5, zones.size );
 
+    // ⚠ READ THIS ONE CAREFULLY, it is ambiguous by design and the ambiguity is the point.
+    //   climbs 600001 -> 600002 -> 600003   level persists; only on_start re-fires per round
+    //   stays 600001 on EVERY round         level itself is torn down and rebuilt each round
+    // The second case breaks gunfight_mod: its latch flags and level.zones would not
+    // survive a round boundary and would need re-applying on every on_start.
     emit( 6, level.probe_runs );
-    emit( 7, getplayers().size );
 }
 
 // Tagged so values are distinguishable with no labels — a literal label would render
@@ -114,5 +137,7 @@ function private emit( id, value )
         player iprintlnbold( tagged );
     }
 
-    wait( 2 );
+    // 5s, not 2s. At 2s the values scroll past faster than they can be read and written
+    // down — verified the hard way: klaze caught two of seven on the first run.
+    wait( 5 );
 }
