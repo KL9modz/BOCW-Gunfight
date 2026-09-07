@@ -126,7 +126,32 @@ occurrences anywhere in the dump". The test box found 58 files across `tables/`,
 `hashed/`. The laptop could not have found them: it has no `tables/`. **Scope every dump claim to the
 directory actually searched, and say which machine ran it.**
 
+### Size is the integrity check
+
+**A correct `git clone --depth 1` of `ate47/bocw-source` is ~664 MB. Anything materially smaller is
+incomplete.** 229 MB specifically means `tables/` (291 MB) and most of `scriptbundle/` (50 MB) are
+absent.
+
+⚠ Do not read the old 229 MB figure in these notes as having been *stale*. It was **accurate — for an
+incomplete corpus**. That distinction matters: the first diagnosis here was "the documentation drifted",
+and the real problem was a missing 341 MB. A number can be correctly measured and still describe the
+wrong thing. Check the size on any new machine before trusting a dump-wide search on it.
+
+### Fixing the split does not require relocating anything
+
+An earlier framing of this was wrong and made it sound harder than it is. `tools/check-gsc.ps1` already
+takes `-Source` as a parameter (line 14) — it is not hardcoded to the sibling path. So the fix is one
+step, not a relocation negotiation:
+
+```powershell
+# any path OUTSIDE the OneDrive tree
+git clone --depth 1 https://github.com/ate47/bocw-source.git C:\bocw-src
+.\tools\check-gsc.ps1 .\src\hello_world\scripts\hello_world.gsc -Source C:\bocw-src
+```
+
+The existing incomplete copy can stay where it is and be deleted later. Nothing needs moving first.
+
 **Why the laptop's copy is not a git clone.** It sits inside the OneDrive tree, and Step 5 forbids
-letting OneDrive and git sync the same `.git`. Re-cloning it in place would create exactly the
-corruption hazard that rule exists to prevent. Fixing the split means relocating the dump outside
-OneDrive first — not `git clone` where it currently sits.
+letting OneDrive and git sync the same `.git`. Re-cloning *in place* would create exactly the
+corruption hazard that rule exists to prevent — which is why the clone above targets a path outside
+OneDrive rather than replacing the existing folder.
