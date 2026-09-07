@@ -32,11 +32,16 @@ Gunfight needs the overtime capture zone. Nothing else about it is map-specific.
 >
 > | Stock Gunfight map | how identified | zone entities |
 > |---|---|---|
-> | ICBM (`mp_sm_central`) | inferred from `tables/` asset themes | **0** |
+> | ICBM (`mp_sm_central`) | **externally confirmed** — Season One map, Gunfight-exclusive | **0** |
 > | Amsterdam (`mp_sm_amsterdam`) | codename **==** UI name, zero inference | **0** |
 >
-> Amsterdam was chosen precisely so the result would not depend on the `tables/` inference being
-> right. It isn't load-bearing: the second map confirms independently.
+> ICBM released in the **Season One update, 15 December 2020**, one of four 2v2 maps designed
+> *exclusively* for Gunfight alongside Game Show, KGB and U-Bahn (Call of Duty Wiki, Charlie INTEL,
+> Dexerto, GamesAtlas). That independently confirms the `mp_sm_central` codename mapping, which had
+> rested on asset themes (`icbm` 5, `missile` 8, `silo` 10, `p8_icbm_computer_decal`).
+>
+> Amsterdam was chosen so the result would not depend on that inference at all. Both legs now hold
+> independently.
 >
 > **The forced conclusion.** Stock Gunfight maps carry no `gunfight_zone_center` entities in
 > private/custom matches, so `setupzones()` returns false and `onstartgametype()` early-returns on

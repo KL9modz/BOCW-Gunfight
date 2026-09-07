@@ -52,6 +52,23 @@ These are **not** auto-loaded. Open the one you need.
   `lobbylaunchgame`, why `BlackOpsColdWar.exe` cannot be signature-scanned at rest, and the loader
   shim in `tools/cw-loader-shim/` that merges both into the one usable DLL slot.
 
+## ⚠ Use the dump for mechanism. Use external sources for anything player-facing.
+
+The dump has **no display names, no localization table, and no map metadata.** It cannot resolve a UI
+name to a codename, ever. Two sessions spent several exchanges arguing over whether "ICBM" was one of
+the nine `mp_sm_*` maps — reasoning from asset-token frequencies, conceding, re-arguing — and a single
+web search answered it in one step. ICBM is a Season One Gunfight-exclusive map; `mp_sm_central` is
+its codename.
+
+Both of us kept reaching for the dump because it was the tool in hand, on a question it was
+structurally incapable of answering. The split to remember:
+
+- **Dump** — function signatures, call sites, control flow, entity targetnames, gametype settings.
+  Anything the engine or script actually consumes.
+- **External** — map display names, release seasons, which modes ship where, playlist composition,
+  player-visible behaviour. Anything a person sees in a menu.
+- **The game itself** — anything conditional on session or playlist state, which is invisible to both.
+
 ## Conventions
 
 - One finding per file, named `<slug>.md`, same slug as the `[[link]]` that points at it.
