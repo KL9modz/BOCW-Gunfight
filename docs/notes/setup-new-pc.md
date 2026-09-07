@@ -97,3 +97,36 @@ a bad API name. See [testing.md](testing.md).
 | Game **running** | `injectcw` | `injectcw` aborts instantly without the live process |
 | `powrprof.dll` proxy | `cwdllgt` only | must be installed per-machine |
 | Process Hacker | **nothing here** | see [dll-proxy.md](dll-proxy.md) |
+
+---
+
+## ⚠ The two machines' dumps are NOT the same — verified 2026-09-07
+
+`bocw-source-main` differs materially between the dev laptop and the test box. This produced a real
+wrong claim in session (see below), so check which machine a dump-based assertion came from.
+
+| | dev laptop (OneDrive tree) | test box (`C:\bocw\`) |
+|---|---|---|
+| `.gsc` under `scripts/` | **1,175** | **1,175** — identical |
+| total size | 229 MB | 664 MB |
+| `tables/` | **absent** | 291 MB |
+| `scriptbundle/` | 12 MB | 62 MB |
+| `ddl/` | 143 MB | 146 MB |
+| git | **not a git repo — no revision** | clone at `edd94bdf` |
+
+**What still holds.** The GSC corpus is identical at 1,175 files, so every claim traced through
+`scripts/` is sound on either machine, and `tools/check-gsc.ps1` genuinely reproduces — stage 3 and
+stage 4 read only `scripts/`. The harness parity result stands.
+
+**What does not.** Anything about non-script assets — tables, scriptbundles, item lists, asset names.
+The laptop cannot see `tables/` at all.
+
+**The error this caused.** A search for `icbm` was run against `scripts/` and reported as "zero
+occurrences anywhere in the dump". The test box found 58 files across `tables/`, `scriptbundle/` and
+`hashed/`. The laptop could not have found them: it has no `tables/`. **Scope every dump claim to the
+directory actually searched, and say which machine ran it.**
+
+**Why the laptop's copy is not a git clone.** It sits inside the OneDrive tree, and Step 5 forbids
+letting OneDrive and git sync the same `.git`. Re-cloning it in place would create exactly the
+corruption hazard that rule exists to prevent. Fixing the split means relocating the dump outside
+OneDrive first — not `git clone` where it currently sits.
