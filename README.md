@@ -17,10 +17,14 @@ Stock Gunfight imposes three restrictions that make it unusable for the intended
 
 - **Team size** — `com_maxclients` measured **8**, which is **not a ceiling**: 3v3 Gunfight = 6
   players + 2 spectators. The probe read a *lobby config*. ⚠ An earlier note here claimed "4v4 is
-  already reachable" — that treated a playlist value as an engine limit. **Disregard it.** The real
-  finding is better: these same maps already run **Faceoff 6v6 stock**, so twelve clients is a
-  configuration the game already ships. The task is running Gunfight *inside* such a lobby, not
-  raising a ceiling: [`docs/notes/team-sizes.md`](docs/notes/team-sizes.md).
+  already reachable" — that treated a playlist value as an engine limit. **Disregard it.**
+
+  These same maps do run **Faceoff 6v6** with twelve clients stock — but **in matchmaking, not
+  private matches**, and this project is private-only. So 6v6 is not already available within scope.
+  What it proves is narrower and still useful: the engine and those map files support twelve clients,
+  so the ceiling is neither an engine limit nor a map property — it is the private-match UI declining
+  to offer a twelve-client mode on them. The task is getting a *private* lobby configured for twelve
+  to run Gunfight: [`docs/notes/team-sizes.md`](docs/notes/team-sizes.md).
 - **Round timer** — ✅ **the setting is live, readable, and menu-settable.** Measured **0** in one
   lobby and **30** in another. `gettimelimit()` divides it by 60 (`gunfight.gsc:1139`) and the clamp
   bounds are minutes, so the value is stored in **seconds**: `0` = no limit, `30` = 30-second rounds.
