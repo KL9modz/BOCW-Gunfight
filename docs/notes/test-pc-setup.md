@@ -238,3 +238,33 @@ copying `ACTS\` to the second machine.
 `bocw-source-main\scripts` it printed a yellow warning and `exit 0` — reporting success while
 skipping stage 3, the only stage that catches a typo'd API name. It now exits 1 with a fix hint. This
 was a second-machine bug that could only ever bite on a second machine.
+
+---
+
+## ⚠ `injectcw` sequencing — the game must have entered MP once first
+
+Discovered 2026-09-07. On a freshly launched game that has **never entered multiplayer in that
+process**, injection fails with:
+
+```
+Can't find target script 'scripts\mp_common\bb.gsc'
+```
+
+That is not a tooling fault and not a bad path. `injectcw` patches an entry in the live
+**`scriptparsetree` pool**, and `bb.gsc` is not in that pool until the game has loaded MP scripts at
+least once. **Enter a multiplayer lobby before injecting.**
+
+It reads exactly like a broken invocation, which is why it is recorded here — same class as the ACTS
+auto-update gotcha: a sequencing problem wearing the costume of a tool failure.
+
+## ⚠ Battle.net repairs files placed in the game folder
+
+Also 2026-09-07. The `powrprof.dll` proxy and loader-shim work triggered a **full game re-download**.
+Battle.net's integrity check reverts foreign files in the install directory.
+
+Two consequences worth planning around:
+
+- Any approach that **places a file in the game folder** is fighting the launcher, not just the
+  anti-cheat. Budget for re-downloads.
+- **GSC injection is unaffected** — it writes to a running process and leaves no file behind. That is
+  a durability argument for the injection path independent of everything else.

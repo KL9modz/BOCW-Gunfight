@@ -26,19 +26,34 @@
 > therefore out of reach does not follow. The task is not raising a ceiling; it is **getting a private
 > lobby configured for twelve clients to run the Gunfight gametype**. Not a GSC problem.
 >
-> ### The test that stays inside scope — Diesel
+> ### ✅ ANSWERED — a private TDM lobby is created with TWELVE slots
 >
-> **Nuketown and Diesel support every mode stock, including privately** — unlike the other eight.
-> Diesel is `mp_sm_gas_station`, a Gunfight-family small map. So: **private match, Diesel, a 6v6 mode
-> (TDM), read probe 1.**
+> **Measured in-game 2026-09-07: `com_maxclients` = 12 in a private TDM lobby on a normal map.**
 >
-> - `100012` → a **private** lobby can configure twelve clients on a Gunfight-family small map. That
->   is exactly the capability the 6v6 goal needs, demonstrated inside the project's scope, and the
->   remaining problem reduces to running the Gunfight gametype in such a lobby.
-> - anything else → still a direct measurement of the private-match ceiling on a small map.
+> That settles it. `com_maxclients` is never written by script anywhere in the dump (**0**
+> `setdvar` occurrences) and is fixed **at lobby creation by the playlist**, not by the gametype.
 >
-> This is strictly better than measuring Faceoff, which would characterise a matchmaking-only
-> capability the project cannot use.
+> **So 6v6 was never an override problem. It is an inheritance one.** Start in a lobby the menu has
+> already built with twelve slots, and never be in a Gunfight lobby at all. The slots are sitting
+> there unused.
+>
+> ⚠ This inverts how the project has always framed things. The goal table treats 6v6 as the hard one
+> and map-unlock as merely awkward. **6v6 is the easy one** — the menu hands it to you for free the
+> moment you stop starting from a Gunfight lobby. What is hard is getting *Gunfight's rules* to run
+> in that lobby, which is the layering approach.
+>
+> **Both headline goals collapse into that one move.** A private TDM lobby on an arbitrary map gives
+> you the map *and* the twelve slots; an injected script supplies the rules. Neither goal needs the
+> DLL, and neither needs `com_maxclients` touched.
+>
+> ### What will not help
+>
+> `#"maxteamplayers"` is a real gametype setting — read 14 times, never set by stock, and
+> `setgametypesetting` is callable (78 stock call sites). But it drives **team-balance and spawn
+> loops** (`for (idx = 0; idx < level.maxteamplayers; idx++)`), while `com_maxclients` is the
+> **client-slot ceiling**. Raising it inside an 8-slot lobby cannot manufacture slots. It is
+> plausibly one necessary half of a wider team, never the sufficient one — another reason to start
+> from a lobby that is already twelve.
 >
 > It also converges with the any-map goal on a single mechanism — decoupling gametype from the menu's
 > playlist configuration. See [[dll-proxy]], which on this evidence is load-bearing for two of the

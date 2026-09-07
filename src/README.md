@@ -112,20 +112,29 @@ already do. Swap the paths for `gunfight_mod` once the hello-world has confirmed
 **VERIFIED in-game 2026-09-07.** Design every on-screen instrument around this or it will tell you
 nothing.
 
+⚠ **This is a DISPLAY limitation, not a string limitation.** An earlier version of this section said
+"literal script strings are compiled out of ship builds", full stop. **That was too broad and is
+wrong.** Authored literals work fine for every *functional* purpose — a probe wrote
+`setdvar( #"g_gametype", "gunfight" )`, read it back with `getdvarstring`, and the `== "gunfight"`
+comparison evaluated **true**. Literals are real and usable in comparisons, dvar values, entity
+targetnames and everything else. Only **on-screen rendering** of an authored literal fails.
+
 | Channel | Works on retail? | Evidence |
 |---|---|---|
 | `println` / `logprint` | **No** | Retail writes no log file at all — install dir and both profile trees checked twice. `logprint` additionally does not exist in T9 (0 occurrences in the dump). |
-| `iprintlnbold("literal text")` | **No** | Literal script strings are compiled out of ship builds. All **401** stock literal call sites decompile to `"<dev string:xNN>"` — the content is not in the retail binary. |
+| `iprintlnbold("literal text")` | **No — display only** | All **401** stock literal call sites decompile to `"<dev string:xNN>"`, so an authored literal renders as nothing. The string itself is fine; the HUD will not show it. |
 | `iprintlnbold( runtimeValue )` | **Yes** | **66** stock variable call sites, e.g. `iprintlnbold( numshots )`. |
 | `iprintlnbold( #"mp/..." )` | Only if it already exists | **24** stock hashed refs. You cannot add entries to the localization table. |
+| literals for comparison / dvars / targetnames | **Yes** | Verified in-game — see the `g_gametype` probe above. |
 
 The hello-world banner read `"^2[GFHELLO] hook live - on_start fired 1x"` and rendered on screen as
-the single character **`1`**. That was the success case — the literal text vanished and the runtime
-integer survived.
+the single character **`1`**. That was the success case — the literal text did not render and the
+runtime integer did.
 
-**Consequence:** encode findings as *numbers*. A label you write will not appear, and its absence
-makes the number that does appear look like a malfunction. Concatenating a literal with a value
-(`"count: " + n`) renders as just the value.
+**Consequence for instruments only:** encode on-screen findings as *numbers*. A label you write will
+not appear, and its absence makes the number that does appear look like a malfunction. Concatenating a
+literal with a value (`"count: " + n`) displays as just the value. **None of this restricts what your
+logic may do with strings.**
 
 ## ⚠ What a harness PASS does and does not mean
 

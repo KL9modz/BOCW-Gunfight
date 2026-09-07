@@ -27,12 +27,15 @@
 //    logprint build. Controlled comparison: same box, same injector, same hook point, same
 //    map; only the logprint calls differ. The MP injection path works end to end on retail.
 //
-// ⚠⚠ RETAIL RENDERS NUMBERS ONLY. This is a PLATFORM CONSTRAINT, not a bug in this file,
-//    and it governs every on-screen instrument this project will ever write.
-//      - Literal script strings are compiled out of ship builds. All 401 stock literal
-//        iprintlnbold call sites decompile to "<dev string:xNN>" — the content is not in
-//        the retail binary. Our banner read "^2[GFHELLO] hook live - on_start fired 1x"
-//        and rendered on screen as the single character "1".
+// ⚠⚠ RETAIL DISPLAYS NUMBERS ONLY. A DISPLAY constraint on on-screen instruments —
+//    NOT a restriction on strings generally. An earlier version of this comment said
+//    "literal script strings are compiled out of ship builds", which was too broad and
+//    wrong: a probe later wrote setdvar( #"g_gametype", "gunfight" ), read it back and
+//    compared it equal. Literals work fine for comparisons, dvars and targetnames.
+//      - What fails is RENDERING an authored literal. All 401 stock literal iprintlnbold
+//        call sites decompile to "<dev string:xNN>", so the HUD shows nothing for ours.
+//        Our banner read "^2[GFHELLO] hook live - on_start fired 1x" and rendered on
+//        screen as the single character "1".
 //      - Runtime VALUES do render — stock has 66 variable call sites, e.g.
 //        iprintlnbold( numshots ).
 //      - Hashed refs (#"mp/...") render only if already in the localization table. You
