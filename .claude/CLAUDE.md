@@ -61,6 +61,9 @@ almost nothing structurally vs T5 — **BO1 Gunfight experience transfers direct
 | Any map | `gunfight_zone_center` map entities | **yes** (bypass) |
 | 6v6 | `com_maxclients`, set at lobby creation | **NO** |
 
+Per-restriction depth: the map dependency and the round-timer link in [[gunfight-findings]], the
+enforcement chain and what is actually overridable in [[team-sizes]].
+
 **Timer** — `gunfight.gsc:1137` `gettimelimit()` reads `getgametypesetting(#"timelimit") / 60` and
 clamps to `[level.timelimitmin, level.timelimitmax]`. Those come from
 `globallogic.gsc:365` → `util::registertimelimit( 0, 1440 )` → `util.gsc:790` sets min 0 / max **1440
@@ -219,7 +222,17 @@ Every iteration reverts by simply not injecting.
 | [`ate47/bocw-source`](https://github.com/ate47/bocw-source) | **Primary reference.** Name-resolved T9 dump, unknowns under `hashed/`. ~103 MB tar, ~618 MB extracted |
 | [`ate47/atian-cod-tools`](https://github.com/ate47/atian-cod-tools) | Decompiler, fastfile/XAsset dumper, CDB/WNI hash storage. Produced the dump above |
 | VS Code + `vscode-txgsc-1.0.8.vsix` | Editor, extension ships inside the compiler repo |
-| [`AuroraDoesCode/t7-compiler-custom`](https://github.com/AuroraDoesCode/t7-compiler-custom) | **Compiler + injector.** Branch **`dev_csc_inj`**, install `t7c_installer.exe` from Releases |
+
+⚠ **The compiler and injector are ACTS, not `t7-compiler-custom`.** That fork was the original plan
+and this section named it through 2026-09-06; the toolchain actually in use — and the one
+`tools/check-gsc.ps1` invokes — is `acts gscc` / `acts gscd` / `acts injectcw`, pinned at v3.3.0.
+Commands, the script skeleton and the per-mode hook scripts: [[toolchain]]. Bootstrapping it on a
+fresh machine: [[setup-new-pc]].
+
+```powershell
+acts gscc script.gsc -g cw -p pc -o script    # compile (VM38)
+acts injectcw script.gscc scripts\mp_common\bb.gsc scripts\core_common\clientids_shared.gsc
+```
 
 **Test PC** (secondary): BOCW via Battle.net, throwaway account, the compiler's injector component.
 
@@ -238,9 +251,31 @@ The MP path is the undocumented one. **Validate it with a hello-world before wri
 
 ---
 
+## DLL-level tooling — a separate track from the GSC work
+
+None of this is needed for the mod. It is here because it shares the process and the anti-cheat
+surface, and because one piece of it is directly useful.
+
+- **Forcing gametype/map without the menu glitch** — `acts cwdllgt gunfight mp_moscow`, which needs
+  ACTS's `acts-bocw.dll` deployed as `powrprof.dll`. Why LoadLibrary injection cannot work for it:
+  [[dll-proxy]].
+- **Starting the match once forced** — the cwpatch `discord_game_sdk.dll` binds **F4** to
+  `lobbylaunchgame`, plus F6/F7 for `fast_restart` / `full_restart`. That is the missing half of the
+  above, and it re-runs a match without leaving the lobby. Different DLL slot, so the two coexist.
+- **Unlocks** — cwpatch sets the dvar `loot_fakeall`; `CW_Soft_Unlock.dll` separately forges the
+  inventory table. `tools/cw-loader-shim/` merges both into the single usable DLL slot so neither
+  needs Process Hacker. Full teardown: [[unlock-dlls]].
+
+⚠ **`BlackOpsColdWar.exe` is encrypted at rest.** Signature scans only match against the decrypted
+image in memory, so you cannot check statically whether any of these tools still fits your build —
+only an in-game test settles it.
+
+---
+
 ## Test plan
 
-Ordered so the cheapest tests kill the most expensive work.
+Ordered so the cheapest tests kill the most expensive work. The four test layers, including the
+offline harness that needs no game running: [[testing]].
 
 Test-box build (headless closet PC, RDP from the dev PC), account setup, and the toolchain mirror:
 [[test-pc-setup]]. ⚠ It carries its own gate — **confirm BOCW launches and is watchable over RDP

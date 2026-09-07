@@ -34,11 +34,15 @@ See `.claude/CLAUDE.md` for the full picture, including a confirmed dead-ends li
 ## Layout
 
 ```
-.claude/CLAUDE.md   agent operating manual: findings, fix design, test plan
-docs/notes/         per-finding deep dives
-src/                GSC source. gunfight_tweaks.gsc is the smoke test; the mod lands here in Phase 3
-tools/              check-gsc.ps1 — offline validation harness
+.claude/CLAUDE.md       agent operating manual: findings, fix design, test plan
+docs/notes/             per-finding deep dives — start at docs/notes/README.md
+src/                    GSC source. gunfight_tweaks.gsc is the smoke test; the mod lands here in Phase 3
+tools/check-gsc.ps1     offline validation harness
+tools/cw-loader-shim/   C shim merging the two unlock DLLs into one game DLL slot (build.cmd, zig cc)
 ```
+
+This repo is the **single** home for the project's notes. Everything that used to live in a
+`.claude/` folder beside it was moved here on 2026-09-06.
 
 Two large dependencies live **beside** this repo, never inside it — `tools/check-gsc.ps1` resolves
 both via `$PSScriptRoot\..\..`:

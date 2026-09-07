@@ -7,8 +7,31 @@ These are **not** auto-loaded. Open the one you need.
 
 ## Index
 
+**Getting running**
+
+- [setup-new-pc](setup-new-pc.md) — bootstrapping the dev toolchain on a new machine. What travels
+  with the repo, what must be re-verified locally, and the prerequisites list.
 - [test-pc-setup](test-pc-setup.md) — headless closet test box over RDP: reachability, RDP tuning,
   the Activision-account trap, the toolchain mirror, and the ACTS auto-update gotchas.
+- [toolchain](toolchain.md) — compiling and injecting with ACTS. `gscc` / `injectcw` invocations,
+  the script skeleton, hook scripts per mode, and two gotchas that cost real time.
+- [testing](testing.md) — the four test layers, from the offline harness that needs no game up to
+  Gunfight on a normal map.
+
+**The Gunfight findings**
+
+- [gunfight-findings](gunfight-findings.md) — the one hard map dependency (`gunfight_zone_center`),
+  why it is almost certainly the round-timer bug, and why a *partial* zone setup is worse than none.
+- [team-sizes](team-sizes.md) — where team size actually lives, what is overridable from GSC and
+  what is a hard engine ceiling.
+
+**DLL-level tooling** (not GSC — separate track)
+
+- [dll-proxy](dll-proxy.md) — forcing gametype/map with the `powrprof.dll` proxy, and why
+  LoadLibrary injection does not work for it.
+- [unlock-dlls](unlock-dlls.md) — the two unlock DLLs pulled apart: the dvar `loot_fakeall`, F4
+  `lobbylaunchgame`, why `BlackOpsColdWar.exe` cannot be signature-scanned at rest, and the loader
+  shim in `tools/cw-loader-shim/` that merges both into the one usable DLL slot.
 
 ## Conventions
 
