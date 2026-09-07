@@ -14,6 +14,18 @@ Full mechanism and evidence: [`../docs/notes/mp-load-path.md`](../docs/notes/mp-
 > [`../docs/notes/tac-risk-model.md`](../docs/notes/tac-risk-model.md) first, and inject only on an
 > account you are prepared to lose. Nothing here hides itself from the anti-cheat — that is out of scope.
 
+**Why nothing here uses `replacefunc` or a detour.** Both projects register through
+`system::register` → `callback::*` and reassign `level.*` function pointers. Zero `.gsc` file in `src/`
+calls `replacefunc` or installs a detour — verified by grep. That is deliberate, and it is the
+difference between the two worst rows of the risk register: `tac-risk-model.md` scores API hooks and
+detours as **R2, detect confidence HIGH**, and names a `replacefunc`-based MP bootstrap as sitting
+directly in it. The callback-and-pointer approach incurs **R3, script-VM modification, MED** instead.
+
+⚠ **That lowers the profile; it does not make the host unexposed.** **R1** — the injector opening a
+process handle and writing executable memory — is **unchanged**, because `injectcw` does exactly that
+regardless of what the GSC contains. The project accepts the *detection* risk and limits *blast radius*
+only. Do not read the paragraph above as "low risk".
+
 ## Toolchain
 
 ⚠ **ACTS is the compiler and injector**, pinned at v3.3.0 — not `t7-compiler-custom`. That fork was

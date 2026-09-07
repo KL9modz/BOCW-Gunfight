@@ -50,8 +50,9 @@ both via `$PSScriptRoot\..\..`:
 
 ```
 <parent>/
-├── ACTS/                 75 MB   compiler + injector (pin the version)
-├── bocw-source-main/    229 MB   decompiled T9 dump
+├── ACTS/                 60 MB   compiler + injector (pin the version — currently v3.3.0)
+├── bocw-source-main/    664 MB   decompiled T9 dump (721 MB on disk; stage 3 reads only
+│                                 scripts/, 29 MB — the rest is dead weight if disk is tight)
 └── BOCW-Gunfight/                this repo
 ```
 
@@ -64,3 +65,13 @@ Fresh-machine walkthrough: [`docs/notes/test-pc-setup.md`](docs/notes/test-pc-se
 ## Scope
 
 Private matches only. No public lobbies, no matchmaking, and no anti-cheat evasion work.
+
+⚠ **A branch name in this repo's history contradicts that line. The branch name is the part that is
+wrong.** The GSC work was merged from a branch named `claude/anti-cheat-evasion-research-woypoy`, and
+that name now sits permanently in `main`'s history via the merge commit. What the branch actually
+contained is [`docs/notes/tac-risk-model.md`](docs/notes/tac-risk-model.md) — a participant-disclosure
+document that opens by refusing evasion outright (*"It does not describe how to hide the injector,
+defeat a detection, spoof hardware, or reduce detection probability"*) and holds that line throughout,
+drawing it explicitly: *"Identifying where a tripwire is so people can decide whether to step is
+disclosure; disarming it is not."* The scope statement above is accurate. Recorded here so anyone
+auditing the history does not have to reconstruct it.
