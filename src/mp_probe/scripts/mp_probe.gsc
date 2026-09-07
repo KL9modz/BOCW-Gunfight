@@ -45,7 +45,11 @@
 //   7xxxxx  players currently in match
 //   5xxxxx  gunfight_zone_center count   0 on both stock Gunfight maps tested. Kept to classify
 //                                        any new map or lobby type.
-//   6xxxxx  on_start firing count        AMBIGUOUS ON PURPOSE — see the note at the emit site.
+//   6xxxxx  on_start firing count        ANSWERED: reads 1 every round -> `level` is rebuilt
+//                                        per round. Kept as the control for probe 8.
+//   8xxxxx  __init__ state still set?    THE LIVE QUESTION. 1 = script re-links each round;
+//                                        0 = it links once and __init__ state is gone from
+//                                        round 2. See the note at its emit site.
 //
 // Probes 3 and 4 (timelimitmin=0 / timelimitmax=1440) were removed once confirmed stable.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -63,6 +67,11 @@ function private autoexec __init__system__()
 
 function private __init__()
 {
+    // Probe 8's marker. Set HERE — in __init__, which runs once at script link — and NOT in
+    // on_start, which runs every round. That difference is the whole point: reading it back
+    // during a later round says whether __init__ state is still reachable.
+    level.probe_initmark = 1;
+
     callback::on_start_gametype( &on_start );
 }
 
@@ -112,12 +121,29 @@ function private report()
     zones = getentarray( "gunfight_zone_center", "targetname" );
     emit( 5, zones.size );
 
-    // ⚠ READ THIS ONE CAREFULLY, it is ambiguous by design and the ambiguity is the point.
-    //   climbs 600001 -> 600002 -> 600003   level persists; only on_start re-fires per round
-    //   stays 600001 on EVERY round         level itself is torn down and rebuilt each round
-    // The second case breaks gunfight_mod: its latch flags and level.zones would not
-    // survive a round boundary and would need re-applying on every on_start.
+    // ✅ ANSWERED 2026-09-07: reads 600001 on EVERY round, so `level` is torn down and
+    // rebuilt per round and no level.* state survives a round boundary. Kept because it is
+    // the control for probe 8 below — the two are only meaningful read together.
     emit( 6, level.probe_runs );
+
+    // ⚠ THE LIVE QUESTION. level.probe_initmark is set in __init__ (once, at script link),
+    // never in on_start. Since probe 6 proves `level` is wiped each round, reading this back
+    // on round 2+ distinguishes two cases our data cannot otherwise separate:
+    //
+    //   800001 on round 2+   the injected script RE-LINKS each round, so __init__ re-runs
+    //                        and re-establishes its state. gunfight_mod's config is safe.
+    //   800000 on round 2+   the script links ONCE and only `level` resets. __init__ state
+    //                        is gone from round 2 onward. Any config assigned in __init__ and
+    //                        read per-round is silently undefined — which is exactly the
+    //                        shape of the defect gunfight_mod now guards against.
+    //
+    // Note callbacks evidently survive either way, since on_start fires every round.
+    mark = 0;
+    if ( isdefined( level.probe_initmark ) )
+    {
+        mark = 1;
+    }
+    emit( 8, mark );
 }
 
 // Tagged so values are distinguishable with no labels — a literal label would render

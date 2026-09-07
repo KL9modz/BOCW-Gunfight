@@ -42,20 +42,28 @@ function private autoexec __init__system__()
     system::register( #"gunfight_mod", &__init__, undefined, undefined, undefined );
 }
 
-function private __init__()
+// ── Staged rollout switches (CLAUDE.md Phase 3: one change at a time) ──
+// Flip 1/0 and recompile+reinject. Recommended order, bots first:
+//   1) zones_guard only   2) + timelimit_fix (LOAD-BEARING)
+//   3) + presentation     4) timer_override only if you want >60s
+//
+// ⚠ This is a FUNCTION, not a one-time assignment in __init__, and that is load-bearing.
+//    See mod_apply().
+function private default_config()
 {
-    // ── Staged rollout switches (CLAUDE.md Phase 3: one change at a time) ──
-    // Flip 1/0 and recompile+reinject. Recommended order, bots first:
-    //   1) zones_guard only   2) + timelimit_fix (LOAD-BEARING)
-    //   3) + presentation     4) timer_override only if you want >60s (Phase 0 T0.2)
-    level.gfmod = {
-        #zones_guard:    1,   // defensive: level.zones = [] so nothing can index it undefined
+    return {
+        #zones_guard:    1,   // level.zones = [] so nothing can index it undefined
         #timelimit_fix:  1,   // LOAD-BEARING: reach function_c4915ac, skip the crashing overtime()
-        #presentation:   1,   // the 5 cosmetic symptoms (latch flags, HUD, music, round_start LUI)
-        #timer_override: 0,   // OFF by default — Phase 0 T0.2 may show the menu already exposes this
+        #presentation:   1,   // the 5 symptoms (latch flags, HUD, music, round_start LUI)
+        #timer_override: 0,   // OFF — the rules menu already exposes 0/20/30/40/50/60s. Only
+                              // needed above 60s. Phase 0 T0.2 confirmed the menu setting is live.
         #timer_minutes:  1    // used only when timer_override == 1  (range [0, 1440])
     };
+}
 
+function private __init__()
+{
+    level.gfmod = default_config();
     callback::on_start_gametype( &mod_apply );
 }
 
@@ -63,6 +71,26 @@ function private __init__()
 // fast-restart — the hello-world's on-screen counter confirms the cadence).
 function private mod_apply()
 {
+    // ⚠⚠ SELF-HEAL, DO NOT REMOVE. `level` is torn down and rebuilt every round — measured
+    //    2026-09-07 with src/mp_probe/: a level.* counter guarded by !isdefined reads 1 on
+    //    EVERY round, so it is undefined at each round start.
+    //
+    //    If the config were assigned only in __init__ (which runs once at script link), it
+    //    would be undefined from round 2 onward, `cfg` would be undefined, and every
+    //    cfg.* check below would silently no-op — including timelimit_fix, whose absence
+    //    is only felt on the exact round where the crashing overtime() path fires.
+    //    A silent round-2 regression in the load-bearing switch is the worst available
+    //    failure mode, so re-establish the config here rather than trusting __init__.
+    //
+    //    Guarded rather than unconditional so a deliberate runtime override survives.
+    //    ⚠ UNRESOLVED: whether the script RE-LINKS each round (in which case __init__ re-runs
+    //    and this guard is redundant) or links once (in which case it is essential). This
+    //    costs nothing either way. src/mp_probe/ probe 8 distinguishes them.
+    if ( !isdefined( level.gfmod ) )
+    {
+        level.gfmod = default_config();
+    }
+
     cfg = level.gfmod;
 
     // ✅ VERIFIED NECESSARY, not merely defensive. `level.zones = zones` is assigned at
