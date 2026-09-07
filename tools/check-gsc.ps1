@@ -4,7 +4,7 @@
 # namespace::function call resolves to a real function in the game source.
 # A typo'd API name compiles fine and only dies at runtime -- this catches it.
 #
-# ACTS (75 MB) and bocw-source-main (229 MB) are deliberately NOT in this repo.
+# ACTS (60 MB) and bocw-source-main (664 MB) are deliberately NOT in this repo.
 # They sit beside it, two levels up from this file. On a fresh machine, see
 # docs/notes/test-pc-setup.md before running this.
 
@@ -31,6 +31,16 @@ if (-not $Acts) {
     Write-Host "Copy ACTS there, or pass -Acts <path>." -ForegroundColor Yellow
     exit 1
 }
+
+# The Set-Location below is required (see the comment above) but must not leak to the
+# caller. Without this restore, validating several projects in sequence with relative
+# paths works for the FIRST one and then fails with "The term '.\tools\check-gsc.ps1'
+# is not recognized" -- a harness artifact that reads as a broken script. finally runs
+# on `exit` in PowerShell, so every exit path below is covered.
+$origLocation = Get-Location
+$origCwd      = [Environment]::CurrentDirectory
+try {
+
 Set-Location (Split-Path $Acts -Parent)
 [Environment]::CurrentDirectory = Split-Path $Acts -Parent
 $work = Join-Path $env:TEMP ("gsccheck_" + [IO.Path]::GetFileNameWithoutExtension($src))
@@ -56,7 +66,7 @@ Write-Host "[3/3] resolving API calls against game source..." -ForegroundColor C
 $text  = Get-Content $src -Raw
 # strip comments so commented-out calls don't get checked
 $text  = [regex]::Replace($text, '/\*[\s\S]*?\*/|//[^\r\n]*', '')
-$calls = [regex]::Matches($text, '(?<![\w\\])([a-z_][a-z0-9_]*)::([a-z_][a-z0-9_]*)\s*\(') |
+$calls = [regex]::Matches($text, '(?<![\w\])([a-z_][a-z0-9_]*)::([a-z_][a-z0-9_]*)\s*\(') |
          ForEach-Object { [pscustomobject]@{ ns = $_.Groups[1].Value; fn = $_.Groups[2].Value } } |
          Sort-Object ns, fn -Unique
 
@@ -95,3 +105,9 @@ if ($bad) {
     exit 1
 }
 Write-Host "PASS - compiled to $out.gscc" -ForegroundColor Green
+
+}
+finally {
+    Set-Location $origLocation
+    [Environment]::CurrentDirectory = $origCwd
+}
