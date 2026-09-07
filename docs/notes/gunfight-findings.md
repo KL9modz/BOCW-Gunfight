@@ -28,11 +28,33 @@ Gunfight needs the overtime capture zone. Nothing else about it is map-specific.
 >    likely the menu/playlist layer — see [[dll-proxy]]. It also means the five presentation symptoms
 >    are **not** an unlocked-map artifact; they affect stock private matches too.
 >
-> ⚠ **UNVERIFIED how general this is — n=1.** "All Gunfight maps lack zones in private matches" and
-> "ICBM specifically has a data gap" are both live. **The open action: run `src/mp_probe/` on
-> Amsterdam or Game Show**, whose codename↔UI mapping is certain and needs no inference.
-> `0` there too means the workstream is misaimed; `>0` means ICBM is a per-map oddity and this
-> headline survives.
+> 🪦 **RESOLVED 2026-09-07 — n=2, and the headline above is DEAD.** Amsterdam also reads **0**.
+>
+> | Stock Gunfight map | how identified | zone entities |
+> |---|---|---|
+> | ICBM (`mp_sm_central`) | inferred from `tables/` asset themes | **0** |
+> | Amsterdam (`mp_sm_amsterdam`) | codename **==** UI name, zero inference | **0** |
+>
+> Amsterdam was chosen precisely so the result would not depend on the `tables/` inference being
+> right. It isn't load-bearing: the second map confirms independently.
+>
+> **The forced conclusion.** Stock Gunfight maps carry no `gunfight_zone_center` entities in
+> private/custom matches, so `setupzones()` returns false and `onstartgametype()` early-returns on
+> **every** map. Custom Gunfight is *always* running in the degraded state. And a condition true on
+> every map distinguishes nothing — **this cannot be what limits the mode to ten maps.**
+>
+> **Do not re-open this for the map-unlock goal.** Three escape hatches were checked and all are
+> closed: no spawner anywhere in the dump, no deleter in `gunfight.gsc`, no consumption in
+> `setupzones()`.
+>
+> ⚠ **Scope, and it matters.** Measured in **private/custom matches only**. The entities plausibly
+> *do* exist in matchmade Gunfight — that is how the shipped overtime feature works, and Onslaught
+> reads them on these same maps. The likeliest remaining explanation is session- or playlist-level
+> entity filtering at map load, which is engine-side and invisible to both machines from script.
+>
+> **What survives, and is now more important:** `zones_guard` and `presentation` are not modded-map
+> polish. They repair every private Gunfight match on every map. See [[dll-proxy]] for where the real
+> barrier lives.
 
 ### The zero is not a measurement artifact — both escape hatches closed
 

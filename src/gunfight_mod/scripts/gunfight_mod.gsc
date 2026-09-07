@@ -84,8 +84,15 @@ function private mod_apply()
     if ( cfg.timer_override )
         level.gettimelimit = &mod_gettimelimit;
 
-    // Restore the presentation work that gunfight onstartgametype skips when it early-
-    // returns on an unlocked map (gunfight.gsc:119 `if (!setupzones()) return;`).
+    // Restore the presentation work that gunfight onstartgametype skips at
+    // gunfight.gsc:119 (`if (!setupzones()) return;`).
+    //
+    // ⚠ This was described as the "unlocked map" case. That was WRONG — it early-returns
+    // ALWAYS in custom matches. Measured 2026-09-07: two stock Gunfight maps, ICBM and
+    // Amsterdam, both report ZERO gunfight_zone_center entities in a private lobby, so
+    // setupzones() returns false on stock maps too. This switch is therefore not polish for
+    // modded maps — it is what makes custom Gunfight presentationally correct at all, on
+    // every map.
     if ( cfg.presentation )
         mod_presentation_fixups();
 }

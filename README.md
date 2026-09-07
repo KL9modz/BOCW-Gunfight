@@ -33,21 +33,33 @@ Research phase. Nothing built yet. The findings are documented against the decom
 
 Headline results so far:
 
-- ⚠ **The zone check is almost certainly NOT what restricts map selection.** This file previously
-  said "Gunfight aborts init when a map lacks `gunfight_zone_center` entities." Both halves are now
-  contradicted in-game (2026-09-07):
-  - **It does not abort.** `setupzones()` returns false and `onstartgametype()` takes a plain early
-    return (`gunfight.gsc:119-121`), skipping only its presentation tail. `abort_level` is never
-    called from `gunfight.gsc`. **The match runs.**
-  - **A stock Gunfight map returned zero zone entities.** `src/mp_probe/` measured
-    `getentarray("gunfight_zone_center","targetname").size` = **0** on a curated, shipping Gunfight
-    map reached through the normal rotation. A check that early-returns on stock maps cannot be what
-    limits the mode to ten of them.
+- 🪦 **DEAD END — `gunfight_zone_center` is not the map gate.** This file used to lead with "Gunfight
+  aborts init when a map lacks `gunfight_zone_center` entities." Every part of that is now
+  contradicted, measured in-game 2026-09-07 with [`src/mp_probe/`](src/mp_probe/):
 
-  So the ten-map limit lives somewhere else — most likely the menu/playlist layer, which points at
-  [`docs/notes/dll-proxy.md`](docs/notes/dll-proxy.md) rather than at the zone system.
-  ⚠ **UNVERIFIED how general this is.** One map has been measured. Testing a second, independently
-  identified Gunfight map is the open action — see [`docs/notes/gunfight-findings.md`](docs/notes/gunfight-findings.md).
+  | Stock Gunfight map | zone entities |
+  |---|---|
+  | ICBM (`mp_sm_central`) | **0** |
+  | Amsterdam (`mp_sm_amsterdam`) | **0** |
+
+  It does not abort — `setupzones()` returns false and `onstartgametype()` takes a plain early return
+  (`gunfight.gsc:119-121`), skipping only its presentation tail; `abort_level` is never called from
+  `gunfight.gsc`, and **the match runs**. And a condition that is true on *every* stock map cannot be
+  what distinguishes ten maps from the rest. **Do not re-open this line of investigation.**
+
+  ⚠ Scope: measured in **private/custom** matches only. The entities plausibly do exist in matchmade
+  Gunfight — that is how the shipped overtime feature works — which points at session/playlist-level
+  entity filtering. Neither machine can see that from script.
+
+- ⚠ **Consequently, custom Gunfight is ALWAYS running degraded**, on every map, stock or not. That
+  makes `gunfight_mod`'s `zones_guard` and `presentation` switches the things that make custom
+  Gunfight *correct at all*, not polish for modded maps.
+
+- **So both headline goals rest on one mechanism.** Nothing in `gunfight.gsc` blocks Gunfight on an
+  arbitrary map — it demonstrably runs to completion with zero zones, twice. The barrier is the
+  menu/playlist layer choosing which maps are offered, which is the same layer that configures a
+  lobby for twelve clients. See [`docs/notes/dll-proxy.md`](docs/notes/dll-proxy.md).
+
 - **Spawns are not a problem** — the mode uses TDM spawn points.
 - **The zone absence only bites when the round timer expires.** `ontimelimit()` threads `overtime()`,
   which dereferences `level.zones[0]` (`:944`). No timer expiry, no crash. That is why the zoneless
