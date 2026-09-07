@@ -14,6 +14,23 @@
 // not touch level.ontimelimit, level.zones, or any stock state. Nothing here changes
 // gameplay.
 //
+// ⚠⚠ A NUMBER IS NOT AUTOMATICALLY EVIDENCE. On a platform where numbers are the only
+//    channel, it is easy to mistake a readout for a result. Distinguish two kinds:
+//
+//      ENGINE-OWNED state  — com_maxclients, getgametypesetting, entity counts, player
+//                            counts. We did not author these. Reading them is evidence.
+//      SELF-WRITTEN state  — anything this script set. Reading it back is a CLOSED LOOP:
+//                            it proves the write landed, and nothing else.
+//
+//    Probes 1-5 and 7 are engine-owned. **Probe 6 (level.probe_runs) is self-written** —
+//    it is a valid cadence measure only because the VALUE OF INTEREST is how many times
+//    the engine called us, not the number itself.
+//
+//    This is not hypothetical. A jump-height experiment on 2026-09-07 set #"jump_height"
+//    to 780, read it back as 780, and changed nothing in game — that dvar is consulted
+//    only by cp_common and zm_common, never by MP movement. The readout was true and
+//    meaningless. Only a human watching the actual jump caught it. See [[mp-dvars]].
+//
 // ── HOW TO READ THE OUTPUT ────────────────────────────────────────────────────
 // Values print one every 2s as a tagged number:  PROBE_ID * 100000 + VALUE
 // So 100012 is probe 1, value 12. Strip the leading digit; the rest is the answer.

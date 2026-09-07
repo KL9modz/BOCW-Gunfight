@@ -27,6 +27,11 @@ These are **not** auto-loaded. Open the one you need.
   checked in-session. Which help the compile→inject pipeline (two do), which are dead or closed, and
   where the MP hook point (`mp_common/bb.gsc`) and the injector load model came from.
 
+- [mp-dvars](mp-dvars.md) — which dvars actually take effect in MP and which set cleanly and do
+  nothing. `jump_height` is inert in MP; `bg_gravity` works, and why. Carries the do-not-use list of
+  functions absent from T9, and the closed-loop trap: reading back a value you wrote proves only that
+  the write landed. **First confirmed gameplay modification, VERIFIED in-game 2026-09-07.**
+
 **The Gunfight findings**
 
 - [gunfight-findings](gunfight-findings.md) — the one hard map dependency (`gunfight_zone_center`),
