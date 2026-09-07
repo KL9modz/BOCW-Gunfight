@@ -33,12 +33,22 @@ Research phase. Nothing built yet. The findings are documented against the decom
 
 Headline results so far:
 
-- **Map restriction is a data dependency, not a whitelist** — and it is *softer* than this file
-  previously claimed. ⚠ It does **not** abort. When a map lacks `gunfight_zone_center` entities,
-  `setupzones()` returns false and `onstartgametype()` takes a plain early return
-  (`gunfight.gsc:119-121`), skipping only its presentation tail. `abort_level` is never called from
-  `gunfight.gsc`. **The match runs.** VERIFIED in-game 2026-09-07: a zoneless map played a full
-  Gunfight match. Spawns are not a problem either — the mode uses TDM spawn points.
+- ⚠ **The zone check is almost certainly NOT what restricts map selection.** This file previously
+  said "Gunfight aborts init when a map lacks `gunfight_zone_center` entities." Both halves are now
+  contradicted in-game (2026-09-07):
+  - **It does not abort.** `setupzones()` returns false and `onstartgametype()` takes a plain early
+    return (`gunfight.gsc:119-121`), skipping only its presentation tail. `abort_level` is never
+    called from `gunfight.gsc`. **The match runs.**
+  - **A stock Gunfight map returned zero zone entities.** `src/mp_probe/` measured
+    `getentarray("gunfight_zone_center","targetname").size` = **0** on a curated, shipping Gunfight
+    map reached through the normal rotation. A check that early-returns on stock maps cannot be what
+    limits the mode to ten of them.
+
+  So the ten-map limit lives somewhere else — most likely the menu/playlist layer, which points at
+  [`docs/notes/dll-proxy.md`](docs/notes/dll-proxy.md) rather than at the zone system.
+  ⚠ **UNVERIFIED how general this is.** One map has been measured. Testing a second, independently
+  identified Gunfight map is the open action — see [`docs/notes/gunfight-findings.md`](docs/notes/gunfight-findings.md).
+- **Spawns are not a problem** — the mode uses TDM spawn points.
 - **The zone absence only bites when the round timer expires.** `ontimelimit()` threads `overtime()`,
   which dereferences `level.zones[0]` (`:944`). No timer expiry, no crash. That is why the zoneless
   match above survived: its `timelimit` setting read **0**, meaning no limit, so `overtime()` never ran.

@@ -1,23 +1,28 @@
 # Team sizes
 
-> ✅ **MEASURED in-game 2026-09-07: `com_maxclients` = 8.**
-> `src/mp_probe/` read `getdvarint( #"com_maxclients", 0 )` in a live private Gunfight lobby. The
-> ceiling is **8**, not 6 and not 12.
+> ✅ **MEASURED in-game 2026-09-07: `com_maxclients` = 8 — and it is NOT a ceiling.**
 >
-> This re-scopes the workstream, and nothing in these notes anticipated it — the goal table jumps
-> straight from stock 3v3 to 6v6 and never considers that the ceiling might already sit *above* stock.
+> `src/mp_probe/` read `getdvarint( #"com_maxclients", 0 )` = **8** in a live private Gunfight lobby.
+> The obvious reading — "the ceiling is 8, so 4v4 is reachable" — is **wrong**, and was briefly
+> recorded here before being corrected. 8 is the *configured client count of that lobby type*:
+> **3v3 Gunfight = 6 players + up to 2 spectators = 8.** The probe measured a playlist config, not an
+> engine limit.
 >
-> - **4v4 is reachable right now**, with no code, no DLL, and no ceiling change.
-> - **6v6 still needs 12** and remains out of script's reach — script only ever reads this dvar.
+> ⚠⚠ **6v6 ALREADY SHIPS ON THESE MAPS.** The eight Faceoff/Gunfight maps (Amsterdam, U-Bahn, Game
+> Show, ICBM, Showroom, KGB, Mansion, Glubuko) all run **Faceoff 6v6** stock — Faceoff TDM,
+> Domination and Kill Confirmed. That is twelve clients, on those exact maps, with no mod and no
+> injection. So `com_maxclients` there is 12 in a Faceoff lobby and 8 in a 3v3 Gunfight lobby. It is
+> **per-playlist configuration**, not a hard limit and not a property of the map.
 >
-> ⚠ So the open question is no longer only "can we raise the ceiling" but "**is 4v4 enough?**" If it
-> is, the entire `com_maxclients` workstream — including any DLL-level attempt to reach 12 — is
-> unnecessary. That is a product decision, not a technical one, and it should be settled before
-> anyone builds against it.
+> **This changes what the problem is.** "6v6 is not script-reachable; script only ever reads
+> `com_maxclients`" remains true *as a statement about script* — but the conclusion drawn from it,
+> that 6v6 is therefore out of reach, does not follow. The capability already exists. The task is not
+> raising a ceiling; it is **running the Gunfight gametype inside a lobby the menu has configured for
+> twelve clients**. That is a much easier engineering problem, and it is not a GSC one.
 >
-> One caveat on the measurement: it is a single sample from one lobby. Whether 8 is a Gunfight
-> constant, a private-match constant, or something that re-evaluates on mode change is exactly the
-> Phase 1 question — inject the probe, read it under Gunfight, switch to TDM, read it again.
+> It also converges with the any-map goal on a single mechanism — decoupling gametype from the menu's
+> playlist configuration. See [[dll-proxy]], which on this evidence is load-bearing for two of the
+> project's three headline goals rather than an optional side track.
 
 **Gunfight does not hardcode 2v2.** Grepping `gunfight.gsc` for `teamcount`,
 `maxteamplayers`, `multiteam` returns **zero hits** — the 2v2 comes entirely from

@@ -7,17 +7,32 @@ unless stated. Gametype string is **`gunfight`** (enum `0x2f`).
 
 Gunfight needs the overtime capture zone. Nothing else about it is map-specific.
 
-> ✅ **VERIFIED in-game 2026-09-07, and the dependency is softer than "hard" suggests.**
-> `src/mp_probe/` read `getentarray("gunfight_zone_center","targetname").size` = **0** on a map that
-> then played a full Gunfight match. So a zoneless map does **not** abort — the early return below
-> costs only the presentation tail. `abort_level` is never called from `gunfight.gsc`; its four call
-> sites are in `spawning_shared`, `supplydrop`, `globallogic_utils` and zm `spawnlogic`.
+> ⚠⚠ **THIS HEADLINE IS IN DOUBT. Measured in-game 2026-09-07: a STOCK Gunfight map returned ZERO
+> `gunfight_zone_center` entities.**
 >
-> The zone absence is dormant until the round timer expires, because that is the only path to
-> `overtime()` and its `level.zones[0]` dereference at `:944`. In that verified match the live
-> `timelimit` gametype setting read **0** — no limit — so `ontimelimit()` never fired.
+> `src/mp_probe/` read `getentarray("gunfight_zone_center","targetname").size` = **0** on **ICBM**,
+> reached through the normal Gunfight rotation in a private match — not a modded or forced map. The
+> match then played fine.
 >
-> **Restated precisely: zero zones is safe; zero zones *plus* a timer expiry is the bug.**
+> Two things follow, and the second undermines the section below.
+>
+> 1. **It does not abort.** The early return costs only the presentation tail. `abort_level` is never
+>    called from `gunfight.gsc`; its four call sites are in `spawning_shared`, `supplydrop`,
+>    `globallogic_utils` and zm `spawnlogic`. The zone absence stays dormant until the round timer
+>    expires, since `ontimelimit()` is the only path to `overtime()` and its `level.zones[0]`
+>    dereference at `:944`. That match's `timelimit` setting read **0** — no limit — so it never
+>    fired. **Zero zones is safe; zero zones *plus* a timer expiry is the bug.**
+>
+> 2. **The zone check cannot be the map gate.** If curated Gunfight maps also lack the entities, a
+>    check that early-returns on them is not what limits the mode to ten maps. The limit is most
+>    likely the menu/playlist layer — see [[dll-proxy]]. It also means the five presentation symptoms
+>    are **not** an unlocked-map artifact; they affect stock private matches too.
+>
+> ⚠ **UNVERIFIED how general this is — n=1.** "All Gunfight maps lack zones in private matches" and
+> "ICBM specifically has a data gap" are both live. **The open action: run `src/mp_probe/` on
+> Amsterdam or Game Show**, whose codename↔UI mapping is certain and needs no inference.
+> `0` there too means the workstream is misaimed; `>0` means ICBM is a per-map oddity and this
+> headline survives.
 
 ```gsc
 // gunfight.gsc:119, inside onstartgametype()
