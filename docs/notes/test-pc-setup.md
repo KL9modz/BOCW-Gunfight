@@ -160,7 +160,7 @@ Target layout — **`ACTS\` and `bocw-source-main\` sit BESIDE the repo, never i
 
 ```
 C:\bocw\
-├── ACTS\                 75 MB   compiler + injector
+├── ACTS\                 60 MB   compiler + injector
 ├── bocw-source-main\    664 MB   decompiled T9 dump  (see the size check below)
 └── BOCW-Gunfight\                this repo
     ├── src\gunfight_tweaks.gsc
