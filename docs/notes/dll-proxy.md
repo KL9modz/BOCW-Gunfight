@@ -3,6 +3,79 @@
 Needed **only** for `cwdllgt` (setting the lobby's gametype and map directly,
 bypassing the menu's map restriction). The GSC work needs none of this.
 
+---
+
+## 🛑 IT DOES NOT WORK. Deploying this crashes the game at startup — 2026-09-07
+
+**Three attempts out of three, deterministic.** Deployed exactly as this note specifies. The game
+never reaches the menu.
+
+```
+Faulting application:  BlackOpsColdWar.exe   ts 0x6a03ba27
+Faulting module:       POWRPROF.dll  version 0.0.0.0  ts 0x6a9c1e4c
+Exception code:        0xc0000005
+Fault offset:          0x0000000000017557     <- IDENTICAL every time
+```
+
+`version 0.0.0.0` confirms it is our DLL, not System32's. It being the **faulting** module means it
+loaded and executed, then crashed — so this is not a load failure, not a missing dependency, and not
+Battle.net integrity.
+
+**Ruled out:** VC++ runtime (MSVCP140, VCRUNTIME140, VCRUNTIME140_1 all present); missing ACTS config
+(deploying `ACTS\bin\data\` alongside it changed nothing — same offset); `acts.json` toggles (the file
+contains literally `null`, so there is no config surface to disable the heavy init path). A
+`0xc0000142` / STATUS_DLL_INIT_FAILED dialog appears downstream — that is Windows reporting that
+DllMain failed *because* it crashed, not a separate fault.
+
+### Likely cause — a timing problem inherent to the design
+
+`DllMain` calls `cw::InitDll()` at `DLL_PROCESS_ATTACH` (`main.cpp:653`), the earliest possible moment
+in process startup. But **`BlackOpsColdWar.exe` is encrypted at rest** — signature scans only match
+against the decrypted in-memory image. At `DLL_PROCESS_ATTACH` the image is *not yet decrypted*.
+
+So the probable story is `InitDll` pattern-scanning an encrypted image, finding nothing, and
+dereferencing null. A fixed fault offset across every attempt fits that exactly. If so it is inherent
+to loading at process start, and no amount of further config will fix it. `UNVERIFIED` — nobody has
+stepped through it.
+
+### ⚠ Read the VERIFIED labels below correctly
+
+All four preconditions were verified on 2026-07-26 and **all four are about whether the proxy CAN BE
+LOADED** — KnownDLLs, which imports the game uses, whether the forward exists, whether the exports are
+present. **None of them establishes that the game LAUNCHES with it installed.** That gap is exactly
+where this failed.
+
+**`cwdllgt` has never been executed end to end — not on this machine and not on any other.** Nothing
+in this repo ever claimed otherwise; `testing.md:73` positions the proxy as a future step. This is a
+design that was reasoned through and precondition-checked, not one that ever ran. So the result above
+is the *first* real test of it, not a regression.
+
+Also worth noting the 2026-07-26 verification was done against a Steam install (the shim README's
+paths are `S:\SteamLibrary\...`) while the test box is Battle.net, and ACTS 3.3.0 shipped 2026-09-05,
+after that date.
+
+### What this costs the project
+
+Both remaining headline goals — Gunfight on arbitrary maps, and 6v6 in a private lobby — reduce to
+decoupling gametype from the menu's playlist configuration, and this was the mechanism for it. It is
+currently blocked. Untried avenues, none validated:
+
+- **Get the DLL loaded after decryption.** LoadLibrary is already ruled out below for the base-name
+  reason, so this needs a different vector.
+- **A different DLL slot.** The cwpatch `discord_game_sdk.dll` demonstrably loads later than
+  `DLL_PROCESS_ATTACH` and works (see [[unlock-dlls]]). Renaming `acts-bocw.dll` into that slot would
+  be **diagnostic** for the timing hypothesis — no crash there would confirm it. ⚠ But it would not
+  be *useful*, since `cwdllgt` looks the module up by the base name `powrprof.dll`, and
+  `acts-bocw.dll` does not export what the game imports from the Discord SDK, so it may crash for an
+  unrelated reason and muddy the reading.
+- **Call the exports directly.** `ACTS_EXPORT_SetLobbyGameType` / `ACTS_EXPORT_SetLobbyMap` are
+  ordinary exports; reaching them without `acts cwdllgt`'s base-name lookup means new tooling.
+
+**Everything below this line predates the failure and remains accurate about loadability. Do not read
+it as evidence the approach works.**
+
+---
+
 ## What it does
 
 ```powershell
