@@ -47,11 +47,11 @@ $work = Join-Path $env:TEMP ("gsccheck_" + [IO.Path]::GetFileNameWithoutExtensio
 New-Item -ItemType Directory -Force $work | Out-Null
 $out = Join-Path $work ([IO.Path]::GetFileNameWithoutExtension($src))
 
-Write-Host "[1/3] compiling..." -ForegroundColor Cyan
+Write-Host "[1/4] compiling..." -ForegroundColor Cyan
 & $Acts gscc $src -g cw -p pc -o $out
 if ($LASTEXITCODE -ne 0) { Write-Host "COMPILE FAILED" -ForegroundColor Red; exit 1 }
 
-Write-Host "[2/3] round-tripping through decompiler..." -ForegroundColor Cyan
+Write-Host "[2/4] round-tripping through decompiler..." -ForegroundColor Cyan
 $rt = Join-Path $work 'rt'
 Remove-Item $rt -Recurse -Force -ErrorAction SilentlyContinue
 & $Acts gscd -g cw -p pc -o $rt "$out.gscc" | Out-Null
@@ -62,11 +62,11 @@ if (-not (Get-ChildItem $rt -Recurse -File -ErrorAction SilentlyContinue)) {
     Write-Host "ROUND-TRIP FAILED (decompiler produced nothing)" -ForegroundColor Red; exit 1
 }
 
-Write-Host "[3/3] resolving API calls against game source..." -ForegroundColor Cyan
+Write-Host "[3/4] resolving API calls against game source..." -ForegroundColor Cyan
 $text  = Get-Content $src -Raw
 # strip comments so commented-out calls don't get checked
 $text  = [regex]::Replace($text, '/\*[\s\S]*?\*/|//[^\r\n]*', '')
-$calls = [regex]::Matches($text, '(?<![\w\])([a-z_][a-z0-9_]*)::([a-z_][a-z0-9_]*)\s*\(') |
+$calls = [regex]::Matches($text, '(?<![\w\\])([a-z_][a-z0-9_]*)::([a-z_][a-z0-9_]*)\s*\(') |
          ForEach-Object { [pscustomobject]@{ ns = $_.Groups[1].Value; fn = $_.Groups[2].Value } } |
          Sort-Object ns, fn -Unique
 
@@ -95,6 +95,36 @@ foreach ($c in $calls) {
         Write-Host ("  ok  {0}::{1}" -f $c.ns, $c.fn) -ForegroundColor DarkGray
     } else {
         Write-Host ("  NOT FOUND  {0}::{1}  (namespace exists in {2})" -f $c.ns, $c.fn, (Split-Path $files[0].Path -Leaf)) -ForegroundColor Red
+        $bad++
+    }
+}
+
+Write-Host "[4/4] checking bare builtin calls exist in the dump..." -ForegroundColor Cyan
+# Stage 3 only matches namespace::function calls. Bare builtins were never checked at all.
+# That gap is not theoretical: hello_world.gsc called logprint(), which appears ZERO times
+# in the dump because it is not a T9 builtin, and it was the first statement of the autoexec
+# that runs at script link. The harness reported PASS and the game crashed 1-2s into a map
+# load. A call that appears nowhere in 859 stock scripts is the signal this stage looks for.
+$keywords = @('if','while','for','foreach','switch','case','return','break','continue',
+              'thread','function','autoexec','private','else','do','new')
+# Functions the script defines itself are not builtins and must not be flagged.
+# The `function` keyword is REQUIRED here. Without it this pattern matches any call at the
+# start of a line -- e.g. an indented `println( ... );` -- and silently excludes the very
+# builtins this stage exists to check.
+$localFns = [regex]::Matches($text, '(?m)^\s*function\s+(?:private\s+|autoexec\s+)*([a-z_][a-z0-9_]*)\s*\(') |
+            ForEach-Object { $_.Groups[1].Value }
+$bare = [regex]::Matches($text, '(?<![\w:.\\&])([a-z_][a-z0-9_]*)\s*\(') |
+        ForEach-Object { $_.Groups[1].Value } |
+        Where-Object { $keywords -notcontains $_ -and $localFns -notcontains $_ } |
+        Sort-Object -Unique
+
+foreach ($b in $bare) {
+    $found = Select-String -Path "$Source\scripts\*.gsc","$Source\scripts\*\*.gsc","$Source\scripts\*\*\*.gsc" `
+                           -Pattern "\b$b\s*\(" -List -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found) {
+        Write-Host ("  ok  {0}()" -f $b) -ForegroundColor DarkGray
+    } else {
+        Write-Host ("  NOT IN DUMP  {0}()  - no stock script calls this. Not a T9 builtin?" -f $b) -ForegroundColor Red
         $bad++
     }
 }
