@@ -234,6 +234,13 @@ acts gscc script.gsc -g cw -p pc -o script    # compile (VM38)
 acts injectcw script.gscc scripts\mp_common\bb.gsc scripts\core_common\clientids_shared.gsc
 ```
 
+⚠ **MP hook point — `scripts\mp_common\bb.gsc`, MP VM (`mode=mp`).** The injector *hooks* that stock
+script rather than overwriting it: when `bb.gsc` runs in the MP VM, the injected script's `autoexec`
+runs too. Established against `t7-compiler-custom@4de00c8` and carried into the `injectcw` invocation
+above — the hook point is the same for either injector, only the build step differs. The `gsc.conf`
+files under `src/` record this hook per project. Survey of the six candidate tool repos and how the
+hook point was pinned down: [[pipeline-toolchain-survey]].
+
 **Test PC** (secondary): BOCW via Battle.net, throwaway account, the compiler's injector component.
 
 ⚠ **Upstream `t7-compiler` is ARCHIVED** — AuroraDoesCode's fork is the live one, and its README credits
@@ -277,6 +284,9 @@ only an in-game test settles it.
 Ordered so the cheapest tests kill the most expensive work. The four test layers, including the
 offline harness that needs no game running: [[testing]].
 
+Step-by-step protocol, with record sheets and decision tables, for Phases 0–1:
+[[phase-0-1-test-protocol]].
+
 Test-box build (headless closet PC, RDP from the dev PC), account setup, and the toolchain mirror:
 [[test-pc-setup]]. ⚠ It carries its own gate — **confirm BOCW launches and is watchable over RDP
 before Phase 1**, since Phase 2's music/VO/HUD checks depend on it.
@@ -306,7 +316,7 @@ Bots before humans.
 
 ## Open questions
 
-⚠ **All four require the GAME. None are answerable from the dump** — that work is done. Do not go
+⚠ **All three require the GAME. None are answerable from the dump** — that work is done. Do not go
 looking for them in `bocw-source`; the front end is compiled LUA and the spawn resolver is an engine
 builtin (see the two notes above).
 
@@ -315,7 +325,15 @@ builtin (see the two notes above).
   is settable at runtime regardless, see *Timer* above)
 - **Does the engine's `function_77b7335` telefrag or return undefined when start spawns run out?**
   (Phase 1 — the only real 6v6 risk left; the script layer is proven safe)
-- **MP injection priming sequence** — undocumented; every public guide uses Zombies
+
+### Resolved by tracing, confirmation still wanted
+- **MP injection priming sequence** — **RESOLVED** from source + toolchain (`edd94bd` / `4de00c8`),
+  superseding the earlier "undocumented; every public guide primes through Zombies". Inject `mode=mp`
+  hooking `scripts\mp_common\bb.gsc`; the injected `autoexec` → `system::register` →
+  `callback::on_start_gametype(&f)` reassigns `level.ontimelimit` at `globallogic.gsc:5536`, before
+  `onstartgametype` (`:5537`) and the timer loop (`:5539`) — the same model stock `bb.gsc` uses. Only a
+  confirming hello-world remains: does the hook fire in a *custom Gunfight* lobby. Full path:
+  [[mp-load-path]]
 
 ### Closed by tracing (do not re-open)
 - ~~Spawn density breaks the script at 12 players~~ → **no**, `spawning_shared.gsc:295` has a fallback

@@ -17,6 +17,15 @@ These are **not** auto-loaded. Open the one you need.
   the script skeleton, hook scripts per mode, and two gotchas that cost real time.
 - [testing](testing.md) — the four test layers, from the offline harness that needs no game up to
   Gunfight on a normal map.
+- [phase-0-1-test-protocol](phase-0-1-test-protocol.md) — step-by-step protocol for the Phase 0 and
+  Phase 1 tests. Not a finding yet: it carries a **Results** section that gets filled in on the run,
+  at which point it becomes the finding record for both gates.
+- [mp-load-path](mp-load-path.md) — how injected GSC reaches the **MP** Gunfight VM. Verified against
+  dump `edd94bd`: additive `autoexec` / `event_handler` / `callback` registration, no detour needed.
+  One residual unknown — whether the injector honors injected registration — with a hello-world for it.
+- [pipeline-toolchain-survey](pipeline-toolchain-survey.md) — the six commonly-cited tool/mod repos,
+  checked in-session. Which help the compile→inject pipeline (two do), which are dead or closed, and
+  where the MP hook point (`mp_common/bb.gsc`) and the injector load model came from.
 
 **The Gunfight findings**
 
@@ -24,6 +33,11 @@ These are **not** auto-loaded. Open the one you need.
   why it is almost certainly the round-timer bug, and why a *partial* zone setup is worse than none.
 - [team-sizes](team-sizes.md) — where team size actually lives, what is overridable from GSC and
   what is a hard engine ceiling.
+
+**Risk and disclosure**
+
+- [tac-risk-model](tac-risk-model.md) — threat model and **participant disclosure** for the mod: where
+  TAC and server telemetry can observe it, host vs joiner. Risk identification, **not** evasion.
 
 **DLL-level tooling** (not GSC — separate track)
 

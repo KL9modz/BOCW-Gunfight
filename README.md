@@ -36,7 +36,8 @@ See `.claude/CLAUDE.md` for the full picture, including a confirmed dead-ends li
 ```
 .claude/CLAUDE.md       agent operating manual: findings, fix design, test plan
 docs/notes/             per-finding deep dives — start at docs/notes/README.md
-src/                    GSC source. gunfight_tweaks.gsc is the smoke test; the mod lands here in Phase 3
+src/                    GSC source: hello_world/ proves the MP hook, gunfight_mod/ is the staged mod,
+                        gunfight_tweaks.gsc is the smoke test. Build order: src/README.md
 tools/check-gsc.ps1     offline validation harness
 tools/cw-loader-shim/   C shim merging the two unlock DLLs into one game DLL slot (build.cmd, zig cc)
 ```
