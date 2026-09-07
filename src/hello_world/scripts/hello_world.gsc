@@ -21,6 +21,26 @@
 //         stock calls pass 5.
 //    The offline harness passed it anyway — stage 3 only checked namespace::function
 //    calls and never looked at bare builtins like logprint. Harness now has a stage 4.
+//
+// ✅ HOOK CONFIRMED IN-GAME 2026-09-07. The fixed build injected at the frontend and a
+//    private Gunfight match loaded with NO crash — the exact sequence that crashed on the
+//    logprint build. Controlled comparison: same box, same injector, same hook point, same
+//    map; only the logprint calls differ. The MP injection path works end to end on retail.
+//
+// ⚠⚠ RETAIL RENDERS NUMBERS ONLY. This is a PLATFORM CONSTRAINT, not a bug in this file,
+//    and it governs every on-screen instrument this project will ever write.
+//      - Literal script strings are compiled out of ship builds. All 401 stock literal
+//        iprintlnbold call sites decompile to "<dev string:xNN>" — the content is not in
+//        the retail binary. Our banner read "^2[GFHELLO] hook live - on_start fired 1x"
+//        and rendered on screen as the single character "1".
+//      - Runtime VALUES do render — stock has 66 variable call sites, e.g.
+//        iprintlnbold( numshots ).
+//      - Hashed refs (#"mp/...") render only if already in the localization table. You
+//        cannot add one.
+//      - println/logprint are unreadable: retail writes no log file anywhere. Confirmed
+//        twice on the test box across the install dir and both profile trees.
+//    So: NUMERIC iprintlnbold is the only observability channel this platform gives us.
+//    Encode findings as numbers. Do not write a label and expect to see it.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #using scripts\core_common\callbacks_shared;
@@ -55,6 +75,13 @@ function private on_start()
     }
     level.gfhello_starts++;
 
+    // THE cadence instrument. Announce from on_start itself, every firing — the
+    // on_connect banner samples once at connect during round 1, where the value is 1
+    // under BOTH hypotheses, so it cannot discriminate.
+    //   shows 1 and never again  -> per-MATCH
+    //   shows 1, 2, 3 ...        -> per-ROUND (map fast-restart re-links)
+    level thread announce_starts( level.gfhello_starts );
+
     println( "[GFHELLO] 3/4 on_start_gametype fired" );
 
     if ( isdefined( level.ontimelimit ) )
@@ -71,6 +98,19 @@ function private on_start()
 }
 
 function private noop_probe() { }
+
+// ⚠ RETAIL RENDERS NUMBERS ONLY — see the header. `n` is printed bare, with no label,
+// because a literal prefix would render as nothing and make the digit look unexplained.
+// on_start_gametype fires before players are in the match, so wait for them rather than
+// printing into an empty player list. On round 2+ they are already connected.
+function private announce_starts( n )
+{
+    wait( 8 );
+    foreach ( player in getplayers() )
+    {
+        player iprintlnbold( n );
+    }
+}
 
 // On-screen confirmation. Retail BOCW has no dev console, so iprintlnbold is the ONLY
 // observable signal here — println goes somewhere we cannot read. The banner reports
@@ -90,5 +130,9 @@ function private hello_banner()
     {
         starts = level.gfhello_starts;
     }
-    self iprintlnbold( "^2[GFHELLO] hook live - on_start fired " + starts + "x" );
+    // Bare number, no label. The "^2[GFHELLO] hook live - on_start fired ...x" version of
+    // this line rendered on retail as the single character "1" — the literal text is
+    // stripped from ship builds and only the runtime integer survives. Printing it bare is
+    // honest about what the player will actually see.
+    self iprintlnbold( starts );
 }

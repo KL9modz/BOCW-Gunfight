@@ -90,6 +90,26 @@ already do. Swap the paths for `gunfight_mod` once the hello-world has confirmed
 | `presentation` | latch flags + noRespawnsLeft HUD + `round_start` LUI + round-2 music | `gunfight.gsc:124-137` |
 | `timer_override` | `level.gettimelimit = &mod_gettimelimit` | `gunfight.gsc:59, 1137` |
 
+## ⚠ Observability on retail — numbers only
+
+**VERIFIED in-game 2026-09-07.** Design every on-screen instrument around this or it will tell you
+nothing.
+
+| Channel | Works on retail? | Evidence |
+|---|---|---|
+| `println` / `logprint` | **No** | Retail writes no log file at all — install dir and both profile trees checked twice. `logprint` additionally does not exist in T9 (0 occurrences in the dump). |
+| `iprintlnbold("literal text")` | **No** | Literal script strings are compiled out of ship builds. All **401** stock literal call sites decompile to `"<dev string:xNN>"` — the content is not in the retail binary. |
+| `iprintlnbold( runtimeValue )` | **Yes** | **66** stock variable call sites, e.g. `iprintlnbold( numshots )`. |
+| `iprintlnbold( #"mp/..." )` | Only if it already exists | **24** stock hashed refs. You cannot add entries to the localization table. |
+
+The hello-world banner read `"^2[GFHELLO] hook live - on_start fired 1x"` and rendered on screen as
+the single character **`1`**. That was the success case — the literal text vanished and the runtime
+integer survived.
+
+**Consequence:** encode findings as *numbers*. A label you write will not appear, and its absence
+makes the number that does appear look like a malfunction. Concatenating a literal with a value
+(`"count: " + n`) renders as just the value.
+
 ## ⚠ What a harness PASS does and does not mean
 
 Read this before trusting one. A PASS is necessary, not sufficient, and treating it as sufficient is
