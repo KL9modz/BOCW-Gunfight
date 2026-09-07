@@ -12,12 +12,15 @@
 
 #namespace gftweaks;
 
-function autoexec __init__system__()
+// `private` matches all 859 stock __init__system__ instances. They are private
+// specifically so identically-named autoexecs cannot collide; a non-private one
+// would be the only such symbol in the process. See docs/notes/toolchain.md.
+function private autoexec __init__system__()
 {
     system::register( #"gftweaks", &__init__, undefined, undefined, undefined );
 }
 
-function __init__()
+function private __init__()
 {
     callback::on_start_gametype( &on_start_gametype );
     callback::on_connect( &on_player_connect );

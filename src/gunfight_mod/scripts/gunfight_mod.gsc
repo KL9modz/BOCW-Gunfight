@@ -7,34 +7,42 @@
 //            (:5537) and the timer loop (:5539), and AFTER gametype_init installs the
 //            stock pointer (gunfight.gsc:58) — so our reassignment wins deterministically.
 //
-// All line refs are against bocw-source@edd94bd. Syntax matches the compiler's own
-// T9 example (no `function` keyword; `#include`; `autoexec name()`; struct shorthand).
+// All line refs are against bocw-source@edd94bd.
+//
+// ⚠ PORTED TO T9 DIALECT 2026-09-07. This file was written in t7-compiler-custom
+//   dialect (#include, no `function` keyword, bare `autoexec name()`) and is built with
+//   ACTS. hello_world.gsc carried the same defects and crashed the game at script link.
+//   Structure now mirrors stock bb.gsc:12 exactly:
+//     #using / `function` on every definition / `function private autoexec` /
+//     system::register with FIVE args and a HASHED name.
+//   Stock uses `private` on all 859 __init__system__ precisely so identically-named
+//   autoexecs cannot collide; ours was the only non-private one in the process.
 //
 // ⚠ EXPOSURE: injecting this begins host-side exposure. Read docs/notes/tac-risk-model.md
 //   first. Bots before humans. Enable ONE stage at a time (config below).
 //
-// ⚠ COMPILE-TIME RISK: this file references stock symbols by their atian-decompiler
-//   hashed names (function_c4915ac, var_31f5f23, var_a236b703, var_61952d8b). The
-//   t7-compiler is expected to round-trip these back to their hashes. If any fails to
-//   resolve, see the FALLBACK notes inline (the health decision can be inlined; the
-//   latch-flag names can be dropped — they are cosmetic, not load-bearing).
+// ⚠ NOT YET INJECTED. hello_world.gsc must confirm the hook fires in a custom Gunfight
+//   lobby first. The compile-time risk over the hashed stock names (function_c4915ac,
+//   var_31f5f23, var_a236b703, var_61952d8b) is CLOSED — ACTS 3.3.0 resolves them against
+//   dump edd94bd on both machines — but resolving is not running. The inline FALLBACK
+//   notes are kept as insurance against a dump or ACTS version bump.
 // ─────────────────────────────────────────────────────────────────────────────
 
-#include scripts\core_common\callbacks_shared;
-#include scripts\core_common\clientfield_shared;
-#include scripts\core_common\system_shared;
-#include scripts\core_common\util_shared;
-#include scripts\core_common\music_shared;
-#include scripts\mp_common\gametypes\gunfight;
+#using scripts\core_common\callbacks_shared;
+#using scripts\core_common\clientfield_shared;
+#using scripts\core_common\system_shared;
+#using scripts\core_common\util_shared;
+#using scripts\core_common\music_shared;
+#using scripts\mp_common\gametypes\gunfight;
 
 #namespace gunfight_mod;
 
-autoexec __init__system__()
+function private autoexec __init__system__()
 {
-    system::register( "gunfight_mod", &__init__, undefined, undefined );
+    system::register( #"gunfight_mod", &__init__, undefined, undefined, undefined );
 }
 
-__init__()
+function private __init__()
 {
     // ── Staged rollout switches (CLAUDE.md Phase 3: one change at a time) ──
     // Flip 1/0 and recompile+reinject. Recommended order, bots first:
@@ -52,8 +60,8 @@ __init__()
 }
 
 // Runs each time the gametype starts (per round in round-based Gunfight, via map
-// fast-restart — the hello-world's on_start log count confirms the cadence).
-mod_apply()
+// fast-restart — the hello-world's on-screen counter confirms the cadence).
+function private mod_apply()
 {
     cfg = level.gfmod;
 
@@ -86,7 +94,7 @@ mod_apply()
 // without gunfight_zone_center entities. Preserve stock overtime ONLY where a real
 // zone exists; otherwise reach the stock health decision directly, one tick earlier
 // than the stock crash-and-recover and without the exception.
-mod_ontimelimit()
+function private mod_ontimelimit()
 {
     if ( level.var_31f5f23 !== 1 )
     {
@@ -113,14 +121,14 @@ mod_ontimelimit()
 }
 
 // ── Optional round-timer override ────────────────────────────────────────────
-mod_gettimelimit()
+function private mod_gettimelimit()
 {
     return level.gfmod.timer_minutes;
 }
 
 // ── Presentation fixes: the five symptoms of the early return ────────────────
 // Replicates gunfight onstartgametype's skipped tail (gunfight.gsc:124-135).
-mod_presentation_fixups()
+function private mod_presentation_fixups()
 {
     // Round-2+ round-start music (gunfight.gsc:124-127).
     if ( !util::isfirstround() )
@@ -146,7 +154,7 @@ mod_presentation_fixups()
     luinotifyevent( #"round_start" );
 }
 
-mod_norespawns_hud()
+function private mod_norespawns_hud()
 {
     waitframe( 1 );
     clientfield::set_world_uimodel( "hudItems.team1.noRespawnsLeft", 1 );

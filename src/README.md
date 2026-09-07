@@ -90,6 +90,29 @@ already do. Swap the paths for `gunfight_mod` once the hello-world has confirmed
 | `presentation` | latch flags + noRespawnsLeft HUD + `round_start` LUI + round-2 music | `gunfight.gsc:124-137` |
 | `timer_override` | `level.gettimelimit = &mod_gettimelimit` | `gunfight.gsc:59, 1137` |
 
+## ⚠ What a harness PASS does and does not mean
+
+Read this before trusting one. A PASS is necessary, not sufficient, and treating it as sufficient is
+what put a game-crashing script into an injection.
+
+**It checks:** the file compiles to VM38 bytecode; the bytecode round-trips through the decompiler;
+every `namespace::function` call resolves to a real function in the dump (stage 3); every bare call
+appears *somewhere* in the dump (stage 4).
+
+**It does NOT check:**
+
+- **Argument counts.** `system::register` with 4 args passes stage 3 identically to the correct 5.
+- **Dialect.** `#include` vs `#using`, a missing `function` keyword, a missing `private` — all invisible
+  to every stage. Two of the three defects that crashed the game were this class.
+- **That a name is really a builtin.** Stage 4 only asks whether the name appears in the dump at all.
+  `__init__` and `__init__system__` pass because stock declares them — that is coincidence, not
+  correctness.
+- **Anything about runtime.** Compiling and resolving is not running.
+
+Stage 4 catches the *non-existent builtin* class specifically — the `logprint` failure. It does not
+generalise beyond that. When in doubt, diff your decompiled `.gscc` against the stock file you are
+mirroring (`acts gscd`), which is how the original defects were actually found.
+
 ## Compile-time risk — CLOSED
 
 The mod references stock symbols by their atian-decompiler **hashed names** (`function_c4915ac`,
