@@ -235,29 +235,44 @@ follows is **derived from `coldwar/scripts/core_common/menu_items.gsc`** in the 
 prediction to verify against, not a record of what was seen. The shipped `.gscc` is an older release
 than that source ([`atian-menu-source.md`](atian-menu-source.md)), so entries may differ.
 
-The root registers **11 submenus**, all parented to `start_menu`, in declaration order:
+The root registers 11 submenus parented to `start_menu`. **Three never appear in an MP release
+build**, which is what makes the page layout resolve:
 
-| # | Entry | Gate | Contents |
+| # | Entry | Visible in MP? | Contents |
 |---|---|---|---|
-| 1 | `Tools` | always | Third person · Invulnerability · No hud · Camera mode |
-| 2 | `Zombies` | `is_zombies()` — **hidden in MP** | zombie speed, eyes, doors, points |
-| 3 | `Guns` | always | 1 item |
-| 4 | `Weapons` | always | **97 items** |
-| 5 | `Camo` | always | 3 submenus: Pack a Punch · Mastery · By id |
-| 6 | `Skin` | always | 49 items |
-| 7 | `Outfit` | always | 1 item |
-| 8 | `Vehicle` | always | 2 items |
-| 9 | `Map` | always | 48 in source; **19 seen** |
-| 10 | `Unlock` | always | 3 items |
-| 11 | `Dev` | `is_dev_mode()` → false without `ATIAN_MENU_DEV` | — |
+| 1 | `Tools` | ✅ | Third person · Invulnerability · No hud · Camera mode |
+| — | `Zombies` | ❌ `is_zombies()` | zombie speed, eyes, doors, points |
+| 2 | `Guns` | ✅ | 1 item |
+| 3 | `Weapons` | ✅ | **97 items** |
+| 4 | `Camo` | ✅ | 3 submenus: Pack a Punch · Mastery · By id |
+| 5 | `Skin` | ✅ | 49 items |
+| 6 | `Outfit` | ✅ | 1 item |
+| 7 | `Vehicle` | ✅ | 2 items |
+| 8 | `Map` | ✅ | 48 in source; **19 seen** |
+| — | `Unlock` | ❌ **`#ifdef ATIAN_MENU_DEV`** | Unlock all stats · Weapon give camos · Give max bonus |
+| — | `Dev` | ❌ **`#ifdef ATIAN_MENU_DEV`** | test harnesses |
 
-✅ **This corroborates the walk.** With Zombies hidden in MP, entries 1 and 3–7 are exactly *"weapons
-and camera stuff"*, and `Vehicle` + `Map` are what page 4 showed.
+⚠ `Unlock` and `Dev` are inside a **preprocessor** block (`menu_items.gsc:377`), not a runtime guard —
+so they are compiled out of a release build entirely, not merely hidden. **Confirmed in-game: klaze
+saw no `Unlock` in MP.** An earlier version of this table listed both as "always" because the gate
+scan only looked for runtime `if (...)`.
 
-⚠ **The page boundaries do not follow cleanly.** Ten visible entries over four pages is ~2–3 per page,
-but `Unlock` is declared *after* `Map`, and the walk found `Map` on the last page — so either
-pagination is not declaration order, or the walker did not scroll page 4 to its end. **Worth one
-glance to settle**, and it matters: `Unlock` is a live entry nobody has looked at.
+### ✅ The page layout resolves exactly
+
+**Eight visible entries over four pages = two per page**, in declaration order:
+
+| Page | Entries |
+|---|---|
+| `(1/4)` | `Tools` · `Guns` |
+| `(2/4)` | `Weapons` · `Camo` |
+| `(3/4)` | `Skin` · `Outfit` |
+| `(4/4)` | `Vehicle` · `Map` |
+
+✅ **Page 4 matches the walk exactly**, and pages 1–3 are precisely the *"weapons and camera stuff"*
+that was reported. **Pagination is declaration order, two per page.**
+
+⚠ Still a prediction for pages 1–3 — the shipped `.gscc` is an older release than this source (19 maps
+seen vs 48 in source), so entry names may differ. But the *shape* is now confirmed at both ends.
 
 ⚠ The upstream README's feature list (Tools / Give weapons / Gun tool / Teleport tool / Loading /
 Customization / Internal tools) is the **BO4** naming and does not match this tree.
