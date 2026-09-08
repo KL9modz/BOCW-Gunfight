@@ -34,9 +34,13 @@ These are **not** auto-loaded. Open the one you need.
 
 **The Gunfight findings**
 
-- [menu-map](menu-map.md) — the private-match menu: the **Mansion → Hijacked carry** that put Gunfight
-  on a non-Gunfight 6v6 map with no code, what that does and does not establish, and the walk-it-
-  yourself index scaffold. The menu is never readable from the dump — it is filled in by walking.
+- [menu-map](menu-map.md) — the **Atian Menu**: the map carry that puts Gunfight on any of the
+  offered maps, the confirmed end-to-end procedure (3v3 Gunfight on Zoo, 60s rounds), the three traps,
+  and what the walk settled. Carries an **Untried — not ruled out** list; nothing there is closed.
+- [atian-menu-source](atian-menu-source.md) — source survey of that menu. **`func_set_gametype()`
+  already exists in the Cold War tree and is simply never wired into the menu.** The two builtins it
+  uses are confirmed present in `BlackOpsColdWar.exe`, so `gunfight_mod` can call them directly —
+  which makes the larger-team question a cheap live test rather than a blocked one.
 - [gunfight-findings](gunfight-findings.md) — the one hard map dependency (`gunfight_zone_center`),
   why it is almost certainly the round-timer bug, and why a *partial* zone setup is worse than none.
 - [team-sizes](team-sizes.md) — where team size actually lives, what is overridable from GSC and

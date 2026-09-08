@@ -89,7 +89,8 @@ reconfiguration. Which is exactly why it cannot deliver 6v6.
 
 ## What the menu is
 
-**Not stock UI, and not a DLL overlay.** It is a precompiled GSC mod menu that we install.
+**Not stock UI, and not a DLL overlay.** It is a precompiled GSC mod menu that we install. Its
+source is public and has been read — [`atian-menu-source.md`](atian-menu-source.md).
 
 | | |
 |---|---|
@@ -320,10 +321,13 @@ recorded as "it cannot be done." Ordered cheapest first.
 1. **The glitched-lobby measurement.** Glitched Gunfight-on-a-6v6-map lobby + `mp_probe`, read
    `1xxxxx`. The glitch is a real playlist reconfiguration, which is the layer that sets
    `com_maxclients`. Needs the glitch to work once.
-2. **Add the control ourselves.** The Atian Menu is **open-source GSC**, and we already compile and
-   inject GSC. Its **BO4 build documents a `Loading` section with map *and* gametype** — the CW build
-   ships the map half alone. Porting or reimplementing the gametype half is a code task on a public
-   repo, not a reverse-engineering problem. **This is the largest untried avenue in the project.**
+2. **`switchmap_load` — the gametype switch already exists.** ✅ **Source-confirmed 2026-09-08, see
+   [`atian-menu-source.md`](atian-menu-source.md).** The CW tree defines `func_set_gametype()`, which
+   changes the gametype while keeping the current map — it is written and simply never wired into the
+   menu, which is why the walk found nothing. It is two engine builtins (`switchmap_load` /
+   `switchmap_switch`, both confirmed present in `BlackOpsColdWar.exe`), so **`gunfight_mod` can call
+   them directly and no menu fork is needed.** Run it in the 12-slot private TDM lobby and read
+   `mp_probe` `1xxxxx`. **This is the cheapest real test of larger teams the project has.**
 3. **Other lobby builders.** Only *Private Match* has been walked. `mp_custom_game.ddl` exists as a
    distinct settings struct — whether the **Custom Games** path builds lobbies differently is
    unchecked.
