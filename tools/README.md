@@ -4,6 +4,7 @@
 |---|---|
 | `check-gsc.ps1` | Offline GSC validation — compile, round-trip, resolve every API call and bare builtin |
 | `dump-grep.sh` | Offline — resolves builtin argument shapes from stock call sites in `bocw-source`. Writes `dump-report.md`. No game, no network |
+| `check-args.py` | Offline — checks builtin **argument counts** against ate47's Cold War table. `check-gsc.ps1` explicitly does not do this |
 | `inject.sh` | Inject **one** payload (`menu` or `mod`) on the known-safe hook/replace pair |
 | `autoinject.sh` | Watch for the game and inject automatically, re-arming after each restart |
 | `cw-loader-shim/` | C shim for the `discord_game_sdk.dll` slot (see `docs/notes/unlock-dlls.md`) |

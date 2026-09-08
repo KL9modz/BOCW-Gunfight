@@ -262,9 +262,14 @@ something else. Result: `______`
 ## Build and inject
 
 ```powershell
-.\tools\check-gsc.ps1 .\src\<project>\scripts\<project>.gsc      # validate offline FIRST
+python3 tools\check-args.py src\<project>\scripts\<project>.gsc   # arity — check-gsc.ps1 skips this
+.\tools\check-gsc.ps1 .\src\<project>\scripts\<project>.gsc      # compile + resolve
 acts gscc src\<project>\scripts\<project>.gsc -g cw -p pc -o <project>
 ```
+
+✅ **All five new projects pass `check-args.py` with zero arity mismatches**, run here 2026-09-08
+against the CW table. That is builtin arity only — it is not a compile, and `check-gsc.ps1` still has
+to run on your machine.
 
 then place the `.gscc` in `$GF_PAYLOADS` and inject per [`../../tools/README.md`](../../tools/README.md).
 

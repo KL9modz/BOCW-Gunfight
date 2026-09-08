@@ -97,7 +97,10 @@ as command-line arguments instead.
 ## Build + inject
 
 ```powershell
-# 1. validate offline first — no game needed, catches typo'd API names
+# 1a. arity — check-gsc.ps1 does NOT check argument counts; this does
+python3 tools\check-args.py src\hello_world\scripts\hello_world.gsc
+
+# 1b. validate offline — no game needed, catches typo'd API names
 .\tools\check-gsc.ps1 .\src\hello_world\scripts\hello_world.gsc
 
 # 2. compile (VM38)
@@ -184,6 +187,9 @@ appears *somewhere* in the dump (stage 4).
 **It does NOT check:**
 
 - **Argument counts.** `system::register` with 4 args passes stage 3 identically to the correct 5.
+  ⚠ `tools/check-args.py` now covers this **for builtins** — every bare call is checked against
+  ate47's Cold War table. It does **not** cover namespaced GSC functions like `system::register`
+  (they are not in that table), and it cannot check what an argument *means*.
 - **Dialect.** `#include` vs `#using`, a missing `function` keyword, a missing `private` — all invisible
   to every stage. Two of the three defects that crashed the game were this class.
 - **That a name is really a builtin.** Stage 4 only asks whether the name appears in the dump at all.
