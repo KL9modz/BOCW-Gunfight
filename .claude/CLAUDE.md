@@ -406,6 +406,19 @@ code reading end-to-end. Any divergence = re-trace that path before building.
 All four `gunfight_mod` switches verified in-game: 3v3 Gunfight on Zoo, 60-second rounds, a round that
 timed out cleanly (the first time that path was ever exercised), correct HUD, clean lobby return.
 
+### ▶ Phase L — the lobby, and it comes BEFORE everything else
+The hosting workflow (create lobby → map/mode/rules → invite → teams → start) happens *before* the
+match, in a layer none of this project's code reaches. `scriptbundle/gamesettings/` — **427 JSON
+bundles, one per rules-menu row** — is that layer's map, and it was never read.
+
+🔓 **`max_players.json` writes `maxPlayers` and publishes 1–12, with no per-gametype variant.** If that
+row appears in a Gunfight custom lobby and drives the slot count, **team size is solved with no code at
+all** — it acts at lobby creation, exactly where `com_maxclients` is fixed and script cannot reach.
+Free to check, ~2 minutes, no injection. ⚠ Whether the row appears is playlist-layer and not in the
+dump. [[lobby-settings]]
+
+⚠ `frontend.gsc` is the main-menu 3D space, **not** the lobby. Do not look for lobby config in GSC.
+
 ### ▶ The queue — [[test-queue]]
 **Every open test on one sheet, ordered by risk, with record slots.** Start there at the machine; the
 phases below are the map, that is the checklist.

@@ -9,6 +9,11 @@ These are **not** auto-loaded. Open the one you need.
 
 **Start here if you are at the machine**
 
+- [lobby-settings](lobby-settings.md) — **the pre-match layer**: which step of hosting lives where, why
+  `frontend.gsc` is not the lobby, and `scriptbundle/gamesettings/` — 427 JSON bundles that are the
+  complete rules-menu surface. Carries the cheapest open lead in the project: a **Max Players** row
+  publishing 1–12.
+
 - [compile-status](compile-status.md) — stages 1–2 on the Windows gate. All five staged tests compile;
   with the cloud session's stages 3–4 and arity checks, every offline check is green. Carries the
   provenance caveats: relayed, and the ACTS version is unrecorded.

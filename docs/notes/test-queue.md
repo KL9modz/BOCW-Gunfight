@@ -14,9 +14,13 @@ that is the check that caught `scene_model_shared`.
 
 **Setup for anything injected:** [`menu-map.md`](menu-map.md) → *PROCEDURE*.
 
-### The five results that would actually move a goal
+### The results that would actually move a goal
 
-0. **A1's probe `6xxxxx` reading 3** — `maxsquadplayers` is a runtime-writable gametype setting that
+0. **L2 — a Max Players row that goes to 12 and actually changes the slot count.** No injection, no
+   code, no exposure, about two minutes. If it works it closes the last open goal outright and makes
+   most of band C unnecessary. **Check this before anything else.**
+   [`lobby-settings.md`](lobby-settings.md)
+1. **A1's probe `6xxxxx` reading 3** — `maxsquadplayers` is a runtime-writable gametype setting that
    bounds squad size, and for Gunfight a team *is* a squad. Reading 3 in a 3v3 lobby makes it the
    lever this project has been hunting from the start, and the next step is **one
    `setgametypesetting` call**, not a new mechanism. **The cheapest path to the goal that has ever
@@ -28,6 +32,42 @@ that is the check that caught `scene_model_shared`.
 4. **B4 keeping the carried map** — the hosting procedure loses its DLL prerequisite.
 
 Everything else is worth knowing but does not move a goal.
+
+---
+
+## L — THE LOBBY. No injection, no modded anything. ← **do these first**
+
+The hosting workflow — create lobby, pick map/mode/rules, invite, teams, start — happens entirely
+*before* the match, in a layer none of this project's code has ever reached.
+[`lobby-settings.md`](lobby-settings.md) maps it, and found a rules-menu row that may hand over the
+team-size goal for free.
+
+### L1 · Is there a **Max Players** row in the Gunfight rules menu?
+`scriptbundle/gamesettings/max_players.json` is a real menu row writing `maxPlayers`, publishing
+**1–12**, with no per-gametype variant. Walk every rules page of a **Gunfight Custom Games** lobby and
+look for it.
+
+⚠ Phase 0 **T0.2** already walked those pages — **looking for the timer**. Nobody was looking for a
+player count, so its silence is not a negative. Result: `______`
+
+### L2 · If it exists, set it to 12 and count the slots ← **the whole goal, with no code**
+`com_maxclients` is fixed at lobby creation and read-only from script. A rules row that sets max
+players *before* the match acts at exactly that layer.
+
+| Slots | Means |
+|---|---|
+| **12** | **team size solved with no mod at all.** Most of band C stops mattering |
+| still 8 | `maxPlayers` does not drive lobby size — it may only feed challenge logic |
+
+Result: `______`
+
+### L3 · Bot Autofill / Bot Difficulty rows
+`bot_autofill_allies` and `bot_autofill_axis` are real bundles. If those rows exist, filling a test
+lobby needs **no injection** — strictly better than `bot::add_bot()` for C7/C8. Result: `______`
+
+### L4 · With Max Players at 12, start the match and read `lobby_probe` `1xxxxx`
+The only one here that needs injection. Confirms whether `com_maxclients` followed the menu setting.
+Result: `______`
 
 ---
 
