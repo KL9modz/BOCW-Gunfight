@@ -17,6 +17,26 @@ unless a test says otherwise; the slot count is fixed at lobby creation and cann
 
 ---
 
+## 0 — Off-game prerequisite. Run this on the DEV PC, no game needed.
+
+### A0 · `tools/dump-grep.sh` — resolve the builtin argument shapes ← **do this before C7/C8**
+
+```bash
+bash tools/dump-grep.sh                    # dump at ../bocw-source-main
+bash tools/dump-grep.sh /c/path/to/dump    # or say where it is
+```
+
+Writes `dump-report.md`. **C7 and C8 ship no code on purpose**: `setteam` takes one argument and a
+team name, an index and an entity are all one argument. A stock call site settles it in a line, and
+guessing is how the last three game-crashing defects happened.
+
+It also greps for **Gunfight gametype strings already present in the dump**. If anything beyond
+`gunfight` and `gunfight_3v3` appears, that pre-answers A1's headline **with no game at all**.
+
+⚠ Zero exposure — greps a local dump, touches no game and no network. Result: `______`
+
+---
+
 ## A — Zero risk. Read-only, nothing written.
 
 ### A1 · `lobby_probe` — four player counts and the gametype bitmask ← **run this first**

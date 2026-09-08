@@ -131,6 +131,7 @@ non-private session — turning a procedural rule into a mechanical one.
 
 | # | Test | Risk | Answers |
 |---|---|---|---|
+| **0** | **`tools/dump-grep.sh`** — stock call sites for the builtins below | **none, off-game** | The argument shapes that block tests 6–7, and whether a larger Gunfight string already exists in the dump |
 | **1** | **`lobby_probe`** — four player counts, gametype bitmask, session flags | **none, read-only** | Whether `com_maxclients` is the whole story, and whether a larger stock Gunfight variant exists |
 | **2** | `getgametypeenumfromname( "gunfight", ? )` | read-only | Confirms the enum live; resolves anything test 1 turns up |
 | **3** | `mapexists()` over the 48 names in the Atian source | read-only | Which of them this build actually has |
