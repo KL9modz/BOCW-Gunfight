@@ -236,6 +236,31 @@ rather than set once and lost.
 across the carry. `presentation` was deliberately off to keep the change to one stage, per
 [`../src/README.md`](../src/README.md)'s rollout order.
 
+#### ✅✅ `timelimit_fix` VERIFIED IN-GAME — the round timed out cleanly, 2026-09-08
+
+**A round ran to zero and ended properly.** No fault, no hang.
+
+This is the first time that path has ever been exercised. Every prior clean match ended by
+**elimination** and never reached time expiry — [`gunfight-findings.md`](gunfight-findings.md) and this
+note both flagged it as open. The failure it avoids is specific: on a zoneless map (which is *every*
+private Gunfight map — `setupzones()` returns false, n=2 ICBM and Amsterdam) a round reaching time
+expiry runs `ontimelimit()` → `overtime()` → `level.zones[0]` on an undefined array.
+
+So `timelimit_fix` is no longer a reasoned-about safeguard. It is a measured one, and the switch
+`src/README.md` calls **LOAD-BEARING** has earned the label.
+
+Stage status after this test:
+
+| Switch | State | Verified |
+|---|---|---|
+| `zones_guard` | ON | implicitly — nothing indexed `level.zones` undefined |
+| `timelimit_fix` | ON | ✅ **round timed out cleanly** |
+| `timer_override` | ON | ✅ 60s held across a map carry |
+| `presentation` | OFF | not yet enabled — next stage |
+
+Remaining: flip `presentation: 1` and confirm the five symptoms clear (round-2 music, noRespawnsLeft
+HUD, round-start LUI, VO, lives counter). That is step 3 of the rollout and the only switch untested.
+
 Note this makes the source comment on `timer_override` incomplete. It reads:
 
 > *"OFF — the rules menu already exposes 0/20/30/40/50/60s. Only needed above 60s."*
