@@ -7,11 +7,18 @@
 # ACTS (60 MB) and bocw-source-main (664 MB) are deliberately NOT in this repo.
 # They sit beside it, two levels up from this file. On a fresh machine, see
 # docs/notes/test-pc-setup.md before running this.
+#
+# -CompileOnly runs stages 1-2 (compile + round-trip) and NOTHING ELSE. Those need
+# only ACTS, not the dump, which makes a bare Windows box with a 60 MB download a
+# usable compile gate. It reports COMPILE OK, never PASS - stages 3-4 are what catch
+# a typo'd API name, and this script will not claim a pass without them.
+# Pair it with tools/check-dump.py, which runs stages 3-4 anywhere Python does.
 
 param(
     [Parameter(Mandatory = $true)][string]$Script,
     [string]$Acts   = "$PSScriptRoot\..\..\ACTS\bin\acts.exe",
-    [string]$Source = "$PSScriptRoot\..\..\bocw-source-main"
+    [string]$Source = "$PSScriptRoot\..\..\bocw-source-main",
+    [switch]$CompileOnly
 )
 
 # NOT 'Stop': acts writes benign warnings ("Can't read file data for cw") to stderr,
@@ -60,6 +67,16 @@ Remove-Item $rt -Recurse -Force -ErrorAction SilentlyContinue
 if ($LASTEXITCODE -ne 0) { Write-Host "ROUND-TRIP FAILED (bad bytecode)" -ForegroundColor Red; exit 1 }
 if (-not (Get-ChildItem $rt -Recurse -File -ErrorAction SilentlyContinue)) {
     Write-Host "ROUND-TRIP FAILED (decompiler produced nothing)" -ForegroundColor Red; exit 1
+}
+
+if ($CompileOnly) {
+    Write-Host ""
+    Write-Host "COMPILE OK - compiled to $out.gscc and round-tripped." -ForegroundColor Green
+    Write-Host ""
+    Write-Host "This is NOT a PASS. Stages 3-4 did not run, and they are the ones that" -ForegroundColor Yellow
+    Write-Host "catch a typo'd API name - which compiles clean and dies at runtime." -ForegroundColor Yellow
+    Write-Host "Run them with:  python3 tools/check-dump.py <script>" -ForegroundColor Yellow
+    exit 0
 }
 
 Write-Host "[3/4] resolving API calls against game source..." -ForegroundColor Cyan

@@ -182,3 +182,39 @@ GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/ProjectHiNAtyu/t9_b
 | `t9_bocw_gsc_wiki` | 624 KB | Notes only |
 
 ⚠ `--depth 1` throughout. History is not needed and the shallow packs are much faster through a proxy.
+
+---
+
+## Windows VPS as a compile gate — 60 MB, no dump needed
+
+The one check that cannot run in a Linux cloud session is `check-gsc.ps1` stages 1–2: `acts gscc`
+(compile) and `acts gscd` (round-trip). Both need **ACTS, a Windows binary**. Stages 3–4 need the
+720 MB dump but not Windows, and `tools/check-dump.py` already runs them anywhere Python does.
+
+**So the split is clean.** A bare Windows box needs ACTS and nothing else:
+
+```powershell
+git clone https://github.com/KL9modz/BOCW-Gunfight
+# put ACTS beside it so acts.exe lands at <parent>\ACTSincts.exe
+#   https://github.com/ate47/atian-cod-tools/releases  (pin v3.3.0)
+
+cd BOCW-Gunfight
+.	ools\check-gsc.ps1 .\src\lobby_probe\scripts\lobby_probe.gsc -CompileOnly
+```
+
+⚠ **`-CompileOnly` reports `COMPILE OK`, never `PASS`.** Stages 3–4 are what catch a typo'd API name —
+it compiles clean and dies at runtime — so the script refuses to claim a pass without them. Run
+`python3 tools/check-dump.py <script>` for those, on any machine with the dump.
+
+| Where | Can run | Cannot run |
+|---|---|---|
+| Linux cloud session | `check-args.py`, `check-dump.py` (stages 3–4), `dump-grep.sh`, `crack-hash.py` | anything needing ACTS |
+| Windows VPS + ACTS | stages 1–2 via `-CompileOnly` | stages 3–4 without the dump |
+| Dev PC (ACTS + dump) | **everything** — `check-gsc.ps1` full, all four stages | — |
+
+**The dev PC is still the only place a full `PASS` is possible.** The VPS closes the compile gap so a
+cloud session can stop ending every summary with "this has never been compiled" — it does not replace
+the full harness.
+
+⚠ Two Remote Control Windows boxes exist (`WIN-IK7N6SD2UBU`, `vmi3404923`). Neither has ACTS or the
+repo yet; the block above is the whole setup.

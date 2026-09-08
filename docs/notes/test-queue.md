@@ -298,5 +298,11 @@ then place the `.gscc` in `$GF_PAYLOADS` and inject per [`../../tools/README.md`
 ⚠ **A harness PASS is necessary, not sufficient** — it does not check argument counts, dialect, or
 anything about runtime. `src/README.md` → *What a harness PASS does and does not mean*.
 
+⚠ **Nothing here has been compiled.** `check-args.py` and `check-dump.py` both run clean, but neither
+compiles — so dialect and syntax are unchecked, and `src/README.md` records that two of three
+game-crashing defects were dialect. **Compile before injecting.** On the dev PC that is the full
+`check-gsc.ps1`; on a bare Windows box, `-CompileOnly` needs only ACTS
+([`setup-new-pc.md`](setup-new-pc.md) → *Windows VPS as a compile gate*).
+
 ⚠ Injecting begins host-side exposure — [`tac-risk-model.md`](tac-risk-model.md). Nothing here hides
 itself from the anti-cheat; that is out of scope by decision, not oversight.
