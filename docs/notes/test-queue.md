@@ -38,10 +38,14 @@ Writes `dump-report.md`. Greps stock call sites for `setteam`, `addtestclient`, 
 `getnumexpectedplayers`, `switchmap_*`, `kick`, the spectator functions, and any `getgametypesetting`
 call passing more than one argument.
 
-✅ **RUN 2026-09-08 against the ALTERNATE dump** (`shiversoftdev/t9-src` vm-38) — every section
-returned hits, and it changed three scripts before they were injected. Two retractions and one
-opening: [`dump-cross-check.md`](dump-cross-check.md). ⚠ **Still worth running against
-`ate47/bocw-source`**, which is primary; `bash tools/dump-grep.sh` with no argument does exactly that.
+✅ **RUN 2026-09-08, against BOTH dumps.** [`dump-cross-check.md`](dump-cross-check.md) has the
+findings — a real team-size lead (`maxsquadplayers`), one confirmed retraction (`setteam` is an entity
+function), and **one retraction that was itself wrong** (`gunfight_3v3` is real; the alternate dump
+just leaves it hashed).
+
+⚠ **The lesson, and it cost a wrong code change: grep `ate47/bocw-source`, not the alternate.**
+`bash tools/dump-grep.sh` with **no argument** defaults to the primary for exactly this reason.
+Absence in `shiversoftdev/t9-src` is evidence of nothing.
 
 **Two things to look at first:**
 
@@ -73,7 +77,7 @@ Validate offline first — it calls builtins **no stock script calls**, so stage
 | `3xxxxx` `numremoteclients()` | **unknown** | `______` |
 | `4xxxxx` `getnumconnectedplayers()` | **unknown** | `______` |
 | `5xxxxx` flags | 1=teambased + 2=private → expect **3** | `______` |
-| `6xxxxx` **`maxsquadplayers`** | **the team-size lead.** `3` in a 3v3 lobby = try `setgametypesetting( #"maxsquadplayers", 4 )` next. Anything else = not the lever | `______` |
+| `6xxxxx` **`maxsquadplayers`** | **the team-size lead.** Confirmed a real `uint:6` field in `ddl/mp_custom_game.ddl` (max 63, custom-games struct). `3` in a 3v3 lobby = try `setgametypesetting( #"maxsquadplayers", 4 )` next. Anything else = not the lever | `______` |
 | `9xxxxx` **gametype bitmask** | see below | `______` |
 
 **Read the controls before the payload.** Bit 0 (`gunfight`) and bit 1 (`tdm`) must be SET; bit 7

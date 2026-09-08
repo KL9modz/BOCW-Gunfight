@@ -17,6 +17,11 @@
 
 set -u
 
+# ⚠ DEFAULT TO THE PRIMARY DUMP, AND MEAN IT. Running this against
+# shiversoftdev/t9-src on 2026-09-08 produced a confident, wrong retraction:
+# gunfight_3v3 is REAL, but the alternate dump leaves it as an unresolved hash so
+# the literal grep found nothing. ate47/bocw-source resolves far more names.
+# ABSENCE IN THE ALTERNATE DUMP IS EVIDENCE OF NOTHING.
 DUMP="${1:-$(cd "$(dirname "$0")/../.." && pwd)/bocw-source-main}"
 OUT="$(cd "$(dirname "$0")/.." && pwd)/dump-report.md"
 
@@ -112,8 +117,9 @@ section "allowspectateteam / allowspectateallteams / spawnspectator" \
 # headline of lobby_probe (test A1) with no game at all.
 printf '\n## Gunfight gametype strings present in the dump\n\n' >> "$OUT"
 printf 'If anything beyond `gunfight` and `gunfight_3v3` appears here, it pre-answers the\nheadline of `lobby_probe` (test A1) with no game required.\n\n```\n' >> "$OUT"
-grep -rEoh '"gunfight[a-z0-9_]*"|#"gunfight[a-z0-9_]*"' $ROOTS --include='*.gsc' --include='*.csc' 2>/dev/null \
+grep -rEoh '#?"gunfight[a-z0-9_]*"' $ROOTS --include='*.gsc' --include='*.csc' 2>/dev/null \
     | sort | uniq -c | sort -rn >> "$OUT"
+printf '```\n\n⚠ A name the dump left as an unresolved `hash_...` will NOT appear here. Absence is not\nabsence in the game - see docs/notes/dump-cross-check.md finding 1.\n```\n' >> "$OUT"
 printf '```\n' >> "$OUT"
 echo "  gunfight strings: $(grep -rEoh '"gunfight[a-z0-9_]*"' $ROOTS --include='*.gsc' 2>/dev/null | sort -u | wc -l | tr -d ' ') distinct"
 

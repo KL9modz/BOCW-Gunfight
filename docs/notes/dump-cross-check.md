@@ -9,28 +9,31 @@ recorded now because three of the five findings **changed code that was about to
 
 ---
 
-## 1 · 🪦 RETRACTION — `gunfight_3v3` is not in this dump
+## 1 · ⚠️ A RETRACTION THAT WAS ITSELF WRONG — `gunfight_3v3` does exist
 
-**Zero occurrences**, anywhere. `player_record.gsc:602` carries only:
+**This section first claimed `gunfight_3v3` is not a gametype string. That was wrong, and the primary
+dump says so plainly:**
 
-```gsc
-case "gunfight":
+```
+scripts/mp_common/player/player_record.gsc:589      case #"gunfight_3v3":
+hashed/script/script_74453936abc39adf.gsc:68        case #"gunfight_3v3":
 ```
 
-The project has repeated *"`gunfight` and `gunfight_3v3` are two distinct gametype strings, both in
-`player_record.gsc`'s switch"* across [`menu-map.md`](menu-map.md), `.claude/CLAUDE.md` and
-[`atian-menu-source.md`](atian-menu-source.md) — and it was baked into `test_switchmap`'s target
-string, which would have made **test C6 switch to a gametype that does not exist**.
+**What went wrong, and it is the lesson of this whole note.** The alternate dump leaves that name as
+an *unresolved hash*, so a grep for the literal `"gunfight_3v3"` found nothing there. This note's own
+caveat said *"absence in the alternate dump is not proof of absence in the game"* — and then the
+finding was written up and pushed into `test_switchmap`'s target anyway.
 
-⚠ **Scoped honestly:** absence in the alternate dump is not proof of absence in the game. A hashed
-form (`hash_…`) would not match the grep. But a sibling case would be expected in plain form next to a
-plain `"gunfight"`, so the plain-string claim is the part that does not survive.
+**Absence in the alternate dump is evidence of nothing.** `ate47/bocw-source` resolves far more names;
+`shiversoftdev/t9-src` is a cross-check for what it *does* resolve, never an authority on what it does
+not. Run `bash tools/dump-grep.sh` with **no argument** — it defaults to the primary dump for exactly
+this reason.
 
-**Note the stock UI still offers a "3v3 Gunfight" playlist** — that is observed, and
-[`menu-map.md`](menu-map.md)'s 8-slot lobby came from selecting it. A playlist name is not a gametype
-string. The two were conflated.
+`test_switchmap` targets `"gunfight_3v3"` again.
 
-**`test_switchmap` now targets `"gunfight"`.**
+⚠ Note the *hashed* form `#"gunfight_3v3"` is what appears in the switch. Whether `switchmap_load`
+wants the plain string or the hash is untested — test C6 ships the plain form, which is what
+`func_set_gametype()` passes in the Atian source.
 
 ## 2 · 🔓 The 3-per-team limit is NOT enforced by team assignment
 
@@ -68,7 +71,8 @@ for a two-team mode), and not `function_efe5a681`.
 
 ## 3 · 🪦 RETRACTION — `setteam` is an ENTITY function
 
-**55 stock call sites. Every one sets the team of a world object:**
+**55 call sites in the alternate dump, 132 in the primary — and the picture is the same in both.
+Every one sets the team of a world object:**
 
 ```gsc
 supplypod   setteam( attackingplayer getteam() );      // supplypod.gsc:148
@@ -163,10 +167,27 @@ the mistake that produced the `gunfight_3v3` retraction above.
 So the gate that refuses a joining player uses 8, and `maxsquadplayers` bounds squad size inside the
 distribution logic.
 
-**Why it is still the best candidate this project has for the 3.** For Gunfight a team *is* a squad —
-that is what the mode is. And unlike `com_maxclients`, `maxsquadplayers` is a **gametype setting**,
-which means `setgametypesetting()` can write it at runtime; the project has already proven that path
-lands in ~0.25s for `#"timelimit"` (`.claude/CLAUDE.md` → *Timer*).
+### ✅ Confirmed a real, writable custom-games field
+
+The hash appears in the DDL — **and in the custom-games struct specifically**:
+
+```
+ddl/mp_custom_game.ddl:3446     uint:6 hash_3a4691a853585241;
+```
+
+**`uint:6` — max 63.** So 4, 5 and 6 are all in range, and the field lives in `mp_custom_game.ddl`,
+which is this project's exact context.
+
+⚠ **Note the asymmetry with `maxteamplayers`.** [`team-sizes.md`](team-sizes.md) records that
+`level.maxteamplayers` is *"absent from `custom_games.ddl`"* — and it is: `maxteamplayers` sits in
+`mp_gametype_settings.ddl:2926`, not the custom-games struct. **`maxsquadplayers` is the other way
+round.** The squad cap is a custom-game setting; the team cap is not. For a project that is
+private-matches-only, that asymmetry favours the squad cap.
+
+**Why it is the best candidate this project has for the 3.** For Gunfight a team *is* a squad — that
+is what the mode is. And unlike `com_maxclients`, this is a **gametype setting**, so
+`setgametypesetting()` can write it at runtime; the project has already proven that path lands in
+~0.25s for `#"timelimit"` (`.claude/CLAUDE.md` → *Timer*).
 
 **Read it before writing it.** `lobby_probe` probe `6xxxxx` now does. In a 3v3 Gunfight lobby:
 
