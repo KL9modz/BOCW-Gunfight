@@ -14,11 +14,17 @@ that is the check that caught `scene_model_shared`.
 
 **Setup for anything injected:** [`menu-map.md`](menu-map.md) → *PROCEDURE*.
 
-### The four results that would actually move a goal
+### The five results that would actually move a goal
 
+0. **A1's probe `6xxxxx` reading 3** — `maxsquadplayers` is a runtime-writable gametype setting that
+   bounds squad size, and for Gunfight a team *is* a squad. Reading 3 in a 3v3 lobby makes it the
+   lever this project has been hunting from the start, and the next step is **one
+   `setgametypesetting` call**, not a new mechanism. **The cheapest path to the goal that has ever
+   been on the table.** [`dump-cross-check.md`](dump-cross-check.md)
 1. **A1's bitmask above 7** — a stock Gunfight variant at 4v4 or larger turns the goal into a string.
 2. **C6 reading `100012` after the switch** — team size becomes script-reachable.
-3. **C8's probe 6 reading 1** — 4v4 from the lobby you already have.
+3. **C8's probe `3xxxxx` reaching 4** — a team holds four, so 8 clients is 4v4 from the lobby you
+   already have. ⚠ That probe number changed when `test_setteam` became `test_teamfill`.
 4. **B4 keeping the carried map** — the hosting procedure loses its DLL prerequisite.
 
 Everything else is worth knowing but does not move a goal.
@@ -77,7 +83,8 @@ Validate offline first — it calls builtins **no stock script calls**, so stage
 | `3xxxxx` `numremoteclients()` | **unknown** | `______` |
 | `4xxxxx` `getnumconnectedplayers()` | **unknown** | `______` |
 | `5xxxxx` flags | 1=teambased + 2=private → expect **3** | `______` |
-| `6xxxxx` **`maxsquadplayers`** | **the team-size lead.** Confirmed a real `uint:6` field in `ddl/mp_custom_game.ddl` (max 63, custom-games struct). `3` in a 3v3 lobby = try `setgametypesetting( #"maxsquadplayers", 4 )` next. Anything else = not the lever | `______` |
+| `6xxxxx` **`maxsquadplayers`** | **the team-size lead.** Real `uint:6` field (max 63), present in `custom_games.ddl` where `maxteamplayers` is absent — and the *only* unresolved `uint:6` in that struct. **`3` in a 3v3 lobby → try `setgametypesetting( #"maxsquadplayers", 4 )` next.** Anything else = not the lever | `______` |
+| `7xxxxx` **`maxplayers`** | never read by this project. `uint:4` (max 15) in `custom_games.ddl`, `uint:7` (max 127) in `mp_custom_game.ddl`. ⚠ Its only *known* consumer is challenge logic, so it may gate nothing — but it is free to read | `______` |
 | `9xxxxx` **gametype bitmask** | see below | `______` |
 
 **Read the controls before the payload.** Bit 0 (`gunfight`) and bit 1 (`tdm`) must be SET; bit 7
