@@ -128,36 +128,105 @@ rather than leaving the row blank, so the next reader can tell "checked, not the
 
 | Question | Answer |
 |---|---|
-| What opens this menu (key/button)? | `_____` |
-| Does it open in-lobby, in-match, or both? | `_____` |
-| Host-only, or joiners too? | `_____` |
-| Is it stock BOCW UI, or drawn by an injected DLL? | `_____` |
+| What opens this menu (key/button)? | **ADS + Melee** held together (default PC: RMB + V) |
+| Does it open in-lobby, in-match, or both? | In-match — confirmed. In-lobby not tested |
+| Host-only, or joiners too? | Not tested; the lobby was single-player |
+| Is it stock BOCW UI, or drawn by an injected DLL? | **NEITHER — an injected GSC script** |
 
-> ⚠ **This one gates everything else.** If it is stock BOCW UI, this index is the only record that
-> will ever exist and walking it is the whole job. If it is an injected mod menu, its behaviour may be
-> readable from that tool's source instead — say which tool and the work changes shape completely.
+#### ✅ ANSWERED 2026-09-08 — it is the Atian Menu, and its source is public
+
+**Not stock UI, not a DLL overlay.** It is `BlackOpsColdWar_atianmenu_pc.gscc`, a precompiled GSC mod
+menu, downloaded and injected by the desktop session on 2026-09-08.
+
+| | |
+|---|---|
+| Tool | [`ate47/t8-atian-menu`](https://github.com/ate47/t8-atian-menu) — **same author as ACTS** |
+| Asset | `BlackOpsColdWar_atianmenu_pc.gscc`, release tag `latest_build`, **66,320 bytes** |
+| Header | `80 47 53 43 0d 0a 00 38` — `cw::GSC_MAGIC`, last byte `38` = VM38 retail |
+| Injected as | `acts injectcw <gscc> scripts\mp_common\bb.gsc scripts\core_common\clientids_shared.gsc` |
+| Reliability | Injected cleanly every attempt. **Must be re-injected after every game restart**, and the match restarted afterwards so the script links |
+
+**⚠ This corrects the headline of this note.** It states the carry happened *"with no GSC, no DLL, and
+no injector."* That is wrong. It was **entirely GSC and the injector** — the Mansion → Hijacked map
+change was performed *by this injected mod menu*. The menu is not a property of the game; it is
+something we installed. Anyone reproducing the carry must inject the Atian Menu first.
+
+The mechanism is still real and still closes the map goal without `cwdllgt`. But it is not stock, not
+free, and does not survive a restart on its own.
+
+Per this section's own gate — *"if it is an injected mod menu, its behaviour may be readable from that
+tool's source"* — **it is readable.** The repo is public, so structure and keybinds come from source
+rather than from walking. Read from source, not observed:
+
+**[`scripts/config/keys.gsc`](https://github.com/ate47/t8-atian-menu/blob/master/scripts/config/keys.gsc), verbatim:**
+
+```gsc
+self.menu_open   = "ads+melee";
+self.parent_page = "melee";
+self.last_item   = "ads";
+self.next_item   = "attack";
+self.select_item = "use";
+```
+
+| Action | Game action | Default PC key |
+|---|---|---|
+| Open | ADS + Melee | RMB + V |
+| Up (`last_item`) | ADS | RMB |
+| Down (`next_item`) | Attack | LMB |
+| **Select** (`select_item`) | Use | **R** — see below |
+| Back (`parent_page`) | Melee | V |
+
+**⚠ `select_item = "use"` does NOT mean F.** On BOCW PC the `use` action resolves to **R (Reload)**.
+Confirmed in-game 2026-09-08 after F, E and Space all failed. This one fact is what made the menu look
+broken: it opened and scrolled but appeared to select nothing.
 
 ### B — Screens
 
+The root screen is **paged**, titled `---- Atian Menu CW (n/N) ----`. Observed 2026-09-08: `(4/4)`,
+i.e. four pages. Paging is the same up/down inputs; there is no separate page control.
+
 | # | Screen title | Reached from | Notes |
 |---|---|---|---|
-| 1 | `_____` | root | `_____` |
-| 2 | `_____` | `_____` | `_____` |
+| 1 | `Atian Menu CW (1/4)` | root | **NOT WALKED** |
+| 2 | `Atian Menu CW (2/4)` | root, scroll | **NOT WALKED** |
+| 3 | `Atian Menu CW (3/4)` | root, scroll | **NOT WALKED** |
+| 4 | `Atian Menu CW (4/4)` | root, scroll | Observed. Contains `Vehicle`, `Map` |
+
+⚠ Pages 1–3 are unwalked. The README's feature list (Tools / Give weapons / Gun tool / Teleport tool /
+Loading / Customization / Internal tools) is written for the **BO4** build and did **not** match what
+page 4 showed, so do not assume it describes the CW tree.
 
 ### C — Entries
 
 | Screen | Entry label | Input | Values offered | Greyed? | Effect observed |
 |---|---|---|---|---|---|
-| `_____` | `_____` | `_____` | `_____` | `_____` | `_____` |
+| `(4/4)` | `Vehicle` | not selected | unknown | no | not tested |
+| `(4/4)` | `Map` | R (select) | unknown — list not recorded | no | **map changed mid-match, Mansion → Hijacked** |
 
 ### D — The two entries this project actually needs
 
 | Target | Found? | Screen | Input | Values | Notes |
 |---|---|---|---|---|---|
-| **Map change** | ✅ works — used for Mansion → Hijacked | `_____` | `_____` (see inherited note below) | `_____` | Did the full map list appear, or only Gunfight's ten? |
-| **Gametype / mode change** | ❌ **NOT FOUND** — this is the open ask | `_____` | `_____` | `_____` | Absent entirely, or present and greyed? The two mean different things |
-| **Team size / max players** | `_____` | `_____` | `_____` | `_____` | Cross-check against probe 1 rather than trusting the label |
-| **Round timer** | `_____` | `_____` | `_____` | expect `0/20/30/40/50/60` | Confirmed live-settable; menu exposure confirmed |
+| **Map change** | ✅ works — Mansion → Hijacked | `(4/4)`, entry `Map` | **R** to select | list NOT recorded | Open: did the full map list appear, or only Gunfight's ten? Hijacked is not a Gunfight map, so the list is **not** limited to the ten |
+| **Gametype / mode change** | ⚠️ **NOT ABSENT — NOT YET LOOKED FOR** | pages 1–3 unwalked | — | — | See below. Do not record `ABSENT` yet |
+| **Team size / max players** | not looked for | pages 1–3 unwalked | — | — | Cross-check against probe 1 rather than the label |
+| **Round timer** | not looked for | pages 1–3 unwalked | — | — | expect `0/20/30/40/50/60` |
+
+#### ⚠ On the gametype row — the previous status was wrong
+
+The prior version recorded **`❌ NOT FOUND`**. That overstates what happened: the walk reached page 4
+of 4, saw no gametype entry *on that page*, and ended when the session went offline. **Pages 1–3 were
+never opened.** "Not found on one of four pages" is not "not found".
+
+Two reasons to expect it exists:
+
+1. The upstream feature list is *"Set map/gametype"* — a **single combined feature**, not two entries.
+   The `Map` entry on page 4 may itself carry the gametype option, in which case the answer is one
+   `R` press away on a screen already reached.
+2. The README lists set-gametype for the tool generally, and the CW build is the same codebase.
+
+So the next walk should (a) select `Map` and record what its submenu actually offers, then (b) walk
+pages 1–3. Only record `ABSENT` once all four pages and the `Map` submenu have been seen.
 
 ## Inherited context — UNVERIFIED, carried from a lost session
 
@@ -171,6 +240,25 @@ Read as: the **R key** (bound to Reload in gameplay) reaches the map-change cont
 context. **This is a summary of a claim, not a verified finding** — the reasoning behind it is gone.
 Re-confirm it on the next walk before building on it, and if it holds, it belongs in table D above
 with the screen it applies to.
+
+### ✅ CONFIRMED and corrected 2026-09-08 — that machine came back
+
+The desktop session reconnected and its transcript is intact. The state card was right about the key
+and **wrong about the scope**:
+
+> **R is the menu's global SELECT key. It is not a map-change control.**
+
+It is `select_item`, which [`keys.gsc`](https://github.com/ate47/t8-atian-menu/blob/master/scripts/config/keys.gsc)
+defines as `"use"` — and on BOCW PC the `use` action resolves to **R (Reload)**, not F. It selects
+*any* entry anywhere in the menu. The map change was simply the first thing selected with it.
+
+The distinction matters: read as "R remaps to map change", the next walker looks for a dedicated
+map-change binding that does not exist and cannot select anything else. Read correctly, R selects
+everything, and the rest of the tree becomes walkable.
+
+The discovery cost real time — F, E and Space were all tried first, because `select_item = "use"`
+reads like F to anyone who knows CoD's default Interact key. Worth keeping in the note for exactly
+that reason.
 
 ## Adjacent controls that are NOT this menu
 
