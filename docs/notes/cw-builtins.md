@@ -135,7 +135,7 @@ non-private session — turning a procedural rule into a mechanical one.
 | **1** | **`lobby_probe`** — four player counts, gametype bitmask, session flags | **none, read-only** | Whether `com_maxclients` is the whole story, and whether a larger stock Gunfight variant exists |
 | **2** | `getgametypeenumfromname( "gunfight", ? )` | read-only | Confirms the enum live; resolves anything test 1 turns up |
 | **3** | `mapexists()` over the 48 names in the Atian source | read-only | Which of them this build actually has |
-| **4** | `map_restart()` in a carried lobby | restarts a match | Whether cwpatch/F7 can be dropped from the procedure |
+| **4** | `map_restart()` in a carried lobby — [`../../src/test_maprestart/`](../../src/test_maprestart/) | restarts a match | Whether cwpatch/F7 can be dropped from the procedure |
 | **5** | `switchmap_load( get_map_name(), "gunfight_3v3" )` in a 12-slot TDM lobby | reloads the session | **The team-size question.** [`atian-menu-source.md`](atian-menu-source.md) |
 | **6** | `addtestclient()` in a loop until refusal — [`../../src/test_addclients/`](../../src/test_addclients/) | adds clients | The **real** client ceiling, measured rather than read |
 | **7** | `setteam()` on a spectator client — [`../../src/test_setteam/`](../../src/test_setteam/) | changes assignment | Whether 8 clients can be 4v4 |

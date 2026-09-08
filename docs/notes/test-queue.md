@@ -124,23 +124,31 @@ a hard prerequisite for the entire workflow — and Battle.net silently reverts
 `discord_game_sdk.dll` on repair, so the whole recipe breaks with no obvious cause. Removing that
 dependency makes the setup one step shorter and one failure mode smaller.
 
-**Needs a small project of its own** — it is a write, and the standing rule is one payload, one
-behaviour. The body is:
+`src/test_maprestart/` · ships with `read_only = 1`.
 
-```gsc
-// after the carry has happened
-wait( 10 );
-map_restart( 0 );     // ⚠ arg shape unknown; A0 may show stock passing something else
-```
+**Procedure:** run steps 1–5 of the hosting recipe, **carry to a map**, then inject this instead of
+pressing F7.
 
-**Procedure:** run steps 1–5 of the hosting recipe, carry to a map, inject this instead of pressing
-F7, and see what loads.
+⚠ **Why it needs a dvar.** To answer "did the carried map survive" the script must compare the map
+before the restart with the map after. `level` is rebuilt per round (mp_probe probe 6, answered), so
+`level.*` cannot carry a value across; whether `__init__` state survives is still probe 8's open
+question. So the previous map name is parked in `scr_gf_prevmap`, which is process-level.
 
-| Outcome | Means |
+⚠ That is **not** the closed loop `mp_probe.gsc` warns about: we store map A, the engine reloads, and
+we compare our stored A against a **fresh `util::get_map_name()` from the engine**. The comparison is
+against engine-owned state, so it is evidence.
+
+It emits on every `on_start_gametype`; you want two readings.
+
+| Run 2 reads | Means |
 |---|---|
-| carried map survives | **cwpatch comes out of the critical path.** Update the procedure |
-| lobby's original map loads | `map_restart` goes through the lobby like the menu does; F7 stays required |
-| nothing happens | the argument is wrong, or it is host-only. Check A0's call sites |
+| `100001 / 200001` | **carried map SURVIVED.** cwpatch comes out of the critical path — update the procedure |
+| `100001 / 200000` | `map_restart` reloaded the lobby's own map, like the lobby route does. F7 stays required |
+| `100000 / 2xxxxx` | the **dvar** did not survive the restart. A result about dvar lifetime, not about the map — the test needs a different carrier before it can answer B4 |
+| no run 2 at all | nothing restarted, or the script did not re-link. **Check the hook before concluding the call failed** |
+
+⚠ Calls the **no-argument** form — 0–1 args, and 0 args is the only one that cannot be wrong about an
+argument. `pass_arg` / `arg_value` are there if A0 shows stock passing something.
 
 Result: `______`
 

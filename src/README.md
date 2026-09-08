@@ -11,10 +11,14 @@ gunfight_mod/     the real mod. ✅ ALL FOUR SWITCHES VERIFIED 2026-09-08 —
                   3v3 Gunfight on Zoo, 60s rounds, timed out cleanly, correct HUD
 
   ── staged tests. ONE PER MATCH. Each WRITES. Lobby return after each. ──
+test_maprestart/  B4 · can map_restart replace F7, and drop the cwpatch prerequisite?
 test_switchmap/   C6 · gametype switch in a 12-slot TDM lobby. THE team-size question
 test_addclients/  C7 · fill until refused — the real client ceiling, measured
 test_setteam/     C8 · move a client between teams — is 8 clients 4v4?
 ```
+
+B4 is the odd one out: it answers nothing about team size, it makes the **setup** shorter. Every other
+test costs a session; that one pays a session back on every future run.
 
 **The queue, with what each reading means:** [`../docs/notes/test-queue.md`](../docs/notes/test-queue.md).
 
@@ -22,7 +26,7 @@ test_setteam/     C8 · move a client between teams — is 8 clients 4v4?
 that can only do one thing cannot accidentally do another. The "one write per match" rule is then
 mechanical rather than a matter of remembering.
 
-⚠ **`test_switchmap` and `test_setteam` ship with `read_only = 1`.** Run them that way first — the
+⚠ **`test_maprestart`, `test_switchmap` and `test_setteam` ship with `read_only = 1`.** Run them that way first — the
 read-only phase is what confirms you are in the right lobby, and for `test_setteam` it is what settles
 the argument shape. Flip the switch only after the read phase comes back sane.
 
@@ -31,8 +35,9 @@ Cold War function table rather than from `bocw-source`. **Run `tools/check-gsc.p
 injecting** — stage 4 is exactly the check for a name that does not exist, and it is the check that
 caught `logprint`.
 
-⚠ **Two argument shapes are still unvalidated**: `addtestclient` (called in its zero-arg form, the
-only one that cannot be wrong) and `map_restart`. `setteam` is *not* in that list — `test_setteam`
+⚠ **Two argument shapes are still unvalidated**: `addtestclient` and `map_restart`. Both are called
+in their **zero-argument** form, which is the only one that cannot be wrong about an argument, and
+both carry a config switch for the one-arg form if `dump-grep.sh` shows stock passing something. `setteam` is *not* in that list — `test_setteam`
 reads a team value off an existing player and passes it back rather than guessing a representation.
 `tools/dump-grep.sh` resolves all of them from stock call sites; run it first if the dump is to hand.
 
