@@ -38,6 +38,11 @@ Writes `dump-report.md`. Greps stock call sites for `setteam`, `addtestclient`, 
 `getnumexpectedplayers`, `switchmap_*`, `kick`, the spectator functions, and any `getgametypesetting`
 call passing more than one argument.
 
+✅ **RUN 2026-09-08 against the ALTERNATE dump** (`shiversoftdev/t9-src` vm-38) — every section
+returned hits, and it changed three scripts before they were injected. Two retractions and one
+opening: [`dump-cross-check.md`](dump-cross-check.md). ⚠ **Still worth running against
+`ate47/bocw-source`**, which is primary; `bash tools/dump-grep.sh` with no argument does exactly that.
+
 **Two things to look at first:**
 
 - **The `gunfight*` string list.** Anything beyond `gunfight` and `gunfight_3v3` **pre-answers A1's
@@ -212,25 +217,30 @@ match.
 call sites. **Also the mechanism Phase 3's "bots before humans" always assumed and never had** — if
 this works, every later test gets cheaper.
 
-### C8 · `setteam()` — is 8 clients actually 4v4?
-`src/test_setteam/` · [`cw-builtins.md`](cw-builtins.md) §5
+### C8 · the PER-TEAM ceiling — can four stand on one team?
+`src/test_teamfill/` · [`dump-cross-check.md`](dump-cross-check.md)
 
-**This script never guesses the argument.** It reads a team value off a player who already has one and
-passes that back — whatever representation the engine uses is the representation it gets. Probe 3
-additionally *reports* which representation it is, by comparison rather than display, since a hashed
-team name cannot render on retail but `x === #"allies"` evaluates fine.
+⚠ **This replaces the earlier `test_setteam`, which was built on a wrong premise.** `setteam` has 55
+stock call sites and every one sets the team of a *world object*. The player path is
+`teams::change()`. The grep caught it before a match was spent on it.
 
-**Run with `read_only = 1` first.** Phase 1 writes nothing and is what settles the argument shape.
+**The dump says the 3-per-team limit is not enforced by team assignment.**
+`function_d36b6597()` returns `com_maxclients` for a two-team mode, and `team_assignment.gsc:148`
+refuses a team only at `team_players.size >= 8`. So this test does not try to *force* anything — it
+puts bots on one team with `bot::add_bot( team )` until the engine refuses, and reads where it lands.
+
+**Run with `read_only = 1` first** to confirm the team value is the right representation.
 
 | Read | Means | Result |
 |---|---|---|
-| `3xxxxx` representation | 1=`#"allies"` 2=`#"axis"` 4=`"allies"` 8=`"axis"`. **0 = none matched, and that is itself the finding** — stop and record | `______` |
-| `4xxxxx` on the donor team before | team distribution | `______` |
-| `6xxxxx` **did the team change** | **the answer.** 1 = team assignment is script-writable | `______` |
-| `7xxxxx` on that team after | confirms the move landed rather than the read being stale | `______` |
+| `2xxxxx` on the team before | baseline | `______` |
+| `3xxxxx` on the team after | **the answer.** ≥4 = a team holds four, and 8 clients is 4v4 | `______` |
+| `4xxxxx` total players after | if this hit `com_maxclients`, the TOTAL cap bit first and the run says nothing about the per-team limit — free up slots and rerun | `______` |
+| `5xxxxx` attempts | `______` |
 
-⚠ Needs at least two clients on different teams. **Run C7 first** — with bots in the lobby this test
-has something to move; solo it returns 99999 on probe 6 and tells you nothing.
+⚠ `3xxxxx` stopping at 3 does **not** mean the goal is unreachable — it means something enforces three
+that the dump does not show, and *that* is the finding. Candidates are in
+[`dump-cross-check.md`](dump-cross-check.md)'s *Untried* list.
 
 ### C9 · The lobby glitch + `mp_probe`
 [`menu-map.md`](menu-map.md)

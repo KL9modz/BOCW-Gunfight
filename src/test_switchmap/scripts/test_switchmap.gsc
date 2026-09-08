@@ -68,10 +68,16 @@ function private run()
 {
     // ── config. Plain locals, not preprocessor macros - see test_addclients.gsc.
 
-    // The gametype to switch to. gunfight and gunfight_3v3 are the two strings
-    // known to exist, both from mp_common/player/player_record.gsc's switch.
-    // If lobby_probe's bitmask turns up another, try that here.
-    target = "gunfight_3v3";
+    // ⚠ CORRECTED 2026-09-08. This said "gunfight_3v3", on the project's claim that
+    //   player_record.gsc's switch carries both that and "gunfight". A dump grep
+    //   (shiversoftdev/t9-src vm-38) finds ZERO occurrences of gunfight_3v3 anywhere,
+    //   and player_record.gsc:602 carries only `case "gunfight":`.
+    //   See docs/notes/dump-cross-check.md.
+    //
+    //   Cross-check against ate47/bocw-source before treating that as settled - this
+    //   is the alternate dump, which .claude/CLAUDE.md rates "more hashed". But a
+    //   sibling case would be expected in plain form next to a plain "gunfight".
+    target = "gunfight";
 
     // ⚠ RUN WITH THIS AT 1 FIRST. It reports the lobby state and switches nothing,
     //   which confirms you are in the right lobby before spending a session reload.

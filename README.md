@@ -125,10 +125,27 @@ both via `$PSScriptRoot\..\..`:
 ```
 <parent>/
 ├── ACTS/                 60 MB   compiler + injector (pin the version — currently v3.3.0)
-├── bocw-source-main/    664 MB   decompiled T9 dump (721 MB on disk; stage 3 reads only
-│                                 scripts/, 29 MB — the rest is dead weight if disk is tight)
+├── bocw-source-main/    664 MB   PRIMARY decompiled T9 dump (721 MB on disk; stage 3 reads
+│                                 only scripts/, 29 MB — the rest is dead weight if disk is tight)
+│
+│   ── reference clones. None is required to build; each answers something the ──
+│   ── primary dump cannot. All public, all `git clone --depth 1`.            ──
+├── t8-atian-menu/         8 MB   ate47's mod menu. The GSC we inject for the map carry, AND
+│                                 docs/notes/funcs_cw.csv — 4,481 CW builtins with argument
+│                                 counts and addresses. tools/check-args.py needs this file
+├── t9-src/               74 MB   shiversoftdev's ALTERNATE dump (vm-37/ + vm-38/). Cross-check
+│                                 only — more hashed than the primary. Already caught two
+│                                 wrong claims: docs/notes/dump-cross-check.md
+├── atian-cod-tools/      28 MB   ACTS source. The bocw DLL, and why the powrprof proxy crashes
+├── cold-war-mods/       111 MB   ModzCentral01. Working example of the load path, Zombies-weighted
+└── t9_bocw_gsc_wiki/    624 KB   ProjectHiNAtyu. Notes only
 └── BOCW-Gunfight/                this repo
 ```
+
+⚠ **Reference material is cheap and being wrong is not.** The cross-check run on 2026-09-08 corrected
+three scripts *before* they were injected — a gametype string that does not exist, an entity function
+mistaken for a player one, and a raw builtin call that skipped stock's initialisation. None of that
+was visible from the primary dump alone.
 
 ```powershell
 .\tools\check-gsc.ps1 .\src\gunfight_tweaks.gsc   # compile + round-trip + resolve every API call

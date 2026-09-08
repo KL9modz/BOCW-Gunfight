@@ -43,6 +43,10 @@ These are **not** auto-loaded. Open the one you need.
 - [menu-map](menu-map.md) — the **Atian Menu**: the map carry that puts Gunfight on any of the
   offered maps, the confirmed end-to-end procedure (3v3 Gunfight on Zoo, 60s rounds), the three traps,
   and what the walk settled. Carries an **Untried — not ruled out** list; nothing there is closed.
+- [dump-cross-check](dump-cross-check.md) — **the A0 grep, run against the alternate dump.** Two
+  retractions (`gunfight_3v3` is not there; `setteam` is an entity function) and one opening: the
+  per-team cap resolves to `com_maxclients`, so **nothing in team assignment enforces 3-per-team**.
+  Changed three scripts before they were injected.
 - [cw-builtins](cw-builtins.md) — survey of ate47's **Cold War builtin table** (4,481 functions with
   binary addresses). Four player-count builtins where this project used one; `isvalidgametype()` to
   test a gametype string with zero risk; `addtestclient()` for the bots the test plan always assumed;

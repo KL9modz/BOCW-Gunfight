@@ -14,7 +14,7 @@ gunfight_mod/     the real mod. ✅ ALL FOUR SWITCHES VERIFIED 2026-09-08 —
 test_maprestart/  B4 · can map_restart replace F7, and drop the cwpatch prerequisite?
 test_switchmap/   C6 · gametype switch in a 12-slot TDM lobby. THE team-size question
 test_addclients/  C7 · fill until refused — the real client ceiling, measured
-test_setteam/     C8 · move a client between teams — is 8 clients 4v4?
+test_teamfill/    C8 · fill ONE team until refused — is 8 clients 4v4?
 ```
 
 B4 is the odd one out: it answers nothing about team size, it makes the **setup** shorter. Every other
@@ -26,7 +26,7 @@ test costs a session; that one pays a session back on every future run.
 that can only do one thing cannot accidentally do another. The "one write per match" rule is then
 mechanical rather than a matter of remembering.
 
-⚠ **`test_maprestart`, `test_switchmap` and `test_setteam` ship with `read_only = 1`.** Run them that way first — the
+⚠ **`test_maprestart`, `test_switchmap` and `test_teamfill` ship with `read_only = 1`.** Run them that way first — the
 read-only phase is what confirms you are in the right lobby, and for `test_setteam` it is what settles
 the argument shape. Flip the switch only after the read phase comes back sane.
 

@@ -14,10 +14,19 @@
 // stops at 6, the spectator slots are not player slots. If it reaches 8, they are,
 // and 8 clients is 4v4.
 //
-// ⚠⚠ UNVALIDATED ARGUMENT SHAPE. The function table says 0-2 args and says nothing
-//    about what they mean. This calls the ZERO-ARG form, which is the only one that
-//    cannot be wrong about an argument. If dump-report.md shows stock passing args,
-//    revisit before assuming the 0-arg form does the same thing.
+// ⚠⚠ CORRECTED 2026-09-08 - this called the raw builtin addtestclient() and that was
+//    a mistake. A dump grep found the ONE stock call site, and it is wrapped:
+//
+//      bot.gsc:137   bot = addtestclient(name, clanabbrev);
+//                    if(!isdefined(bot)) return undefined;
+//                    bot init_bot();                       <- SKIPPED by a raw call
+//
+//    The public API is bot::add_bot(team, name, clanabbrev) - it runs init_bot(),
+//    sets bot.botteam, and handles class selection. Stock calls it as
+//    bot::add_bot(team) from dev.gsc:1705, rat.gsc:76 and _prop_dev.gsc:1421.
+//    A raw addtestclient() produces a half-initialised bot. Use the wrapper.
+//
+//    See docs/notes/dump-cross-check.md.
 //
 // ⚠ THIS WRITES TO A LIVE SESSION. Bots may not leave cleanly; `kick` (1-2 args,
 //   +3b0a3a0) is the only obvious undo. Run alone. Test a lobby return after.
@@ -36,6 +45,7 @@
 #using scripts\core_common\callbacks_shared;
 #using scripts\core_common\system_shared;
 #using scripts\core_common\util_shared;
+#using scripts\core_common\bots\bot;
 
 #namespace test_addclients;
 
@@ -87,7 +97,9 @@ function private run()
 
     while ( tries < maxtries && stalled < 2 )
     {
-        addtestclient();
+        // undefined team = let team_assignment place it (autoassign). Passing a
+        // team here is TEST C8's job; this one measures the TOTAL ceiling.
+        bot::add_bot( undefined );
         tries++;
 
         wait( settle );

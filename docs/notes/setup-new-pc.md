@@ -155,3 +155,30 @@ The existing incomplete copy can stay where it is and be deleted later. Nothing 
 letting OneDrive and git sync the same `.git`. Re-cloning *in place* would create exactly the
 corruption hazard that rule exists to prevent — which is why the clone above targets a path outside
 OneDrive rather than replacing the existing folder.
+
+---
+
+## Reference clones — optional, but they have already paid for themselves
+
+None is needed to build or inject. Each answers something `bocw-source` cannot, and the 2026-09-08
+cross-check corrected three scripts before they reached the game
+([`dump-cross-check.md`](dump-cross-check.md)).
+
+```bash
+cd <parent>          # the folder holding bocw-source-main/ and BOCW-Gunfight/
+GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/ate47/t8-atian-menu
+GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/shiversoftdev/t9-src
+GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/ate47/atian-cod-tools
+GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/ModzCentral01/cold-war-mods
+GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/ProjectHiNAtyu/t9_bocw_gsc_wiki
+```
+
+| Clone | Size | What only it can answer |
+|---|---|---|
+| `t8-atian-menu` | 8 MB | The menu GSC we inject, and **`docs/notes/funcs_cw.csv`** — 4,481 Cold War builtins with argument counts and `BlackOpsColdWar.exe` addresses. **`tools/check-args.py` needs this file.** |
+| `t9-src` | 74 MB | Alternate dump, `vm-38/` = retail. Cross-check only, more hashed than primary — but `tools/dump-grep.sh` runs against it as `bash tools/dump-grep.sh <path>/t9-src/vm-38` |
+| `atian-cod-tools` | 28 MB | ACTS source: the bocw DLL, and why the `powrprof` proxy crashes ([`dll-proxy.md`](dll-proxy.md)) |
+| `cold-war-mods` | 111 MB | Working example of the load path. Zombies-weighted |
+| `t9_bocw_gsc_wiki` | 624 KB | Notes only |
+
+⚠ `--depth 1` throughout. History is not needed and the shallow packs are much faster through a proxy.

@@ -136,6 +136,13 @@ point (telefrag) is engine-internal. **Only the Phase 1 live test answers this.*
    Script only ever observes it. It is set by the engine at session creation and bites at *join* time,
    before the gametype script exists.
 
+🔓 **The 3-per-team limit is NOT enforced by team assignment.** `function_d36b6597()` returns
+`com_maxclients` for a two-team mode (`teamcount == 2`, `com_maxclients == 8`, `8 != 2`), and
+`team_assignment.gsc:148` refuses a team only at `team_players.size >= 8`. **Nothing in that path says
+three.** So 4v4 inside 8 client slots is not blocked at the script layer — what is blocked is a ninth
+client, and 4v4 needs only eight. Where the split actually comes from is narrowed, not answered:
+[[dump-cross-check]]. Test C8 asks the engine directly.
+
 ⚠ **`level.maxteamplayers` is a red herring** — `globallogic.gsc:240` sets it, but
 `function_d36b6597()` only consults it when `teamcount == 0` or `max_clients == teamcount`, i.e.
 **multiteam only** (`team_assignment.gsc:352`: `if ( level.multiteam && level.maxteamplayers > 0 )`).
@@ -232,6 +239,13 @@ is merely untried, it belongs in a note's **Untried — not ruled out** list ins
 - **`com_maxclients` from script** — read-only, 7 refs, zero writes. Not the 6v6 lever either.
 - **`xensik/gsc-tool` for T9** — support is marked **WIP**. Not the toolchain.
 - **`ProjectDonetsk/T9` (Defcon)** — archived, unmaintained. Its named successor **`xifil/t9-mod` 404s**.
+- **`gunfight_3v3` as a gametype string** — 🪦 **RETRACTED.** Zero occurrences in
+  `shiversoftdev/t9-src` vm-38; `player_record.gsc:602` carries only `case "gunfight":`. The stock UI
+  *playlist* named "3v3 Gunfight" is real and is where the 8-slot lobby comes from — a playlist name
+  is not a gametype string, and the two were conflated. ⚠ Confirm against `bocw-source`.
+  [[dump-cross-check]]
+- **`setteam` for moving a player between teams** — 🪦 **RETRACTED.** 55 stock call sites, all world
+  objects. The player path is `teams::change( team )`. [[dump-cross-check]]
 - **A gametype control in the Atian Menu's CW menu tree** — walked in full: four root pages plus the
   `Map` submenu, nothing. ⚠ **But the function exists** — `func_set_gametype()` is defined in the CW
   source and simply never wired in, and its builtins are in `BlackOpsColdWar.exe`. Do not re-walk the
