@@ -37,6 +37,11 @@ These are **not** auto-loaded. Open the one you need.
 - [menu-map](menu-map.md) — the **Atian Menu**: the map carry that puts Gunfight on any of the
   offered maps, the confirmed end-to-end procedure (3v3 Gunfight on Zoo, 60s rounds), the three traps,
   and what the walk settled. Carries an **Untried — not ruled out** list; nothing there is closed.
+- [cw-builtins](cw-builtins.md) — survey of ate47's **Cold War builtin table** (4,481 functions with
+  binary addresses). Four player-count builtins where this project used one; `isvalidgametype()` to
+  test a gametype string with zero risk; `addtestclient()` for the bots the test plan always assumed;
+  `setteam()` for the 4v4-from-8-slots idea; `map_restart()` which may drop the cwpatch dependency.
+  Carries a seven-test staged plan ordered by risk.
 - [atian-menu-source](atian-menu-source.md) — source survey of that menu. **`func_set_gametype()`
   already exists in the Cold War tree and is simply never wired into the menu.** The two builtins it
   uses are confirmed present in `BlackOpsColdWar.exe`, so `gunfight_mod` can call them directly —

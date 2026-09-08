@@ -1,12 +1,20 @@
 # src — the mod source
 
-Three projects. Prove the hook, measure, then change behaviour.
+Four projects. Prove the hook, measure, then change behaviour.
 
 ```
 hello_world/    minimal validator — proves the MP hook fires. ✅ CONFIRMED in-game 2026-09-07
-mp_probe/       read-only diagnostics — answers several open questions in one match
-gunfight_mod/   the real mod — additive, zero stock files modified. NOT YET INJECTED
+mp_probe/       read-only diagnostics — com_maxclients, timelimit, zone count, cadence
+lobby_probe/    read-only — the four player-count builtins, and isvalidgametype() over
+                candidate Gunfight strings. NOT YET RUN. See docs/notes/cw-builtins.md
+gunfight_mod/   the real mod. ✅ ALL FOUR SWITCHES VERIFIED IN-GAME 2026-09-08 —
+                3v3 Gunfight on Zoo, 60s rounds, round timed out cleanly, correct HUD
 ```
+
+⚠ `lobby_probe` uses builtins no stock script in the dump calls, taken from ate47's Cold War
+function table rather than from `bocw-source`. **Run `tools/check-gsc.ps1` on it before injecting** —
+stage 4 is exactly the check for a name that does not exist, and it is the check that caught
+`logprint`.
 
 **`mp_probe/` is the cheap one to reach for.** It writes nothing but its own counter and
 answers, per match, questions that otherwise cost menu-walking or guesswork:

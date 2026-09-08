@@ -285,6 +285,14 @@ hook point was pinned down: [[pipeline-toolchain-survey]].
 ⚠ **Do not vendor `bocw-source` into this repo** (618 MB). Pull it to a sibling folder; `.gitignore`
 covers the common paths.
 
+⚠ **`bocw-source` is not the only reference, and it cannot answer everything.** It shows what *stock
+script* calls. [`ate47/t8-atian-menu`](https://github.com/ate47/t8-atian-menu) carries
+`docs/notes/funcs_cw.csv` — **4,481 Cold War builtins with argument counts and addresses in
+`BlackOpsColdWar.exe`**, including functions no stock script uses. Several bear directly on open
+questions here: `isvalidgametype`, `addtestclient`, `setteam`, `map_restart`, and three player-count
+builtins beyond `com_maxclients`. Survey and staged test plan: [[cw-builtins]]. Its GSC source also
+carries the gametype switch: [[atian-menu-source]].
+
 Lower-value references: `shiversoftdev/t9-src` (alternate dump, more hashed — cross-check only),
 `ModzCentral01/Cold-war-Mods` (working example of the load path; Zombies-weighted),
 `ProjectHiNAtyu/T9_BOCW_GSC_Wiki` (notes only, withholds usable files).
@@ -362,9 +370,19 @@ starts from a Gunfight search).
 Reproduce the five presentation symptoms above on a glitched map. All five matching validates the
 code reading end-to-end. Any divergence = re-trace that path before building.
 
-### Phase 3 — the mod (exposure begins here)
-Hello-world first, then one change at a time: zones guard → latch flags → `ontimelimit` → timer.
-Bots before humans.
+### Phase 3 — the mod ✅ DONE 2026-09-08
+All four `gunfight_mod` switches verified in-game: 3v3 Gunfight on Zoo, 60-second rounds, a round that
+timed out cleanly (the first time that path was ever exercised), correct HUD, clean lobby return.
+
+### Phase 4 — the builtin sweep ← **where the untested work now is**
+Seven staged tests, ordered by risk, in [[cw-builtins]]. The first three are **read-only**:
+`lobby_probe` (four player counts + an `isvalidgametype` bitmask over candidate Gunfight strings),
+`getgametypeenumfromname`, `mapexists`. Then the writes, **one per match**: `map_restart` (may drop the
+cwpatch/F7 dependency), `switchmap_load` (the team-size question), `addtestclient` (the real client
+ceiling, measured instead of read — and the mechanism "bots before humans" always assumed), `setteam`
+(whether 8 clients can be 4v4).
+
+⚠ Test a **lobby return** after every write. That is the check that caught `scene_model_shared`.
 
 ---
 
