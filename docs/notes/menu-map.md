@@ -261,6 +261,94 @@ Stage status after this test:
 Remaining: flip `presentation: 1` and confirm the five symptoms clear (round-2 music, noRespawnsLeft
 HUD, round-start LUI, VO, lives counter). That is step 3 of the rollout and the only switch untested.
 
+**✅ `presentation` verified separately 2026-09-08** — the Gunfight HUD renders correctly. Overtime is
+absent, which is expected and correct: `timelimit_fix` deliberately skips the crashing `overtime()`
+and lands on the health decision instead.
+
+---
+
+## ✅ FULL STACK CONFIRMED — 3v3 Gunfight on Zoo, 60s rounds, clean lobby return
+
+**2026-09-08.** Every piece working simultaneously, on a non-Gunfight map:
+
+| Piece | Delivered by |
+|---|---|
+| **3v3** Gunfight (not 2v2) | started in the stock **3v3 Gunfight** playlist — an 8-slot lobby |
+| **Zoo** — a 6v6 map, not in the nine `mp_sm_*` | Atian Menu map carry |
+| **60-second rounds** | `gunfight_mod` `timer_override` — survives the carry |
+| Correct HUD / round flow | `zones_guard` + `timelimit_fix` + `presentation` |
+| **Clean return to lobby** | — |
+
+### The 3v3 route — available today, and better than 2v2
+
+`gunfight` and `gunfight_3v3` are two distinct gametype strings (both appear in
+`mp_common/player/player_record.gsc`'s gametype switch). The stock UI offers 3v3 Gunfight as its own
+playlist, which builds an **8-slot** lobby (6 players + 2 spectators — matches the measured
+`com_maxclients` of 8).
+
+Because the carry changes the map **inside an already-created lobby**, starting in 3v3 Gunfight and
+then carrying keeps the 8 slots. So **3v3 Gunfight on any of the 19 maps is available now**, with no
+gametype forcing and no DLL.
+
+That is not 6v6, but it is a strictly larger team size than the 2v2 the project had been assuming, and
+it needs nothing that is currently blocked.
+
+### Why `maxteamplayers` is a dead end for this
+
+`globallogic.gsc:233-240` is the whole chain:
+
+```gsc
+level.teamcount      = getgametypesetting( #"teamcount" );
+level.teamcount      = math::clamp( level.teamcount, 1, getdvarint( #"com_maxclients", ... ) );
+level.multiteam      = level.teamcount > 2;
+level.maxteamplayers = getgametypesetting( #"maxteamplayers" );
+```
+
+Both consumers of `maxteamplayers` are gated on `multiteam` (`team_assignment.gsc:352` and `:1030`),
+and `multiteam` is `teamcount > 2`. Gunfight is a **two-team** mode, so `multiteam` is **false** and
+`maxteamplayers` is **never enforced**. Our hook runs after line 240 so we *could* overwrite it — it
+would do nothing.
+
+**The binding constraint is `com_maxclients`**, fixed at lobby creation, which script only reads.
+`team-sizes.md` should not treat `maxteamplayers` as a candidate lever for two-team modes.
+
+---
+
+## ⚠ Injection: only ONE known-safe replace target
+
+`injectcw` takes `(script, target, replace)` and **overwrites the replace script's buffer**. Two
+injections sharing a replace clobber each other — which is why injecting `gunfight_mod` kills the
+Atian Menu. Coexistence needs two different pairs.
+
+**That was tried and it broke the game.** `gunfight_mod` injected over
+`core_common\scene_model_shared.gsc` → leaving a match **hung forever on "connecting to lobby"**.
+That file declares `class cscenemodel : csceneobject` with an empty body, which looked free to lose —
+but the **frontend** uses scene models for menu backgrounds and character previews, and a subclass
+declaration must still exist at link time. **An empty body is not a free loss.**
+
+Rejected for the same class of reason:
+
+| Candidate | Why not |
+|---|---|
+| `core_common\serverfield_shared.gsc` | defines `register`/`get`, actively used |
+| `mp_common\entityheadicons.gsc` | registration wrapper; killing it leaves `land_mine`, `molotov`, `supplydrop` calling `entityheadicons::` against uninitialised state |
+
+**`clientids_shared.gsc` is the only known-safe replace.** Its functionality has been destroyed by
+every injection all session with no observed consequence. Do not substitute another without testing a
+**lobby return**, which is the check that catches frontend breakage.
+
+### The workflow this implies
+
+Sequential, not parallel — [`/c/bocw/inject.sh`](../../../bocw/inject.sh) on the test box wraps it:
+
+1. `inject.sh menu` → restart match → carry to the map you want
+2. `inject.sh mod` → restart match → play
+
+The mod replaces the menu, which is fine: the carry is already done. Re-run step 1 to change map.
+
+Prerequisite either way: the process must have loaded MP scripts once, or the hook is not in the
+scriptparsetree pool and `injectcw` reports `Can't find target script`.
+
 Note this makes the source comment on `timer_override` incomplete. It reads:
 
 > *"OFF — the rules menu already exposes 0/20/30/40/50/60s. Only needed above 60s."*
