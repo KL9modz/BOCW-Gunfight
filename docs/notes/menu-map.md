@@ -1,142 +1,95 @@
-# The in-game menu — the map/gametype carry, and the index
+# The Atian Menu — the map carry, and what it does and does not unlock
 
-The private-match menu is the layer both headline goals were blocked on. This note holds what it
-demonstrably does, and the index of it — which is **filled in by walking it**, never from the dump.
+The private-match **map** restriction is closed. The **team-size** restriction is not closed *by this
+menu* — the CW build ships no gametype control. That is an observation about one tool at one version,
+**not** a limit on the project. Untried routes are listed at the bottom and none of them is exhausted.
+
+Everything here was established by walking the menu in-game on 2026-09-07/08. The BOCW front end is
+compiled LUA and absent from every public dump (`.claude/CLAUDE.md` → dead ends), so none of it is
+derivable from `bocw-source`. **Do not try to.**
 
 ---
 
-## Headline: the menu carries Gunfight onto a non-Gunfight map — n=1, 2026-09-08
+## Verdict
 
-Reported in-game by klaze:
-
-1. Started a private match: **Gunfight on Mansion**.
-2. Used the in-game menu to **switch the map to Hijacked**.
-3. **Gunfight loaded on Hijacked.**
-
-Both map identities are externally confirmed, per this repo's dump-vs-external rule:
-
-| Map | Status | Source |
+| Goal | Status | By what |
 |---|---|---|
-| **Mansion** | a stock BOCW **Gunfight 2v2** map (post-Season-One addition, alongside Amsterdam, Showroom, Gluboko) | Call of Duty Wiki, GamesAtlas |
-| **Hijacked** | a **6v6** map, BO2 remake, added **Season Four, 17 June 2021**. **Not** a Gunfight map | callofduty.com Tactical Map Intel, Blizzard News |
+| **Any map** | ✅ **CLOSED** | Atian Menu map carry — 19 maps, mid-match, no `cwdllgt`, no DLL proxy |
+| **Round timer** | ✅ **CLOSED** | `gunfight_mod` `timer_override` — 60s, and it survives the carry |
+| **Correct round flow / HUD** | ✅ **CLOSED** | `zones_guard` + `timelimit_fix` + `presentation`, all verified in-game |
+| **Team size** | ⚠️ **3v3 working, larger not yet reached** | Start in the stock `3v3 Gunfight` playlist (8 slots). This menu build has no gametype control, so it cannot itself build a larger lobby — see *Untried* |
 
-So this is Gunfight running on a map the Gunfight playlist does not offer — **with no GSC, no DLL, and
-no injector.**
-
-### Why this matters more than it looks
-
-[`dll-proxy.md`](dll-proxy.md) closes with the project's blocking statement:
-
-> Both remaining headline goals — Gunfight on arbitrary maps, and 6v6 in a private lobby — reduce to
-> decoupling gametype from the menu's playlist configuration, and this was the mechanism for it.
-> **It is currently blocked.**
-
-It was blocked because the `powrprof.dll` proxy crashes the game at startup, 3 attempts out of 3,
-identical fault offset. **The menu appears to do the same job the proxy was going to do.** If this
-reproduces, `cwdllgt` is not on the critical path for map unlocking at all.
-
-### ⚠ It does NOT carry the 6v6 half — the direction is wrong
-
-An earlier version of this note claimed a Gunfight lobby sitting on Hijacked was "the inheritance case
-`team-sizes.md` predicts should work," and that one probe run there was a cheap Phase 1.
-**That was backwards. Disregard it.**
-
-[`team-sizes.md`](team-sizes.md) is explicit on both halves:
-
-> `com_maxclients` ... is fixed **at lobby creation by the playlist**, not by the gametype. ... Start in
-> a lobby the menu has already built with twelve slots, and **never be in a Gunfight lobby at all.**
-
-This carry starts *in a Gunfight lobby* and changes the map. Switching maps does not re-create the
-session, so the eight slots were fixed before the switch and Hijacked being a twelve-client map cannot
-retrofit them. Measured 8 in a private Gunfight lobby, 12 in a private TDM lobby — both 2026-09-07.
-
-**So the carry solves the map goal and leaves the team-size goal exactly where it was.**
-
-### The asymmetry that actually matters
-
-Two different menu operations, and only one is confirmed:
-
-| Operation | Direction | Status | Solves |
-|---|---|---|---|
-| **Map change** | inside a Gunfight lobby, swap the map | ✅ **works** — Mansion → Hijacked | any-map |
-| **Gametype change** | inside a twelve-slot TDM lobby, swap to Gunfight | ❓ **entry not found** | 6v6 |
-
-The second is the one Phase 1 needs, and it is the one the menu has not yielded. If the menu offers a
-map-change entry but genuinely has **no** gametype-change entry, that is a finding in itself: it would
-mean the menu closes the map goal and cannot close the team-size one, and Phase 1 falls back to the
-map/mode carry glitch or the DLL track. **Establishing which is the highest-value thing left in this
-note.**
-
-## ⚠ What is NOT established — n=1, and "it loaded" is not "it works"
-
-Do not let this note become the next thing that has to be walked back. Five things are open:
-
-1. **Reproducibility.** One report, one lobby, one map pair. Unconfirmed whether it survives a
-   full/fast restart, a second map switch, or a lobby that other players join.
-2. **Whether it plays correctly.** Every private Gunfight match is *already* running degraded on every
-   map — `setupzones()` returns false, `onstartgametype()` early-returns, and the five presentation
-   symptoms are present ([`gunfight-findings.md`](gunfight-findings.md), n=2, ICBM and Amsterdam both
-   read zero zones). Hijacked will be degraded too. That is the **stock** condition, not a
-   carried-map artifact — but it means "it loaded" says nothing about round flow, scoring, or the
-   round-end decision.
-3. **The round-timer path is live and unfixed.** With a non-zero `timelimit` on a zoneless map, a
-   round that reaches time expiry runs `ontimelimit()` → `overtime()` → `level.zones[0]` on an
-   undefined array. Stock's own latch (`level.var_c7cce1ff`) catches the fallout and the health
-   decision still lands one tick late, so this is a **thread exception, not a process crash** — but
-   it is exactly what `gunfight_mod`'s `timelimit_fix` exists to prevent. Both prior clean matches
-   ended by elimination and never reached it.
-4. **Player slots.** Almost certainly still **8** — fixed at lobby creation, and this lobby was created
-   as Gunfight. Worth one probe read anyway, because this project has been burned by reasoning where it
-   could have measured, but a `8` there is the model confirming itself, not a failure.
-5. **The menu path.** Not recorded. Which screen, which entry, which input — all unknown, and that is
-   the whole reason for the index below.
-
-## ⚠ This note cannot be written from the dump — do not try
-
-`.claude/CLAUDE.md` lists the front end under **confirmed dead ends**:
-
-> **BOCW front-end / playlist data** — **not in any public dump.** The UI is compiled LUA;
-> `bocw-source`'s `ui/` holds only two graphics cfgs. This is where the map list and per-mode
-> `com_maxclients` live, and it is the FNV1a64 wall.
-
-And [`README.md`](README.md) in this folder states the split outright: *"The dump has no display
-names, no localization table, and no map metadata. It cannot resolve a UI name to a codename, ever."*
-It also records what re-litigating that costs — two sessions spent arguing over whether ICBM was one
-of the nine `mp_sm_*` maps from asset-token frequencies, which one web search settled in a step.
-
-**The menu is walked, not decompiled.** Every row below gets filled by a person looking at the screen.
-An agent cannot fill them, and an agent guessing at them is the documented failure mode.
+**Confirmed end to end 2026-09-08: 3v3 Gunfight on Zoo, 60-second rounds, correct HUD, clean return
+to lobby.** Zoo is a 6v6 map, not one of the nine `mp_sm_*` Gunfight maps.
 
 ---
 
-## The index — fill by walking
+## ▶ PROCEDURE — Gunfight, any map, 60-second rounds
 
-Record what you see, not what you expect. An entry that is **absent** is a result; write `ABSENT`
-rather than leaving the row blank, so the next reader can tell "checked, not there" from "not checked".
+### One-time setup
 
-### Capture protocol
+Deploy cwpatch into the Discord slot **with the game closed**. It auto-loads on every launch
+afterwards — no injection step — and gives F4/F6/F7 (`lobbylaunchgame` / `fast_restart` /
+`full_restart`).
 
-- One row per menu entry, in **screen order**, top to bottom.
-- Note the **screen** it lives on and the **exact input** that reaches it (button, key, stick).
-- Note whether the entry is **greyed out**, and whether that changes as host vs. joiner, in-lobby vs.
-  in-match, pre-round vs. mid-round.
-- Where an entry has a value list, record **every published value**, not just the current one.
-- Screenshots beat transcription. Photograph or capture each screen and attach; the table is the
-  summary, not the evidence.
+```
+cp <cwpatch 13,824-byte dll> "<game>/discord_game_sdk.dll"
+```
 
-### A — Entry point
+⚠ Back up the real Discord SDK first (**3,891,512 bytes**). Battle.net restores it on repair, which
+silently turns the hotkeys off. **If F4–F7 stop working, check this file's size before anything
+else** — 13,824 is cwpatch, 3,891,512 is stock.
 
-| Question | Answer |
-|---|---|
-| What opens this menu (key/button)? | **ADS + Melee** held together (default PC: RMB + V) |
-| Does it open in-lobby, in-match, or both? | In-match — confirmed. In-lobby not tested |
-| Host-only, or joiners too? | Not tested; the lobby was single-player |
-| Is it stock BOCW UI, or drawn by an injected DLL? | **NEITHER — an injected GSC script** |
+### Per session
 
-#### ✅ ANSWERED 2026-09-08 — it is the Atian Menu, and its source is public
+Injection scripts: [`../../tools/inject.sh`](../../tools/inject.sh) (deployed to `/c/bocw/` on the
+test box). Payload build and paths: [`../../tools/README.md`](../../tools/README.md).
 
-**Not stock UI, not a DLL overlay.** It is `BlackOpsColdWar_atianmenu_pc.gscc`, a precompiled GSC mod
-menu, downloaded and injected by the desktop session on 2026-09-08.
+| # | Step | Why |
+|---|---|---|
+| 1 | Start a private match on **`3v3 Gunfight`** — *not* regular Gunfight | Builds an **8-slot** lobby (6 players + 2 spectators) instead of 2v2's. `com_maxclients` is fixed at lobby creation and **cannot be changed later** — this choice is load-bearing and unrecoverable |
+| 2 | Load into the match once | Puts `mp_common\bb.gsc` in the scriptparsetree pool. `injectcw` fails until this happens |
+| 3 | `inject.sh menu` | Atian Menu |
+| 4 | Restart the match (F7, or via lobby — either is fine here) | Injection is inert until a map load links it |
+| 5 | `RMB+V` → `Map` → `R` → pick from the 19 | up `RMB` / down `LMB` / select `R` / back `V` |
+| 6 | `inject.sh mod` | Replaces the menu — fine, the carry is already done |
+| 7 | Restart the match — **F7 ONLY** | Links the mod while keeping the carried map. **The lobby route discards the carry** — see below |
+| 8 | Play | 60s rounds, correct Gunfight HUD, clean lobby exit |
+
+Re-run 3–5 to change map again.
+
+### The three traps
+
+**1 — Step 7 must be F7. cwpatch is REQUIRED, not a convenience.**
+The carry is a **load-time map override**; the lobby's own state is never changed by it. Returning to
+the lobby therefore discards the carry and reloads the lobby's own map. `full_restart` (F7) restarts
+the match *without* going through the lobby, which is the only way to link the mod while keeping the
+carried map. Step 4 is different — no carry has happened yet, so the lobby route is safe there.
+
+⚠ Consequence: **the workflow cannot be completed at all without cwpatch deployed.**
+
+**2 — The carry RESETS gametype settings.** Setting round time in the stock **Edit Game Rules** menu
+works, but carrying to another map discards it and the timer resets to **30**. The carry
+re-initialises gametype settings, so *anything* set through the stock rules menu is thrown away.
+`timer_override` survives because `mod_apply()` reruns on every `on_start_gametype`, reapplying it
+after each carry. **Under a carry the override is needed at *any* value, including ones the rules
+menu offers** — not just above 60s.
+
+**3 — Only one payload can be injected at a time.** See *Injection constraints* below. The menu and
+the mod share the one known-safe replace target, so the second clobbers the first. That is why the
+procedure is sequential.
+
+### Diagnostic: the scoreboard lies, and that is informative
+
+After a carry the scoreboard and menu still name the map the lobby was created on. That staleness is
+not a bug to fix — it shows the carry is a **map override at load time**, not a lobby
+reconfiguration. Which is exactly why it cannot deliver 6v6.
+
+---
+
+## What the menu is
+
+**Not stock UI, and not a DLL overlay.** It is a precompiled GSC mod menu that we install.
 
 | | |
 |---|---|
@@ -146,17 +99,7 @@ menu, downloaded and injected by the desktop session on 2026-09-08.
 | Injected as | `acts injectcw <gscc> scripts\mp_common\bb.gsc scripts\core_common\clientids_shared.gsc` |
 | Reliability | Injected cleanly every attempt. **Must be re-injected after every game restart**, and the match restarted afterwards so the script links |
 
-**⚠ This corrects the headline of this note.** It states the carry happened *"with no GSC, no DLL, and
-no injector."* That is wrong. It was **entirely GSC and the injector** — the Mansion → Hijacked map
-change was performed *by this injected mod menu*. The menu is not a property of the game; it is
-something we installed. Anyone reproducing the carry must inject the Atian Menu first.
-
-The mechanism is still real and still closes the map goal without `cwdllgt`. But it is not stock, not
-free, and does not survive a restart on its own.
-
-Per this section's own gate — *"if it is an injected mod menu, its behaviour may be readable from that
-tool's source"* — **it is readable.** The repo is public, so structure and keybinds come from source
-rather than from walking. Read from source, not observed:
+Because the repo is public, keybinds and structure come from source rather than from walking.
 
 **[`scripts/config/keys.gsc`](https://github.com/ate47/t8-atian-menu/blob/master/scripts/config/keys.gsc), verbatim:**
 
@@ -173,127 +116,53 @@ self.select_item = "use";
 | Open | ADS + Melee | RMB + V |
 | Up (`last_item`) | ADS | RMB |
 | Down (`next_item`) | Attack | LMB |
-| **Select** (`select_item`) | Use | **R** — see below |
+| **Select** (`select_item`) | Use | **R** |
 | Back (`parent_page`) | Melee | V |
 
-**⚠ `select_item = "use"` does NOT mean F.** On BOCW PC the `use` action resolves to **R (Reload)**.
-Confirmed in-game 2026-09-08 after F, E and Space all failed. This one fact is what made the menu look
-broken: it opened and scrolled but appeared to select nothing.
-
-### B — Screens
-
-The root screen is **paged**, titled `---- Atian Menu CW (n/N) ----`. Observed 2026-09-08: `(4/4)`,
-i.e. four pages. Paging is the same up/down inputs; there is no separate page control.
-
-| # | Screen title | Reached from | Notes |
-|---|---|---|---|
-| 1 | `Atian Menu CW (1/4)` | root | Walked 2026-09-08. Weapons / camera features only |
-| 2 | `Atian Menu CW (2/4)` | root, scroll | Walked 2026-09-08. Weapons / camera features only |
-| 3 | `Atian Menu CW (3/4)` | root, scroll | Walked 2026-09-08. Weapons / camera features only |
-| 4 | `Atian Menu CW (4/4)` | root, scroll | Walked. Contains `Vehicle`, `Map` |
-| 5 | map list | `(4/4)` → `Map` → **R** | **19 maps.** No gametype control on this screen |
-
-All four root pages plus the `Map` submenu have now been seen. Entry-by-entry labels for pages 1–3
-were not transcribed — they were reported as *"weapons and camera stuff"* — which is enough to settle
-table D but **not** enough to serve as the full index this section asks for. If a future task needs a
-specific weapon/camera capability, pages 1–3 still need a proper transcription pass.
-
-⚠ Pages 1–3 are unwalked. The README's feature list (Tools / Give weapons / Gun tool / Teleport tool /
-Loading / Customization / Internal tools) is written for the **BO4** build and did **not** match what
-page 4 showed, so do not assume it describes the CW tree.
-
-### C — Entries
-
-| Screen | Entry label | Input | Values offered | Greyed? | Effect observed |
-|---|---|---|---|---|---|
-| `(4/4)` | `Vehicle` | not selected | unknown | no | not tested |
-| `(4/4)` | `Map` | R (select) | unknown — list not recorded | no | **map changed mid-match, Mansion → Hijacked** |
-
-### D — The two entries this project actually needs
-
-| Target | Found? | Screen | Input | Values | Notes |
-|---|---|---|---|---|---|
-| **Map change** | ✅ **works** — Mansion → Hijacked | `(4/4)`, entry `Map` | **R** to select | **19 maps** | **Not** limited to Gunfight's ten — 19 offered, and Hijacked (a 6v6 map) is reachable |
-| **Gametype / mode change** | ❌ **ABSENT** — walk complete | — | — | — | All 4 root pages + the `Map` submenu checked. See below |
-| **Team size / max players** | ❌ ABSENT | — | — | — | Nothing team- or slot-related on any page |
-| **Round timer** | ❌ ABSENT from this menu | — | — | — | And the **stock rules menu value does not survive the carry** — see below |
-
-#### ⚠ The map carry RESETS gametype settings — measured 2026-09-08
-
-Setting the round time in the stock **Edit Game Rules** menu works, but **carrying to a non-Gunfight
-map discards it and the timer resets to 30.** Reported in-game by klaze while testing a 60s round.
-
-This is more than a timer annoyance. It means the map change **re-initialises gametype settings**, so
-*anything* configured through the stock rules menu is thrown away by the carry. Any setting the
-project needs to hold across a carried map has to be reasserted in script, not set in the menu.
-
-`gunfight_mod` already had the mechanism: `timer_override` overrides `level.gettimelimit` inside
-`mod_apply()`, which runs on **every** `on_start_gametype` — so it is reapplied after each carry
-rather than set once and lost.
-
-**✅ Confirmed working 2026-09-08.** A staged build with `zones_guard: 1`, `timelimit_fix: 1`,
-`timer_override: 1`, `timer_minutes: 1` (= 60s), `presentation: 0` held a 60-second round timer
-across the carry. `presentation` was deliberately off to keep the change to one stage, per
-[`../src/README.md`](../src/README.md)'s rollout order.
-
-#### ✅✅ `timelimit_fix` VERIFIED IN-GAME — the round timed out cleanly, 2026-09-08
-
-**A round ran to zero and ended properly.** No fault, no hang.
-
-This is the first time that path has ever been exercised. Every prior clean match ended by
-**elimination** and never reached time expiry — [`gunfight-findings.md`](gunfight-findings.md) and this
-note both flagged it as open. The failure it avoids is specific: on a zoneless map (which is *every*
-private Gunfight map — `setupzones()` returns false, n=2 ICBM and Amsterdam) a round reaching time
-expiry runs `ontimelimit()` → `overtime()` → `level.zones[0]` on an undefined array.
-
-So `timelimit_fix` is no longer a reasoned-about safeguard. It is a measured one, and the switch
-`src/README.md` calls **LOAD-BEARING** has earned the label.
-
-Stage status after this test:
-
-| Switch | State | Verified |
-|---|---|---|
-| `zones_guard` | ON | implicitly — nothing indexed `level.zones` undefined |
-| `timelimit_fix` | ON | ✅ **round timed out cleanly** |
-| `timer_override` | ON | ✅ 60s held across a map carry |
-| `presentation` | OFF | not yet enabled — next stage |
-
-Remaining: flip `presentation: 1` and confirm the five symptoms clear (round-2 music, noRespawnsLeft
-HUD, round-start LUI, VO, lives counter). That is step 3 of the rollout and the only switch untested.
-
-**✅ `presentation` verified separately 2026-09-08** — the Gunfight HUD renders correctly. Overtime is
-absent, which is expected and correct: `timelimit_fix` deliberately skips the crashing `overtime()`
-and lands on the health decision instead.
+⚠ **`select_item = "use"` does NOT mean F.** On BOCW PC the `use` action resolves to **R (Reload)**.
+Confirmed in-game 2026-09-08 after F, E and Space all failed. This one fact is what made the menu
+look broken: it opened and scrolled but appeared to select nothing. `select_item` reads like F to
+anyone who knows CoD's default Interact key — hence the time it cost, and hence recording it.
 
 ---
 
-## ✅ FULL STACK CONFIRMED — 3v3 Gunfight on Zoo, 60s rounds, clean lobby return
+## The map carry — mechanism, and why it stops short of 6v6
 
-**2026-09-08.** Every piece working simultaneously, on a non-Gunfight map:
-
-| Piece | Delivered by |
-|---|---|
-| **3v3** Gunfight (not 2v2) | started in the stock **3v3 Gunfight** playlist — an 8-slot lobby |
-| **Zoo** — a 6v6 map, not in the nine `mp_sm_*` | Atian Menu map carry |
-| **60-second rounds** | `gunfight_mod` `timer_override` — survives the carry |
-| Correct HUD / round flow | `zones_guard` + `timelimit_fix` + `presentation` |
-| **Clean return to lobby** | — |
+The carry changes the map **inside an already-created lobby**. `com_maxclients` is fixed at lobby
+creation *by the playlist* ([`team-sizes.md`](team-sizes.md): 8 measured in a private Gunfight lobby,
+12 in a private TDM lobby, both 2026-09-07). Our mod never touches the playlist, so it can never
+change the slot count. That is a property of **the carry**, not of the project: any route that
+reconfigures the playlist instead of overriding the map at load time is unaffected by it.
 
 ### The 3v3 route — available today, and better than 2v2
 
 `gunfight` and `gunfight_3v3` are two distinct gametype strings (both appear in
 `mp_common/player/player_record.gsc`'s gametype switch). The stock UI offers 3v3 Gunfight as its own
-playlist, which builds an **8-slot** lobby (6 players + 2 spectators — matches the measured
-`com_maxclients` of 8).
+playlist, which builds an **8-slot** lobby — matching the measured `com_maxclients` of 8.
 
-Because the carry changes the map **inside an already-created lobby**, starting in 3v3 Gunfight and
-then carrying keeps the 8 slots. So **3v3 Gunfight on any of the 19 maps is available now**, with no
-gametype forcing and no DLL.
+Because the carry preserves the lobby, starting in 3v3 Gunfight and then carrying keeps those 8
+slots. **So 3v3 Gunfight on any of the 19 maps is available now**, with no gametype forcing and no
+DLL. Not 6v6, but strictly larger than the 2v2 the project had been assuming, and it needs nothing
+that is currently blocked.
 
-That is not 6v6, but it is a strictly larger team size than the 2v2 the project had been assuming, and
-it needs nothing that is currently blocked.
+### ⚠ The lobby-glitch contrast — and the one measurement that could unlock 6v6
 
-### Why `maxteamplayers` is a dead end for this
+The **map/mode carry glitch** behaves differently: it makes every map selectable *under Gunfight*,
+and the game then reports "Gunfight on \<map\>" correctly. That is a genuine **playlist
+reconfiguration**, where our carry is only a load-time override. The glitch changes the thing that
+sets `com_maxclients`. Our menu cannot.
+
+**So: get into a glitched Gunfight-on-a-6v6-map lobby and inject
+[`../src/mp_probe/`](../../src/mp_probe/). Read `1xxxxx`.**
+
+| Reading | Means |
+|---|---|
+| `100012` | The glitched lobby has **twelve slots** — that is **6v6 Gunfight**, with nothing currently blocked |
+| `100008` | The glitch changes the map list but keeps Gunfight's slot count, and 6v6 stays blocked |
+
+The glitch is unreliable, but this only needs it to work **once**.
+
+### Why `maxteamplayers` is not the lever for a two-team mode
 
 `globallogic.gsc:233-240` is the whole chain:
 
@@ -306,19 +175,19 @@ level.maxteamplayers = getgametypesetting( #"maxteamplayers" );
 
 Both consumers of `maxteamplayers` are gated on `multiteam` (`team_assignment.gsc:352` and `:1030`),
 and `multiteam` is `teamcount > 2`. Gunfight is a **two-team** mode, so `multiteam` is **false** and
-`maxteamplayers` is **never enforced**. Our hook runs after line 240 so we *could* overwrite it — it
+`maxteamplayers` is **never enforced**. Our hook runs after line 240, so we *could* overwrite it — it
 would do nothing.
 
-**The binding constraint is `com_maxclients`**, fixed at lobby creation, which script only reads.
-`team-sizes.md` should not treat `maxteamplayers` as a candidate lever for two-team modes.
+**The binding constraint is `com_maxclients`**, fixed at lobby creation, which script only reads. That
+narrows where to look — at lobby *creation*, not at runtime — rather than closing the question.
 
 ---
 
-## ⚠ Injection: only ONE known-safe replace target
+## Injection constraints — only ONE known-safe replace target
 
 `injectcw` takes `(script, target, replace)` and **overwrites the replace script's buffer**. Two
-injections sharing a replace clobber each other — which is why injecting `gunfight_mod` kills the
-Atian Menu. Coexistence needs two different pairs.
+injections sharing a replace clobber each other, which is why injecting `gunfight_mod` kills the
+Atian Menu. Coexistence would need two different pairs.
 
 **That was tried and it broke the game.** `gunfight_mod` injected over
 `core_common\scene_model_shared.gsc` → leaving a match **hung forever on "connecting to lobby"**.
@@ -333,201 +202,142 @@ Rejected for the same class of reason:
 | `core_common\serverfield_shared.gsc` | defines `register`/`get`, actively used |
 | `mp_common\entityheadicons.gsc` | registration wrapper; killing it leaves `land_mine`, `molotov`, `supplydrop` calling `entityheadicons::` against uninitialised state |
 
-**`clientids_shared.gsc` is the only known-safe replace.** Its functionality has been destroyed by
-every injection all session with no observed consequence. Do not substitute another without testing a
-**lobby return**, which is the check that catches frontend breakage.
+**`clientids_shared.gsc` is the only known-safe replace.** Community standard, and its functionality
+has been destroyed by every injection all session with no observed consequence. Do not substitute
+another without testing a **lobby return** — that is the check that catches frontend breakage, and
+it is the one `scene_model_shared` failed.
 
-### The workflow this implies
-
-Sequential, not parallel — [`/c/bocw/inject.sh`](../../../bocw/inject.sh) on the test box wraps it:
-
-1. `inject.sh menu` → restart match → carry to the map you want
-2. `inject.sh mod` → restart match → play
-
-The mod replaces the menu, which is fine: the carry is already done. Re-run step 1 to change map.
-
-Prerequisite either way: the process must have loaded MP scripts once, or the hook is not in the
-scriptparsetree pool and `injectcw` reports `Can't find target script`.
+**Prerequisite for any injection:** the process must have loaded MP scripts once, or the hook is not
+in the scriptparsetree pool and `injectcw` reports `Can't find target script`.
 
 ---
 
-## ▶ PROCEDURE — Gunfight, any map, 60-second rounds
+## The walk — evidence
 
-Confirmed end to end 2026-09-08 (3v3 Gunfight on Zoo, 60s rounds, clean lobby return).
+Walked in full 2026-09-08: all four root pages **and** the `Map` submenu.
 
-### One-time setup
+### Screens
 
-Deploy cwpatch into the Discord slot, with the game closed. It auto-loads on every launch
-afterwards — no injection step — and gives F4/F6/F7 (`lobbylaunchgame` / `fast_restart` /
-`full_restart`). F7 is the cheap way to re-link an injected script without restarting the game.
+The root is **paged**, titled `---- Atian Menu CW (n/N) ----`. Observed `(4/4)` — four pages. Paging
+uses the same up/down inputs; there is no separate page control.
 
-```
-cp <cwpatch 13,824-byte dll> "<game>/discord_game_sdk.dll"
-```
+| # | Screen | Reached from | Contents |
+|---|---|---|---|
+| 1–3 | `Atian Menu CW (1/4)`–`(3/4)` | root, scroll | Weapons / camera features |
+| 4 | `Atian Menu CW (4/4)` | root, scroll | `Vehicle`, `Map` |
+| 5 | map list | `(4/4)` → `Map` → **R** | **19 maps.** No gametype control |
 
-Back up the real Discord SDK first (3,891,512 bytes) — Battle.net restores it on repair, which
-silently turns the hotkeys off. If F4–F7 stop working, check this file's size first.
+⚠ **Pages 1–3 are not transcribed.** They were reported as *"weapons and camera stuff"*, which is
+enough to settle the gametype question but not enough to serve as a full index. If a future task
+needs a specific weapon/camera capability, they still need a proper pass.
 
-### Per session
+⚠ The upstream README's feature list (Tools / Give weapons / Gun tool / Teleport tool / Loading /
+Customization / Internal tools) is written for the **BO4** build and did **not** match what page 4
+showed. Do not read it as a CW inventory.
 
-| # | Step | Why |
+### The entries this project needed
+
+| Target | Found? | Where | Notes |
+|---|---|---|---|
+| **Map change** | ✅ **works** | `(4/4)` → `Map` → **R** | **19 maps** — not limited to Gunfight's ten. Hijacked and Zoo (both 6v6 maps) are reachable |
+| **Gametype / mode change** | ❌ **ABSENT** | — | No gametype control anywhere in the CW build |
+| **Team size / max players** | ❌ ABSENT | — | Nothing team- or slot-related on any page |
+| **Round timer** | ❌ ABSENT from this menu | — | And the stock rules-menu value does not survive a carry — see trap 2 |
+
+⚠ The upstream README lists *"Set map/gametype"*, and the BO4 build documents a `Loading` section
+containing both. **Neither is present in the Cold War build** — there is no `Loading` section at all,
+and the map control ships alone. The README describes the tool across both games.
+
+### Map identities — externally confirmed
+
+Per this repo's dump-vs-external rule; the dump cannot resolve UI names to codenames.
+
+| Map | What it is | Source |
 |---|---|---|
-| 1 | Launch. Start a private match on **`3v3 Gunfight`** — *not* regular Gunfight | Builds an **8-slot** lobby (6 + 2 spectators) instead of 2v2's. `com_maxclients` is fixed at lobby creation and **cannot be changed later** — this choice is load-bearing |
-| 2 | Load into the match once | Puts `mp_common\bb.gsc` in the scriptparsetree pool. `injectcw` fails until this happens |
-| 3 | `bash /c/bocw/inject.sh menu` | Atian Menu |
-| 4 | Restart the match (F7) | Injection is inert until a map load links it |
-| 5 | `RMB+V` → `Map` → `R` → choose from the 19 | up `RMB` / down `LMB` / select `R` / back `V` |
-| 6 | `bash /c/bocw/inject.sh mod` | Replaces the menu — fine, the carry is done |
-| 7 | Restart the match — **F7 ONLY** | Links the mod. **Do NOT go via the lobby** — see below |
-| 8 | Play | 60s rounds, correct Gunfight HUD, clean lobby exit |
-
-Re-run 3–5 to change map again.
-
-### ⚠ Step 7 must be F7 — cwpatch is REQUIRED, not a convenience
-
-The carry is a **load-time map override**; the lobby's own state is never changed by it (which is why
-the scoreboard keeps naming the map the lobby was created on). **Returning to the lobby therefore
-discards the carry** and reloads the lobby's own map.
-
-`full_restart` (F7) restarts the match *without* going through the lobby, which is the only way to
-link the mod while keeping the carried map. Step 4 is different — no carry has happened yet, so the
-lobby route is fine there.
-
-So **cwpatch must be deployed before the workflow can be completed at all.** If F4–F7 are dead, check
-`discord_game_sdk.dll`: 13,824 bytes is cwpatch, 3,891,512 is the stock SDK that Battle.net's repair
-silently restores.
-
-### Why the mod is required for the timer
-
-Setting round time in the stock **Edit Game Rules** menu **resets to 30 on a map carry** — the carry
-re-initialises gametype settings, so any menu-set value is discarded. `timer_override` reapplies it
-inside `mod_apply()` on every `on_start_gametype`, which is why it survives.
-
-### Known wrinkle
-
-Step 7 restarts the match *after* the carry and evidently keeps the carried map. But the lobby's own
-state is **not** changed by the carry — the scoreboard and menu still name the map the lobby was
-created on. If a restart ever drops you back to the starting map, that is why; redo steps 3–5.
-
-That staleness is also diagnostic: it shows the carry is a **map override at load time**, not a lobby
-reconfiguration — which is exactly why it cannot deliver 6v6. See below.
-
-### ⚠ The lobby-glitch contrast — and the one measurement that could unlock 6v6
-
-The **map/mode carry glitch** behaves differently: it makes *every* map selectable **under Gunfight**,
-and the game then reports "Gunfight on \<map\>" correctly. That is a genuine **playlist
-reconfiguration**, where our carry is only a load-time override.
-
-This matters because `com_maxclients` is fixed at lobby creation *by the playlist*. Our mod never
-touches the playlist, so it can never change the slot count — structurally. **The glitch does.**
-
-**So: get into a glitched Gunfight-on-a-6v6-map lobby and inject [`../src/mp_probe/`](../src/mp_probe/).
-Read `1xxxxx`.**
-
-| Reading | Means |
-|---|---|
-| `100012` | The glitched lobby has **twelve slots** — that is **6v6 Gunfight**, with no DLL and nothing currently blocked |
-| `100008` | The glitch changes the map list but keeps Gunfight's slot count, and 6v6 stays blocked |
-
-The glitch is unreliable, but this only needs it to work **once**.
-
-Note this makes the source comment on `timer_override` incomplete. It reads:
-
-> *"OFF — the rules menu already exposes 0/20/30/40/50/60s. Only needed above 60s."*
-
-True for a normal lobby, **false once the map is carried** — under a carry the override is needed at
-*any* value, including ones the rules menu offers, because the menu's value does not survive.
-
-#### ✅ The gametype row is settled — ABSENT, and the walk is complete
-
-Walked in full 2026-09-08: all four root pages **and** the `Map` submenu. Pages 1–3 are weapons and
-camera features. Page 4 is `Vehicle` and `Map`. `Map` opens a 19-entry map list and nothing else.
-
-**There is no gametype-change control in the CW build of the Atian Menu.**
-
-Note the upstream README lists the feature as *"Set map/gametype"*, and the tool's BO4 build documents
-a `Loading` section containing both. **Neither is present in the Cold War build** — there is no
-`Loading` section at all, and the map control ships alone. The README describes the tool across both
-games; do not read its feature list as a CW inventory.
-
-#### What this closes, and what it does not
-
-| Goal | Status after this walk |
-|---|---|
-| **Any map** | ✅ **closed by this menu.** 19 maps, mid-match, no `cwdllgt`, no DLL proxy |
-| **6v6 / team size** | ❌ **structurally out of reach here.** The menu cannot change gametype, so it cannot start you in a twelve-slot lobby |
-
-This is the asymmetry this note predicted, now confirmed rather than suspected. Per
-[`team-sizes.md`](team-sizes.md), `com_maxclients` is fixed at lobby creation by the playlist — the
-menu only ever changes the map *inside* an already-created lobby, so the slot count is decided before
-it can act. A Gunfight lobby carried onto Hijacked is still 8 slots.
-
-**Phase 1 therefore falls back to the map/mode carry glitch or the DLL track for 6v6.** The DLL track
-is itself blocked — `acts-bocw.dll`'s `InitDll` throws (`ERROR_DLL_INIT_FAILED`, 1114) under every
-loading method tried, including a working full-forwarding `powrprof.dll` proxy that `cwdllgt`
-successfully calls into. See [`dll-proxy.md`](dll-proxy.md).
-
-## Inherited context — UNVERIFIED, carried from a lost session
-
-The desktop session `kl9-desktop-crystalline-cascade` went offline mid-walk on 2026-09-08. Its
-transcript is on that machine and is not recoverable from the cloud; only its one-line state card
-survived:
-
-> *"found R (reload) remaps to map change; need gametype menu entry"*
-
-Read as: the **R key** (bound to Reload in gameplay) reaches the map-change control in this menu
-context. **This is a summary of a claim, not a verified finding** — the reasoning behind it is gone.
-Re-confirm it on the next walk before building on it, and if it holds, it belongs in table D above
-with the screen it applies to.
-
-### ✅ CONFIRMED and corrected 2026-09-08 — that machine came back
-
-The desktop session reconnected and its transcript is intact. The state card was right about the key
-and **wrong about the scope**:
-
-> **R is the menu's global SELECT key. It is not a map-change control.**
-
-It is `select_item`, which [`keys.gsc`](https://github.com/ate47/t8-atian-menu/blob/master/scripts/config/keys.gsc)
-defines as `"use"` — and on BOCW PC the `use` action resolves to **R (Reload)**, not F. It selects
-*any* entry anywhere in the menu. The map change was simply the first thing selected with it.
-
-The distinction matters: read as "R remaps to map change", the next walker looks for a dedicated
-map-change binding that does not exist and cannot select anything else. Read correctly, R selects
-everything, and the rest of the tree becomes walkable.
-
-The discovery cost real time — F, E and Space were all tried first, because `select_item = "use"`
-reads like F to anyone who knows CoD's default Interact key. Worth keeping in the note for exactly
-that reason.
-
-## Adjacent controls that are NOT this menu
-
-Do not conflate these with menu entries. They are DLL hotkeys from the cwpatch
-`discord_game_sdk.dll`, documented in [`unlock-dlls.md`](unlock-dlls.md), and they fire via
-`GetAsyncKeyState` even when alt-tabbed:
-
-| Key | Command |
-|---|---|
-| F4 | `lobbylaunchgame` |
-| F6 | `fast_restart` |
-| F7 | `full_restart` |
-
-F6/F7 are directly useful here — they re-run a match without leaving the lobby, which is the cheap way
-to test whether a carried map/gametype pairing survives a restart.
+| **Mansion** | stock BOCW **Gunfight 2v2** map | Call of Duty Wiki, GamesAtlas |
+| **Hijacked** | **6v6**, BO2 remake, Season Four (17 June 2021). Not a Gunfight map | callofduty.com Tactical Map Intel |
+| **Zoo** | **6v6**. Not one of the nine `mp_sm_*` | — |
 
 ---
 
-## Measure before you map — one probe run is worth the whole table
+## `gunfight_mod` — stage status, all verified
 
-[`../src/mp_probe/`](../src/mp_probe/) reads engine-owned state and prints it as tagged numbers
-(`PROBE_ID * 100000 + VALUE`; strip the leading digit). Injected into a **carried Gunfight-on-Hijacked
-lobby** it answers, in one match, questions the menu index can only describe:
-
-| Tag | Reads | What it settles here |
+| Switch | State | Verified |
 |---|---|---|
-| `1xxxxx` | `com_maxclients` | **Expect `8`** — fixed at lobby creation, and this lobby was created as Gunfight. A `12` would overturn [`team-sizes.md`](team-sizes.md) and is worth the read for that reason alone. This is **not** the Phase 1 gate; Phase 1 starts from a TDM lobby |
-| `5xxxxx` | `gunfight_zone_center` count | Classifies Hijacked. Expect `0`, same as every stock map — a non-zero would overturn [`gunfight-findings.md`](gunfight-findings.md) |
-| `2xxxxx` | live `timelimit` | Whether this lobby can reach the `overtime()` exception at all. `0` = no limit = never fires |
-| `7xxxxx` | players in match | sanity |
+| `zones_guard` | ON | implicitly — nothing indexed `level.zones` undefined |
+| `timelimit_fix` | ON | ✅ **a round ran to zero and ended cleanly** |
+| `timer_override` | ON | ✅ 60s held across a map carry |
+| `presentation` | ON | ✅ Gunfight HUD renders correctly |
 
-⚠ Injecting begins host-side exposure — [`tac-risk-model.md`](tac-risk-model.md) first. The menu walk
-itself carries **zero** exposure and needs no injection, so **walk first, inject second**.
+### ✅✅ `timelimit_fix` — the first time that path has ever been exercised
+
+**A round ran to zero and ended properly. No fault, no hang.** Every prior clean match ended by
+**elimination** and never reached time expiry; both this note and
+[`gunfight-findings.md`](gunfight-findings.md) had it flagged as open.
+
+The failure it avoids is specific: on a zoneless map — which is *every* private Gunfight map,
+`setupzones()` returns false, n=2 ICBM and Amsterdam — a round reaching expiry runs `ontimelimit()`
+→ `overtime()` → `level.zones[0]` on an undefined array.
+
+So `timelimit_fix` is no longer a reasoned-about safeguard. It is a measured one, and the switch
+[`../src/README.md`](../../src/README.md) calls **LOAD-BEARING** has earned the label.
+
+⚠ **Overtime is absent, and that is correct** — `timelimit_fix` deliberately skips the crashing
+`overtime()` and lands on the health decision instead.
+
+---
+
+## Corrections — claims made and walked back
+
+Recorded because this note has now been wrong twice in the same direction: too confident, too early.
+
+**1 — "with no GSC, no DLL, and no injector."** This note's original headline. **Wrong.** The carry
+was performed *by an injected GSC mod menu*, so it was entirely GSC and the injector. The menu is not
+a property of the game; it is something we install, it does not survive a restart, and anyone
+reproducing the carry must inject it first. The mechanism is still real and still closes the map goal
+without `cwdllgt` — but it is not stock and not free.
+
+**2 — "a Gunfight lobby on Hijacked is the inheritance case, and one probe run there is a cheap
+Phase 1."** **Backwards.** `team-sizes.md` says to start in a twelve-slot lobby and *never be in a
+Gunfight lobby at all*; the carry produces exactly the configuration it warns against. The slots are
+fixed before the map switch can act.
+
+**3 — "R remaps to map change"** (inherited from a session lost to a machine outage; only its
+one-line state card survived). Right about the key, **wrong about the scope**. R is the menu's
+**global select key** — `select_item`, i.e. `use` — and selects any entry anywhere. The map change
+was simply the first thing selected with it. Read the original way, the next walker hunts a
+dedicated map-change binding that does not exist and cannot select anything else.
+
+---
+
+## Untried — not ruled out
+
+⚠ **Nothing below has been tested.** This section exists so that "we have not tried it" never gets
+recorded as "it cannot be done." Ordered cheapest first.
+
+**Larger teams**
+
+1. **The glitched-lobby measurement.** Glitched Gunfight-on-a-6v6-map lobby + `mp_probe`, read
+   `1xxxxx`. The glitch is a real playlist reconfiguration, which is the layer that sets
+   `com_maxclients`. Needs the glitch to work once.
+2. **Add the control ourselves.** The Atian Menu is **open-source GSC**, and we already compile and
+   inject GSC. Its **BO4 build documents a `Loading` section with map *and* gametype** — the CW build
+   ships the map half alone. Porting or reimplementing the gametype half is a code task on a public
+   repo, not a reverse-engineering problem. **This is the largest untried avenue in the project.**
+3. **Other lobby builders.** Only *Private Match* has been walked. `mp_custom_game.ddl` exists as a
+   distinct settings struct — whether the **Custom Games** path builds lobbies differently is
+   unchecked.
+4. **Other stock playlists that build large lobbies**, entered first and then carried, on the
+   `3v3 Gunfight` pattern that already works.
+5. **Other Gunfight gametype strings.** `gunfight` and `gunfight_3v3` both exist in
+   `player_record.gsc`'s switch. Whether the switch holds further variants is not enumerated.
+6. **The ACTS exports directly.** `ACTS_EXPORT_SetLobbyGameType` / `SetLobbyMap` are ordinary
+   exports; `cwdllgt`'s base-name lookup is what is blocked, not the exports.
+
+**The menu itself**
+
+7. **Pages 1–3.** Untranscribed — reported as weapons/camera.
+8. **Host vs joiner.** Only ever opened in a single-player lobby.
+9. **In-lobby vs in-match.** Only opened in-match.
+
+⚠ Injecting begins host-side exposure — read [`tac-risk-model.md`](tac-risk-model.md) first.
