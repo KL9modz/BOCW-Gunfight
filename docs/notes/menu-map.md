@@ -349,6 +349,74 @@ The mod replaces the menu, which is fine: the carry is already done. Re-run step
 Prerequisite either way: the process must have loaded MP scripts once, or the hook is not in the
 scriptparsetree pool and `injectcw` reports `Can't find target script`.
 
+---
+
+## ▶ PROCEDURE — Gunfight, any map, 60-second rounds
+
+Confirmed end to end 2026-09-08 (3v3 Gunfight on Zoo, 60s rounds, clean lobby return).
+
+### One-time setup
+
+Deploy cwpatch into the Discord slot, with the game closed. It auto-loads on every launch
+afterwards — no injection step — and gives F4/F6/F7 (`lobbylaunchgame` / `fast_restart` /
+`full_restart`). F7 is the cheap way to re-link an injected script without restarting the game.
+
+```
+cp <cwpatch 13,824-byte dll> "<game>/discord_game_sdk.dll"
+```
+
+Back up the real Discord SDK first (3,891,512 bytes) — Battle.net restores it on repair, which
+silently turns the hotkeys off. If F4–F7 stop working, check this file's size first.
+
+### Per session
+
+| # | Step | Why |
+|---|---|---|
+| 1 | Launch. Start a private match on **`3v3 Gunfight`** — *not* regular Gunfight | Builds an **8-slot** lobby (6 + 2 spectators) instead of 2v2's. `com_maxclients` is fixed at lobby creation and **cannot be changed later** — this choice is load-bearing |
+| 2 | Load into the match once | Puts `mp_common\bb.gsc` in the scriptparsetree pool. `injectcw` fails until this happens |
+| 3 | `bash /c/bocw/inject.sh menu` | Atian Menu |
+| 4 | Restart the match (F7) | Injection is inert until a map load links it |
+| 5 | `RMB+V` → `Map` → `R` → choose from the 19 | up `RMB` / down `LMB` / select `R` / back `V` |
+| 6 | `bash /c/bocw/inject.sh mod` | Replaces the menu — fine, the carry is done |
+| 7 | Restart the match (F7) | Links the mod |
+| 8 | Play | 60s rounds, correct Gunfight HUD, clean lobby exit |
+
+Re-run 3–5 to change map again.
+
+### Why the mod is required for the timer
+
+Setting round time in the stock **Edit Game Rules** menu **resets to 30 on a map carry** — the carry
+re-initialises gametype settings, so any menu-set value is discarded. `timer_override` reapplies it
+inside `mod_apply()` on every `on_start_gametype`, which is why it survives.
+
+### Known wrinkle
+
+Step 7 restarts the match *after* the carry and evidently keeps the carried map. But the lobby's own
+state is **not** changed by the carry — the scoreboard and menu still name the map the lobby was
+created on. If a restart ever drops you back to the starting map, that is why; redo steps 3–5.
+
+That staleness is also diagnostic: it shows the carry is a **map override at load time**, not a lobby
+reconfiguration — which is exactly why it cannot deliver 6v6. See below.
+
+### ⚠ The lobby-glitch contrast — and the one measurement that could unlock 6v6
+
+The **map/mode carry glitch** behaves differently: it makes *every* map selectable **under Gunfight**,
+and the game then reports "Gunfight on \<map\>" correctly. That is a genuine **playlist
+reconfiguration**, where our carry is only a load-time override.
+
+This matters because `com_maxclients` is fixed at lobby creation *by the playlist*. Our mod never
+touches the playlist, so it can never change the slot count — structurally. **The glitch does.**
+
+**So: get into a glitched Gunfight-on-a-6v6-map lobby and inject [`../src/mp_probe/`](../src/mp_probe/).
+Read `1xxxxx`.**
+
+| Reading | Means |
+|---|---|
+| `100012` | The glitched lobby has **twelve slots** — that is **6v6 Gunfight**, with no DLL and nothing currently blocked |
+| `100008` | The glitch changes the map list but keeps Gunfight's slot count, and 6v6 stays blocked |
+
+The glitch is unreliable, but this only needs it to work **once**.
+
 Note this makes the source comment on `timer_override` incomplete. It reads:
 
 > *"OFF — the rules menu already exposes 0/20/30/40/50/60s. Only needed above 60s."*
