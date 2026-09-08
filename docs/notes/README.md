@@ -7,6 +7,12 @@ These are **not** auto-loaded. Open the one you need.
 
 ## Index
 
+**Start here if you are at the machine**
+
+- [test-queue](test-queue.md) — **every open test, on one sheet, ordered by risk**, with record slots.
+  Aggregates the untried items from every other note so a session at the test box does not have to
+  read five files to find the next thing to run.
+
 **Getting running**
 
 - [setup-new-pc](setup-new-pc.md) — bootstrapping the dev toolchain on a new machine. What travels

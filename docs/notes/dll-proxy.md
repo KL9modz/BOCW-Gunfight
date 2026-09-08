@@ -27,6 +27,38 @@ contains literally `null`, so there is no config surface to disable the heavy in
 `0xc0000142` / STATUS_DLL_INIT_FAILED dialog appears downstream — that is Windows reporting that
 DllMain failed *because* it crashed, not a separate fault.
 
+### ⚠ Source read 2026-09-08 — the line numbers below are stale, and the fix has a complication
+
+Read against `ate47/atian-cod-tools` master. **`src/dll/bocw-dll/main.cpp` is 123 lines**, so this
+note's citations of `main.cpp:653` and `:668-683` do not resolve — they came from an older layout.
+Current positions:
+
+| What | Was cited | Actually |
+|---|---|---|
+| `DllMain` → `bocw::InitDll()` on `DLL_PROCESS_ATTACH` | `:653` | **`:101-106`** |
+| `CallNtPowerInformation` forward | `:668-683` | **`:108-123`** |
+| `InitDll()` itself | — | **`:40`** |
+
+**A deferral point already exists in the same file.** The forwarded export the game actually calls
+uses a lazy initialiser — `static auto func = [] { ... }()` at `:113` — which resolves the real
+powrprof on *first call*, not at attach. That is a strictly later moment, and it is the shape any
+deferred init would take.
+
+⚠ **But `InitDll()` cannot simply be moved there.** At `:62-70` it patches the TLS directory, nulling
+every callback in `IMAGE_DIRECTORY_ENTRY_TLS`. **TLS callbacks run before the entry point**, so that
+work is inherently attach-time — deferring the whole function would skip it. A fix is therefore a
+**split**: keep the TLS patch at attach, defer the parts that read the (still-encrypted) image. That
+is a source change to ACTS and a build, not a config toggle.
+
+⚠ Also note `InitDll` wraps its body in `try {`. The observed fault is `0xc0000005`, a **structured**
+exception, which a C++ `catch` does not intercept without SEH translation — which is why the crash
+escapes a function that looks guarded.
+
+⚠ **Anti-cheat surface, for the risk model:** `InitDll` calls `hook::error::EnableHeavyDump()` and
+`hook::error::InstallErrorHooks(true)` at `:54-55`. `.claude/CLAUDE.md` records that TAC detects
+**API hooks and debugger artifacts**. This DLL is a materially larger exposure than GSC injection, and
+that is a reason to prefer the script routes independent of whether the crash is fixable.
+
 ### Likely cause — a timing problem inherent to the design
 
 `DllMain` calls `cw::InitDll()` at `DLL_PROCESS_ATTACH` (`main.cpp:653`), the earliest possible moment

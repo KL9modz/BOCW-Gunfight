@@ -374,6 +374,10 @@ code reading end-to-end. Any divergence = re-trace that path before building.
 All four `gunfight_mod` switches verified in-game: 3v3 Gunfight on Zoo, 60-second rounds, a round that
 timed out cleanly (the first time that path was ever exercised), correct HUD, clean lobby return.
 
+### ▶ The queue — [[test-queue]]
+**Every open test on one sheet, ordered by risk, with record slots.** Start there at the machine; the
+phases below are the map, that is the checklist.
+
 ### Phase 4 — the builtin sweep ← **where the untested work now is**
 Seven staged tests, ordered by risk, in [[cw-builtins]]. The first three are **read-only**:
 `lobby_probe` (four player counts + an `isvalidgametype` bitmask over candidate Gunfight strings),
