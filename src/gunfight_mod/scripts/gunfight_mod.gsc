@@ -52,12 +52,24 @@ function private autoexec __init__system__()
 function private default_config()
 {
     return {
+        // ── All four VERIFIED IN-GAME 2026-09-08 ────────────────────────────────
+        // 3v3 Gunfight carried onto Zoo, 60s rounds, round timed out cleanly,
+        // correct HUD, clean return to lobby. See docs/notes/menu-map.md.
         #zones_guard:    1,   // level.zones = [] so nothing can index it undefined
-        #timelimit_fix:  1,   // LOAD-BEARING: reach function_c4915ac, skip the crashing overtime()
-        #presentation:   1,   // the 5 symptoms (latch flags, HUD, music, round_start LUI)
-        #timer_override: 0,   // OFF — the rules menu already exposes 0/20/30/40/50/60s. Only
-                              // needed above 60s. Phase 0 T0.2 confirmed the menu setting is live.
-        #timer_minutes:  1    // used only when timer_override == 1  (range [0, 1440])
+        #timelimit_fix:  1,   // LOAD-BEARING: reach function_c4915ac, skip the crashing overtime().
+                              // ✅ VERIFIED: a round ran to zero and ended on the health decision.
+                              // First time that path was ever exercised - every prior clean match
+                              // ended by elimination and never reached expiry.
+        #presentation:   1,   // the 5 symptoms (latch flags, HUD, music, round_start LUI). ✅ HUD
+                              // confirmed. Overtime is absent and that is CORRECT - timelimit_fix
+                              // deliberately skips the crashing overtime().
+        #timer_override: 1,   // ON. The old comment said "only needed above 60s, the rules menu
+                              // exposes 0/20/30/40/50/60s" - true in a plain lobby, FALSE once the
+                              // map is carried. Measured: a carry RESETS the rules-menu value to 30,
+                              // because it re-initialises gametype settings. The override survives
+                              // because mod_apply() reruns on every on_start_gametype. Under a carry
+                              // it is needed at ANY value, including ones the menu offers.
+        #timer_minutes:  1    // 1 minute = 60s. gettimelimit() returns MINUTES; range [0, 1440]
     };
 }
 
