@@ -1,49 +1,65 @@
 # Test queue — everything open, ordered by risk
 
 One sheet aggregating every untested item across the notes, so a session at the machine does not have
-to read five files to find the next thing to run. **Fill in the Result column and the answer becomes
-the finding.**
+to read five files to find the next thing to run. **Fill in the Result rows and the answer becomes the
+finding.**
 
 ⚠ **A result is a measurement.** Record what the number was. Do not record "therefore X is
 impossible" — every such conclusion in this project has had to be walked back. Where a test comes back
-negative, write what it ruled *in* and move the question to that note's *Untried* list.
+negative, write what it ruled *in*, and move the question to that note's *Untried* list.
 
-⚠ **One write per match.** Tests 4 onward change session state with distinct failure modes; bundling
-them makes a failure unattributable. **Test a lobby return after each** — that is the check that
-caught `scene_model_shared`.
+⚠ **One write per match.** Everything in bands B and C changes session state, each with different
+failure modes; bundling them makes a failure unattributable. **Test a lobby return after each** —
+that is the check that caught `scene_model_shared`.
 
-**Setup for anything injected:** [`menu-map.md`](menu-map.md) → *PROCEDURE*. Start in **`3v3 Gunfight`**
-unless a test says otherwise; the slot count is fixed at lobby creation and cannot be changed after.
+**Setup for anything injected:** [`menu-map.md`](menu-map.md) → *PROCEDURE*.
+
+### The four results that would actually move a goal
+
+1. **A1's bitmask above 7** — a stock Gunfight variant at 4v4 or larger turns the goal into a string.
+2. **C6 reading `100012` after the switch** — team size becomes script-reachable.
+3. **C8's probe 6 reading 1** — 4v4 from the lobby you already have.
+4. **B4 keeping the carried map** — the hosting procedure loses its DLL prerequisite.
+
+Everything else is worth knowing but does not move a goal.
 
 ---
 
-## 0 — Off-game prerequisite. Run this on the DEV PC, no game needed.
+## 0 — Off-game. Dev PC, no game, zero exposure.
 
-### A0 · `tools/dump-grep.sh` — resolve the builtin argument shapes ← **do this before C7/C8**
+### A0 · `tools/dump-grep.sh` — resolve builtin argument shapes ← **run first**
 
 ```bash
 bash tools/dump-grep.sh                    # dump at ../bocw-source-main
 bash tools/dump-grep.sh /c/path/to/dump    # or say where it is
 ```
 
-Writes `dump-report.md`. **C7 and C8 ship no code on purpose**: `setteam` takes one argument and a
-team name, an index and an entity are all one argument. A stock call site settles it in a line, and
-guessing is how the last three game-crashing defects happened.
+Writes `dump-report.md`. Greps stock call sites for `setteam`, `addtestclient`, `map_restart`,
+`getnumexpectedplayers`, `switchmap_*`, `kick`, the spectator functions, and any `getgametypesetting`
+call passing more than one argument.
 
-It also greps for **Gunfight gametype strings already present in the dump**. If anything beyond
-`gunfight` and `gunfight_3v3` appears, that pre-answers A1's headline **with no game at all**.
+**Two things to look at first:**
 
-⚠ Zero exposure — greps a local dump, touches no game and no network. Result: `______`
+- **The `gunfight*` string list.** Anything beyond `gunfight` and `gunfight_3v3` **pre-answers A1's
+  headline with no game at all** — and would go straight into C6's `target`.
+- **Whether `setteam` has zero stock call sites.** That is not a failure; C8 is written to work either
+  way (it reads a team value off an existing player and passes it back, never guessing). But zero
+  sites means the dump cannot corroborate C8's reading, so weight C8's result accordingly.
+
+Result: `______`
 
 ---
 
 ## A — Zero risk. Read-only, nothing written.
 
-### A1 · `lobby_probe` — four player counts and the gametype bitmask ← **run this first**
+### A1 · `lobby_probe` — four player counts and the gametype bitmask ← **the headline**
 `src/lobby_probe/` · [`cw-builtins.md`](cw-builtins.md)
 
-Validate offline first: `.\tools\check-gsc.ps1 .\src\lobby_probe\scripts\lobby_probe.gsc`. It uses
-builtins **no stock script calls**, so stage 4 is the real gate here.
+Validate offline first — it calls builtins **no stock script calls**, so stage 4 is the real gate:
+
+```powershell
+.\tools\check-gsc.ps1 .\src\lobby_probe\scripts\lobby_probe.gsc
+```
 
 | Read | Expect | Result |
 |---|---|---|
@@ -51,114 +67,201 @@ builtins **no stock script calls**, so stage 4 is the real gate here.
 | `2xxxxx` `getnumexpectedplayers()` | **unknown — never called** | `______` |
 | `3xxxxx` `numremoteclients()` | **unknown** | `______` |
 | `4xxxxx` `getnumconnectedplayers()` | **unknown** | `______` |
-| `5xxxxx` flags | 1=teambased, 2=private → expect **3** | `______` |
+| `5xxxxx` flags | 1=teambased + 2=private → expect **3** | `______` |
 | `9xxxxx` **gametype bitmask** | see below | `______` |
 
-**Read the bitmask controls before anything else.** Bit 0 (`gunfight`) and bit 1 (`tdm`) must be SET;
-bit 7 (value ≥128, `zzz_not_a_gametype`) must be CLEAR. Outside `3..127` the probe is meaningless —
-discard it, do not interpret it.
+**Read the controls before the payload.** Bit 0 (`gunfight`) and bit 1 (`tdm`) must be SET; bit 7
+(≥128, `zzz_not_a_gametype`) must be CLEAR. Outside `3..127` the probe is meaningless — discard it,
+do not interpret it. A function returning true for everything is worse than no reading, which is the
+`jump_height` lesson from [`mp-dvars.md`](mp-dvars.md).
 
-- `7` = only `gunfight`, `tdm`, `gunfight_3v3` are valid. Expected.
-- `>7` = **a Gunfight variant nobody knew about.** 16 = `gunfight_4v4`, 32 = `gunfight_5v5`,
-  64 = `gunfight_6v6`. **This would be the cheapest possible answer to the team-size goal.**
+- `7` = only the two known strings plus `tdm`. Expected.
+- `>7` = **a Gunfight variant nobody knew about.** 16 = `_4v4`, 32 = `_5v5`, 64 = `_6v6`.
 
-Run it in **both** a 3v3 Gunfight lobby and a private TDM lobby — probes 2–4 are most interesting
-where they *disagree* with probe 1.
+**Run it in BOTH a 3v3 Gunfight lobby and a private TDM lobby.** Probes 2–4 are most interesting
+where they *disagree* with probe 1 — a disagreement means "8 slots" is several facts, not one, and
+the 6-players-plus-2-spectators reading becomes measurable rather than inferred.
+
+⚠ If probes 2–4 all read 99999, they returned undefined rather than a count. That is a result about
+the *builtins*, not about the lobby — record it and C8 becomes the better route to the same question.
 
 ### A2 · Re-count the Atian map list
-[`atian-menu-source.md`](atian-menu-source.md). The walk recorded **19** maps; the CW source wires
-**48** (37 under `is_multiplayer()`). Count what the menu actually shows.
-→ 19 means the shipped release predates master. 37–48 means the earlier count was one page.
-Result: `______`
+[`atian-menu-source.md`](atian-menu-source.md)
+
+The walk recorded **19** maps; the CW source wires **48** entries, **37** of them under
+`is_multiplayer()`. Open `(4/4)` → `Map` and count to the bottom.
+
+| Count | Means |
+|---|---|
+| ~19 | the shipped `latest_build` release predates current master — **a source build would offer more maps** |
+| ~37 | the earlier count was one page, and the full list was always there |
+| something else | record it; neither explanation fits |
+
+⚠ Count by scrolling to the end, not by what fits on screen — the root menu is paged and the map
+submenu may be too. Result: `______`
 
 ### A3 · `mp_probe` on a carried lobby
-Classify a carried map's `gunfight_zone_center` count (`5xxxxx`). Expect **0**, same as every stock
-map. A non-zero would overturn [`gunfight-findings.md`](gunfight-findings.md). Result: `______`
+Classify a carried map's `gunfight_zone_center` count (`5xxxxx`). Expect **0**, the same as every
+stock Gunfight map (n=2, ICBM and Amsterdam). A non-zero would overturn
+[`gunfight-findings.md`](gunfight-findings.md)'s headline, which is currently the basis for
+`zones_guard` being necessary at all.
+
+Also worth reading here: `2xxxxx` (live `timelimit`). Under a carry it should show `timer_override`'s
+value, not the rules-menu value — that is the second confirmation of the reset behaviour.
+Result: `______`
 
 ---
 
 ## B — Low risk. Reverts on restart.
 
 ### B4 · `map_restart()` — can cwpatch be dropped?
-`map_restart` (0–1 args, `+3b0a5c0`). The procedure needs **F7** at step 7 because the lobby route
-discards the map carry, which makes cwpatch a hard prerequisite that Battle.net silently reverts on
-repair.
 
-**Carry a map, then call `map_restart()` instead of pressing F7.** Does the carried map survive?
-→ Yes: the DLL comes out of the critical path. → No: F7 stays required, and *why* is worth a line.
+`map_restart` — 0–1 args, `BlackOpsColdWar.exe+3b0a5c0`.
+
+**Why it matters more than it looks.** [`menu-map.md`](menu-map.md)'s procedure needs **F7**
+(`full_restart`) at step 7, because returning via the lobby discards the map carry. That makes cwpatch
+a hard prerequisite for the entire workflow — and Battle.net silently reverts
+`discord_game_sdk.dll` on repair, so the whole recipe breaks with no obvious cause. Removing that
+dependency makes the setup one step shorter and one failure mode smaller.
+
+**Needs a small project of its own** — it is a write, and the standing rule is one payload, one
+behaviour. The body is:
+
+```gsc
+// after the carry has happened
+wait( 10 );
+map_restart( 0 );     // ⚠ arg shape unknown; A0 may show stock passing something else
+```
+
+**Procedure:** run steps 1–5 of the hosting recipe, carry to a map, inject this instead of pressing
+F7, and see what loads.
+
+| Outcome | Means |
+|---|---|
+| carried map survives | **cwpatch comes out of the critical path.** Update the procedure |
+| lobby's original map loads | `map_restart` goes through the lobby like the menu does; F7 stays required |
+| nothing happens | the argument is wrong, or it is host-only. Check A0's call sites |
+
 Result: `______`
 
 ### B5 · `mapexists()` over the 48 source names
-Which of the Atian source's map names this build actually has. Pure enumeration, pack as a bitmask the
-way A1 does. Result: `______`
+
+`mapexists` — 1 arg, `+3b0b2d0`. The map-side equivalent of `isvalidgametype`: tests a name without
+loading it. Read-only.
+
+**Cheapest as an addition to `lobby_probe`** rather than a new project — same bitmask trick, one bit
+per name, batched in groups of ~20 so each number stays readable. Tells you which of the Atian
+source's names this build actually has, which is also a cross-check on A2's count.
+
+Result: `______`
 
 ---
 
 ## C — Session writes. **One per match. Lobby return after each.**
 
 ### C6 · `switchmap_load` from a 12-slot TDM lobby ← **the team-size question**
-[`atian-menu-source.md`](atian-menu-source.md)
+`src/test_switchmap/` · [`atian-menu-source.md`](atian-menu-source.md)
 
-Start in **private TDM** (12 slots — *not* Gunfight). Then:
+⚠⚠ **START IN PRIVATE TDM, NOT GUNFIGHT.** The whole test is whether a 12-slot lobby *keeps* its 12
+slots after the gametype switches in place. Starting in Gunfight makes the reading meaningless.
 
-```gsc
-switchmap_load( util::get_map_name(), "gunfight_3v3" );
-wait( 1 );          // load-bearing per ate47; reason unknown
-switchmap_switch();
-```
+The script is `func_set_gametype()` from the Atian Menu's CW source — dead code there — extracted and
+instrumented. **Run with `read_only = 1` first**: it reports the lobby state and switches nothing,
+confirming you are in the right lobby before spending a session reload.
 
-Then read `mp_probe` `1xxxxx`.
+It emits on **every** `on_start_gametype`, so you get a reading before the switch and another after.
 
-| Reading | Means |
+| Sequence | Means |
 |---|---|
-| `100012` | `switchmap_load` reaches the playlist layer — **larger teams are script-reachable** |
-| `100008` | it re-derived the lobby from the gametype, like the map carry does |
+| `100012 / 200000` then `100012 / 200001` | **THE WIN.** Gunfight running in a 12-slot lobby |
+| `100012 / 200000` then `100008 / 200001` | switchmap re-derived the lobby from the gametype, same as the map carry |
+| `2xxxxx` never reads 1 | the optional gametype argument was ignored. **That is the finding** — record it |
+| no second reading at all | the script did not survive the reload. Re-inject and check the hook, do not assume the switch failed |
 
-⚠ The gametype argument is **optional** (1–2 args), so the CW build honouring it is itself untested.
-If Gunfight does not load at all, that is the answer to a different question — record which happened.
+⚠ `switchmap_load` is 1–2 args; the 2-arg form existing does not prove the CW build honours the
+second. ⚠ ate47 on the sequence: *"the wait is important, I don't know why."* Do not remove it.
+
 Result: `______`
 
-### C7 · `addtestclient()` in a loop — the **real** client ceiling
-`addtestclient` (0–2 args, `+3d3c9e0`). Add clients until it stops accepting them; the count is the
-answer, whatever `com_maxclients` says. This measures the thing instead of reading a proxy for it.
+### C7 · `addtestclient()` — the **real** client ceiling, measured
+`src/test_addclients/` · [`cw-builtins.md`](cw-builtins.md) §4
 
-Also the mechanism Phase 3's *"bots before humans"* always assumed and never had.
-⚠ `kick` (1–2, `+3b0a3a0`) is the only obvious undo. Result: `______`
+Everything this project believes about team size rests on `com_maxclients` reading 8. This fills the
+lobby until the engine refuses, and the refusal point *is* the ceiling — measured, not read.
 
-### C8 · `setteam()` on a spectator — **is 8 clients actually 4v4?**
-[`cw-builtins.md`](cw-builtins.md) §5. If the 8 slots are 6 players + 2 spectators, and `setteam` can
-put a spectator on a team, **8 clients is exactly 4v4 with no larger lobby at all** — which is the
-stated target.
+The script calls the **zero-argument** form (the only one that cannot be wrong about an argument),
+waits 2s after each add for the join to land, stops after two consecutive adds fail to raise the
+count, and hard-caps at 20 iterations so a never-tripping exit condition cannot spin forever in a live
+match.
 
-⚠ `setteam`'s single argument may be a team name, an index, or something else. Try with a bot from C7
-before a human. Result: `______`
+| Read | Means | Result |
+|---|---|---|
+| `3xxxxx` players after the fill | **the answer.** 6 = spectator slots are not player slots. 8 = they are, and **8 clients is 4v4** | `______` |
+| `4xxxxx` adds that stuck | `3xxxxx` minus the baseline | `______` |
+| `5xxxxx` attempts | if this reads 20, the cap was hit and the ceiling is higher than the test looked — raise `maxtries` and rerun | `______` |
+
+⚠ Bots may not leave cleanly. `kick` (1–2 args, `+3b0a3a0`) is the only obvious undo; A0 reports its
+call sites. **Also the mechanism Phase 3's "bots before humans" always assumed and never had** — if
+this works, every later test gets cheaper.
+
+### C8 · `setteam()` — is 8 clients actually 4v4?
+`src/test_setteam/` · [`cw-builtins.md`](cw-builtins.md) §5
+
+**This script never guesses the argument.** It reads a team value off a player who already has one and
+passes that back — whatever representation the engine uses is the representation it gets. Probe 3
+additionally *reports* which representation it is, by comparison rather than display, since a hashed
+team name cannot render on retail but `x === #"allies"` evaluates fine.
+
+**Run with `read_only = 1` first.** Phase 1 writes nothing and is what settles the argument shape.
+
+| Read | Means | Result |
+|---|---|---|
+| `3xxxxx` representation | 1=`#"allies"` 2=`#"axis"` 4=`"allies"` 8=`"axis"`. **0 = none matched, and that is itself the finding** — stop and record | `______` |
+| `4xxxxx` on the donor team before | team distribution | `______` |
+| `6xxxxx` **did the team change** | **the answer.** 1 = team assignment is script-writable | `______` |
+| `7xxxxx` on that team after | confirms the move landed rather than the read being stale | `______` |
+
+⚠ Needs at least two clients on different teams. **Run C7 first** — with bots in the lobby this test
+has something to move; solo it returns 99999 on probe 6 and tells you nothing.
 
 ### C9 · The lobby glitch + `mp_probe`
-[`menu-map.md`](menu-map.md). The glitch is a genuine **playlist reconfiguration** where the map carry
-is only a load-time override — so it acts on the layer that sets `com_maxclients`. Unreliable, but
-this only needs it to work once. Read `1xxxxx`. Result: `______`
+[`menu-map.md`](menu-map.md)
+
+The map/mode carry glitch is a genuine **playlist reconfiguration** where our carry is only a
+load-time override — so it acts on the layer that actually sets `com_maxclients`. Get into a glitched
+Gunfight-on-a-6v6-map lobby, inject `mp_probe`, read `1xxxxx`.
+
+`100012` = twelve slots, and the goal is met with no code at all. `100008` = the glitch changes the
+map list but not the slot count.
+
+⚠ Unreliable, but this only needs to work **once**. ⚠ Distinguish it from the Atian carry: the glitch
+makes the game report *"Gunfight on \<map\>"* correctly, where the carry leaves the scoreboard naming
+the old map. If the scoreboard is stale you are in a carry, not a glitch, and the reading means
+something else. Result: `______`
 
 ---
 
 ## D — Menu walk leftovers. No injection beyond the menu itself.
 
-| # | Item | Result |
-|---|---|---|
-| D10 | **Pages 1–3** of the Atian Menu — never transcribed, reported as "weapons and camera stuff" | `______` |
-| D11 | **Host vs joiner** — the menu was only ever opened in a single-player lobby. Can a joiner open it? Does the carry behave for them? | `______` |
-| D12 | **In-lobby vs in-match** — only ever opened in-match | `______` |
+| # | Item | Why it is still open | Result |
+|---|---|---|---|
+| **D10** | **Pages 1–3** of the Atian Menu | Never transcribed — reported as "weapons and camera stuff", which settled the gametype question but is not an index. ⚠ The upstream README's feature list is written for **BO4** and did not match page 4, so do not use it as a CW inventory | `______` |
+| **D11** | **Host vs joiner** | Only ever opened in a single-player lobby. Can a joiner open it? Does the carry behave for them? Bears directly on the participant disclosure in [`tac-risk-model.md`](tac-risk-model.md) | `______` |
+| **D12** | **In-lobby vs in-match** | Only ever opened in-match. If it opens in-lobby, the procedure may lose a step | `______` |
 
 ---
 
-## What would change the project most
+## Build and inject
 
-1. **A1's bitmask above 7.** A stock Gunfight variant at 4v4 or larger turns the remaining goal into a
-   string.
-2. **C6 reading 12.** Team size becomes script-reachable.
-3. **C8 working.** 4v4 with no lobby change at all — the target, from the lobby you already have.
-4. **B4 working.** The hosting procedure loses its DLL prerequisite.
+```powershell
+.\tools\check-gsc.ps1 .\src\<project>\scripts\<project>.gsc      # validate offline FIRST
+acts gscc src\<project>\scripts\<project>.gsc -g cw -p pc -o <project>
+```
 
-Anything else is worth knowing but does not move a goal.
+then place the `.gscc` in `$GF_PAYLOADS` and inject per [`../../tools/README.md`](../../tools/README.md).
+
+⚠ **A harness PASS is necessary, not sufficient** — it does not check argument counts, dialect, or
+anything about runtime. `src/README.md` → *What a harness PASS does and does not mean*.
 
 ⚠ Injecting begins host-side exposure — [`tac-risk-model.md`](tac-risk-model.md). Nothing here hides
-itself from the anti-cheat; that is out of scope by decision.
+itself from the anti-cheat; that is out of scope by decision, not oversight.

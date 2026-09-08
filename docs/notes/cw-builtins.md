@@ -137,8 +137,14 @@ non-private session — turning a procedural rule into a mechanical one.
 | **3** | `mapexists()` over the 48 names in the Atian source | read-only | Which of them this build actually has |
 | **4** | `map_restart()` in a carried lobby | restarts a match | Whether cwpatch/F7 can be dropped from the procedure |
 | **5** | `switchmap_load( get_map_name(), "gunfight_3v3" )` in a 12-slot TDM lobby | reloads the session | **The team-size question.** [`atian-menu-source.md`](atian-menu-source.md) |
-| **6** | `addtestclient()` in a loop until refusal | adds clients | The **real** client ceiling, measured rather than read |
-| **7** | `setteam()` on a spectator client | changes assignment | Whether 8 clients can be 4v4 |
+| **6** | `addtestclient()` in a loop until refusal — [`../../src/test_addclients/`](../../src/test_addclients/) | adds clients | The **real** client ceiling, measured rather than read |
+| **7** | `setteam()` on a spectator client — [`../../src/test_setteam/`](../../src/test_setteam/) | changes assignment | Whether 8 clients can be 4v4 |
+
+Tests 5–7 now ship as code: [`../../src/test_switchmap/`](../../src/test_switchmap/),
+[`../../src/test_addclients/`](../../src/test_addclients/),
+[`../../src/test_setteam/`](../../src/test_setteam/). Separate projects on purpose — a payload that
+can only do one thing cannot accidentally do another. Readings and decision tables:
+[`test-queue.md`](test-queue.md).
 
 ⚠ **One per match.** Tests 4–7 are writes with distinct failure modes; bundling them makes a failure
 unattributable. Test a **lobby return** after each, which is the check that caught the

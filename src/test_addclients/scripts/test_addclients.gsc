@@ -1,0 +1,131 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST C7 — the REAL client ceiling, measured.
+//
+// docs/notes/test-queue.md C7 · docs/notes/cw-builtins.md §4
+// Hook: scripts\mp_common\bb.gsc, mode=mp
+//
+// WHY. Everything this project believes about team size rests on
+// getdvarint(#"com_maxclients") reading 8 in a 3v3 Gunfight lobby. That is one
+// number from one source, and the "6 players + 2 spectators" reading of it is an
+// INFERENCE nobody has tested.
+//
+// addtestclient() (BlackOpsColdWar.exe+3d3c9e0) fills the lobby until the engine
+// refuses. The count where it refuses is the ceiling - measured, not read. If it
+// stops at 6, the spectator slots are not player slots. If it reaches 8, they are,
+// and 8 clients is 4v4.
+//
+// ⚠⚠ UNVALIDATED ARGUMENT SHAPE. The function table says 0-2 args and says nothing
+//    about what they mean. This calls the ZERO-ARG form, which is the only one that
+//    cannot be wrong about an argument. If dump-report.md shows stock passing args,
+//    revisit before assuming the 0-arg form does the same thing.
+//
+// ⚠ THIS WRITES TO A LIVE SESSION. Bots may not leave cleanly; `kick` (1-2 args,
+//   +3b0a3a0) is the only obvious undo. Run alone. Test a lobby return after.
+//
+// ── HOW TO READ THE OUTPUT ────────────────────────────────────────────────────
+// PROBE_ID * 100000 + VALUE, one every 5s. 99999 = undefined.
+//
+//   1xxxxx  com_maxclients                what the dvar claims  (expect 8 / 12)
+//   2xxxxx  players BEFORE                baseline
+//   3xxxxx  players AFTER the fill        <- THE ANSWER
+//   4xxxxx  addtestclient calls that stuck  (3 minus 2)
+//   5xxxxx  calls attempted               hit MAXTRIES? then the ceiling is higher
+//                                          than this test looked - raise it and rerun
+// ─────────────────────────────────────────────────────────────────────────────
+
+#using scripts\core_common\callbacks_shared;
+#using scripts\core_common\system_shared;
+#using scripts\core_common\util_shared;
+
+#namespace test_addclients;
+
+// ⚠ Deliberately plain locals, not #define. src/README.md records that DIALECT
+//   defects are invisible to every harness stage and caused two of the three
+//   game-crashing bugs this project has had. gunfight_mod.gsc uses a plain config
+//   struct for the same reason. Do not "tidy" these into preprocessor macros.
+
+function private autoexec __init__system__()
+{
+    system::register( #"test_addclients", &__init__, undefined, undefined, undefined );
+}
+
+function private __init__()
+{
+    callback::on_start_gametype( &on_start );
+}
+
+function private on_start()
+{
+    level thread run();
+}
+
+function private run()
+{
+    // on_start_gametype fires before players are in the match.
+    wait( 10 );
+
+    // Hard cap: without it, a loop whose exit condition never trips runs forever
+    // inside a live match. 20 is comfortably past any plausible MP ceiling (12).
+    maxtries = 20;
+
+    // Clients take time to connect. Reading the player count immediately after an
+    // add would read it from before the join landed, and make every add look like
+    // a refusal.
+    settle = 2;
+
+    maxclients = getdvarint( #"com_maxclients", 0 );
+    before     = getplayers().size;
+
+    emit( 1, maxclients );
+    emit( 2, before );
+
+    // Fill until two consecutive adds fail to raise the count. One failure alone
+    // is not proof - a slow join looks identical to a refusal at this timescale.
+    tries    = 0;
+    stalled  = 0;
+    current  = before;
+
+    while ( tries < maxtries && stalled < 2 )
+    {
+        addtestclient();
+        tries++;
+
+        wait( settle );
+
+        now = getplayers().size;
+
+        if ( now > current )
+        {
+            current = now;
+            stalled = 0;
+        }
+        else
+        {
+            stalled++;
+        }
+    }
+
+    emit( 3, current );
+    emit( 4, current - before );
+    emit( 5, tries );
+}
+
+function private emit( id, value )
+{
+    v = 99999;
+    if ( isdefined( value ) )
+    {
+        v = value;
+    }
+
+    tagged = id * 100000 + v;
+
+    foreach ( player in getplayers() )
+    {
+        player iprintlnbold( tagged );
+    }
+
+    // 5s. At 2s the values scroll past faster than they can be written down -
+    // mp_probe.gsc learned this the hard way.
+    wait( 5 );
+}
