@@ -58,7 +58,14 @@ after that date.
 
 Both remaining headline goals — Gunfight on arbitrary maps, and 6v6 in a private lobby — reduce to
 decoupling gametype from the menu's playlist configuration, and this was the mechanism for it. It is
-currently blocked. Untried avenues, none validated:
+currently blocked.
+
+> 🔓 **It may also no longer be needed for the map half.** On 2026-09-08 the **in-game menu** carried
+> Gunfight from Mansion onto **Hijacked**, a 6v6 non-Gunfight map — no DLL, no injector. If that
+> reproduces, `cwdllgt` is off the critical path for map unlocking and this whole proxy is optional.
+> n=1 and unverified beyond "it loaded": [[menu-map]].
+
+Untried avenues, none validated:
 
 - **Get the DLL loaded after decryption.** LoadLibrary is already ruled out below for the base-name
   reason, so this needs a different vector.

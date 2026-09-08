@@ -84,6 +84,11 @@ code** (`gunfight.gsc:813, 836, 874, 875`). Bypass them and the per-map dependen
 ✅ Spawns are NOT a problem: `gunfight.gsc:77` `spawning::addsupportedspawnpointtype( "tdm" )` — every
 MP map ships TDM spawn points.
 
+🔓 **The menu carries the gametype across a map change — n=1.** Gunfight started on Mansion, map
+switched to **Hijacked** (a 6v6 non-Gunfight map) from the in-game menu, and Gunfight loaded. No GSC,
+no DLL. The barrier was never `gunfight.gsc`; it is the playlist layer, and the menu reaches around
+it. Unverified past "it loaded" — caveats, the walk-it index, and the measurement: [[menu-map]].
+
 ### Start spawns — script-safe at any team size; the residual risk is engine-side
 `usestartspawns()` (`hashed/script/script_44b0b8420eabacad.gsc:504` — the file `gunfight.gsc` pulls in
 via `#using script_44b0b8420eabacad`) returns true whenever `level.alwaysusestartspawns` is set, and
@@ -297,6 +302,10 @@ before Phase 1**, since Phase 2's music/VO/HUD checks depend on it.
   → **If yes, the timer needs no mod at all.**
 
 ### Phase 1 — the 6v6 hypothesis (~30 min, 2 people) ← **the gate**
+⚠ **A cheaper variant now exists and is untaken.** The Mansion → Hijacked carry ([[menu-map]]) already
+puts a Gunfight lobby on a twelve-client map. Run `src/mp_probe/` there and read probe `1xxxxx`:
+`12` settles 6v6 with no code, `8` says the lobby config followed the gametype. One match, no second
+person.
 Create the lobby under a **12-player mode** (TDM), confirm 12 slots, then apply the existing
 map/mode carry glitch to bring Gunfight *into that lobby* (inverse of the current technique, which
 starts from a Gunfight search).

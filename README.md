@@ -77,6 +77,17 @@ Headline results so far:
   menu/playlist layer choosing which maps are offered, which is the same layer that configures a
   lobby for twelve clients. See [`docs/notes/dll-proxy.md`](docs/notes/dll-proxy.md).
 
+- 🔓 **And the menu appears to be that mechanism — n=1, 2026-09-08.** A private match started as
+  **Gunfight on Mansion** (a stock Gunfight 2v2 map) had its map switched **to Hijacked** from the
+  in-game menu, and Gunfight loaded. Hijacked is a **6v6** BO2 remake added in Season Four and is not
+  a Gunfight map. So Gunfight ran on a map its playlist does not offer, with **no GSC, no DLL, and no
+  injector** — the job `cwdllgt` was blocked on.
+
+  ⚠ **One report, and "it loaded" is not "it works."** Reproducibility, round flow, timer expiry and
+  the player-slot count are all unmeasured. Hijacked is a twelve-client map, so the same lobby is
+  also the untaken Phase 1 test. [`docs/notes/menu-map.md`](docs/notes/menu-map.md) holds the caveats
+  and the measurement.
+
 - **Spawns are not a problem** — the mode uses TDM spawn points.
 - **The zone absence only bites when the round timer expires.** `ontimelimit()` threads `overtime()`,
   which dereferences `level.zones[0]` (`:944`). No timer expiry, no crash. That is why the zoneless

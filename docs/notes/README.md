@@ -34,6 +34,9 @@ These are **not** auto-loaded. Open the one you need.
 
 **The Gunfight findings**
 
+- [menu-map](menu-map.md) — the private-match menu: the **Mansion → Hijacked carry** that put Gunfight
+  on a non-Gunfight 6v6 map with no code, what that does and does not establish, and the walk-it-
+  yourself index scaffold. The menu is never readable from the dump — it is filled in by walking.
 - [gunfight-findings](gunfight-findings.md) — the one hard map dependency (`gunfight_zone_center`),
   why it is almost certainly the round-timer bug, and why a *partial* zone setup is worse than none.
 - [team-sizes](team-sizes.md) — where team size actually lives, what is overridable from GSC and
