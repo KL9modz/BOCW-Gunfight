@@ -73,6 +73,7 @@ Validate offline first — it calls builtins **no stock script calls**, so stage
 | `3xxxxx` `numremoteclients()` | **unknown** | `______` |
 | `4xxxxx` `getnumconnectedplayers()` | **unknown** | `______` |
 | `5xxxxx` flags | 1=teambased + 2=private → expect **3** | `______` |
+| `6xxxxx` **`maxsquadplayers`** | **the team-size lead.** `3` in a 3v3 lobby = try `setgametypesetting( #"maxsquadplayers", 4 )` next. Anything else = not the lever | `______` |
 | `9xxxxx` **gametype bitmask** | see below | `______` |
 
 **Read the controls before the payload.** Bit 0 (`gunfight`) and bit 1 (`tdm`) must be SET; bit 7

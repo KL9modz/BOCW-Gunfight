@@ -127,6 +127,66 @@ And it takes a **team**, which is what makes C8 cheap: `team_assignment.gsc:107`
 `getplayers` is 0–4 args, and `getplayers( team )` appears throughout `team_assignment.gsc`. Both new
 tests use it to count one team without iterating and comparing by hand.
 
+## 6 · 🔓 The FNV1a64 "wall" is passable for a guessable name — and `maxsquadplayers` is through it
+
+`.claude/CLAUDE.md` lists the front end's FNV1a64 hashing under confirmed dead ends: *"this is where
+the map list and per-mode `com_maxclients` live, and it is the FNV1a64 wall."* That is true for
+arbitrary data. **It is not true for a name a person can guess** — the hash is unsalted, so any
+candidate is testable in microseconds and a 63-bit match is proof.
+
+The algorithm, from `atian-cod-tools/src/core/shared/utils/hash_mini.hpp`:
+
+```
+Hash64(str) = Hash64A(str, 0xcbf29ce484222325, 0x100000001b3) & 0x7FFFFFFFFFFFFFFF
+Hash64A:  h = start;  for c in lower(str):  h = (h ^ c) * iv
+```
+
+Shipped as [`../../tools/crack-hash.py`](../../tools/crack-hash.py). It cracked, on the first
+wordlist:
+
+```
+globallogic.gsc:230   level.var_704bcca1 = getgametypesetting( #"hash_3a4691a853585241" );
+                                                                      ^^^^^^^^^^^^^^^^
+                      3a4691a853585241  ->  maxsquadplayers
+```
+
+### What `maxsquadplayers` actually gates — and what it does not
+
+⚠ **It is a SQUAD cap, and this project's goal is a TEAM cap. Do not conflate them again** — that is
+the mistake that produced the `gunfight_3v3` retraction above.
+
+| Path | Bounds on |
+|---|---|
+| `team_assignment.gsc:148` `function_efe5a681( team )` — **the join gate** | `com_maxclients` (8) |
+| `team_assignment.gsc:136` `function_46edfa55()`, `:864`, `:851`, `:1010-1021` — **squad distribution** | `level.var_704bcca1` = `maxsquadplayers` |
+
+So the gate that refuses a joining player uses 8, and `maxsquadplayers` bounds squad size inside the
+distribution logic.
+
+**Why it is still the best candidate this project has for the 3.** For Gunfight a team *is* a squad —
+that is what the mode is. And unlike `com_maxclients`, `maxsquadplayers` is a **gametype setting**,
+which means `setgametypesetting()` can write it at runtime; the project has already proven that path
+lands in ~0.25s for `#"timelimit"` (`.claude/CLAUDE.md` → *Timer*).
+
+**Read it before writing it.** `lobby_probe` probe `6xxxxx` now does. In a 3v3 Gunfight lobby:
+
+| Reading | Means |
+|---|---|
+| **3** | the strongest team-size lead this project has had. Then try `setgametypesetting( #"maxsquadplayers", 4 )` |
+| 8, 0, or undefined | not the lever. Record it and go back to the *Untried* list |
+
+⚠ Two hashes did **not** crack: `4091f2d0019b1f4a` (`gunfight.csc:230`, shared with `control.csc` and
+`dom.csc`) and `0cd096e90260a26b` (Onslaught). ~15,000 candidates each. **That means the wordlist was
+wrong, not that they are unresolvable.**
+
+## 7 · ACTS's `cw_lobby_tool` gametype list is BLACK OPS 4's
+
+`atian-cod-tools/src/core/acts/tools/cw/cw_lobby_tool.cpp` carries a `gametypes[]` table — `conf`,
+`ctf`, `dom`, `koth`, `sd`, `tdm` — and includes `<games/bo4/pool.hpp>` and `<games/bo4/offsets.hpp>`.
+Despite living under `tools/cw/`, **it is not a Cold War gametype inventory.** Consistent with
+[`dll-proxy.md`](dll-proxy.md)'s note that ACTS's hardcoded list omits `gunfight` while the CLI passes
+an arbitrary string through. Do not mine it for CW names.
+
 ---
 
 ## What changed in code

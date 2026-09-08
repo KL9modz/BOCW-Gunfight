@@ -258,8 +258,13 @@ is merely untried, it belongs in a note's **Untried — not ruled out** list ins
   (`teamcount > 2`), and Gunfight is two-team, so it is never enforced. Overwriting it does nothing.
 - **BOCW front-end / playlist data** — **not in any public dump.** The UI is compiled LUA; `bocw-source`'s
   `ui/` holds only two graphics cfgs. `arena_playlist_game_modes_maps.json` is almost entirely hashed and
-  just points at another bundle by hash. This is where the map list and per-mode `com_maxclients` live,
-  and it is the FNV1a64 wall.
+  just points at another bundle by hash. This is where the map list and per-mode `com_maxclients` live.
+
+  ⚠ **AMENDED 2026-09-08 — the "FNV1a64 wall" is not a wall for a name you can guess.** The hash is
+  unsalted, so a candidate is testable in microseconds and a 63-bit match is proof.
+  `tools/crack-hash.py` cracked `getgametypesetting(#"hash_3a4691a853585241")` to **`maxsquadplayers`**
+  on the first wordlist. The wall stands for *arbitrary* data and for names nobody thinks of; it does
+  not stand for ordinary field names. [[dump-cross-check]]
 
 ---
 

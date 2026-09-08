@@ -37,6 +37,7 @@
 //   3xxxxx  numremoteclients()        NEW
 //   4xxxxx  getnumconnectedplayers()  NEW
 //   5xxxxx  flags bitmask             1 = isgametypeteambased, 2 = sessionmodeisprivate
+//   6xxxxx  maxsquadplayers           <- NEW. The best candidate yet for Gunfight's 3
 //   9xxxxx  GAMETYPE VALIDITY BITMASK  <- the headline. See the table at its emit site
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -81,6 +82,25 @@ function private report()
         flags += 2;
     }
     emit( 5, flags );
+
+    // ── maxsquadplayers ──────────────────────────────────────────────────────
+    // globallogic.gsc:230 does level.var_704bcca1 = getgametypesetting(#"hash_3a4691a853585241").
+    // That hash cracks to "maxsquadplayers" - FNV1a64 & MASK63, exact 63-bit match,
+    // algorithm taken from ACTS hash_mini.hpp. See docs/notes/dump-cross-check.md.
+    //
+    // ⚠ It is a SQUAD cap, not proven to be the team cap. team_assignment.gsc:864
+    //   uses it to bound squad size inside the squad-distribution path, while the
+    //   actual join gate (function_efe5a681) bounds on com_maxclients instead.
+    //
+    //   But for Gunfight a team IS a squad, which makes this the best candidate yet
+    //   for where the 3 comes from. READING 3 HERE IN A 3v3 GUNFIGHT LOBBY WOULD BE
+    //   THE STRONGEST EVIDENCE THIS PROJECT HAS FOR A SETTABLE TEAM-SIZE LEVER,
+    //   because setgametypesetting() is writable at runtime and already proven to
+    //   land in ~0.25s for #"timelimit".
+    //
+    //   Reading something else - 0, 8, undefined - says it is not the lever, and
+    //   that is equally worth knowing.
+    emit( 6, getgametypesetting( #"maxsquadplayers" ) );
 
     // ── THE HEADLINE ─────────────────────────────────────────────────────────
     // isvalidgametype( name ) - BlackOpsColdWar.exe+3b0b300, 1 arg.
