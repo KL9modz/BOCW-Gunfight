@@ -378,10 +378,24 @@ silently turns the hotkeys off. If F4–F7 stop working, check this file's size 
 | 4 | Restart the match (F7) | Injection is inert until a map load links it |
 | 5 | `RMB+V` → `Map` → `R` → choose from the 19 | up `RMB` / down `LMB` / select `R` / back `V` |
 | 6 | `bash /c/bocw/inject.sh mod` | Replaces the menu — fine, the carry is done |
-| 7 | Restart the match (F7) | Links the mod |
+| 7 | Restart the match — **F7 ONLY** | Links the mod. **Do NOT go via the lobby** — see below |
 | 8 | Play | 60s rounds, correct Gunfight HUD, clean lobby exit |
 
 Re-run 3–5 to change map again.
+
+### ⚠ Step 7 must be F7 — cwpatch is REQUIRED, not a convenience
+
+The carry is a **load-time map override**; the lobby's own state is never changed by it (which is why
+the scoreboard keeps naming the map the lobby was created on). **Returning to the lobby therefore
+discards the carry** and reloads the lobby's own map.
+
+`full_restart` (F7) restarts the match *without* going through the lobby, which is the only way to
+link the mod while keeping the carried map. Step 4 is different — no carry has happened yet, so the
+lobby route is fine there.
+
+So **cwpatch must be deployed before the workflow can be completed at all.** If F4–F7 are dead, check
+`discord_game_sdk.dll`: 13,824 bytes is cwpatch, 3,891,512 is the stock SDK that Battle.net's repair
+silently restores.
 
 ### Why the mod is required for the timer
 
