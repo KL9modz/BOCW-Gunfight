@@ -13,9 +13,18 @@ you can think of can be tested in microseconds, and a 63-bit match is proof.
 This cracked `getgametypesetting(#"hash_3a4691a853585241")` at globallogic.gsc:230
 to **maxsquadplayers** on the first wordlist. See docs/notes/dump-cross-check.md.
 
-⚠ IT ONLY WORKS ON NAMES YOU CAN GUESS. A miss means your wordlist was wrong, not
-  that the algorithm is wrong and not that the hash is unbreakable. Report misses
-  as "not found with N candidates", never as "unresolvable".
+⚠ IT ONLY WORKS ON NAMES YOU CAN GUESS, AND IT DOES NOT SCALE. Measured 2026-09-08:
+
+    harvest 167,711 identifiers out of the dump, hash them all
+        -> resolves   0 of 227 unresolved fields in custom_games.ddl
+        -> resolves 164 of 21,540 hash_ tokens dump-wide  (0.8%)
+    generate 1,119,903 compositional candidates from the right vocabulary
+        -> resolves   1 of 227, and that one was already known
+
+  So: one lucky guess is worth more than a million systematic ones, because the
+  names that stay unresolved are precisely the ones nobody spells out anywhere.
+  A miss means your wordlist was wrong - not that the algorithm is wrong, and not
+  that the hash is unbreakable. Report misses as "not found with N candidates".
 
 ALGORITHM, from ate47/atian-cod-tools src/core/shared/utils/hash_mini.hpp:
     Hash64(str) = Hash64A(str, FNV1A_PRIME, IV_DEFAULT) & MASK63

@@ -215,6 +215,39 @@ Either ceiling is far above twelve, so the width is not the constraint. ⚠ Its 
 challenge logic, so it may gate nothing at all — but it is a custom-game setting this project has
 never read. `lobby_probe` probe `7xxxxx` now does.
 
+### ⚠ Cracking the remaining 227 was attempted and FAILED — do not repeat it
+
+Two systematic passes, both measured 2026-09-08:
+
+| Method | Candidates | Resolved |
+|---|---|---|
+| Harvest every identifier in the dump and hash it | 167,711 | **0 of 227** |
+| Generate compositions from `custom_games.ddl`'s own vocabulary | 1,119,903 | **1 of 227** — and that one was `maxsquadplayers`, already known |
+
+Dump-wide the harvest resolves **164 of 21,540** `hash_` tokens — **0.8%**.
+
+A positive control confirms the pipeline is sound: `maxsquadplayers` hashes to its known value and is
+present among the 227. It simply is not spelled out anywhere in the dump, **which is exactly why it
+was unresolved** — and why harvesting cannot find its siblings either.
+
+**The lesson: one informed guess beat a million systematic ones.** Bulk cracking is not the way in;
+a specific hypothesis about a specific setting is.
+
+### Structural corroboration — the widths
+
+Not knowing a name does not mean knowing nothing. The 236 unresolved fields in the struct, by declared
+width:
+
+```
+bool 101 · uint:10 61 · uint:17 25 · uint:14 10 · uint:5 9 · uint:7 5 · uint:4 5
+uint:15 5 · uint:8 4 · uint:3 3 · int 3 · uint:2 2 · uint:9 1 · uint:16 1 · uint:6 1
+```
+
+⚠ **There is exactly ONE unresolved `uint:6` field, and it is `maxsquadplayers`.** `maxteamplayers` is
+`uint:6` in the structs that have it and is absent from this one. So the custom-games struct carries a
+single six-bit player cap where the others carry `maxteamplayers` — the shape fits a substitution, and
+it is independent of the hash crack.
+
 ### The full settable surface of a private match
 
 `custom_games.ddl` is small enough to enumerate: **427 distinct named fields, plus 233 still
