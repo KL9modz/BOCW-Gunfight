@@ -9,6 +9,10 @@ These are **not** auto-loaded. Open the one you need.
 
 **Start here if you are at the machine**
 
+- [compile-status](compile-status.md) — stages 1–2 on the Windows gate. All five staged tests compile;
+  with the cloud session's stages 3–4 and arity checks, every offline check is green. Carries the
+  provenance caveats: relayed, and the ACTS version is unrecorded.
+
 - [test-queue](test-queue.md) — **every open test, on one sheet, ordered by risk**, with record slots.
   Aggregates the untried items from every other note so a session at the test box does not have to
   read five files to find the next thing to run.

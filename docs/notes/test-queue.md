@@ -298,11 +298,14 @@ then place the `.gscc` in `$GF_PAYLOADS` and inject per [`../../tools/README.md`
 ⚠ **A harness PASS is necessary, not sufficient** — it does not check argument counts, dialect, or
 anything about runtime. `src/README.md` → *What a harness PASS does and does not mean*.
 
-⚠ **Nothing here has been compiled.** `check-args.py` and `check-dump.py` both run clean, but neither
-compiles — so dialect and syntax are unchecked, and `src/README.md` records that two of three
-game-crashing defects were dialect. **Compile before injecting.** On the dev PC that is the full
-`check-gsc.ps1`; on a bare Windows box, `-CompileOnly` needs only ACTS
-([`setup-new-pc.md`](setup-new-pc.md) → *Windows VPS as a compile gate*).
+✅ **All five now compile.** Stages 1–2 ran on the Windows box `vmi3404923` 2026-09-08 and all five
+came back clean, which closes dialect — the class behind two of three game-crashing defects here.
+Stages 3–4 and arity ran separately in the cloud session, also clean. **Every offline check the
+project has is green.** [`compile-status.md`](compile-status.md)
+
+⚠ Two caveats live in that file: the result was **relayed rather than seen** (the VPS has no push
+credential), and the **ACTS version was not recorded** while the project pins v3.3.0. Neither is
+likely to matter; both are cheap to settle.
 
 ⚠ Injecting begins host-side exposure — [`tac-risk-model.md`](tac-risk-model.md). Nothing here hides
 itself from the anti-cheat; that is out of scope by decision, not oversight.
