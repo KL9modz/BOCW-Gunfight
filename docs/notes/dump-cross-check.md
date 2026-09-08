@@ -198,15 +198,42 @@ private-matches-only project that points at the squad cap, not the team cap.
 
 ### 🔓 And a third lever nobody had looked at — `maxplayers`
 
-`uint:7` (max **127**), present in `custom_games.ddl` and read live by script:
+Present in `custom_games.ddl`, and read live by script:
 
 ```gsc
 scripts/mp_common/challenges.gsc:109    level.max_players = getgametypesetting( #"maxplayers" );
 ```
 
-⚠ Its only *known* consumer is challenge logic, so it may not gate joins at all — but it is a
-custom-game setting with a 127 ceiling that this project has never read. `lobby_probe` probe
-`7xxxxx` now does.
+⚠ **Its bit width differs per struct, so quote the struct, not a single number:**
+
+| Struct | width | max |
+|---|---|---|
+| `custom_games.ddl` | `uint:4` | **15** |
+| `mp_custom_game.ddl` | `uint:7` | **127** |
+
+Either ceiling is far above twelve, so the width is not the constraint. ⚠ Its only *known* consumer is
+challenge logic, so it may gate nothing at all — but it is a custom-game setting this project has
+never read. `lobby_probe` probe `7xxxxx` now does.
+
+### The full settable surface of a private match
+
+`custom_games.ddl` is small enough to enumerate: **427 distinct named fields, plus 233 still
+unresolved as `hash_…`**. That is the complete list of what `setgametypesetting()` can address in a
+custom game, and the 233 hashes are all candidates for
+[`../../tools/crack-hash.py`](../../tools/crack-hash.py).
+
+Fields on this project's questions, with widths:
+
+```
+uint:4  maxplayers          uint:4  teamcount          uint:3  spectatetype
+uint:7  playernumlives      uint:7  teamnumlives       uint:4  roundlimit
+uint:5  roundwinlimit       uint:15 roundscorelimit    uint:4  roundswitch
+uint:8  maxplayerdefensive  uint:8  maxplayeroffensive uint:10 playermaxhealth
+```
+
+⚠ **`maxteamplayers` is not among them** — confirming the table above. And **`spectatetype`
+(`uint:3`)** is the first spectator-side setting anyone here has found, which bears directly on the
+"6 players + 2 spectators" reading of the 8 slots.
 
 **Why it is the best candidate this project has for the 3.** For Gunfight a team *is* a squad — that
 is what the mode is. And unlike `com_maxclients`, this is a **gametype setting**, so
