@@ -154,10 +154,18 @@ if ( ( sessionmodeisprivate() || !sessionmodeisonlinegame() ) && is_true( allowi
 - `mp_common/gametypes/menus.gsc:101` — `if ( menu == "changeteam" && level.allow_teamchange )` — is
   the in-match team menu it unlocks.
 
-**And the in-match gate is a different, looser number.** `team_assignment.gsc:148` refuses a team only
-at `team_players.size >= com_maxclients` — **8**, not 2 or 3
-([`dump-cross-check.md`](dump-cross-check.md)). So the lobby's 3-per-side is a *lobby* rule; once the
-match starts, a team can hold up to eight.
+**And the in-match gate is a different, looser number.** `function_efe5a681`
+(`team_assignment.gsc:95–126`) refuses a team only at `team_players.size >= com_maxclients` — **8**,
+not 2 or 3 ([`dump-cross-check.md`](dump-cross-check.md)). So the lobby's 3-per-side is a *lobby*
+rule; once the match starts, a team can hold up to eight.
+
+⚠ **AMENDED — that gate has TWO checks, and only one of them was recorded here.** The second is
+`if ( party.var_a15e4438 > function_ee150fcc( team_players ) ) return false;` at `:113`.
+
+✅ **It does not change the answer.** `function_ee150fcc` (`:76`) is
+`com_maxclients − function_1cec6cba( team_players )` — **not** `maxsquadplayers`. For a solo player
+(`party.var_a15e4438 == 1`) it fails only when the team already holds 8, exactly like the first check.
+**Both gates are 8.** Full trace: [`gametype-settings-map.md`](gametype-settings-map.md).
 
 ### 🔓 Route A — 4v4 in a Gunfight lobby, with no code at all
 
@@ -171,6 +179,34 @@ match starts, a team can hold up to eight.
 an eight-client lobby, which means the two slots believed to be spectator reserve must be usable as
 players. That is the same open question as [`test-queue.md`](test-queue.md) C7/C8, now reached from a
 different direction.
+
+### ⚠ One thing can break Route A, and it is worth knowing before the test
+
+`player_shared.gsc:1335`:
+
+```gsc
+function private function_c70c4c93( party )
+{
+    max_players = function_d36b6597();                                     // com_maxclients, 8
+    if ( isdefined( level.var_7d3ed2bf ) && level.var_7d3ed2bf && !party.fill )
+    {
+        return max_players;                                                // <- 8, for ONE party
+    }
+    return party.var_a15e4438;
+}
+```
+
+`function_1cec6cba` sums that **per distinct party**. So when `level.var_7d3ed2bf` is on and a party
+has `fill == 0`, that single party is counted as **eight players** on the team, `available_spots`
+drops to **0**, and nobody else can join that side however few people are actually on it.
+
+`level.var_7d3ed2bf` comes from `getgametypesetting( #"hash_6e051e440a6c3b91" )` at
+`player_shared.gsc:43`, gated on `currentsessionmode() != 4`. The name would not crack against ~25k
+candidates, and **whether it is on in a private custom game is not readable from the dump.**
+
+▶ **`lobby_probe` probe `10xxxxx` reads it directly** (as `level.var_7d3ed2bf`, i.e. the value after
+the session-mode gate — what is actually in force). **If Route A works for solo joiners but fails for
+players who queued together, read that probe first.**
 
 ⚠ Untested end to end. Every step is stock behaviour read from the dump; none of it has been run.
 

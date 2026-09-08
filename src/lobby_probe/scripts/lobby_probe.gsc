@@ -38,7 +38,13 @@
 //   4xxxxx  getnumconnectedplayers()  NEW
 //   5xxxxx  flags bitmask             1 = isgametypeteambased, 2 = sessionmodeisprivate
 //   6xxxxx  maxsquadplayers           <- NEW. The best candidate yet for Gunfight's 3
-//   7xxxxx  maxplayers                <- NEW. uint:7 (max 127) in custom_games.ddl, never read
+//   7xxxxx  maxplayers                <- NEW. If 6 and 7 read (cap, 2*cap) the model in
+//                                        gametype-settings-map.md is confirmed
+//   8xxxxx  gunfightloadoutindex      <- NEW. 0 default / 1 snipers / 2 blueprints / 3 melee
+//  10xxxxx  level.var_7d3ed2bf        <- NEW. the party-fill flag. CAN BREAK ROUTE A
+//  11xxxxx  level.var_9ff21849        <- NEW. the placement-scoring flag
+//  12xxxxx  level.var_704bcca1        <- NEW. must AGREE with 6, or the crack is wrong
+//           (two digits of id, then five of value - same convention, wider tag)
 //   9xxxxx  GAMETYPE VALIDITY BITMASK  <- the headline. See the table at its emit site
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -89,9 +95,15 @@ function private report()
     // That hash cracks to "maxsquadplayers" - FNV1a64 & MASK63, exact 63-bit match,
     // algorithm taken from ACTS hash_mini.hpp. See docs/notes/dump-cross-check.md.
     //
-    // ⚠ It is a SQUAD cap, not proven to be the team cap. team_assignment.gsc:864
-    //   uses it to bound squad size inside the squad-distribution path, while the
-    //   actual join gate (function_efe5a681) bounds on com_maxclients instead.
+    // ⚠ It is a SQUAD cap, not proven to be the team cap. team_assignment.gsc:747
+    //   uses it (via function_46edfa55) to bound squad size inside the squad-
+    //   distribution path, while the actual join gate - function_efe5a681, at
+    //   team_assignment.gsc:95-126 - bounds on com_maxclients in BOTH of its two
+    //   checks. See docs/notes/gametype-settings-map.md.
+    //
+    // ✅ challenges.gsc:113 computes  level.max_players / level.var_704bcca1  as a
+    //   TEAM COUNT. That is the engine's own arithmetic saying maxsquadplayers is
+    //   per-team size, from a file with nothing to do with team assignment.
     //
     //   But for Gunfight a team IS a squad, which makes this the best candidate yet
     //   for where the 3 comes from. READING 3 HERE IN A 3v3 GUNFIGHT LOBBY WOULD BE
@@ -103,11 +115,72 @@ function private report()
     //   that is equally worth knowing.
     emit( 6, getgametypesetting( #"maxsquadplayers" ) );
 
-    // maxplayers - uint:7 (max 127), present in custom_games.ddl and gametype_settings.ddl,
-    // both of which carry NO maxteamplayers at all. Read live at challenges.gsc:109.
-    // ⚠ Its only known consumer is challenge logic, so it may gate nothing. Reading it
-    //   costs one line and the project has never looked at it.
+    // maxplayers - the ONLY getgametypesetting(#"maxplayers") in the dump is
+    // challenges.gsc:109. Widths differ by struct, and this matters:
+    //     custom_games.ddl        uint:4  (max 15)   <- and NO maxteamplayers
+    //     mp_custom_game.ddl      uint:7  (max 127)
+    // The menu row max_players.json publishes 1-12.
+    //
+    // ⚠ Its only script consumer is challenge logic, so writing it may gate nothing.
+    //   READING it is the point: paired with probe 6 it tests the whole model.
+    //   Predicted (6, 7) by lobby:  Gunfight (2,4) · 3v3 (3,6) · CDL S&D (4,8) · TDM (6,12).
+    //   Any lobby where 7 != 2*6 falsifies it - which is worth just as much.
     emit( 7, getgametypesetting( #"maxplayers" ) );
+
+    // ── gunfightloadoutindex ─────────────────────────────────────────────────
+    // #"hash_3b05ecbff72f1065" cracked to gunfightloadoutindex (exact 63-bit match).
+    // gunfight.gsc:83 uses it to index scriptbundle/gunfightloadoutlist:
+    //     0 default · 1 SNIPERS · 2 blueprints · 3 MELEE
+    // No menu row exists for it, so setgametypesetting() is the only way in - which
+    // makes this a new mod feature for one line, not just a diagnostic.
+    //
+    // ⚠ Read here only. Writing it has a latch problem: gunfight.gsc:81 guards on
+    //   game.var_96a8ff4a, which is game-scoped and survives the round. See
+    //   docs/notes/gametype-settings-map.md.
+    emit( 8, getgametypesetting( #"gunfightloadoutindex" ) );
+
+    // ── the two hidden flags nobody has been able to name ────────────────────
+    // Both are getgametypesetting keys that are STILL HASHED in the dump, which by
+    // the rule in gametype-settings-map.md means neither has a menu row. Cracking
+    // them failed against ~25k candidates. So ask the game instead of guessing.
+    //
+    //   probe 10   hash_6e051e440a6c3b91 -> level.var_7d3ed2bf
+    //              ⚠ THIS ONE CAN BREAK ROUTE A. player_shared.gsc:1338: when it is
+    //              set and a party has fill == 0, that party counts as com_maxclients
+    //              (8) toward the team, so ONE party fills a whole side and nobody
+    //              else can join it. If in-match team change works for solo players
+    //              but not for players who queued together, read this one first.
+    //
+    //   probe 11   hash_7647d0e9a45eeca6 -> level.var_9ff21849
+    //              flips scoring to placement-based (challenges.gsc:4598) and makes
+    //              the game behave like DM. Expected 0 in Gunfight; a 1 would be a
+    //              surprise worth chasing.
+    // Emitted as RAW VALUES, not packed into a bitmask. A bitmask would answer
+    // "is it on"; these are settings nobody has a name for, so the value itself is
+    // the finding. Ids are two digits here - 10xxxxx / 11xxxxx - which keeps the
+    // id*100000+value convention and just makes the tag one character wider.
+    //
+    // ⚠ These read the LEVEL VARIABLES, not the hashed settings. Deliberate, twice over:
+    //    1. no #"hash_..." literal has to survive `acts gscc`, so there is no compile
+    //       risk to find out about at the machine;
+    //    2. level.var_7d3ed2bf is the value AFTER the currentsessionmode() != 4 gate at
+    //       player_shared.gsc:43, which is the value that actually decides Route A.
+    //       Reading the setting would tell us what was configured; this tells us what
+    //       is in force.
+    emit( 10, level.var_7d3ed2bf );
+    emit( 11, level.var_9ff21849 );
+
+    // ── does the crack hold up in-game? ──────────────────────────────────────
+    // globallogic.gsc:241 assigns level.var_704bcca1 = getgametypesetting(#"hash_3a46...").
+    // Probe 6 above asks for the same setting by its CRACKED NAME, "maxsquadplayers".
+    //
+    // ✅ If 6 and 12 agree, the crack is confirmed by the running game, and
+    //    tools/crack-hash.py is validated end to end - which matters far beyond this
+    //    one name.
+    // ⚠ If 6 reads 99999 (undefined) while 12 reads a number, the name is WRONG and
+    //    every conclusion resting on "maxsquadplayers" needs re-examining. That is
+    //    exactly the check a 63-bit match cannot give you on its own.
+    emit( 12, level.var_704bcca1 );
 
     // ── THE HEADLINE ─────────────────────────────────────────────────────────
     // isvalidgametype( name ) - BlackOpsColdWar.exe+3b0b300, 1 arg.

@@ -12,6 +12,11 @@ These are **not** auto-loaded. Open the one you need.
 - [gamesettings-catalog](gamesettings-catalog.md) — **all 427 rules-menu rows**, with the setting each
   writes, what it publishes, and what it **hides**. 184 rows offer the menu fewer values than the
   setting accepts.
+- [gametype-settings-map](gametype-settings-map.md) — **which of the 463 gametype settings the menu can
+  reach, and which it cannot.** Establishes **hashed ⇒ hidden** (0 of 236 hashed keys has a menu row),
+  cracks `gunfightloadoutindex` (snipers-only / melee-only Gunfight for one call), finds the value
+  `gunfight_spy_plane` hides, corrects the join-gate citation and its missing second check, and flags
+  the one setting that can break Route A.
 - [lobby-settings](lobby-settings.md) — **the pre-match layer**: which step of hosting lives where, why
   `frontend.gsc` is not the lobby, and `scriptbundle/gamesettings/` — 427 JSON bundles that are the
   complete rules-menu surface. Carries the cheapest open lead in the project: a **Max Players** row

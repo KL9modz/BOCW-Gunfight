@@ -83,6 +83,16 @@ round-timer row, **3v3 Gunfight has none** — so 3v3 sits at its 40s default wi
 nothing about what `setgametypesetting()` accepts.** Catalog: [[gamesettings-catalog]], leads:
 [[lobby-settings]].
 
+🔓 **A bundle's `setting` field IS the `getgametypesetting()` key** — proven by the plain-named pair
+`allow_ingame_team_change.json` → `"allowInGameTeamChange"` vs `serversettings.gsc:43`
+`getgametypesetting( #"allowingameteamchange" )` (script hashes lowercase first). Cross-referencing
+all **463** settings script touches against all 427 bundles gives **130 with a menu row, 97 named with
+none, 236 still hashed — and 0 of the 236 matched a bundle.**
+**So: hashed ⇒ hidden.** A setting whose name the dump never resolved is a setting with no menu row,
+because the bundle is where the resolver would have found the name. That is a free classifier, and it
+independently confirms klaze's lobby walk: `maxsquadplayers` is hashed, and no lobby shows a per-side
+cap. `tools/settings-xref.py` regenerates it. [[gametype-settings-map]]
+
 **Timer** — `gunfight.gsc:1137` `gettimelimit()` reads `getgametypesetting(#"timelimit") / 60` and
 clamps to `[level.timelimitmin, level.timelimitmax]`. Those come from
 `globallogic.gsc:365` → `util::registertimelimit( 0, 1440 )` → `util.gsc:790` sets min 0 / max **1440
@@ -161,10 +171,18 @@ cannot distinguish the cap from a coincidence. [[dump-cross-check]]
 
 🔓 **The 3-per-team limit is NOT enforced by team assignment.** `function_d36b6597()` returns
 `com_maxclients` for a two-team mode (`teamcount == 2`, `com_maxclients == 8`, `8 != 2`), and
-`team_assignment.gsc:148` refuses a team only at `team_players.size >= 8`. **Nothing in that path says
-three.** So 4v4 inside 8 client slots is not blocked at the script layer — what is blocked is a ninth
-client, and 4v4 needs only eight. Where the split actually comes from is narrowed, not answered:
-[[dump-cross-check]]. Test C8 asks the engine directly.
+`function_efe5a681` (`team_assignment.gsc:95–126`) refuses a team only at
+`team_players.size >= 8`. **Nothing in that path says three.** So 4v4 inside 8 client slots is not
+blocked at the script layer — what is blocked is a ninth client, and 4v4 needs only eight. Where the
+split actually comes from is narrowed, not answered: [[dump-cross-check]]. Test C8 asks the engine
+directly.
+
+⚠ **That gate has TWO checks; only the first was recorded until 2026-09-08.** The second is
+`party.var_a15e4438 > function_ee150fcc( team_players )` at `:113`. ✅ It does not change the answer —
+`function_ee150fcc` is `com_maxclients − …`, **not** `maxsquadplayers`, so both gates are 8 for a solo
+player. ⚠ But `player_shared.gsc:1338` makes a **non-`fill` party count as 8 by itself** when
+`level.var_7d3ed2bf` is set, which would let one party occupy a whole side. Probe it before trusting
+in-match team switching with a partied group. [[gametype-settings-map]]
 
 ⚠ **`level.maxteamplayers` is a red herring** — `globallogic.gsc:240` sets it, but
 `function_d36b6597()` only consults it when `teamcount == 0` or `max_clients == teamcount`, i.e.
@@ -291,6 +309,17 @@ is merely untried, it belongs in a note's **Untried — not ruled out** list ins
   **164 of 21,540 (0.8%)** dump-wide; 1.1M generated candidates resolved **1 of 227**, the one already
   known. **The wall still stands for bulk work** — one informed guess beats a million systematic ones,
   because the names that stay unresolved are the ones nobody spells out anywhere. [[dump-cross-check]]
+
+  ✅ **Second crack, 2026-09-08: `#"hash_3b05ecbff72f1065"` → `gunfightloadoutindex`** (`gunfight.gsc:83`),
+  which indexes `scriptbundle/gunfightloadoutlist`: **0 default · 1 snipers · 2 blueprints · 3 melee**.
+  No menu row exists, so `setgametypesetting()` is the only way in — a new Gunfight feature for one
+  line. ⚠ Latched behind `game.var_96a8ff4a` (`gunfight.gsc:81`), so the write must land before
+  `onstartgametype`, and a second match in the same lobby needs the latch cleared. Test B6.
+
+  ⚠ **Two hashes did NOT crack** against ~25k candidates each: `hash_7647d0e9a45eeca6`
+  (placement-scoring flag) and `hash_6e051e440a6c3b91` (the party-fill flag above). Reported as
+  misses — the wordlist was wrong, that is all. `lobby_probe` reads both as level variables instead,
+  which needs no name at all. [[gametype-settings-map]]
 
 ---
 

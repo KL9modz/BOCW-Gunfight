@@ -53,7 +53,7 @@ return var_27e8a04e;
 Gunfight is `teamcount == 2` with `com_maxclients == 8`, and `8 != 2`, so it returns **8**.
 
 ```gsc
-// team_assignment.gsc:148  function_efe5a681( team )
+// team_assignment.gsc:95  function_efe5a681( team )
 max_players  = player::function_d36b6597();                 // 8
 team_players = getplayers( team );
 if ( team_players.size >= max_players && max_players != 0 )
@@ -161,7 +161,7 @@ the mistake that produced the `gunfight_3v3` retraction above.
 
 | Path | Bounds on |
 |---|---|
-| `team_assignment.gsc:148` `function_efe5a681( team )` — **the join gate** | `com_maxclients` (8) |
+| `team_assignment.gsc:95` `function_efe5a681( team )` — **the join gate** | `com_maxclients` (8) |
 | `team_assignment.gsc:136` `function_46edfa55()`, `:864`, `:851`, `:1010-1021` — **squad distribution** | `level.var_704bcca1` = `maxsquadplayers` |
 
 So the gate that refuses a joining player uses 8, and `maxsquadplayers` bounds squad size inside the

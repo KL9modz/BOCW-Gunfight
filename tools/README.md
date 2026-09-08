@@ -5,7 +5,8 @@
 | `check-gsc.ps1` | Offline GSC validation — compile, round-trip, resolve every API call and bare builtin |
 | `dump-grep.sh` | Offline — resolves builtin argument shapes from stock call sites in `bocw-source`. Writes `dump-report.md`. No game, no network |
 | `check-args.py` | Offline — checks builtin **argument counts** against ate47's Cold War table. `check-gsc.ps1` explicitly does not do this |
-| `crack-hash.py` | Offline — recovers the NAME behind a T9 script hash by guessing and hashing. Cracked `maxsquadplayers`. Unsalted hash, so a 63-bit match is proof |
+| `crack-hash.py` | Offline — recovers the NAME behind a T9 script hash by guessing and hashing. Cracked `maxsquadplayers` and `gunfightloadoutindex`. Unsalted hash, so a 63-bit match is proof |
+| `settings-xref.py` | Offline — classifies all 463 gametype settings script reads by whether a **menu row** exists for them. Establishes *hashed ⇒ hidden*: 0 of 236 hashed keys has a bundle. Regenerates `docs/notes/gametype-settings-map.md` |
 | `check-dump.py` | Offline — **stages 3–4 of `check-gsc.ps1` without ACTS or PowerShell.** Resolves every call against the dump AND ate47's engine table, which splits "no stock caller" from "does not exist" |
 | `inject.sh` | Inject **one** payload (`menu` or `mod`) on the known-safe hook/replace pair |
 | `autoinject.sh` | Watch for the game and inject automatically, re-arming after each restart |

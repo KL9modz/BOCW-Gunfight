@@ -34,6 +34,11 @@ that is the check that caught `scene_model_shared`.
 3. **C8's probe `3xxxxx` reaching 4** — a team holds four, so 8 clients is 4v4 from the lobby you
    already have. ⚠ That probe number changed when `test_setteam` became `test_teamfill`.
 4. **B4 keeping the carried map** — the hosting procedure loses its DLL prerequisite.
+5. **A1's probe `12xxxxx` matching probe `6xxxxx`** — validates hash-cracking against the running
+   game. Not a goal by itself, but it is the difference between "`maxsquadplayers` is a 63-bit match"
+   and "`maxsquadplayers` is the name." Everything built on that name depends on it.
+6. **B6 producing a snipers-only Gunfight** — a new feature this project did not know existed,
+   for one `setgametypesetting` call. [`gametype-settings-map.md`](gametype-settings-map.md)
 
 Everything else is worth knowing but does not move a goal.
 
@@ -148,7 +153,11 @@ Validate offline first — it calls builtins **no stock script calls**, so stage
 | `4xxxxx` `getnumconnectedplayers()` | **unknown** | `______` |
 | `5xxxxx` flags | 1=teambased + 2=private → expect **3** | `______` |
 | `6xxxxx` **`maxsquadplayers`** | **THE prediction.** klaze confirmed a 3v3 lobby caps team assignment at **3 per side**, and all 427 menu bundles were read — **no row sets a per-side cap**, so it is a gametype setting with no menu exposure, which is exactly what `maxsquadplayers` is. **Predicted: `3` in a 3v3 lobby, `2` in normal Gunfight.** Both readings confirm it is the cap; anything else kills the lead. **Run in BOTH lobbies** — one reading cannot tell "it is the cap" from "it happens to be 3" | 3v3: `____` · 2v2: `____` |
-| `7xxxxx` **`maxplayers`** | never read by this project. `uint:4` (max 15) in `custom_games.ddl`, `uint:7` (max 127) in `mp_custom_game.ddl`. ⚠ Its only *known* consumer is challenge logic, so it may gate nothing — but it is free to read | `______` |
+| `7xxxxx` **`maxplayers`** | `uint:4` (max 15) in `custom_games.ddl`, `uint:7` (max 127) in `mp_custom_game.ddl`. 🔓 **`challenges.gsc:113` computes `maxplayers / maxsquadplayers` as a TEAM COUNT** — so read together with probe 6 this tests a model, not a number. **Predicted (6,7) by lobby: Gunfight (2,4) · 3v3 (3,6) · CDL S&D (4,8) · TDM (6,12).** Any lobby where `7 != 2 × 6` falsifies it, which is worth as much as a confirmation | `______` |
+| `8xxxxx` **`gunfightloadoutindex`** | **NEW, cracked this pass.** Selects the loadout set: **0** default · **1 snipers** · **2** blueprints · **3 melee**. Expect `0`. ⚠ A reading of `99999` means the cracked name is wrong — the value is definitely being read by `gunfight.gsc:83` | `______` |
+| `10xxxxx` `level.var_7d3ed2bf` | **the party-fill flag — CAN BREAK ROUTE A.** When on, one non-`fill` party counts as 8 on a team and nobody else can join it. Expect `0` or `99999`; a `1` is the thing to know | `______` |
+| `11xxxxx` `level.var_9ff21849` | placement-scoring flag. Expect `0` in Gunfight | `______` |
+| `12xxxxx` `level.var_704bcca1` | ✅ **the crack self-check. Must EQUAL probe 6.** Probe 6 asks by the cracked name `maxsquadplayers`; this reads the variable the hash actually feeds. Agreement validates `tools/crack-hash.py` against the running game. **Disagreement invalidates every conclusion resting on that name** | `______` |
 | `9xxxxx` **gametype bitmask** | see below | `______` |
 
 **Read the controls before the payload.** Bit 0 (`gunfight`) and bit 1 (`tdm`) must be SET; bit 7
@@ -244,6 +253,46 @@ source's names this build actually has, which is also a cross-check on A2's coun
 
 Result: `______`
 
+### B6 · `gunfightloadoutindex` — **snipers-only and melee-only Gunfight**
+[`gametype-settings-map.md`](gametype-settings-map.md)
+
+`#"hash_3b05ecbff72f1065"` cracked to **`gunfightloadoutindex`**, and
+`scriptbundle/gunfightloadoutlist` holds four sets: `default` · **`snipers`** · `blueprints` ·
+**`melee`**. There is **no menu row**, so `setgametypesetting()` is the only way to reach them.
+
+```gsc
+setgametypesetting( #"gunfightloadoutindex", 1 );   // snipers
+game.var_96a8ff4a = undefined;                       // clear the latch, see below
+```
+
+⚠ **Timing is the whole test.** `gunfight.gsc:81` wraps the loadout pick in
+`if ( !isdefined( game.var_96a8ff4a ) )`, and `game.` scope survives the round. Our hook runs at
+`globallogic.gsc:5536`, *before* `onstartgametype` at `:5537`, so the **first** match of a lobby
+should take the setting on its own. A **second** match in the same lobby needs the latch cleared too
+— which is why the line above is there and why this needs two matches to answer properly.
+
+| Outcome | Means |
+|---|---|
+| match 1 is snipers-only | the setting lands, and Gunfight gets a weapon-set selector for one line |
+| match 1 default, match 2 snipers | the hook runs too late; move the write earlier |
+| neither | the cracked name is wrong, or the bundle index is not what `:83` reads |
+
+⚠ Lower risk than anything else in B — it writes a gametype setting, which
+`gunfight.gsc:104` already does to itself. Reverts by not injecting.
+Match 1: `______` · Match 2: `______`
+
+### B7 · `gunfightspyplane` value 3 — the menu row hides one of its four values
+`scriptbundle/gamesettings/gunfight_spy_plane.json` declares `value1..value4` (0/1/2/3) but sets
+`"optionscount": 3`, so **`3` = `menu/shared` never appears in the lobby.** `gunfight.gsc:48` reads
+the setting into `level.gunfightspyplane` regardless.
+
+```gsc
+setgametypesetting( #"gunfightspyplane", 3 );
+```
+
+Same shape as `time_limit_seconds` publishing 6 of the 20 values it declares — and the same reason to
+expect it to work. Result: `______`
+
 ---
 
 ## C — Session writes. **One per match. Lobby return after each.**
@@ -301,7 +350,7 @@ stock call sites and every one sets the team of a *world object*. The player pat
 `teams::change()`. The grep caught it before a match was spent on it.
 
 **The dump says the 3-per-team limit is not enforced by team assignment.**
-`function_d36b6597()` returns `com_maxclients` for a two-team mode, and `team_assignment.gsc:148`
+`function_d36b6597()` returns `com_maxclients` for a two-team mode, and `team_assignment.gsc:95`
 refuses a team only at `team_players.size >= 8`. So this test does not try to *force* anything — it
 puts bots on one team with `bot::add_bot( team )` until the engine refuses, and reads where it lands.
 

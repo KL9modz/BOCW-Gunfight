@@ -97,7 +97,7 @@ and `kick` (1–2 args, `+3b0a3a0`) is the only obvious undo. Stage it alone.
 ⚠ **`setteam` turned out to be the wrong lever** — 55 stock call sites, all world objects. See
 [`dump-cross-check.md`](dump-cross-check.md). The player path is `teams::change()`, and the **cheaper**
 question is whether a team accepts a fourth player at all: `function_d36b6597()` returns
-`com_maxclients` for a two-team mode and `team_assignment.gsc:148` refuses only at eight, so nothing
+`com_maxclients` for a two-team mode and `team_assignment.gsc:95` refuses only at eight, so nothing
 in that path enforces three. That is what [`../../src/test_teamfill/`](../../src/test_teamfill/) asks. Where the 6+2 split is actually enforced is unestablished — `team_assignment.gsc:94`
 gates on `team_players.size >= max_players` where `max_players` resolves to `com_maxclients` (8),
 which is not obviously 3-per-team.

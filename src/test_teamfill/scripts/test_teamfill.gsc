@@ -19,7 +19,7 @@
 //       teamcount. Gunfight is teamcount 2 with com_maxclients 8, so it
 //       returns 8.
 //
-//   team_assignment.gsc:148  function_efe5a681( team )
+//   team_assignment.gsc:95  function_efe5a681( team )
 //       max_players  = function_d36b6597()          -> 8
 //       team_players = getplayers( team )
 //       if ( team_players.size >= max_players ) return false;
