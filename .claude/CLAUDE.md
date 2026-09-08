@@ -302,10 +302,10 @@ before Phase 1**, since Phase 2's music/VO/HUD checks depend on it.
   → **If yes, the timer needs no mod at all.**
 
 ### Phase 1 — the 6v6 hypothesis (~30 min, 2 people) ← **the gate**
-⚠ **A cheaper variant now exists and is untaken.** The Mansion → Hijacked carry ([[menu-map]]) already
-puts a Gunfight lobby on a twelve-client map. Run `src/mp_probe/` there and read probe `1xxxxx`:
-`12` settles 6v6 with no code, `8` says the lobby config followed the gametype. One match, no second
-person.
+⚠ **The Mansion → Hijacked carry ([[menu-map]]) is NOT a shortcut to this.** It starts *in a Gunfight
+lobby*, and `com_maxclients` is fixed at lobby creation — so it carries the map and not the slots. The
+menu operation this phase needs is the **inverse**: changing the *gametype* from inside a twelve-slot
+lobby, and that menu entry has not been found yet.
 Create the lobby under a **12-player mode** (TDM), confirm 12 slots, then apply the existing
 map/mode carry glitch to bring Gunfight *into that lobby* (inverse of the current technique, which
 starts from a Gunfight search).

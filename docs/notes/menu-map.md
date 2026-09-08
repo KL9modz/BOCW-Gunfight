@@ -35,10 +35,37 @@ It was blocked because the `powrprof.dll` proxy crashes the game at startup, 3 a
 identical fault offset. **The menu appears to do the same job the proxy was going to do.** If this
 reproduces, `cwdllgt` is not on the critical path for map unlocking at all.
 
-And the second half of that sentence is now testable in the same lobby. **Hijacked is a twelve-client
-map.** The whole 6v6 argument in [`team-sizes.md`](team-sizes.md) is that the private-match UI declines
-to offer a twelve-client mode on Gunfight's maps — not that the engine or the map refuses. A Gunfight
-lobby sitting on Hijacked is exactly the inheritance case that argument predicts should work.
+### ⚠ It does NOT carry the 6v6 half — the direction is wrong
+
+An earlier version of this note claimed a Gunfight lobby sitting on Hijacked was "the inheritance case
+`team-sizes.md` predicts should work," and that one probe run there was a cheap Phase 1.
+**That was backwards. Disregard it.**
+
+[`team-sizes.md`](team-sizes.md) is explicit on both halves:
+
+> `com_maxclients` ... is fixed **at lobby creation by the playlist**, not by the gametype. ... Start in
+> a lobby the menu has already built with twelve slots, and **never be in a Gunfight lobby at all.**
+
+This carry starts *in a Gunfight lobby* and changes the map. Switching maps does not re-create the
+session, so the eight slots were fixed before the switch and Hijacked being a twelve-client map cannot
+retrofit them. Measured 8 in a private Gunfight lobby, 12 in a private TDM lobby — both 2026-09-07.
+
+**So the carry solves the map goal and leaves the team-size goal exactly where it was.**
+
+### The asymmetry that actually matters
+
+Two different menu operations, and only one is confirmed:
+
+| Operation | Direction | Status | Solves |
+|---|---|---|---|
+| **Map change** | inside a Gunfight lobby, swap the map | ✅ **works** — Mansion → Hijacked | any-map |
+| **Gametype change** | inside a twelve-slot TDM lobby, swap to Gunfight | ❓ **entry not found** | 6v6 |
+
+The second is the one Phase 1 needs, and it is the one the menu has not yielded. If the menu offers a
+map-change entry but genuinely has **no** gametype-change entry, that is a finding in itself: it would
+mean the menu closes the map goal and cannot close the team-size one, and Phase 1 falls back to the
+map/mode carry glitch or the DLL track. **Establishing which is the highest-value thing left in this
+note.**
 
 ## ⚠ What is NOT established — n=1, and "it loaded" is not "it works"
 
@@ -58,8 +85,9 @@ Do not let this note become the next thing that has to be walked back. Five thin
    decision still lands one tick late, so this is a **thread exception, not a process crash** — but
    it is exactly what `gunfight_mod`'s `timelimit_fix` exists to prevent. Both prior clean matches
    ended by elimination and never reached it.
-4. **Player slots.** Unknown whether `com_maxclients` changed. This is the project's Phase 1 gate and
-   nobody has read the number in a carried lobby.
+4. **Player slots.** Almost certainly still **8** — fixed at lobby creation, and this lobby was created
+   as Gunfight. Worth one probe read anyway, because this project has been burned by reasoning where it
+   could have measured, but a `8` there is the model confirming itself, not a failure.
 5. **The menu path.** Not recorded. Which screen, which entry, which input — all unknown, and that is
    the whole reason for the index below.
 
@@ -169,7 +197,7 @@ lobby** it answers, in one match, questions the menu index can only describe:
 
 | Tag | Reads | What it settles here |
 |---|---|---|
-| `1xxxxx` | `com_maxclients` | **The Phase 1 gate.** `12` = the carry inherits Hijacked's client count and **6v6 needs no code**. `8` = the lobby config followed the gametype, and 6v6 stays blocked |
+| `1xxxxx` | `com_maxclients` | **Expect `8`** — fixed at lobby creation, and this lobby was created as Gunfight. A `12` would overturn [`team-sizes.md`](team-sizes.md) and is worth the read for that reason alone. This is **not** the Phase 1 gate; Phase 1 starts from a TDM lobby |
 | `5xxxxx` | `gunfight_zone_center` count | Classifies Hijacked. Expect `0`, same as every stock map — a non-zero would overturn [`gunfight-findings.md`](gunfight-findings.md) |
 | `2xxxxx` | live `timelimit` | Whether this lobby can reach the `overtime()` exception at all. `0` = no limit = never fires |
 | `7xxxxx` | players in match | sanity |

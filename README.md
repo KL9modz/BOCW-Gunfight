@@ -83,10 +83,12 @@ Headline results so far:
   a Gunfight map. So Gunfight ran on a map its playlist does not offer, with **no GSC, no DLL, and no
   injector** — the job `cwdllgt` was blocked on.
 
-  ⚠ **One report, and "it loaded" is not "it works."** Reproducibility, round flow, timer expiry and
-  the player-slot count are all unmeasured. Hijacked is a twelve-client map, so the same lobby is
-  also the untaken Phase 1 test. [`docs/notes/menu-map.md`](docs/notes/menu-map.md) holds the caveats
-  and the measurement.
+  ⚠ **One report, and "it loaded" is not "it works."** Reproducibility, round flow and timer expiry
+  are all unmeasured. ⚠ It also **does not** deliver 6v6: `com_maxclients` is fixed at lobby creation
+  and this lobby was created as Gunfight, so Hijacked being a twelve-client map changes nothing about
+  its eight slots. Phase 1 needs the *inverse* menu operation — changing gametype from inside a TDM
+  lobby — and that entry has not been found.
+  [`docs/notes/menu-map.md`](docs/notes/menu-map.md) holds the caveats and the asymmetry.
 
 - **Spawns are not a problem** — the mode uses TDM spawn points.
 - **The zone absence only bites when the round timer expires.** `ontimelimit()` threads `overtime()`,
