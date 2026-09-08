@@ -58,9 +58,30 @@ esac
 cd "$(dirname "$ACTS")" || exit 1
 
 echo "=== injecting: $LABEL ==="
-./acts.exe injectcw "$PAYLOAD" "$TARGET" "$REPLACE" 2>&1 | tail -2
+
+# Capture rather than pipe. A pipeline's exit status is the LAST command's, so
+# `acts.exe ... | tail` reported tail's success no matter what acts did - a failed
+# injection still printed "RESTART THE MATCH" and looked fine. 'injected at' is the
+# same success signal autoinject.sh already keys on.
+out="$(./acts.exe injectcw "$PAYLOAD" "$TARGET" "$REPLACE" 2>&1)"
+printf '%s\n' "$out" | tail -2
+
+if ! printf '%s' "$out" | grep -q 'injected at'; then
+    echo
+    echo "INJECTION FAILED - restarting the match will NOT help. Fix this first." >&2
+    case "$out" in
+        *"Can't find target script"*)
+            echo "  The hook is not in the scriptparsetree pool yet." >&2
+            echo "  Load into a private match once, then re-run this." >&2 ;;
+    esac
+    exit 1
+fi
 
 echo
 echo "RESTART THE MATCH to link it."
-[ "$1" = "menu" ] && echo "  RMB+V opens.  up RMB / down LMB / select R / back V"
-[ "$1" = "mod"  ] && echo "  round timer should read 60s and survive a map carry"
+# A `case`, not two `[ ]` tests. As a trailing test the false branch became the
+# script's exit status, so `inject.sh menu` exited 1 on success.
+case "$1" in
+    menu) echo "  RMB+V opens.  up RMB / down LMB / select R / back V" ;;
+    mod)  echo "  round timer should read 60s and survive a map carry" ;;
+esac
