@@ -187,10 +187,16 @@ i.e. four pages. Paging is the same up/down inputs; there is no separate page co
 
 | # | Screen title | Reached from | Notes |
 |---|---|---|---|
-| 1 | `Atian Menu CW (1/4)` | root | **NOT WALKED** |
-| 2 | `Atian Menu CW (2/4)` | root, scroll | **NOT WALKED** |
-| 3 | `Atian Menu CW (3/4)` | root, scroll | **NOT WALKED** |
-| 4 | `Atian Menu CW (4/4)` | root, scroll | Observed. Contains `Vehicle`, `Map` |
+| 1 | `Atian Menu CW (1/4)` | root | Walked 2026-09-08. Weapons / camera features only |
+| 2 | `Atian Menu CW (2/4)` | root, scroll | Walked 2026-09-08. Weapons / camera features only |
+| 3 | `Atian Menu CW (3/4)` | root, scroll | Walked 2026-09-08. Weapons / camera features only |
+| 4 | `Atian Menu CW (4/4)` | root, scroll | Walked. Contains `Vehicle`, `Map` |
+| 5 | map list | `(4/4)` → `Map` → **R** | **19 maps.** No gametype control on this screen |
+
+All four root pages plus the `Map` submenu have now been seen. Entry-by-entry labels for pages 1–3
+were not transcribed — they were reported as *"weapons and camera stuff"* — which is enough to settle
+table D but **not** enough to serve as the full index this section asks for. If a future task needs a
+specific weapon/camera capability, pages 1–3 still need a proper transcription pass.
 
 ⚠ Pages 1–3 are unwalked. The README's feature list (Tools / Give weapons / Gun tool / Teleport tool /
 Loading / Customization / Internal tools) is written for the **BO4** build and did **not** match what
@@ -207,26 +213,39 @@ page 4 showed, so do not assume it describes the CW tree.
 
 | Target | Found? | Screen | Input | Values | Notes |
 |---|---|---|---|---|---|
-| **Map change** | ✅ works — Mansion → Hijacked | `(4/4)`, entry `Map` | **R** to select | list NOT recorded | Open: did the full map list appear, or only Gunfight's ten? Hijacked is not a Gunfight map, so the list is **not** limited to the ten |
-| **Gametype / mode change** | ⚠️ **NOT ABSENT — NOT YET LOOKED FOR** | pages 1–3 unwalked | — | — | See below. Do not record `ABSENT` yet |
-| **Team size / max players** | not looked for | pages 1–3 unwalked | — | — | Cross-check against probe 1 rather than the label |
-| **Round timer** | not looked for | pages 1–3 unwalked | — | — | expect `0/20/30/40/50/60` |
+| **Map change** | ✅ **works** — Mansion → Hijacked | `(4/4)`, entry `Map` | **R** to select | **19 maps** | **Not** limited to Gunfight's ten — 19 offered, and Hijacked (a 6v6 map) is reachable |
+| **Gametype / mode change** | ❌ **ABSENT** — walk complete | — | — | — | All 4 root pages + the `Map` submenu checked. See below |
+| **Team size / max players** | ❌ ABSENT | — | — | — | Nothing team- or slot-related on any page |
+| **Round timer** | ❌ ABSENT | — | — | — | Not exposed by this menu. Still live-settable via `getgametypesetting`/`setgametypesetting` |
 
-#### ⚠ On the gametype row — the previous status was wrong
+#### ✅ The gametype row is settled — ABSENT, and the walk is complete
 
-The prior version recorded **`❌ NOT FOUND`**. That overstates what happened: the walk reached page 4
-of 4, saw no gametype entry *on that page*, and ended when the session went offline. **Pages 1–3 were
-never opened.** "Not found on one of four pages" is not "not found".
+Walked in full 2026-09-08: all four root pages **and** the `Map` submenu. Pages 1–3 are weapons and
+camera features. Page 4 is `Vehicle` and `Map`. `Map` opens a 19-entry map list and nothing else.
 
-Two reasons to expect it exists:
+**There is no gametype-change control in the CW build of the Atian Menu.**
 
-1. The upstream feature list is *"Set map/gametype"* — a **single combined feature**, not two entries.
-   The `Map` entry on page 4 may itself carry the gametype option, in which case the answer is one
-   `R` press away on a screen already reached.
-2. The README lists set-gametype for the tool generally, and the CW build is the same codebase.
+Note the upstream README lists the feature as *"Set map/gametype"*, and the tool's BO4 build documents
+a `Loading` section containing both. **Neither is present in the Cold War build** — there is no
+`Loading` section at all, and the map control ships alone. The README describes the tool across both
+games; do not read its feature list as a CW inventory.
 
-So the next walk should (a) select `Map` and record what its submenu actually offers, then (b) walk
-pages 1–3. Only record `ABSENT` once all four pages and the `Map` submenu have been seen.
+#### What this closes, and what it does not
+
+| Goal | Status after this walk |
+|---|---|
+| **Any map** | ✅ **closed by this menu.** 19 maps, mid-match, no `cwdllgt`, no DLL proxy |
+| **6v6 / team size** | ❌ **structurally out of reach here.** The menu cannot change gametype, so it cannot start you in a twelve-slot lobby |
+
+This is the asymmetry this note predicted, now confirmed rather than suspected. Per
+[`team-sizes.md`](team-sizes.md), `com_maxclients` is fixed at lobby creation by the playlist — the
+menu only ever changes the map *inside* an already-created lobby, so the slot count is decided before
+it can act. A Gunfight lobby carried onto Hijacked is still 8 slots.
+
+**Phase 1 therefore falls back to the map/mode carry glitch or the DLL track for 6v6.** The DLL track
+is itself blocked — `acts-bocw.dll`'s `InitDll` throws (`ERROR_DLL_INIT_FAILED`, 1114) under every
+loading method tried, including a working full-forwarding `powrprof.dll` proxy that `cwdllgt`
+successfully calls into. See [`dll-proxy.md`](dll-proxy.md).
 
 ## Inherited context — UNVERIFIED, carried from a lost session
 
