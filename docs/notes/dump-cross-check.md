@@ -280,9 +280,27 @@ is what the mode is. And unlike `com_maxclients`, this is a **gametype setting**
 | **3** | the strongest team-size lead this project has had. Then try `setgametypesetting( #"maxsquadplayers", 4 )` |
 | 8, 0, or undefined | not the lever. Record it and go back to the *Untried* list |
 
-⚠ Two hashes did **not** crack: `4091f2d0019b1f4a` (`gunfight.csc:230`, shared with `control.csc` and
-`dom.csc`) and `0cd096e90260a26b` (Onslaught). ~15,000 candidates each. **That means the wordlist was
-wrong, not that they are unresolvable.**
+### ⚠ `4091f2d0019b1f4a` — targeted attempt, and an honest miss
+
+Retried with the code read first, which is what "targeted" should mean. It is a **`bool`** in
+`mp_custom_game.ddl:4024`, and its three call sites say exactly what it gates:
+
+```gsc
+gunfight.csc:223   if ( is_false( getgametypesetting( #"hash_4091f2d0019b1f4a" ) ) ) return;
+                   ... getentarray( fieldname, "gunfight_zone_trigger", "targetname" )
+control.csc:266    if ( is_true(  ... ) ) lui::function_ca036b2c( n, "control_zone_trigger" );
+dom.csc:159        if ( is_false( ... ) ) return;   ... lui::function_ca036b2c( n, var_e0fe7fde );
+```
+
+**A boolean gating client-side zone-trigger visuals across Gunfight, Control and Domination.**
+
+**~97,600 targeted candidates over two passes. No match.** Vocabulary built from the code's own tokens
+— zone/trigger/objective/capture/control/lui/hud/icon/marker/visual/volume × show/use/enable/allow/
+draw/display/client × the same again. The name is not a composition of those.
+
+⚠ Recorded as a **miss with a known meaning**: we know what the setting does, its type, and its file,
+and we cannot name it. `0cd096e90260a26b` (Onslaught) is also still unnamed. **Neither is
+unresolvable** — both wordlists were wrong.
 
 ## 7 · ACTS's `cw_lobby_tool` gametype list is BLACK OPS 4's
 

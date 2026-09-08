@@ -6,6 +6,7 @@
 | `dump-grep.sh` | Offline — resolves builtin argument shapes from stock call sites in `bocw-source`. Writes `dump-report.md`. No game, no network |
 | `check-args.py` | Offline — checks builtin **argument counts** against ate47's Cold War table. `check-gsc.ps1` explicitly does not do this |
 | `crack-hash.py` | Offline — recovers the NAME behind a T9 script hash by guessing and hashing. Cracked `maxsquadplayers`. Unsalted hash, so a 63-bit match is proof |
+| `check-dump.py` | Offline — **stages 3–4 of `check-gsc.ps1` without ACTS or PowerShell.** Resolves every call against the dump AND ate47's engine table, which splits "no stock caller" from "does not exist" |
 | `inject.sh` | Inject **one** payload (`menu` or `mod`) on the known-safe hook/replace pair |
 | `autoinject.sh` | Watch for the game and inject automatically, re-arming after each restart |
 | `cw-loader-shim/` | C shim for the `discord_game_sdk.dll` slot (see `docs/notes/unlock-dlls.md`) |

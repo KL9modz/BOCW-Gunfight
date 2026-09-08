@@ -275,7 +275,7 @@ something else. Result: `______`
 
 | # | Item | Why it is still open | Result |
 |---|---|---|---|
-| **D10** | **Pages 1–3** of the Atian Menu | Never transcribed — reported as "weapons and camera stuff", which settled the gametype question but is not an index. ⚠ The upstream README's feature list is written for **BO4** and did not match page 4, so do not use it as a CW inventory | `______` |
+| **D10** | **Pages 1–3** of the Atian Menu | **Now predicted from source** — [`menu-map.md`](menu-map.md) has the 11-entry root tree with contents and gates. Verify the names, and settle where **`Unlock`** sits: it is declared *after* `Map`, yet `Map` was on the last page. `Unlock` is a live entry nobody has opened | `______` |
 | **D11** | **Host vs joiner** | Only ever opened in a single-player lobby. Can a joiner open it? Does the carry behave for them? Bears directly on the participant disclosure in [`tac-risk-model.md`](tac-risk-model.md) | `______` |
 | **D12** | **In-lobby vs in-match** | Only ever opened in-match. If it opens in-lobby, the procedure may lose a step | `______` |
 

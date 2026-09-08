@@ -228,9 +228,39 @@ uses the same up/down inputs; there is no separate page control.
 | 4 | `Atian Menu CW (4/4)` | root, scroll | `Vehicle`, `Map` |
 | 5 | map list | `(4/4)` → `Map` → **R** | **19 maps.** No gametype control |
 
-⚠ **Pages 1–3 are not transcribed.** They were reported as *"weapons and camera stuff"*, which is
-enough to settle the gametype question but not enough to serve as a full index. If a future task
-needs a specific weapon/camera capability, they still need a proper pass.
+### Pages 1–3 — derived from source, NOT transcribed from the screen
+
+⚠ **Nobody has read these pages.** The walk reported *"weapons and camera stuff"* and stopped. What
+follows is **derived from `coldwar/scripts/core_common/menu_items.gsc`** in the Atian source — it is a
+prediction to verify against, not a record of what was seen. The shipped `.gscc` is an older release
+than that source ([`atian-menu-source.md`](atian-menu-source.md)), so entries may differ.
+
+The root registers **11 submenus**, all parented to `start_menu`, in declaration order:
+
+| # | Entry | Gate | Contents |
+|---|---|---|---|
+| 1 | `Tools` | always | Third person · Invulnerability · No hud · Camera mode |
+| 2 | `Zombies` | `is_zombies()` — **hidden in MP** | zombie speed, eyes, doors, points |
+| 3 | `Guns` | always | 1 item |
+| 4 | `Weapons` | always | **97 items** |
+| 5 | `Camo` | always | 3 submenus: Pack a Punch · Mastery · By id |
+| 6 | `Skin` | always | 49 items |
+| 7 | `Outfit` | always | 1 item |
+| 8 | `Vehicle` | always | 2 items |
+| 9 | `Map` | always | 48 in source; **19 seen** |
+| 10 | `Unlock` | always | 3 items |
+| 11 | `Dev` | `is_dev_mode()` → false without `ATIAN_MENU_DEV` | — |
+
+✅ **This corroborates the walk.** With Zombies hidden in MP, entries 1 and 3–7 are exactly *"weapons
+and camera stuff"*, and `Vehicle` + `Map` are what page 4 showed.
+
+⚠ **The page boundaries do not follow cleanly.** Ten visible entries over four pages is ~2–3 per page,
+but `Unlock` is declared *after* `Map`, and the walk found `Map` on the last page — so either
+pagination is not declaration order, or the walker did not scroll page 4 to its end. **Worth one
+glance to settle**, and it matters: `Unlock` is a live entry nobody has looked at.
+
+⚠ The upstream README's feature list (Tools / Give weapons / Gun tool / Teleport tool / Loading /
+Customization / Internal tools) is the **BO4** naming and does not match this tree.
 
 ⚠ The upstream README's feature list (Tools / Give weapons / Gun tool / Teleport tool / Loading /
 Customization / Internal tools) is written for the **BO4** build and did **not** match what page 4

@@ -103,7 +103,11 @@ as command-line arguments instead.
 # 1a. arity — check-gsc.ps1 does NOT check argument counts; this does
 python3 tools\check-args.py src\hello_world\scripts\hello_world.gsc
 
-# 1b. validate offline — no game needed, catches typo'd API names
+# 1b. name resolution — stages 3-4 without ACTS. Splits "no stock caller" from
+#     "does not exist", which plain stage 4 cannot tell apart
+python3 tools\check-dump.py src\hello_world\scripts\hello_world.gsc
+
+# 1c. the real harness — compile + round-trip. NEEDS ACTS, Windows only
 .\tools\check-gsc.ps1 .\src\hello_world\scripts\hello_world.gsc
 
 # 2. compile (VM38)
@@ -186,6 +190,12 @@ what put a game-crashing script into an injection.
 **It checks:** the file compiles to VM38 bytecode; the bytecode round-trips through the decompiler;
 every `namespace::function` call resolves to a real function in the dump (stage 3); every bare call
 appears *somewhere* in the dump (stage 4).
+
+⚠ **Stage 4 over-reports, and `tools/check-dump.py` fixes it.** "No stock script calls this" is not
+"this does not exist". `isvalidgametype` and `mapexists` sit at real addresses in
+`BlackOpsColdWar.exe` and appear in **zero** stock scripts — stage 4 flags them exactly as it flagged
+`logprint`, which was fatal because it exists in *neither* place. Cross-checking ate47's engine table
+splits the two. Run `check-dump.py` alongside; it reports fatals and unused-by-stock separately.
 
 **It does NOT check:**
 
