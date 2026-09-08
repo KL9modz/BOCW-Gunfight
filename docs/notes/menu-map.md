@@ -216,7 +216,32 @@ page 4 showed, so do not assume it describes the CW tree.
 | **Map change** | ✅ **works** — Mansion → Hijacked | `(4/4)`, entry `Map` | **R** to select | **19 maps** | **Not** limited to Gunfight's ten — 19 offered, and Hijacked (a 6v6 map) is reachable |
 | **Gametype / mode change** | ❌ **ABSENT** — walk complete | — | — | — | All 4 root pages + the `Map` submenu checked. See below |
 | **Team size / max players** | ❌ ABSENT | — | — | — | Nothing team- or slot-related on any page |
-| **Round timer** | ❌ ABSENT | — | — | — | Not exposed by this menu. Still live-settable via `getgametypesetting`/`setgametypesetting` |
+| **Round timer** | ❌ ABSENT from this menu | — | — | — | And the **stock rules menu value does not survive the carry** — see below |
+
+#### ⚠ The map carry RESETS gametype settings — measured 2026-09-08
+
+Setting the round time in the stock **Edit Game Rules** menu works, but **carrying to a non-Gunfight
+map discards it and the timer resets to 30.** Reported in-game by klaze while testing a 60s round.
+
+This is more than a timer annoyance. It means the map change **re-initialises gametype settings**, so
+*anything* configured through the stock rules menu is thrown away by the carry. Any setting the
+project needs to hold across a carried map has to be reasserted in script, not set in the menu.
+
+`gunfight_mod` already had the mechanism: `timer_override` overrides `level.gettimelimit` inside
+`mod_apply()`, which runs on **every** `on_start_gametype` — so it is reapplied after each carry
+rather than set once and lost.
+
+**✅ Confirmed working 2026-09-08.** A staged build with `zones_guard: 1`, `timelimit_fix: 1`,
+`timer_override: 1`, `timer_minutes: 1` (= 60s), `presentation: 0` held a 60-second round timer
+across the carry. `presentation` was deliberately off to keep the change to one stage, per
+[`../src/README.md`](../src/README.md)'s rollout order.
+
+Note this makes the source comment on `timer_override` incomplete. It reads:
+
+> *"OFF — the rules menu already exposes 0/20/30/40/50/60s. Only needed above 60s."*
+
+True for a normal lobby, **false once the map is carried** — under a carry the override is needed at
+*any* value, including ones the rules menu offers, because the menu's value does not survive.
 
 #### ✅ The gametype row is settled — ABSENT, and the walk is complete
 
