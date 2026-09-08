@@ -38,6 +38,7 @@
 //   4xxxxx  getnumconnectedplayers()  NEW
 //   5xxxxx  flags bitmask             1 = isgametypeteambased, 2 = sessionmodeisprivate
 //   6xxxxx  maxsquadplayers           <- NEW. The best candidate yet for Gunfight's 3
+//   7xxxxx  maxplayers                <- NEW. uint:7 (max 127) in custom_games.ddl, never read
 //   9xxxxx  GAMETYPE VALIDITY BITMASK  <- the headline. See the table at its emit site
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -101,6 +102,12 @@ function private report()
     //   Reading something else - 0, 8, undefined - says it is not the lever, and
     //   that is equally worth knowing.
     emit( 6, getgametypesetting( #"maxsquadplayers" ) );
+
+    // maxplayers - uint:7 (max 127), present in custom_games.ddl and gametype_settings.ddl,
+    // both of which carry NO maxteamplayers at all. Read live at challenges.gsc:109.
+    // ⚠ Its only known consumer is challenge logic, so it may gate nothing. Reading it
+    //   costs one line and the project has never looked at it.
+    emit( 7, getgametypesetting( #"maxplayers" ) );
 
     // ── THE HEADLINE ─────────────────────────────────────────────────────────
     // isvalidgametype( name ) - BlackOpsColdWar.exe+3b0b300, 1 arg.

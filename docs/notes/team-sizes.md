@@ -64,10 +64,14 @@
 >
 > ⚠ **UPDATE 2026-09-08 — there is a second, custom-games-only cap, and it is not this one.**
 > `globallogic.gsc:241` reads `getgametypesetting( #"hash_3a4691a853585241" )` into
-> `level.var_704bcca1`. The hash cracks to **`maxsquadplayers`**, and unlike `maxteamplayers` it **is**
-> in the custom-games struct: `ddl/mp_custom_game.ddl:3446`, `uint:6`, max 63. The asymmetry recorded
-> above — that `maxteamplayers` is absent from `custom_games.ddl` — is correct, and now cuts the other
-> way for the squad cap. See [[dump-cross-check]].
+> `level.var_704bcca1`. The hash cracks to **`maxsquadplayers`** (`uint:6`, max 63).
+>
+> **The claim above — that `maxteamplayers` is absent from `custom_games.ddl` — is CONFIRMED**, and it
+> now cuts a second way. Counted across the four DDLs: `custom_games.ddl` and `gametype_settings.ddl`
+> both carry `maxsquadplayers` and `maxplayers` while carrying **no** `maxteamplayers`. So in the
+> generic custom-games surface the squad cap is settable and the team cap does not exist.
+> Also there: **`uint:7 maxplayers`**, max 127, read at `challenges.gsc:109` and never looked at by
+> this project. See [[dump-cross-check]].
 >
 > It also converges with the any-map goal on a single mechanism — decoupling gametype from the menu's
 > playlist configuration. See [[dll-proxy]], which on this evidence is load-bearing for two of the

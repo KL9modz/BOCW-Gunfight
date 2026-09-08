@@ -138,9 +138,10 @@ point (telefrag) is engine-internal. **Only the Phase 1 live test answers this.*
 
 🔓 **`maxsquadplayers` — the strongest team-size lead yet.** `globallogic.gsc:241` reads
 `getgametypesetting( #"hash_3a4691a853585241" )` into `level.var_704bcca1`. That hash cracks to
-**`maxsquadplayers`** (`tools/crack-hash.py`, exact 63-bit match), and the field is real:
-`ddl/mp_custom_game.ddl:3446` `uint:6` — **max 63, and in the CUSTOM-GAMES struct**, where
-`maxteamplayers` is not. A gametype setting is runtime-writable via `setgametypesetting()`.
+**`maxsquadplayers`** (`tools/crack-hash.py`, exact 63-bit match), and the field is real: `uint:6`,
+**max 63**. It is present in `custom_games.ddl` and `gametype_settings.ddl` where **`maxteamplayers`
+is absent from both** — the asymmetry [[team-sizes]] already recorded, now cutting the other way.
+⚠ A first write-up of this named the wrong file; see [[dump-cross-check]] for the counted table. A gametype setting is runtime-writable via `setgametypesetting()`.
 ⚠ It bounds **squad** size in the distribution path, not the join gate — but for Gunfight a team *is*
 a squad. **Read it first** (`lobby_probe` probe `6xxxxx`): 3 in a 3v3 lobby makes it the lever.
 [[dump-cross-check]]

@@ -178,11 +178,35 @@ ddl/mp_custom_game.ddl:3446     uint:6 hash_3a4691a853585241;
 **`uint:6` — max 63.** So 4, 5 and 6 are all in range, and the field lives in `mp_custom_game.ddl`,
 which is this project's exact context.
 
-⚠ **Note the asymmetry with `maxteamplayers`.** [`team-sizes.md`](team-sizes.md) records that
-`level.maxteamplayers` is *"absent from `custom_games.ddl`"* — and it is: `maxteamplayers` sits in
-`mp_gametype_settings.ddl:2926`, not the custom-games struct. **`maxsquadplayers` is the other way
-round.** The squad cap is a custom-game setting; the team cap is not. For a project that is
-private-matches-only, that asymmetry favours the squad cap.
+### The asymmetry is real — and it took two passes to state correctly
+
+⚠ A first version of this said `maxteamplayers` "sits in `mp_gametype_settings.ddl`, not the
+custom-games struct." **Wrong** — it is in `mp_custom_game.ddl:2926`, 69 times. But
+[`team-sizes.md`](team-sizes.md)'s original claim named a *different file*, `custom_games.ddl`, and
+that claim is **correct**. Counted across all four:
+
+| DDL | `maxteamplayers` | `maxsquadplayers` | `maxplayers` |
+|---|---|---|---|
+| **`custom_games.ddl`** | **absent** | **present** | **present** |
+| **`gametype_settings.ddl`** | **absent** | **present** | **present** |
+| `mp_custom_game.ddl` | present | present | present |
+| `mp_gametype_settings.ddl` | present | present | present |
+
+**So the asymmetry holds, in the two files the project actually cares about.** In both generic
+structs the team cap is absent while the squad cap and `maxplayers` are present. For a
+private-matches-only project that points at the squad cap, not the team cap.
+
+### 🔓 And a third lever nobody had looked at — `maxplayers`
+
+`uint:7` (max **127**), present in `custom_games.ddl` and read live by script:
+
+```gsc
+scripts/mp_common/challenges.gsc:109    level.max_players = getgametypesetting( #"maxplayers" );
+```
+
+⚠ Its only *known* consumer is challenge logic, so it may not gate joins at all — but it is a
+custom-game setting with a 127 ceiling that this project has never read. `lobby_probe` probe
+`7xxxxx` now does.
 
 **Why it is the best candidate this project has for the 3.** For Gunfight a team *is* a squad — that
 is what the mode is. And unlike `com_maxclients`, this is a **gametype setting**, so
