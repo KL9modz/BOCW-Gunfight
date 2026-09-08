@@ -7,11 +7,15 @@ Research and tooling for running a modified **Gunfight** gametype in Call of Dut
 
 Stock Gunfight imposes three restrictions that make it unusable for the intended community lobbies:
 
-| Restriction | Stock | Wanted |
-|---|---|---|
-| Map selection | ~10 curated maps | any map |
-| Team size | 3v3 | 6v6 |
-| Round timer | 40s, not editable in the rules menu | tunable |
+| Restriction | Stock | Wanted | Status |
+|---|---|---|---|
+| Map selection | ~10 curated maps | any map | ✅ **CLOSED** |
+| Team size | 2v2 (or 3v3 via its own playlist) | 4v4–5v5 | ⚠️ **3v3 working**, larger untested |
+| Round timer | 40s | tunable | ✅ **CLOSED** — 60s, survives a map carry |
+
+✅ **Confirmed end to end in-game 2026-09-08: 3v3 Gunfight on Zoo, 60-second rounds, correct HUD,
+clean return to lobby.** The recipe is [`docs/notes/menu-map.md`](docs/notes/menu-map.md) →
+*PROCEDURE*.
 
 ⚠ Two rows of that table are now known to be imprecise, both measured in-game 2026-09-07:
 

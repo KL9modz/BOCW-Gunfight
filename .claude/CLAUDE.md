@@ -1,7 +1,15 @@
 # BOCW Gunfight — modded Gunfight for Black Ops Cold War private matches
 
-Unlock **any map**, **6v6**, and an **editable round timer** for BOCW's stock Gunfight gametype (T9),
-for private/custom lobbies hosted from the owner's machine.
+Unlock **any map**, **larger teams**, and an **editable round timer** for BOCW's stock Gunfight
+gametype (T9), for private/custom lobbies hosted from the owner's machine.
+
+**Status: map and timer are CLOSED and confirmed in-game. Teams are at 3v3; the target is 4v4-5v5.**
+The working recipe is [[menu-map]] → *PROCEDURE*. Read that before anything else here.
+
+⚠ **Do not record an untried route as a limitation.** "We measured X" belongs in this file. "Therefore
+Y is impossible" does not — every such conclusion in this project's history has had to be walked back
+(see `README.md`'s retraction notices). Each note carries an **Untried — not ruled out** list; add to
+it rather than closing a question.
 
 > This file is the agent operating manual: goal, what has been PROVEN against the decompiled source,
 > the confirmed dead ends, and the test plan. It **summarizes and points** — exhaustive per-finding
@@ -55,11 +63,14 @@ almost nothing structurally vs T5 — **BO1 Gunfight experience transfers direct
 
 ### The three restrictions live in three different layers
 
-| Goal | Lives in | Reachable from GSC? |
+| Goal | Lives in | Status |
 |---|---|---|
-| Round timer | `timeLimit` gametype setting | **yes** |
-| Any map | `gunfight_zone_center` map entities | **yes** (bypass) |
-| 6v6 | `com_maxclients`, set at lobby creation | **NO** |
+| Round timer | `timeLimit` gametype setting | ✅ **CLOSED** — `timer_override`, 60s, survives a map carry |
+| Any map | the lobby's map, overridden at load time | ✅ **CLOSED** — Atian Menu carry, no DLL. [[menu-map]] |
+| Team size | `com_maxclients`, fixed at lobby creation | ⚠️ **3v3 working.** Script only ever *reads* the dvar — but `switchmap_load` may reach the layer that sets it, untested: [[atian-menu-source]] |
+
+⚠ The map row said `gunfight_zone_center` map entities through 2026-09-07. **That was wrong** — every
+stock Gunfight map reads zero of them, so it distinguishes nothing. See [[gunfight-findings]].
 
 Per-restriction depth: the map dependency and the round-timer link in [[gunfight-findings]], the
 enforcement chain and what is actually overridable in [[team-sizes]].
@@ -84,10 +95,16 @@ code** (`gunfight.gsc:813, 836, 874, 875`). Bypass them and the per-map dependen
 ✅ Spawns are NOT a problem: `gunfight.gsc:77` `spawning::addsupportedspawnpointtype( "tdm" )` — every
 MP map ships TDM spawn points.
 
-🔓 **The menu carries the gametype across a map change — n=1.** Gunfight started on Mansion, map
-switched to **Hijacked** (a 6v6 non-Gunfight map) from the in-game menu, and Gunfight loaded. No GSC,
-no DLL. The barrier was never `gunfight.gsc`; it is the playlist layer, and the menu reaches around
-it. Unverified past "it loaded" — caveats, the walk-it index, and the measurement: [[menu-map]].
+🔓 **✅ THE MAP GOAL IS CLOSED.** The **Atian Menu** — an injected GSC mod menu, not stock UI — changes
+the map mid-match while the gametype rides along. Confirmed end to end 2026-09-08: **3v3 Gunfight on
+Zoo, 60-second rounds, correct HUD, clean lobby return.** The barrier was never `gunfight.gsc`; it is
+the playlist layer, and the carry overrides the map at load time underneath it.
+
+⚠ It is **not** free and **not** stock: it is our injection, it does not survive a game restart, and
+the carry **resets gametype settings** (a menu-set timer reverts to 30 — which is why
+`timer_override` is ON). ⚠ An earlier version of this paragraph claimed the carry used "no GSC, no
+DLL, no injector." **Wrong — it is entirely GSC and the injector.** Procedure, the three traps and
+the evidence: [[menu-map]].
 
 ### Start spawns — script-safe at any team size; the residual risk is engine-side
 `usestartspawns()` (`hashed/script/script_44b0b8420eabacad.gsc:504` — the file `gunfight.gsc` pulls in
@@ -202,7 +219,11 @@ Every iteration reverts by simply not injecting.
 
 ---
 
-## 🛑 Confirmed dead ends — do NOT re-research
+## 🛑 Measured and settled — do NOT re-research
+
+⚠ **Every entry here is a measurement, not a verdict.** They record *what was checked and what came
+back*, so the same ground is not walked twice. None of them says a goal is unreachable — where a route
+is merely untried, it belongs in a note's **Untried — not ruled out** list instead.
 
 - **`timelimit_override` dvar** — real, but inside `/# … #/` **dev-only blocks**, stripped from retail.
   Doubly useless: `gunfight.gsc` overrides `level.gettimelimit`, so `default_gettimelimit()` never runs
@@ -211,6 +232,16 @@ Every iteration reverts by simply not injecting.
 - **`com_maxclients` from script** — read-only, 7 refs, zero writes. Not the 6v6 lever either.
 - **`xensik/gsc-tool` for T9** — support is marked **WIP**. Not the toolchain.
 - **`ProjectDonetsk/T9` (Defcon)** — archived, unmaintained. Its named successor **`xifil/t9-mod` 404s**.
+- **A gametype control in the Atian Menu's CW menu tree** — walked in full: four root pages plus the
+  `Map` submenu, nothing. ⚠ **But the function exists** — `func_set_gametype()` is defined in the CW
+  source and simply never wired in, and its builtins are in `BlackOpsColdWar.exe`. Do not re-walk the
+  menu for it; **do** call the builtins directly. [[atian-menu-source]]
+- **`scene_model_shared.gsc` as an injection replace target** — leaving a match hung forever on
+  "connecting to lobby". Its `class cscenemodel` body is empty but the frontend needs the declaration
+  at link time. `clientids_shared.gsc` is the one known-safe replace; test a **lobby return** before
+  trusting any other. [[menu-map]]
+- **`level.maxteamplayers` for a two-team mode** — both consumers are gated on `multiteam`
+  (`teamcount > 2`), and Gunfight is two-team, so it is never enforced. Overwriting it does nothing.
 - **BOCW front-end / playlist data** — **not in any public dump.** The UI is compiled LUA; `bocw-source`'s
   `ui/` holds only two graphics cfgs. `arena_playlist_game_modes_maps.json` is almost entirely hashed and
   just points at another bundle by hash. This is where the map list and per-mode `com_maxclients` live,
@@ -301,12 +332,26 @@ before Phase 1**, since Phase 2's music/VO/HUD checks depend on it.
 - **T0.2** Walk every Gunfight rules page. Is a time-limit field present? Does it offer 20/30/40/50/60?
   → **If yes, the timer needs no mod at all.**
 
-### Phase 1 — the 6v6 hypothesis (~30 min, 2 people) ← **the gate**
-⚠ **The Mansion → Hijacked carry ([[menu-map]]) is NOT a shortcut to this.** It starts *in a Gunfight
-lobby*, and `com_maxclients` is fixed at lobby creation — so it carries the map and not the slots. The
-menu operation this phase needs is the **inverse**: changing the *gametype* from inside a twelve-slot
-lobby, and that menu entry has not been found yet.
-Create the lobby under a **12-player mode** (TDM), confirm 12 slots, then apply the existing
+### Phase 1 — larger teams (~30 min) ← **the gate**
+Target is **4v4-5v5**; the 12-slot TDM lobby over-delivers and is fine.
+
+**▶ Cheapest test first — `switchmap_load`, and it needs no second person.** [[atian-menu-source]]
+confirms `func_set_gametype()` exists in the Atian Menu's CW source (dead code, never wired) and that
+its builtins are present in `BlackOpsColdWar.exe`. So from inside the **12-slot private TDM lobby**:
+
+```gsc
+switchmap_load( util::get_map_name(), "gunfight_3v3" );
+wait( 1 );          // load-bearing per ate47; reason unknown
+switchmap_switch();
+```
+
+then read `src/mp_probe/` probe `1xxxxx`. **`12`** = it reaches the playlist layer and larger teams
+are script-reachable. **`8`** = it re-derived the lobby from the gametype, like the map carry does.
+
+⚠ **The map carry is NOT a route to this.** It starts *in a Gunfight lobby* and only overrides the map
+at load time, so the slots were fixed before it acts.
+
+**Fallback — the lobby glitch.** Create the lobby under a **12-player mode** (TDM), confirm 12 slots, then apply the existing
 map/mode carry glitch to bring Gunfight *into that lobby* (inverse of the current technique, which
 starts from a Gunfight search).
 - Slots retained + teams fill past 3v3 → **6v6 solved with no code.** Then start a 12-player match on a
@@ -329,11 +374,21 @@ Bots before humans.
 looking for them in `bocw-source`; the front end is compiled LUA and the spawn resolver is an engine
 builtin (see the two notes above).
 
-- **Does `com_maxclients` survive a mode change in a custom lobby?** (Phase 1 — gates all 6v6 work)
-- **Is the Gunfight timer field exposed in the rules menu?** (Phase 0 — convenience only now; the timer
-  is settable at runtime regardless, see *Timer* above)
+- **Does `switchmap_load( map, gametype )` reconfigure the session, or only override the map?** This
+  is now *the* team-size question — it decides whether `com_maxclients` can be reached from script at
+  all. One probe run answers it: [[atian-menu-source]]. ← **highest value, cheapest**
+- **Does `com_maxclients` survive the map/mode carry glitch?** The glitch is a genuine playlist
+  reconfiguration where our carry is not. Needs the glitch to work once. [[menu-map]]
 - **Does the engine's `function_77b7335` telefrag or return undefined when start spawns run out?**
-  (Phase 1 — the only real 6v6 risk left; the script layer is proven safe)
+  (only bites above 3v3; the script layer is proven safe)
+
+⚠ **`com_maxclients` is read-only *from script*** — 7 refs, all `getdvarint`. That is a statement about
+the dvar, **not** a statement that team size is unreachable. `switchmap_load` and the lobby glitch both
+act on the layer that *sets* it, and neither has been tested.
+
+✅ **Answered.** *Is the Gunfight timer field exposed in the rules menu?* — **yes**, 0/20/30/40/50/60s,
+and it is live-settable. But it **does not survive a map carry**, so `timer_override` is required
+anyway. *Are the five presentation symptoms real?* — yes, and `presentation: 1` clears them.
 
 ### Resolved by tracing, confirmation still wanted
 - **MP injection priming sequence** — **RESOLVED** from source + toolchain (`edd94bd` / `4de00c8`),

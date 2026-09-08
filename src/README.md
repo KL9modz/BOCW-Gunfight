@@ -13,7 +13,7 @@ answers, per match, questions that otherwise cost menu-walking or guesswork:
 
 | Tag | Question | Why it matters |
 |---|---|---|
-| `1xxxxx` | `com_maxclients` | The team-size ceiling. If it changes after a mode switch, **6v6 is reachable with no code** |
+| `1xxxxx` | `com_maxclients` | The team-size ceiling *of this lobby*. Reads **8** in 3v3 Gunfight, **12** in private TDM. The live question is whether `switchmap_load` or the lobby glitch moves it — see `docs/notes/atian-menu-source.md` |
 | `2xxxxx` | live `timelimit` setting | Phase 0 **T0.2** answered numerically instead of by walking menus |
 | `3xxxxx` / `4xxxxx` | `timelimitmin` / `timelimitmax` | Confirms the clamp is `[0, 1440]` and not the constraint |
 | `5xxxxx` | `gunfight_zone_center` count | **The map dependency.** `0` = unlocked map, `>0` = stock zoned. Classifies any map in one number |
@@ -95,8 +95,11 @@ already do. Swap the paths for `gunfight_mod` once the hello-world has confirmed
       confirm the round ends on the health decision instead of hanging/among the glitch.
    3. `+ presentation` → verify the five symptoms clear (round-2 music, noRespawnsLeft HUD, round-start
       UI, correct VO, correct lives counter). Cross-check against Phase 2 in `.claude/CLAUDE.md`.
-   4. `timer_override` only if you want >60s — and only after Phase 0 **T0.2** shows the menu doesn't
-      already expose the timer (see [`../docs/notes/phase-0-1-test-protocol.md`](../docs/notes/phase-0-1-test-protocol.md)).
+   4. `timer_override` — **ON, and required under a map carry at *any* value.** ⚠ The old guidance
+      here ("only if you want >60s, the rules menu already exposes 0/20/30/40/50/60s") is true in a
+      plain lobby and **false once the map is carried**: the carry re-initialises gametype settings and
+      a menu-set timer reverts to 30. `mod_apply()` reruns on every `on_start_gametype`, which is why
+      the override survives. Measured 2026-09-08 — [`../docs/notes/menu-map.md`](../docs/notes/menu-map.md).
 
 ## What each stage touches (all reversible by not injecting)
 

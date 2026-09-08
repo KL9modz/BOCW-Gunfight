@@ -48,6 +48,13 @@
 >
 > ### What will not help
 >
+> 🪦 **RESOLVED 2026-09-08 — `maxteamplayers` is never enforced for Gunfight.** `globallogic.gsc:233-240`
+> sets `level.multiteam = level.teamcount > 2`, and **both** consumers of `maxteamplayers` are gated on
+> it (`team_assignment.gsc:352` and `:1030`). Gunfight is a **two-team** mode, so `multiteam` is false
+> and the setting is never read. Our hook runs after `:240` so we *could* overwrite it — it would do
+> nothing. The paragraph below reasons about it as a possible half-lever; that reasoning is closed.
+> ⚠ This says nothing about team size generally — see [[atian-menu-source]] for the live route.
+>
 > `#"maxteamplayers"` is a real gametype setting — read 14 times, never set by stock, and
 > `setgametypesetting` is callable (78 stock call sites). But it drives **team-balance and spawn
 > loops** (`for (idx = 0; idx < level.maxteamplayers; idx++)`), while `com_maxclients` is the
