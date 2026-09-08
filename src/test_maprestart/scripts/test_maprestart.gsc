@@ -30,7 +30,7 @@
 //
 // ⚠ Map names never render on retail (literals display as nothing), so this
 //   reports the COMPARISON as 1/0 rather than the names. Same technique as
-//   test_setteam.gsc.
+//   test_teamfill.gsc.
 //
 // ── HOW TO READ THE OUTPUT ────────────────────────────────────────────────────
 // This emits on EVERY on_start_gametype. You want two readings.

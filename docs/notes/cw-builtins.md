@@ -94,9 +94,11 @@ and `kick` (1–2 args, `+3b0a3a0`) is the only obvious undo. Stage it alone.
 | `allowspectateteam` / `allowspectateallteams` | 2 / 1 | Spectator permissions |
 | `spawnspectator` / `setcurrentspectatorclient` | 2 / 1 | Spectator handling |
 
-This is the mechanism behind the **4v4-from-8-slots** idea: if the 8 clients are 6 players + 2
-spectators, and `setteam` can put a spectator on a team, **8 clients is exactly 4v4** with no larger
-lobby at all. Where the 6+2 split is actually enforced is unestablished — `team_assignment.gsc:94`
+⚠ **`setteam` turned out to be the wrong lever** — 55 stock call sites, all world objects. See
+[`dump-cross-check.md`](dump-cross-check.md). The player path is `teams::change()`, and the **cheaper**
+question is whether a team accepts a fourth player at all: `function_d36b6597()` returns
+`com_maxclients` for a two-team mode and `team_assignment.gsc:148` refuses only at eight, so nothing
+in that path enforces three. That is what [`../../src/test_teamfill/`](../../src/test_teamfill/) asks. Where the 6+2 split is actually enforced is unestablished — `team_assignment.gsc:94`
 gates on `team_players.size >= max_players` where `max_players` resolves to `com_maxclients` (8),
 which is not obviously 3-per-team.
 
@@ -138,11 +140,11 @@ non-private session — turning a procedural rule into a mechanical one.
 | **4** | `map_restart()` in a carried lobby — [`../../src/test_maprestart/`](../../src/test_maprestart/) | restarts a match | Whether cwpatch/F7 can be dropped from the procedure |
 | **5** | `switchmap_load( get_map_name(), "gunfight_3v3" )` in a 12-slot TDM lobby | reloads the session | **The team-size question.** [`atian-menu-source.md`](atian-menu-source.md) |
 | **6** | `addtestclient()` in a loop until refusal — [`../../src/test_addclients/`](../../src/test_addclients/) | adds clients | The **real** client ceiling, measured rather than read |
-| **7** | `setteam()` on a spectator client — [`../../src/test_setteam/`](../../src/test_setteam/) | changes assignment | Whether 8 clients can be 4v4 |
+| **7** | fill ONE team until refused — [`../../src/test_teamfill/`](../../src/test_teamfill/) | adds clients to a team | Whether 8 clients can be 4v4 |
 
 Tests 5–7 now ship as code: [`../../src/test_switchmap/`](../../src/test_switchmap/),
 [`../../src/test_addclients/`](../../src/test_addclients/),
-[`../../src/test_setteam/`](../../src/test_setteam/). Separate projects on purpose — a payload that
+[`../../src/test_teamfill/`](../../src/test_teamfill/). Separate projects on purpose — a payload that
 can only do one thing cannot accidentally do another. Readings and decision tables:
 [`test-queue.md`](test-queue.md).
 

@@ -27,8 +27,8 @@ that can only do one thing cannot accidentally do another. The "one write per ma
 mechanical rather than a matter of remembering.
 
 ⚠ **`test_maprestart`, `test_switchmap` and `test_teamfill` ship with `read_only = 1`.** Run them that way first — the
-read-only phase is what confirms you are in the right lobby, and for `test_setteam` it is what settles
-the argument shape. Flip the switch only after the read phase comes back sane.
+read-only phase is what confirms you are in the right lobby, and for `test_teamfill` it is what
+confirms the team value is the right representation. Flip the switch only after the read phase comes back sane.
 
 ⚠ **The four new projects call builtins that no stock script in the dump calls**, taken from ate47's
 Cold War function table rather than from `bocw-source`. **Run `tools/check-gsc.ps1` on each before
@@ -37,9 +37,12 @@ caught `logprint`.
 
 ⚠ **Two argument shapes are still unvalidated**: `addtestclient` and `map_restart`. Both are called
 in their **zero-argument** form, which is the only one that cannot be wrong about an argument, and
-both carry a config switch for the one-arg form if `dump-grep.sh` shows stock passing something. `setteam` is *not* in that list — `test_setteam`
-reads a team value off an existing player and passes it back rather than guessing a representation.
-`tools/dump-grep.sh` resolves all of them from stock call sites; run it first if the dump is to hand.
+both carry a config switch for the one-arg form if `dump-grep.sh` shows stock passing something.
+
+✅ **`dump-grep.sh` has since been run** against the alternate dump and it corrected three of these
+scripts — including replacing `test_setteam` entirely, because `setteam` is an entity function and
+would have measured nothing. [`../docs/notes/dump-cross-check.md`](../docs/notes/dump-cross-check.md).
+Still worth re-running against `bocw-source`, which is primary.
 
 **`mp_probe/` is the cheap one to reach for.** It writes nothing but its own counter and
 answers, per match, questions that otherwise cost menu-walking or guesswork:
