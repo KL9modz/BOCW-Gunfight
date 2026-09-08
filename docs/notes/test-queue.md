@@ -123,7 +123,7 @@ Validate offline first — it calls builtins **no stock script calls**, so stage
 | `3xxxxx` `numremoteclients()` | **unknown** | `______` |
 | `4xxxxx` `getnumconnectedplayers()` | **unknown** | `______` |
 | `5xxxxx` flags | 1=teambased + 2=private → expect **3** | `______` |
-| `6xxxxx` **`maxsquadplayers`** | **the team-size lead.** Real `uint:6` field (max 63), present in `custom_games.ddl` where `maxteamplayers` is absent — and the *only* unresolved `uint:6` in that struct. **`3` in a 3v3 lobby → try `setgametypesetting( #"maxsquadplayers", 4 )` next.** Anything else = not the lever | `______` |
+| `6xxxxx` **`maxsquadplayers`** | **THE prediction.** klaze confirmed a 3v3 lobby caps team assignment at **3 per side**, and all 427 menu bundles were read — **no row sets a per-side cap**, so it is a gametype setting with no menu exposure, which is exactly what `maxsquadplayers` is. **Predicted: `3` in a 3v3 lobby, `2` in normal Gunfight.** Both readings confirm it is the cap; anything else kills the lead. **Run in BOTH lobbies** — one reading cannot tell "it is the cap" from "it happens to be 3" | 3v3: `____` · 2v2: `____` |
 | `7xxxxx` **`maxplayers`** | never read by this project. `uint:4` (max 15) in `custom_games.ddl`, `uint:7` (max 127) in `mp_custom_game.ddl`. ⚠ Its only *known* consumer is challenge logic, so it may gate nothing — but it is free to read | `______` |
 | `9xxxxx` **gametype bitmask** | see below | `______` |
 

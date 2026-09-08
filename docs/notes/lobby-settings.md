@@ -110,6 +110,50 @@ route, and it needs no injection at all** — which makes it strictly better for
 
 ---
 
+---
+
+## ✅ CONFIRMED IN-GAME — the two Gunfight variants have different bundle sets
+
+Observed by klaze 2026-09-08:
+
+> The lobby UI lets me choose a round timer for **normal Gunfight**, but **not for 3v3 Gunfight**.
+> And in a 3v3 lobby it **restricts team assignment to 3 per side.**
+
+That settles a question the dump could not: **`gunfight` and `gunfight_3v3` are configured
+separately**, and the per-variant bundle selection is real. `time_limit_seconds` (the
+`0/20/30/40/50/60` row) is in normal Gunfight's set and absent from 3v3's — which is why 3v3 sits at
+its 40s default with no way to change it from the menu.
+
+⚠ That is a *menu* limitation, not an engine one. `timer_override` already holds 60s in a 3v3 lobby
+([`menu-map.md`](menu-map.md)), which is the point: **the bundle set filters the menu, not the
+setting.**
+
+### 🔓 The per-side cap is NOT a menu row — and that sharpens the `maxsquadplayers` prediction
+
+All 427 bundles were read. **The only player-count row of any kind is `max_players`.** There is no
+squad-size row, no per-team row, nothing that writes a 2-or-3 per side value.
+
+So the 3-per-side restriction is **baked into the gametype config**, not exposed to the menu — which
+is exactly the shape of a setting that has a DDL field and no bundle. **`maxsquadplayers` is that
+setting** (`uint:6` in `custom_games.ddl`, no bundle, read into `level.var_704bcca1` at
+`globallogic.gsc:241` — [`dump-cross-check.md`](dump-cross-check.md)).
+
+**This makes a falsifiable prediction.** `lobby_probe` probe `6xxxxx`:
+
+| Lobby | Predicted `maxsquadplayers` |
+|---|---|
+| **3v3 Gunfight** | **3** |
+| **normal Gunfight** (2v2) | **2** |
+
+If it reads 3 and 2, `maxsquadplayers` **is** the per-side cap, it is a gametype setting, and
+`setgametypesetting( #"maxsquadplayers", 4 )` is the lever. If it reads something else — 8, 0,
+undefined — the cap is somewhere the dump has not shown and this lead is dead.
+
+⚠ **Run the probe in BOTH lobbies.** One reading cannot distinguish "it is the cap" from "it happens
+to be 3".
+
+---
+
 ## Other rows worth knowing
 
 | Row | Setting | Published |
@@ -140,9 +184,32 @@ target — the two leads are independent, and `maxPlayers` is the cheaper one to
 ⚠ L1–L3 need no injection and no modded anything. **Do them before any of the C-band tests** — if L2
 works, several of those stop mattering.
 
+## ⚠ 184 of 427 rows hide values from the menu — this generalises
+
+`.claude/CLAUDE.md` notes `time_limit_seconds` "declares 20 values but publishes 6". **That is not a
+quirk of the timer.** 184 bundles publish fewer values than they declare. The menu is a *filtered
+view*; `setgametypesetting()` is not filtered.
+
+Gunfight's own rows and what they hide:
+
+| Row | Setting | Published | Hidden |
+|---|---|---|---|
+| `capture_time_gunfight` | `captureTime` | 1 2 3 4 5 10 15 | **30 45 60 90 120** |
+| `round_win_limit_gunfight` | `roundWinLimit` | 1–6 | **7 8 9** |
+| `gunfight_spy_plane` | `gunfightSpyPlane` | 0 1 2 | **3** |
+| `time_limit_seconds` | `timeLimit` | 0/20/30/40/50/60 | 4 5 6 7 8 9 10 11 … |
+| `gunfight_rounds_per_loadout` | `gunfightRoundsPerLoadout` | 0–5 | — |
+
+⚠ **A declared-but-hidden value is not a tested value.** The timer's hidden range is known good (the
+clamp is 0–1440 minutes). Nothing else here has been exercised, and a value the menu refuses to offer
+may be refused for a reason.
+
+Full table for all 427: [`gamesettings-catalog.md`](gamesettings-catalog.md).
+
 ## Untried — not ruled out
 
-- **The other ~390 bundles.** Only the team/player/round/score families were read.
+- **~200 MP rows never cross-referenced against Gunfight.** The catalog lists them; which appear in a
+  Gunfight lobby is still the playlist layer.
 - **`localized18#…` display names.** The localization table is not in the dump, so a row's on-screen
   wording cannot be predicted — only its `setting` and values. Walking is the only way to match them up.
 - **Whether the rules menu writes settings that survive the map carry.** The carry is known to reset

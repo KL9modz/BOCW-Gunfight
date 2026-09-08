@@ -75,6 +75,14 @@ stock Gunfight map reads zero of them, so it distinguishes nothing. See [[gunfig
 Per-restriction depth: the map dependency and the round-timer link in [[gunfight-findings]], the
 enforcement chain and what is actually overridable in [[team-sizes]].
 
+⚠ **The rules menu is a FILTERED view of each setting, and the filter differs per gametype variant.**
+`scriptbundle/gamesettings/` holds one JSON per menu row; **184 of 427 publish fewer values than they
+declare**, and which rows a variant shows is playlist-level. Confirmed in-game: normal Gunfight has a
+round-timer row, **3v3 Gunfight has none** — so 3v3 sits at its 40s default with no menu path, while
+`timer_override` holds 60s there regardless. **A setting being absent or capped in the menu says
+nothing about what `setgametypesetting()` accepts.** Catalog: [[gamesettings-catalog]], leads:
+[[lobby-settings]].
+
 **Timer** — `gunfight.gsc:1137` `gettimelimit()` reads `getgametypesetting(#"timelimit") / 60` and
 clamps to `[level.timelimitmin, level.timelimitmax]`. Those come from
 `globallogic.gsc:365` → `util::registertimelimit( 0, 1440 )` → `util.gsc:790` sets min 0 / max **1440
@@ -143,8 +151,13 @@ point (telefrag) is engine-internal. **Only the Phase 1 live test answers this.*
 is absent from both** — the asymmetry [[team-sizes]] already recorded, now cutting the other way.
 ⚠ A first write-up of this named the wrong file; see [[dump-cross-check]] for the counted table. A gametype setting is runtime-writable via `setgametypesetting()`.
 ⚠ It bounds **squad** size in the distribution path, not the join gate — but for Gunfight a team *is*
-a squad. **Read it first** (`lobby_probe` probe `6xxxxx`): 3 in a 3v3 lobby makes it the lever.
-[[dump-cross-check]]
+a squad.
+
+✅ **In-game evidence now points the same way.** A 3v3 Gunfight lobby caps team assignment at **3 per
+side**, and all 427 rules-menu bundles have been read: **no row sets a per-side cap** ([[lobby-settings]]).
+So the cap is a gametype setting with no menu exposure — precisely what `maxsquadplayers` is.
+**Predicted: probe `6xxxxx` reads 3 in a 3v3 lobby and 2 in normal Gunfight.** Run both; one reading
+cannot distinguish the cap from a coincidence. [[dump-cross-check]]
 
 🔓 **The 3-per-team limit is NOT enforced by team assignment.** `function_d36b6597()` returns
 `com_maxclients` for a two-team mode (`teamcount == 2`, `com_maxclients == 8`, `8 != 2`), and

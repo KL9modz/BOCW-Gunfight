@@ -9,6 +9,9 @@ These are **not** auto-loaded. Open the one you need.
 
 **Start here if you are at the machine**
 
+- [gamesettings-catalog](gamesettings-catalog.md) — **all 427 rules-menu rows**, with the setting each
+  writes, what it publishes, and what it **hides**. 184 rows offer the menu fewer values than the
+  setting accepts.
 - [lobby-settings](lobby-settings.md) — **the pre-match layer**: which step of hosting lives where, why
   `frontend.gsc` is not the lobby, and `scriptbundle/gamesettings/` — 427 JSON bundles that are the
   complete rules-menu surface. Carries the cheapest open lead in the project: a **Max Players** row
