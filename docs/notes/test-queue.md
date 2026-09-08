@@ -16,7 +16,11 @@ that is the check that caught `scene_model_shared`.
 
 ### The results that would actually move a goal
 
-0. **L2 — a Max Players row that goes to 12 and actually changes the slot count.** No injection, no
+0. **L0 — in-match team change working past the lobby cap.** Stock, private-match-only, one rules
+   toggle. If a player can join a full side after the match starts, **4v4 needs no code at all** and
+   the whole team-size track collapses to "get eight bodies in the lobby".
+   [`lobby-settings.md`](lobby-settings.md)
+1. **L2 — a Max Players row that goes to 12 and actually changes the slot count.** No injection, no
    code, no exposure, about two minutes. If it works it closes the last open goal outright and makes
    most of band C unnecessary. **Check this before anything else.**
    [`lobby-settings.md`](lobby-settings.md)
@@ -41,6 +45,26 @@ The hosting workflow — create lobby, pick map/mode/rules, invite, teams, start
 *before* the match, in a layer none of this project's code has ever reached.
 [`lobby-settings.md`](lobby-settings.md) maps it, and found a rules-menu row that may hand over the
 team-size goal for free.
+
+### L0 · **Allow In-Game Team Change** — the cheapest path to 4v4 that exists ← **do this first**
+
+klaze measured the pre-game team screen capping at **2** (Gunfight), **3** (3v3), **4** (CDL Pro S&D),
+**unrestricted** (TDM). That cap is a *lobby* rule. `serversettings.gsc:42` turns on in-match team
+switching for **private matches** when `allowingameteamchange` is set — and that setting **has a
+rules-menu row**. The in-match gate is `com_maxclients` (**8**), not 2 or 3.
+
+1. Rules menu → find **Allow In-Game Team Change** → on
+2. Start a match, open the in-match team menu, try to join the full side
+
+| Outcome | Means |
+|---|---|
+| **switch succeeds past the lobby cap** | **4v4 needs no code** — only enough players in the lobby |
+| row absent from Gunfight's rules | the bundle exists but this variant does not show it |
+| switch blocked anyway | something past `serversettings.gsc` is enforcing it; record what the game says |
+
+⚠ Then the binding constraint is **lobby capacity**, not the cap: 4v4 needs 8 players in an 8-client
+lobby, so the two suspected spectator slots must be usable. Same question as C7/C8, different door.
+Result: `______`
 
 ### L1 · Is there a **Max Players** row in the Gunfight rules menu?
 `scriptbundle/gamesettings/max_players.json` is a real menu row writing `maxPlayers`, publishing

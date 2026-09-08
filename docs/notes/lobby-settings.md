@@ -112,6 +112,70 @@ route, and it needs no injection at all** — which makes it strictly better for
 
 ---
 
+## 🔓 THE LOBBY CAP IS PER-MODE, AND IN-MATCH TEAM CHANGE ROUTES AROUND IT
+
+Observed by klaze 2026-09-08, across four lobbies:
+
+| Lobby | Per-side cap in the pre-game team screen |
+|---|---|
+| Gunfight | **2** |
+| 3v3 Gunfight | **3** |
+| **CDL Pro Search & Destroy** | **4** |
+| TDM | **unrestricted** |
+
+**CDL Pro S&D is an existence proof** that the mechanism already produces 4 — the project's target
+number — so nothing about 4-per-side is exotic. ⚠ It is **not** `competitivesettings`, which is a
+`bool` in the DDL, so the cap is a separate per-playlist number.
+
+### ⚠ This breaks the plan the project was about to follow
+
+The cap is enforced in the **pre-game lobby**, before the match exists. **So an in-match
+`setgametypesetting( #"maxsquadplayers", 4 )` is too late** — teams are already formed by the time any
+injected script runs. The `maxsquadplayers` lead is still worth testing (it likely *names* the cap),
+but on its own it cannot change how the lobby lets you assign people.
+
+### ✅ But stock already has the way around it — and it is a rules-menu toggle
+
+`scripts/mp_common/gametypes/serversettings.gsc:42`:
+
+```gsc
+level.allow_teamchange = 0;
+allowingameteamchange = getgametypesetting( #"allowingameteamchange" );
+if ( ( sessionmodeisprivate() || !sessionmodeisonlinegame() ) && is_true( allowingameteamchange ) )
+{
+    level.allow_teamchange = 1;
+}
+```
+
+- It is **gated on `sessionmodeisprivate()`** — exactly this project's scope, and off in matchmaking.
+- It is driven by a gametype setting with a **rules-menu row**: `allow_ingame_team_change`, two options.
+- `gunfight.gsc` never touches `level.allow_teamchange`, so Gunfight inherits this path. (`prop.gsc:70`
+  forces it to 1, showing a gametype *can* override it.)
+- `mp_common/gametypes/menus.gsc:101` — `if ( menu == "changeteam" && level.allow_teamchange )` — is
+  the in-match team menu it unlocks.
+
+**And the in-match gate is a different, looser number.** `team_assignment.gsc:148` refuses a team only
+at `team_players.size >= com_maxclients` — **8**, not 2 or 3
+([`dump-cross-check.md`](dump-cross-check.md)). So the lobby's 3-per-side is a *lobby* rule; once the
+match starts, a team can hold up to eight.
+
+### 🔓 Route A — 4v4 in a Gunfight lobby, with no code at all
+
+1. Gunfight (or 3v3 Gunfight) private lobby
+2. **Turn on "Allow In-Game Team Change"** in the rules menu
+3. Fill the lobby — the cap only limits *assignment*, so extras sit unassigned or spectating
+4. Start the match
+5. Players switch teams **in-match**, where the gate is 8
+
+⚠ **The binding constraint becomes lobby capacity, not the per-side cap.** 4v4 needs eight players in
+an eight-client lobby, which means the two slots believed to be spectator reserve must be usable as
+players. That is the same open question as [`test-queue.md`](test-queue.md) C7/C8, now reached from a
+different direction.
+
+⚠ Untested end to end. Every step is stock behaviour read from the dump; none of it has been run.
+
+---
+
 ## ✅ CONFIRMED IN-GAME — the two Gunfight variants have different bundle sets
 
 Observed by klaze 2026-09-08:
@@ -176,6 +240,7 @@ target — the two leads are independent, and `maxPlayers` is the cheaper one to
 
 | # | Test | Exposure | Answers |
 |---|---|---|---|
+| **L0** | Find **Allow In-Game Team Change** in the rules menu, turn it on, start a match, try to switch teams | **none** | **Route A.** If a player can join a team past the lobby cap, 4v4 needs no code — only enough bodies |
 | **L1** | In a **Gunfight Custom Games** lobby, walk every rules page looking for **Max Players** | **none** | Whether the row exists at all |
 | **L2** | If it exists, set it to **12** and count the lobby slots | **none** | Whether `maxPlayers` drives lobby size — **the whole team-size goal, with no code** |
 | **L3** | Look for **Bot Autofill** / **Bot Difficulty** rows on the same pages | **none** | A no-injection way to fill a test lobby |
