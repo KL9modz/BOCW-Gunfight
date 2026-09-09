@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
-# Inject ONE of the two GSC payloads, on the standard known-safe hook/replace pair.
+# Inject ONE GSC payload, on the standard known-safe hook/replace pair.
 #
 #   ! bash /c/bocw/inject.sh menu     <- Atian Menu (map carry, 19 maps)
 #   ! bash /c/bocw/inject.sh mod      <- gunfight_mod (60s timer + fixes)
+#   ! bash /c/bocw/inject.sh <name>   <- any payload: $SP/<name>.gscc
+#
+# The third form is how the staged tests run - lobby_probe, test_addclients,
+# test_spawnmode, test_seatspectator, test_latejoin. `menu` and `mod` stay as
+# aliases only because their payload filenames do not match their project names.
+#
+# ⚠ ONE PAYLOAD AT A TIME. Every injection uses the same replace target, so each
+#   one clobbers the last. That is a feature for the staged tests - "one write per
+#   match" is enforced by the mechanism rather than by remembering.
 #
 # ── WHY NOT BOTH AT ONCE ─────────────────────────────────────────────────────
 # injectcw takes (script, target, replace) and OVERWRITES the replace script's
@@ -46,14 +55,34 @@ GFMOD="$SP/gunfight_mod.gscc"
 TARGET='scripts\mp_common\bb.gsc'
 REPLACE='scripts\core_common\clientids_shared.gsc'
 
-case "${1:-}" in
+NAME="${1:-}"
+
+case "$NAME" in
+    "")   echo "usage: bash /c/bocw/inject.sh menu|mod|<project-name>"; exit 1 ;;
     menu) PAYLOAD="$MENU";  LABEL="Atian Menu - map carry, 19 maps" ;;
     mod)  PAYLOAD="$GFMOD"; LABEL="gunfight_mod - 60s timer, zones_guard, timelimit_fix" ;;
-    *)    echo "usage: bash /c/bocw/inject.sh menu|mod"; exit 1 ;;
+    # Anything else is a project name. Resolved by convention rather than listed,
+    # so a new src/<name>/ works here the moment its .gscc is built - no edit to
+    # this file, and no chance of the list going stale against src/.
+    *)    PAYLOAD="$SP/$NAME.gscc"; LABEL="$NAME" ;;
+esac
+
+# Reject a name that would escape the payload dir before it reaches the -f test,
+# so a typo says so instead of producing a confusing MISSING path.
+case "$NAME" in
+    */*|..*) echo "not a payload name: $NAME"; exit 1 ;;
 esac
 
 [ -f "$ACTS" ]    || { echo "MISSING: $ACTS";    exit 1; }
-[ -f "$PAYLOAD" ] || { echo "MISSING: $PAYLOAD"; exit 1; }
+if [ ! -f "$PAYLOAD" ]; then
+    echo "MISSING: $PAYLOAD"
+    echo
+    echo "Built payloads in $SP:"
+    ls -1 "$SP"/*.gscc 2>/dev/null | sed 's|.*/|  |; s|\.gscc$||' || echo "  (none)"
+    echo
+    echo "Compile it first:  acts gscc <script>.gsc -g cw -p pc -o $SP/$NAME"
+    exit 1
+fi
 
 cd "$(dirname "$ACTS")" || exit 1
 
@@ -81,7 +110,13 @@ echo
 echo "RESTART THE MATCH to link it."
 # A `case`, not two `[ ]` tests. As a trailing test the false branch became the
 # script's exit status, so `inject.sh menu` exited 1 on success.
-case "$1" in
+case "$NAME" in
     menu) echo "  RMB+V opens.  up RMB / down LMB / select R / back V" ;;
     mod)  echo "  round timer should read 60s and survive a map carry" ;;
+    lobby_probe)       echo "  reads 1-12 then 9, one every 5s. Probe 12 must equal probe 6" ;;
+    test_addclients)   echo "  fills until refused. The last count before the stall is the ceiling" ;;
+    test_spawnmode)    echo "  READ PROBE 31 FIRST. Zero = the wrapper never ran, not 'the fix failed'" ;;
+    test_seatspectator) echo "  read_only=1 on the first pass. 21/23 print before iscodcaster is called" ;;
+    test_latejoin)     echo "  20xxxxx = allies*100 + axis. 2000404 is 4v4" ;;
+    *)    echo "  test a LOBBY RETURN afterwards if this payload writes anything" ;;
 esac
