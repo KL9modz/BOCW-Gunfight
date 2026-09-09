@@ -83,9 +83,54 @@ carried map.
 | **3,891,512** | stock Microsoft SDK — hotkeys dead |
 
 ⚠ **Battle.net's repair silently restores the stock SDK.** If F4–F7 stop working mid-session, check
-that file's size first. Back up the stock SDK as `discord_game_sdk.dll.orig` before replacing it.
+that file's size first.
 
-The 13,824-byte DLL is third-party and gitignored (`*.dll`); keep a copy outside the repo.
+---
+
+## Irreplaceable binaries — the rule, and the one that got away
+
+🪦 **The cwpatch DLL was lost on 2026-09-08.** A `rm -rf` on the game's `Data` folder forced a full
+Battle.net re-download, the repair wrote the stock 3,891,512-byte SDK back over cwpatch, and **the repo
+held no copy because `.gitignore` has a blanket `*.dll`.** A machine-wide search found nothing.
+
+⚠ **Two mistakes, and the second is the instructive one:**
+
+1. The deletion. Owned, and separately guarded — ACTS now lives in its own `acts\` subfolder.
+2. **The backup preserved the wrong file.** This section used to say *"back up the stock SDK as
+   `discord_game_sdk.dll.orig`."* That backs up the file **Battle.net restores for free** and leaves
+   the irreplaceable one unprotected. It is exactly backwards.
+
+▶ **The rule: classify a binary by whether you can get it back, not by whether it is a binary.**
+
+| Class | Example | Ignore it? |
+|---|---|---|
+| **Rebuildable** | our `*.gscc` — `acts gscc` from `src/`, seconds | ✅ yes, it is build output |
+| **Re-fetchable** | `BlackOpsColdWar_atianmenu_pc.gscc` — stable release URL, size recorded above | ✅ yes, but **record URL + exact byte size** |
+| **Neither** | cwpatch `discord_game_sdk.dll` — no source, no canonical URL | ⚠ **out-of-repo backup, written down, or it is gone** |
+
+This repo is **public**, so third-party binaries stay out of it regardless — which is precisely why
+the out-of-repo backup is the entire safety net rather than a convenience.
+
+### If you recover or rebuild cwpatch, verify it against this
+
+Recorded in [`../docs/notes/unlock-dlls.md`](../docs/notes/unlock-dlls.md) from a Capstone read of the
+binary on 2026-09-06, while we still had it:
+
+| | |
+|---|---|
+| Size | **13,824 bytes** |
+| SHA-256 | `f7224920…84f1` ⚠ **truncated in the notes, and the file is gone, so it cannot be completed.** Still ~48 bits — good enough to confirm a candidate, not to reconstruct one |
+| Built | 2024-02-01 |
+| PDB path | `C:\Users\Alaix\source\repos\cwpatch` |
+| Exports | `DiscordCreate` (the stock SDK also exports `DiscordVersion`, `rust_eh_personality`) |
+| Mechanism | registers/sets dvar `loot_fakeall`; binds F4 `lobbylaunchgame`, F6 `fast_restart`, F7 `full_restart` |
+
+⚠ **Record the FULL hash next time.** A truncated hash in the notes and no file on disk is how a
+verifiable artifact becomes an unverifiable description.
+
+**Backup location for anything in the "neither" class: `C:\bocw\vendor-backup\`.** Not in the repo, not
+under the game folder (Battle.net repairs that), not in the scratchpad (cleared on reboot — which is
+how the payload directory was lost the same day).
 
 ---
 

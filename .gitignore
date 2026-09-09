@@ -8,6 +8,19 @@ ACTS/
 *.tar.gz
 
 # Compiler / injector build output
+#
+# ⚠ THE TEST FOR IGNORING A BINARY IS "CAN WE GET IT BACK", NOT "IS IT A BINARY".
+#   Applying *.dll as a blanket rule cost this project the cwpatch
+#   discord_game_sdk.dll on 2026-09-08 - see tools/README.md, "Irreplaceable
+#   binaries". Classify before adding a pattern here:
+#
+#     rebuildable   our *.gscc, from src/      -> ignore. Correct.
+#     re-fetchable  atian menu .gscc           -> ignore, but record URL + size.
+#     NEITHER       cwpatch discord_game_sdk   -> ignore ONLY with an out-of-repo
+#                                                 backup that is WRITTEN DOWN.
+#
+#   This repo is PUBLIC, so third-party binaries stay out of it either way -
+#   which makes the out-of-repo backup the entire safety net, not a nicety.
 *.gscc
 *.exe
 *.dll
