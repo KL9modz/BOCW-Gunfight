@@ -324,7 +324,36 @@ function private run()
     // comes from this script's NEXT on_start, on the new map.
 }
 
-// Runs with self = the player, mirroring func_set_map's context exactly.
+// ⚠⚠ SEPARATE THREAD, AND **NO `endon`**. THAT IS THE LOAD-BEARING PART.
+//
+// Found by decompiling the SHIPPED menu (acts gscd) and then re-reading our own
+// code. The menu's handler is:
+//
+//     self function_9441a07f( "loading " + name );   // cosmetic text draw only
+//     map( name );
+//     wait 1;
+//     function_f4472a8();                            // = switchmap_switch, a builtin
+//
+// Identical to ours. The difference was never in the sequence - it was the
+// WRAPPER. Runs 1-3 had this inline inside run(), which carries
+// `level endon( #"game_ended" )`. map() begins the map transition, the engine
+// notifies game_ended, and the endon KILLS THE THREAD DURING wait( 1 ) - so
+// switchmap_switch() never executed. The load was staged and never committed.
+//
+// That explains both observed failures, which no other theory did:
+//   run 3, Zoo      -> staged, thread killed at the wait, nothing visible
+//   run 2, Hijacked -> same truncation, but map()'s teardown had already begun
+//                      and nothing committed it -> half-transitioned, glitched
+//
+// ⚠ HONESTY NOTE: this function was split out to test a `self`-binding
+//   hypothesis, which the decompile then WEAKENED - map() and switchmap_switch()
+//   are called unqualified in the shipped menu, so they are global builtins and
+//   self is probably irrelevant. The split fixes the real bug for a different
+//   reason than it was made for. Keep the split; distrust the original reason.
+//
+// ⚠ DO NOT ADD `level endon( #"game_ended" )` HERE. It is exactly the notify this
+//   sequence has to survive. The attempt counter in run() is what bounds this, not
+//   an endon.
 function private do_switch( target )
 {
     map( target );
