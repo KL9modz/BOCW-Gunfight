@@ -16,7 +16,16 @@ that is the check that caught `scene_model_shared`.
 
 ### The results that would actually move a goal
 
-0. **C10 — a late joiner lands on a team instead of in spectator.** ⬅ **the strongest route the
+0. **C11 — seat an existing spectator with one stock call.** ⬅ **the strongest route, and it needs
+   no override at all.** `player [[ level.autoassign ]]( 0, team, undefined )` lands in
+   `team_assignment.gsc:419`, which uses the team **verbatim, no fullness check** — the same branch
+   klaze already sees fire when "a spot is open on the join". `src/test_seatspectator/`
+0. **B8 — Gunfight's 4-per-side spawns.** ⚠ **klaze has ALREADY had 4 on a team** (unreproducible
+   lobby glitch) **and the spawns broke.** So a working C11 walks straight into a known breakage.
+   Only 4 gametypes pin `alwaysusestartspawns`; Face Off is not one, and Face Off runs 6v6 on
+   Gunfight maps fine. **Run the mode-0 control before C11 succeeds.** `src/test_spawnmode/`
+0. **C10 — a late joiner lands on a team instead of in spectator.** the earlier, narrower version of
+   C11 — it acts only at the instant of joining. Keep as fallback. ⬇ **the strongest route the
    project has had.** klaze already performs the whole workflow by hand (extras leave the pregame
    lobby, host starts, extras rejoin); the mod is **one line** and only changes where they land. The
    auto-assign path they fall into has **no per-team cap check of any kind**. Reaches **4v4** — eight

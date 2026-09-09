@@ -124,7 +124,25 @@ the carry **resets gametype settings** (a menu-set timer reverts to 30 — which
 DLL, no injector." **Wrong — it is entirely GSC and the injector.** Procedure, the three traps and
 the evidence: [[menu-map]].
 
-### Start spawns — script-safe at any team size; the residual risk is engine-side
+### Start spawns — script-safe at any team size; ⚠ but they DO break above 3 per side
+
+🔓 **The cause is Gunfight's own setting, not the map, and klaze supplied the control.** Exactly four
+gametypes pin `level.alwaysusestartspawns = 1` — `prop.gsc:73`, `sd.gsc:228`, `gunfight.gsc:100`,
+`vip.gsc:99` — against a global default of **0** (`globallogic.gsc:5146`). **Face Off is not one of
+them**, and Face Off runs 6v6 on Gunfight maps with correct spawns. Same map, same spawn entities,
+twice the players, fine.
+
+⚠ Two facts make it bite Gunfight alone: every other mode clears the per-round flag once the grace
+wave is over (`tdm.gsc:83` is the canonical line; dm/conf/clean/infect/prop/dropkick/fireteam all
+carry it) and **Gunfight has no `onspawnplayer` at all**; and Gunfight is one-life-per-round, so
+**every** spawn is a round-start spawn and nothing ever falls through to normal selection.
+
+▶ Candidate fix, one line held across rounds: `level.alwaysusestartspawns = 0` **and**
+`level.usestartspawns = 0`, so all spawns route through `function_99ca1277` against
+`level.default_spawn_lists` — the path Face Off uses on the same map. ⚠ It costs Gunfight's fixed
+symmetric openings; that is a design trade, not a free fix. `src/test_spawnmode/`, test B8.
+
+
 `usestartspawns()` (`hashed/script/script_44b0b8420eabacad.gsc:504` — the file `gunfight.gsc` pulls in
 via `#using script_44b0b8420eabacad`) returns true whenever `level.alwaysusestartspawns` is set, and
 Gunfight pins it to 1 at `gunfight.gsc:100`. So **Gunfight uses start spawns for EVERY spawn,
@@ -522,8 +540,13 @@ builtin (see the two notes above).
   all. One probe run answers it: [[atian-menu-source]]. ← **highest value, cheapest**
 - **Does `com_maxclients` survive the map/mode carry glitch?** The glitch is a genuine playlist
   reconfiguration where our carry is not. Needs the glitch to work once. [[menu-map]]
-- **Does the engine's `function_77b7335` telefrag or return undefined when start spawns run out?**
-  (only bites above 3v3; the script layer is proven safe)
+- ~~**Does the engine's `function_77b7335` telefrag or return undefined when start spawns run out?**~~
+  ✅ **PARTLY ANSWERED, by klaze 2026-09-09: it does NOT return undefined.** He has already had four
+  on a Gunfight team via a lobby glitch, and saw **wrong** spawns, not **failed** ones — and the
+  fallback at `spawning_shared.gsc:295` fires only `if ( !isdefined( spawn ) )`. Something was
+  returned. ⚠ "Wrong" is uncharacterised: enemy start position, outside the play zone, and stacked on
+  another player are all still open and are not the same bug. **What is left is what wrong looks
+  like**, and that is a one-match observation. Test B8.
 
 ⚠ **`com_maxclients` is read-only *from script*** — 7 refs, all `getdvarint`. That is a statement about
 the dvar, **not** a statement that team size is unreachable. `switchmap_load` and the lobby glitch both

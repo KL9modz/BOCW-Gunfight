@@ -15,20 +15,34 @@ test_maprestart/  B4 · can map_restart replace F7, and drop the cwpatch prerequ
 test_switchmap/   C6 · gametype switch in a 12-slot TDM lobby. THE team-size question
 test_addclients/  C7 · fill until refused — the real client ceiling, measured
 test_teamfill/    C8 · fill ONE team until refused — is 8 clients 4v4?
-test_latejoin/    C10 · make a mid-match joiner land on a TEAM, not in spectator.
-                  ⬅ THE STRONGEST TEAM-SIZE ROUTE. One line, and it rides a workflow
-                  klaze already performs by hand
+test_latejoin/    C10 · make a mid-match joiner land on a TEAM, not in spectator
+test_seatspectator/ C11 · seat an EXISTING spectator, no menu involved.
+                  ⬅ SUPERSEDES C10. One stock call, no override at all
+test_spawnmode/   B8 · why 4-per-side spawns break, and the one-line candidate fix.
+                  Face Off runs 6v6 on the same maps — the map is not the problem
 ```
 
 B4 is the odd one out: it answers nothing about team size, it makes the **setup** shorter. Every other
 test costs a session; that one pays a session back on every future run.
 
-**C10 is the one to run first.** Every other team-size test attacks the pregame lobby, where
-`com_maxclients` is fixed and script cannot reach. C10 attacks the moment a player joins a match that
-is *already running* — which is script territory, and where the auto-assign path
-(`team_assignment.gsc` `function_650d105d`) has **no per-team cap check of any kind**. It removes one
-condition from a nine-AND rule. ⚠ It reaches **4v4** — eight clients, zero casters — and stops; 5v5
-needs ten. [`../docs/notes/lobby-settings.md`](../docs/notes/lobby-settings.md)
+**C11 is the one to run first, and B8 is what makes its result usable.**
+
+Every other team-size test attacks the pregame lobby, where `com_maxclients` is fixed and script
+cannot reach. C11 acts on a player already sitting in spectator — script territory — with **one stock
+call and no override**: `player [[ level.autoassign ]]( 0, team, undefined )` lands in
+`team_assignment.gsc:419`, which uses the team **verbatim, with no fullness check**. That is the same
+branch klaze already watches fire whenever "a spot is open on the join"; we hand it the answer instead
+of the session.
+
+C10 is the earlier, narrower version — it changes what happens at the *instant* of joining. Keep it as
+the fallback; run C11 first.
+
+⚠ Both reach **4v4** — eight clients, zero casters — and stop. 5v5 needs ten.
+
+⚠ **And 4v4 already broke once.** klaze has had four on a Gunfight team via a lobby glitch, and the
+spawns went wrong. **B8 is the diagnosis and the candidate fix**, and it is worth running *before*
+C11 succeeds, because a working C11 walks straight into the same breakage.
+[`../docs/notes/lobby-settings.md`](../docs/notes/lobby-settings.md)
 
 **The queue, with what each reading means:** [`../docs/notes/test-queue.md`](../docs/notes/test-queue.md).
 
