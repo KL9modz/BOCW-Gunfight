@@ -214,7 +214,34 @@ been undoing 4v4 starts restoring it instead** — which is the whole team-size 
 ⚠ **This is a band-C write.** One per match, lobby return after. ⚠ And it needs **B8 mode 2 shipped
 alongside it** — Gunfight spawns out of bounds past 3 a side, and a working 4v4 with broken spawns is
 not a working 4v4.
-Result: `______`
+
+#### ✅ RUN 1 — 2026-09-08, write only, no bots. **The write lands AND survives the boundary.**
+
+| Probe | Read | Means |
+|---|---|---|
+| `4xxxxx` read-back after the write | **`400008`** | ✅ `setgametypesetting( #"maxplayers", 8 )` is **accepted** — not refused, not clamped back to 6 |
+| `3xxxxx` on **round 2**, before any write | **`300008`** | ✅ **survives the round boundary.** The session restored the round with the setting still at 8, rather than putting it back to 6 |
+
+▶ **What this establishes:** `maxplayers` is writable at runtime, and the round boundary — the thing
+C7 measured undoing 4v4 — **does not revert it**. That makes it the first thing this project has found
+that is both upstream of team size and reachable from script.
+
+⚠ **What it does NOT yet establish, and the distinction is the whole test:** that the session restores
+*team size* **from** this setting. C7's revert moved **actual bots off a team**. Run 1 only shows the
+*number* persists — nobody was on a team to be reverted. A setting can persist and be ignored.
+
+#### ▶ RUN 2 — `fill_bots = 1`. Injected 2026-09-08, awaiting result.
+
+⚠ **Fills on ROUND 1 ONLY** — filling every round would re-add the bots the boundary had just removed,
+and probe 6 could no longer distinguish "they persisted" from "they were put back". Round 1 fills,
+rounds 2+ only observe.
+
+| Probe 6 on **round 2** | Means |
+|---|---|
+| **`600404`** | 🔓🔓 **4v4 survived the boundary. The team-size goal is one `setgametypesetting` call** |
+| `600303` | reverted exactly as C7 measured — `maxplayers` persists but is **not** what the session restores team size from. Record it and move to C10/C11 |
+
+Result: run 1 **`400008` / `300008` — PASS** · run 2 `______`
 
 ---
 

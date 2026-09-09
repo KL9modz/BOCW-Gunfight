@@ -79,7 +79,12 @@ function private config()
         // revert. ⚠ SECOND RUN ONLY. Leave 0 for the first: a clean write test
         // and a session write in the same match makes a failure unattributable,
         // which is the one-write-per-match rule.
-        #fill_bots: 0
+        //
+        // ✅ RUN 1 PASSED 2026-09-08: probe 4 read 8 (the write lands) and probe
+        //    3 read 8 on round 2 (it SURVIVES the round boundary, rather than
+        //    being restored to 6). So the setting persists. Whether the session
+        //    restores TEAM SIZE from it is what fill_bots answers.
+        #fill_bots: 1
     };
 }
 
@@ -118,7 +123,15 @@ function private run()
     // and a setting that clamps look identical from the call site.
     emit( 4, getgametypesetting( #"maxplayers" ) );
 
-    if ( cfg.fill_bots )
+    // ⚠⚠ FILL ON ROUND 1 ONLY, AND THAT IS THE WHOLE POINT OF THE TEST.
+    //    Filling every round would re-add the bots the boundary had just removed,
+    //    and probe 6 could no longer tell "they persisted" from "they were put
+    //    back" - which is the single question this run exists to answer.
+    //
+    //    So: round 1 fills, rounds 2+ only observe. Probe 6 on ROUND 2 is the
+    //    answer. 604 04 = 4v4 survived the boundary. 603 03 = reverted, exactly
+    //    as C7 measured, and `maxplayers` is not what the session restores from.
+    if ( cfg.fill_bots && game.var_l6_round == 1 )
     {
         fill();
     }
