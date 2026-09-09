@@ -55,6 +55,13 @@ GFMOD="$SP/gunfight_mod.gscc"
 TARGET='scripts\mp_common\bb.gsc'
 REPLACE='scripts\core_common\clientids_shared.gsc'
 
+# The injector's documented FRONTEND hook. load_shared.gsc links in EVERY VM -
+# frontend, MP, ZM, CP - so a payload hooked here runs in the pregame lobby as
+# well as in the match, and it is in the pool from the moment the main menu is
+# up, so it can be injected with NO match loaded first. bb.gsc is MP-only.
+# docs/notes/pregame-routes.md. Override for any project with GF_TARGET=...
+FE_TARGET='scripts\core_common\load_shared.gsc'
+
 NAME="${1:-}"
 
 case "$NAME" in
@@ -66,6 +73,16 @@ case "$NAME" in
     # this file, and no chance of the list going stale against src/.
     *)    PAYLOAD="$SP/$NAME.gscc"; LABEL="$NAME" ;;
 esac
+
+# Projects whose gsc.conf names the frontend hook. Explicit, not inferred: the
+# hook decides which VMs the payload runs in, and that is not a thing to guess.
+FRONTEND=0
+case "$NAME" in
+    test_frontend) TARGET="$FE_TARGET"; FRONTEND=1 ;;
+esac
+if [ -n "${GF_TARGET:-}" ]; then
+    TARGET="$GF_TARGET"
+fi
 
 # Reject a name that would escape the payload dir before it reaches the -f test,
 # so a typo says so instead of producing a confusing MISSING path.
@@ -100,14 +117,24 @@ if ! printf '%s' "$out" | grep -q 'injected at'; then
     echo "INJECTION FAILED - restarting the match will NOT help. Fix this first." >&2
     case "$out" in
         *"Can't find target script"*)
-            echo "  The hook is not in the scriptparsetree pool yet." >&2
-            echo "  Load into a private match once, then re-run this." >&2 ;;
+            if [ "$FRONTEND" = 1 ]; then
+                echo "  load_shared.gsc should be in the pool from the main menu onward." >&2
+                echo "  If it is not, that is a finding - record it in pregame-routes.md." >&2
+            else
+                echo "  The hook is not in the scriptparsetree pool yet." >&2
+                echo "  Load into a private match once, then re-run this." >&2
+            fi ;;
     esac
     exit 1
 fi
 
 echo
-echo "RESTART THE MATCH to link it."
+if [ "$FRONTEND" = 1 ]; then
+    echo "Hooked at load_shared.gsc: the MP half links on the next match, the"
+    echo "FRONTEND half on the next return to the lobby AFTER a match."
+else
+    echo "RESTART THE MATCH to link it."
+fi
 # A `case`, not two `[ ]` tests. As a trailing test the false branch became the
 # script's exit status, so `inject.sh menu` exited 1 on success.
 case "$NAME" in
@@ -120,5 +147,6 @@ case "$NAME" in
     test_latejoin)     echo "  20xxxxx = allies*100 + axis. 2000404 is 4v4" ;;
     test_sessionswitch) echo "  read_only=1 FIRST: 40 must not be 99999. Live: read 41 before judging presence" ;;
     gunfight_menu)     echo "  RMB+V opens. RMB up / LMB down / R select / V back. Settings persist as gf_* dvars" ;;
+    test_frontend)     echo "  inject at the MAIN MENU. match -> lobby -> set up 3v3 -> match. Read 50 FIRST: 0 = frontend half never ran" ;;
     *)    echo "  test a LOBBY RETURN afterwards if this payload writes anything" ;;
 esac

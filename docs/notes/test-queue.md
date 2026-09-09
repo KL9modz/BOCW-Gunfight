@@ -46,9 +46,13 @@ points at settled ground is worse than no queue, because it costs a session befo
    `gunfightloadoutindex` gives **snipers-only** and **melee-only** Gunfight; `gunfightspyplane` value
    3 is a mode the menu hides. Neither has any menu path, so injection is the only door.
    [`gametype-settings-map.md`](gametype-settings-map.md)
-6. **D10 — `acts dcfuncscw`.** Gates the auto-loading lobby-map DLL klaze asked for. The machinery is
-   proven (cwpatch already runs arbitrary console commands from the one slot that loads); the only
-   open question is *which command*. [`lobby-map-dll.md`](lobby-map-dll.md)
+6. 🔓 **P1 — `test_frontend`, the first payload that runs IN THE PREGAME LOBBY.** klaze's #1 priority.
+   "Nothing GSC runs there" is retracted from the dump (`frontend.gsc:46` sets the pregame state;
+   eleven stock scripts guard on `is_frontend_map()`; `frontend.csc:2918` reads gametype settings
+   from the lobby). Read-only first; then `maxplayers` written **before anyone is seated**. Band P
+   below. [`pregame-routes.md`](pregame-routes.md)
+   🪦 D10 (`acts dcfuncscw`) held this slot and **returned zero rows** — stale ACTS base. Not dead;
+   blocked on runtime RE, and P3 in the same payload is the cheap way around it.
 
 🪦 **Closed or superseded — do not run these looking for a goal.** L1 (no Max Players row) · L2 (moot,
 L1 found no row) · A1 probes 6/12 (`maxsquadplayers` **0/0**, dead — but the *method* was validated:
@@ -462,8 +466,9 @@ commands must resolve) was never reached, so it remains unvalidated rather than 
 
 ⚠ **Untried — not ruled out:** locating `cmd_function_t` for this build by hand and passing it in, or
 patching ACTS. Both are real reverse-engineering work against an exe that is encrypted at rest, so it
-must be done at runtime. **Not worth it for automation** — the GSC route below is cheaper and does not
-depend on ACTS internals at all.
+must be done at runtime. **Not worth it for automation** — `adddebugcommand()` from script (band P,
+P3) is cheaper and does not depend on ACTS internals at all; if it is alive in CW, the command list is
+tried one name at a time from the payload instead of read out of memory.
 
 ### D11 · `dumpbin /exports acts-bocw.dll | findstr /i lobby` — 30 seconds, no game
 `acts cwdllgt` calls `ACTS_EXPORT_SetLobbyGameType` / `ACTS_EXPORT_SetLobbyMap`. **Neither exists in
@@ -1119,6 +1124,69 @@ chose 2 for MP and it is a dvar here for exactly this reason. Result: `______`
 restarted, including across matches. `gf_team_size`, `gf_timer_seconds`, `gf_loadout`, `gf_spyplane`,
 `gf_map_method`, `gf_menu_lines`.
 Results: `______`
+
+---
+
+## P — THE PREGAME LOBBY. `src/test_frontend/` — a different hook, so its own band
+
+[`pregame-routes.md`](pregame-routes.md). **This is the only payload hooked at `load_shared.gsc`**
+(`inject.sh` picks the target itself for this project). It links in every VM; `util::is_frontend_map()`
+splits the two halves. The frontend half stashes its readings in `gf_fe_<id>` dvars and the in-match
+half prints them, because nothing is known to render in the lobby.
+
+⚠ **It links in the frontend, which is exactly where `scene_model_shared` hung the game.** A lobby
+return is part of every run below, not an afterthought. If the lobby hangs on "connecting", the
+payload's `#using` list is the first suspect (core_common only, deliberately).
+
+### P1 · Read-only — does it run there, and what does it see? ← **run first**
+
+```
+inject.sh test_frontend            # at the MAIN MENU. ⚠ predicted to work with no match loaded;
+                                   #   "Can't find target script" here is a finding - record it
+play or restart one match          # links the MP half. It prints 50 = 99999. Correct: nothing stashed yet
+leave to the lobby                 # links the FRONTEND half
+Custom Games → the usual 3v3 Gunfight lobby → wait 30s → rules menu, set the timer to 60 → start
+```
+
+| Probe | Reading | Means |
+|---|---|---|
+| **50** | `0` / `99999` | **the frontend half never ran.** Everything else is void. `#using` failed to link, or the thread died before `wait( 3 )` — check for a lobby hang first |
+| 50 | rising | it runs, and keeps running while you navigate |
+| 51 | bit 2 set | `sessionmodeisprivate()` is true in a custom lobby — the gate a real payload uses |
+| 51 | bit 16 / 32 | a player entity exists there / it answers `ishost()` — the input half of a lobby menu has something to poll |
+| **52** | `6` (3v3) / `4` (normal) | **the frontend store IS the pending lobby config** — the same numbers L6/L7 read in-match |
+| 52 | `99999`, 50 rising | the read threw or returned nothing. `bot.gsc:39`'s guard was for a reason; **P2 is moot in GSC** and P3/P6 carry the goal |
+| **53** | `60` | the store follows the rules menu **live** |
+| 53 | `40` | it holds the default and the menu writes somewhere else (the DDL); note which and move on |
+| 54 | `0` | control — L5 read 0 in-match |
+| 55 / 56 / 58 | numbers | lobby client count, connected players, `com_maxclients` as the lobby sees them. Write them down; `com_maxclients` here vs 8/10 in-match is a free reading on when the budget is fixed |
+| 57 | int | `getlobbyuiscreen()` — note the value per screen you were on. `88888` = defined but not an int |
+
+Result: `______`
+
+### P2 · One write from the lobby — `maxplayers`, then `timelimit`, separately
+
+`write_maxplayers = 1` (value 8). Same walk. **Three readouts, none of them a probe:**
+
+1. **the lobby:** try to put a 4th bot / player on one side. Today a 3v3 lobby refuses. Lifted →
+   🔓 **the lobby cap follows `maxplayers`, and a human 4v4 is seated by the stock join path**;
+2. **59** = `2` → the write landed and read back; `3` → rejected or clamped (record the value in 52);
+3. **60** in the match, read before anything writes: `8` → **it carried.** `6` → the launch rebuilt
+   the store from the DDL; the write reached the lobby VM but not the launch. Its own row.
+
+Then `write_timelimit = 1` (value 60): the **rules-menu row** is the readout — if it shows 60 without
+being touched, the write reached what the UI reads.
+
+⚠ The write repeats every 10s on purpose (the store may be rebuilt when the mode is picked). That
+repetition is untested. Lobby return after each. Result: `______`
+
+### P3 · `debugcmd = 1` — is `adddebugcommand()` alive in CW?
+
+In-match only. `adddebugcommand( "set gf_fe_dbg 7\n" )`, then read the dvar. `62`: **2 or 3 = the
+console is reachable from script** — `gametype_setting`, `map`, `lobbylaunchgame` become one GSC line
+each, in the lobby too, and the DLL route is unnecessary. `4` = nulled, as BO4's table says of BO4.
+`1` alone = `canadddebugcommand()` says yes but `set` did not land — try `seta`, then a command with a
+visible effect. Result: `______`
 
 ---
 

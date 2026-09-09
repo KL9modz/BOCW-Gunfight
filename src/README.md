@@ -28,6 +28,12 @@ test_spawnmode/   B8 · why 4-per-side spawns break, and the one-line candidate 
 test_sessionswitch/ B1 · switch map with switchmap_load( map, gametype ) — the builtin
                   STOCK uses — instead of map(), which has zero stock callers.
                   ⬅ GOAL B. If the friend list / activity flips, the session moved
+test_frontend/    P1 · ⚠ DIFFERENT HOOK: load_shared.gsc, which links in EVERY VM.
+                  Runs in the PREGAME LOBBY and the match. Read-only: does GSC run
+                  there, does getgametypesetting() read the lobby's config. Switches:
+                  maxplayers / timelimit written FROM THE LOBBY; adddebugcommand().
+                  Stashes lobby readings in gf_fe_* dvars, prints them in-match.
+                  inject.sh picks the hook itself. docs/notes/pregame-routes.md
 ```
 
 B4 is the odd one out: it answers nothing about team size, it makes the **setup** shorter. Every other

@@ -9,8 +9,11 @@ and it **survived the round boundary** that had reverted every earlier attempt. 
 **bots**; a human 4v4 has not been played yet, and 5v5 is untried but no longer ruled out.
 The working recipe is [[menu-map]] → *PROCEDURE*. Read that before anything else here.
 ▶ **What the project is for now: [[roadmap]]** — **pregame lobby control is klaze's #1 priority for
-the whole project**, so `acts dcfuncscw` (test D10) is the next thing to run: it is a read, and it is
-the only thing gating it. Then the in-match menu, then a Windows tool.
+the whole project.** 🔓 **GSC runs in the pregame lobby** — "nothing runs there" was never measured
+and the dump retracts it ([[pregame-routes]]) — so `src/test_frontend/` (band P, read-only first) is
+the next thing to run: the first payload hooked at `load_shared.gsc`, which links in every VM. 🪦 D10
+(`acts dcfuncscw`) ran and returned zero rows; the DLL route is blocked, not dead. Then the in-match
+menu, then a Windows tool.
 ⚠ **Goal B — the stale UI after a carry — has a testable cause:** the carry calls `map()`, which has
 **zero stock callers anywhere in the dump** and cannot pass a gametype. Three stock systems switch
 maps with `switchmap_load( map, gametype )` and the session stays correct.
@@ -541,7 +544,9 @@ acts injectcw script.gscc scripts\mp_common\bb.gsc scripts\core_common\clientids
 
 ⚠ **MP hook point — `scripts\mp_common\bb.gsc`, MP VM (`mode=mp`).** The injector *hooks* that stock
 script rather than overwriting it: when `bb.gsc` runs in the MP VM, the injected script's `autoexec`
-runs too. Established against `t7-compiler-custom@4de00c8` and carried into the `injectcw` invocation
+runs too. 🔓 **The other documented hook, `scripts\core_common\load_shared.gsc`, links in EVERY VM —
+frontend included** — and is what `src/test_frontend/` uses; a payload hooked there must `#using`
+core_common only, because `mp_common` is not loaded in the frontend. [[pregame-routes]] Established against `t7-compiler-custom@4de00c8` and carried into the `injectcw` invocation
 above — the hook point is the same for either injector, only the build step differs. The `gsc.conf`
 files under `src/` record this hook per project. Survey of the six candidate tool repos and how the
 hook point was pinned down: [[pipeline-toolchain-survey]].
@@ -661,7 +666,12 @@ all** — it acts at lobby creation, exactly where `com_maxclients` is fixed and
 Free to check, ~2 minutes, no injection. ⚠ Whether the row appears is playlist-layer and not in the
 dump. [[lobby-settings]]
 
-⚠ `frontend.gsc` is the main-menu 3D space, **not** the lobby. Do not look for lobby config in GSC.
+⚠ `frontend.gsc` does not hold the lobby's map, mode, rules or teams — those are LUA + session. 🪦 But
+**"nothing GSC runs in the pregame lobby" is RETRACTED**: `frontend.gsc:46` is the server script that
+sets `gamestate::set_state( #"pregame" )`, eleven stock GSC files guard on `util::is_frontend_map()`
+(two in system preinits), and `frontend.csc:2918` reads `maxsquadplayers` with `getgametypesetting()`
+from inside the lobby-pose state — **the lobby keeps a live gametype-setting store script can read.**
+Writing it from there, before anyone is seated, is test P1/P2. [[pregame-routes]]
 
 ### ▶ The queue — [[test-queue]]
 **Every open test on one sheet, ordered by risk, with record slots.** Start there at the machine; the
@@ -706,6 +716,10 @@ in A4. Everything below needs the GAME; none of it is answerable from the dump.
   conclusion carrying that much weight deserves better than four frames.
 
 ### 🔓 Not ruled out, and previously recorded as impossible
+- **Pregame control from GSC.** Recorded as "nothing runs there" in three files; the dump says a
+  server VM runs in the frontend and reads gametype settings from the lobby. `src/test_frontend/`
+  is built, read-only by default; P2 writes `maxplayers` from the lobby and is judged by whether a
+  4th player can be seated before the match. [[pregame-routes]]
 - **5v5.** `setgametypesetting( #"maxplayers", 10 )` **lands and survives the round boundary**; what
   did not follow was `com_maxclients`, which stayed at 8. So the setting reaches and the budget did
   not. Ten clients with zero casters is tight, not impossible.

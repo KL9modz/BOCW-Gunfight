@@ -10,10 +10,17 @@ These are **not** auto-loaded. Open the one you need.
 **Where the project is going**
 
 - [roadmap](roadmap.md) — **the two goals after the three closed ones.** A: a hosting control surface —
-  in-match GSC menu (every control is already a proven call), pregame lobby via the DLL command route
-  (gated on D10), Windows tool last. B: load Gunfight on any map with the session tracking correctly,
+  in-match GSC menu (every control is already a proven call), the pregame lobby via a frontend-hooked
+  payload (P1, built; the DLL command route is blocked on a stale ACTS base), Windows tool last. B: load Gunfight on any map with the session tracking correctly,
   the way the glitch does — diagnosed as the carry using `map()` (zero stock callers, no gametype)
   where stock uses `switchmap_load( map, gametype )`. Carries the four ❓ that shape the plan.
+
+- [pregame-routes](pregame-routes.md) — **GSC runs in the pregame lobby, and the lobby keeps a live
+  gametype-setting store script can read.** Retracts "nothing runs there" from the dump (`frontend.gsc:46`
+  sets the pregame state; eleven `is_frontend_map()` guards; `frontend.csc:2918` reads `maxsquadplayers`
+  in lobby-pose), splits the evidence honestly (ate47's `loaded/` capture is BO4), and lays out six
+  routes: the `load_shared.gsc`-hooked payload `src/test_frontend/` (built), `setgametypesetting` from
+  the lobby, `adddebugcommand` as the console from script, the DLL slot, on-disk presets, LUI events.
 
 **Start here if you are at the machine**
 
@@ -30,8 +37,8 @@ These are **not** auto-loaded. Open the one you need.
   master), then lays out the route that does work: cwpatch already runs arbitrary console commands
   from the one slot that loads, so the only open question is which command — and `acts dcfuncscw` plus
   `tools/crack-cmds.py` answers it before any C gets written.
-- [lobby-settings](lobby-settings.md) — **the pre-match layer**: which step of hosting lives where, why
-  `frontend.gsc` is not the lobby, and `scriptbundle/gamesettings/` — 427 JSON bundles that are the
+- [lobby-settings](lobby-settings.md) — **the pre-match layer**: which step of hosting lives where, what
+  `frontend.gsc` does and does not hold, and `scriptbundle/gamesettings/` — 427 JSON bundles that are the
   complete rules-menu surface. Carries the cheapest open lead in the project: a **Max Players** row
   publishing 1–12.
 

@@ -20,11 +20,19 @@ each step lives in, and what is reachable in each.
 | Start the match | `lobbylaunchgame` — cwpatch binds it to **F4** | ✅ via DLL hotkey |
 | In-match everything | MP VM | ✅ where all our code runs |
 
-⚠ **`scripts/core/gametypes/frontend.gsc` is NOT the lobby.** It looked promising — it is a real
-gametype with `event_handler[gametype_init]` and a `#"menu_response"` callback — but reading it, it is
-the **main-menu 3D space**: achievements, the arcade machine, dynent state, `gamestate::set_state(
-#"pregame" )`, `level.teambased = 0`. It has no map, mode, rules or team handling. **Do not go looking
-for the lobby in GSC; it is not there.**
+⚠ **`scripts/core/gametypes/frontend.gsc` does not hold the lobby's map, mode, rules or teams.** It
+is a real gametype with `event_handler[gametype_init]` and a `#"menu_response"` callback, and its
+retail 108 lines do achievements, the arcade machine, dynent state, `gamestate::set_state( #"pregame" )`,
+`level.teambased = 0`. **The lobby's config is not written in GSC** — that part stands.
+
+🪦 **But "nothing GSC runs in the pregame lobby" is RETRACTED (2026-09-09).** That `set_state(
+#"pregame" )` line is the pregame *server* script; eleven stock GSC files guard on
+`util::is_frontend_map()`, two of them in system preinits; ACTS documents `load_shared.gsc` as the
+T9 Frontend hook; and `frontend.csc:2918-2920` calls `getgametypesetting( maxsquadplayers )` from
+inside the lobby-pose state — **the lobby keeps a live gametype-setting store that script can read.**
+Whether script can *write* it from there, and whether the lobby's per-side cap follows `maxplayers`
+the way the in-match cap did, is `src/test_frontend/` — [`pregame-routes.md`](pregame-routes.md).
+The wall rows above are the LUA/session layer; the store underneath them is a different question.
 
 ---
 

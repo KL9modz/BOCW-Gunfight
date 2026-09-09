@@ -72,14 +72,30 @@ needs paging. Sizing the menu wrong costs a rebuild.
 
 ### A2 · The pregame lobby — ⬅ **klaze's #1 priority for the whole project**
 
-Nothing GSC runs in the pregame lobby. The only proven way in is cwpatch's technique — overwrite the
-game's command-string blob, call the dispatcher — from `discord_game_sdk.dll`, the one slot that
-auto-loads. **`map %s\n` is already in that blob.** What nobody has ever done is list the commands
-(`acts dcfuncscw` → `tools/crack-cmds.py`). Full write-up: [`lobby-map-dll.md`](lobby-map-dll.md).
+🪦 **"Nothing GSC runs in the pregame lobby" — RETRACTED 2026-09-09.** It was never measured, and the
+dump says otherwise: `frontend.gsc:46` is the server script that sets `gamestate::set_state(
+#"pregame" )`, **eleven** stock GSC files guard on `util::is_frontend_map()` (two inside system
+preinits — `bot.gsc:39`, `player_shared.gsc:29`), ACTS documents `load_shared.gsc` as the T9
+**Frontend** hook, and `frontend.csc:2918-2920` reads `maxsquadplayers` with `getgametypesetting()`
+*from inside the lobby-pose state* — **the lobby keeps a live gametype-setting store that script can
+read.** Full write-up, six routes, and the provenance split (ate47's `loaded/` capture is BO4, not
+CW): [`pregame-routes.md`](pregame-routes.md).
+
+▶ **The test is built: `src/test_frontend/`** — the first payload hooked at `load_shared.gsc`
+instead of `bb.gsc`, so it runs in the lobby *and* the match. Read-only by default: does the frontend
+half run, and do `maxplayers` / `timelimit` read the lobby's values there (6 / 40 in a 3v3 lobby).
+Then, one switch at a time, `setgametypesetting( #"maxplayers", 8 )` **from the lobby** — with three
+readouts that need no probe: the rules-menu row, whether a 4th player can be placed on a side, and
+the in-match read before anything writes. **If the lobby cap follows `maxplayers` the way the in-match
+cap did (L6), a human 4v4 is seated by the stock join path with nothing to undo at the round boundary.**
+The same payload carries a one-line test of `adddebugcommand()` — nulled in BO4, unannotated and not
+dev-flagged in CW's table — which, if alive, is the console from script and folds the DLL route into
+one GSC line.
 
 ✅ **Answered 2026-09-09 — klaze: "pregame control would be the single most valuable mod for this
-entire project."** So D10 runs first, ahead of everything in both goals, and A2 is built on whatever it
-finds. ⚠ D10 costs one read with the game running; it writes nothing.
+entire project."** 🪦 D10 (`acts dcfuncscw`) **ran 2026-09-08 and returned zero rows** — ACTS's
+command-table base is stale for this build — so the DLL route ([`lobby-map-dll.md`](lobby-map-dll.md))
+is blocked on runtime reverse-engineering, and P1 is now what A2 is built on.
 
 ### A3 · The Windows tool — last, because it orchestrates things that must exist first
 
@@ -257,13 +273,16 @@ route is D10 (a console command) or the glitch.
 entire project."* That moves A2 from third to first and pulls **D10** — the measurement that gates it —
 to the front of the whole roadmap.
 
-1. **D10 — `acts dcfuncscw`, then `tools/crack-cmds.py`.** ⬅ **the new #1.** It is a read, it needs no
-   code written, and it is the only thing standing between here and pregame control. Everything about
-   the delivery mechanism is already proven: cwpatch executes arbitrary console commands from
-   `discord_game_sdk.dll`, the one slot that auto-loads, and `map %s\n` is already in the blob it writes
-   to. **Nobody has ever looked at the command list.** [`lobby-map-dll.md`](lobby-map-dll.md)
-2. **A2 — the pregame control itself**, shaped by whatever D10 finds. If a lobby map/mode command
-   exists, this is a small addition to `tools/cw-loader-shim/`.
+1. **P1 — `src/test_frontend/`, read-only.** ⬅ **the new #1.** One payload, the frontend hook, no
+   writes: does GSC run in the lobby, and does `getgametypesetting()` read the lobby's config there.
+   Then P2, one switch per run: `maxplayers` written **from the lobby**, judged by the rules row, the
+   4th seat, and the in-match read. [`pregame-routes.md`](pregame-routes.md)
+   🪦 D10 held this slot until it ran and came back empty (2026-09-08, stale ACTS base). The DLL route
+   is not dead — it is blocked on runtime RE — and P3 (`adddebugcommand` from script) is the cheap way
+   around it, in the same payload.
+2. **A2 — the pregame control itself**, shaped by what P1/P2 find: a frontend-hooked payload with a
+   key-driven menu if buttons work on the frontend player, or dvar-driven settings applied on every
+   lobby sample if they do not.
 3. **B1 — `switchmap_load( map, gametype )`.** One match, read-only pass first. Cheap, three stock
    precedents, and it decides what A1's map control is built on. ⚠ **Do not build any map control on
    `map()`** — it has zero stock callers and cannot pass a gametype.
@@ -280,5 +299,6 @@ and "done" — see the Open questions in `.claude/CLAUDE.md`. Nothing here shoul
 - Whether `transitionMapIdOverride` alone — no switch — changes what the pause menu shows
 - `luinotifyevent` with a lobby-shaped event before switching, the way side missions do
 - Whether the glitch's session state survives a *second* switch (glitch to Hijacked, then B1 to Zoo)
-- A pregame GSC hook: `frontend.csc` runs client script in the lobby-pose scene; whether any
-  server-side script runs there at all has never been checked
+- ~~A pregame GSC hook: whether any server-side script runs there at all has never been checked~~ →
+  **checked from the dump 2026-09-09, and it does** ([`pregame-routes.md`](pregame-routes.md)); the
+  in-game half is `src/test_frontend/`
