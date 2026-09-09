@@ -359,13 +359,36 @@ cwpatch. **Zero resolving means the hash form or the CSV column is wrong and the
 | `dcfuncscw` errors or dumps garbage | its `cmd_function_t` base is hardcoded (`poolt9.cpp:607`) and may be stale for this build. That is a fact about ACTS, not about the game |
 
 ⚠ Read-only, but it **attaches to the live process** — less exposure than the injector already in use,
-not zero. Result: `______`
+not zero.
+
+🪦 **Result 2026-09-08: `dcfuncscw` produced a HEADER AND NOTHING ELSE.** 18 bytes,
+`location,name,func`, zero rows. ACTS found the process fine (`pid=33852`) and reported `done`.
+
+That is the fourth row of the table above, called in advance: **ACTS's `cmd_function_t` base is
+hardcoded (`poolt9.cpp:607`) and is stale for this build.** A fact about ACTS, not about the game —
+the command table certainly exists, ACTS just cannot find it.
+
+▶ **`crack-cmds.py` never ran** — there was nothing to feed it. Its control-line gate (five known-real
+commands must resolve) was never reached, so it remains unvalidated rather than failed.
+
+⚠ **Untried — not ruled out:** locating `cmd_function_t` for this build by hand and passing it in, or
+patching ACTS. Both are real reverse-engineering work against an exe that is encrypted at rest, so it
+must be done at runtime. **Not worth it for automation** — the GSC route below is cheaper and does not
+depend on ACTS internals at all.
 
 ### D11 · `dumpbin /exports acts-bocw.dll | findstr /i lobby` — 30 seconds, no game
 `acts cwdllgt` calls `ACTS_EXPORT_SetLobbyGameType` / `ACTS_EXPORT_SetLobbyMap`. **Neither exists in
 ACTS master** — one export in the whole DLL. But the project pins **v3.3.0**, a release binary.
 Nothing back → drop the powrprof track entirely rather than trying to fix its crash.
-Result: `______`
+
+🪦 **Result 2026-09-08: NOTHING BACK. Drop the powrprof track.** Scanned v3.3.0's shipped
+`acts-bocw.dll` (1,091,584 B) for `ACTS_EXPORT_*` and for any `*lobby*` identifier: **zero matches of
+either.** ✅ **The method was controlled** — the same scan finds `CallNtPowerInformation`, the one
+export the DLL is documented to have, so an empty result means absent rather than unscannable.
+
+▶ **`acts cwdllgt` is dead for the third and final time**, and now for the simplest possible reason:
+the functions it calls **are not in the binary**, in the pinned release any more than in master. The
+startup crash was never the real problem. **Do not spend more on the powrprof proxy.**
 
 ---
 
