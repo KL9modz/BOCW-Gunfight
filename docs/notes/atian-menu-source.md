@@ -16,9 +16,28 @@ exactly one of them.
 
 | Function | Line | Sets | Wired into the CW menu? |
 |---|---|---|---|
-| `func_set_map( item, map_name )` | :357 | map only, via `map( map_name )` | ✅ **yes — 48 entries** |
+| `func_set_map( item, map_name )` | :357 | map only — **`map()` + `wait(1)` + `switchmap_switch()`** | ✅ **yes — 48 entries** |
 | `func_set_mapgametype( item, map_name, gametype )` | :348 | **both** | ❌ **dead code** |
 | `func_set_gametype( item, gametype )` | :365 | **gametype only, keeps the current map** | ❌ **dead code** |
+
+⚠ **This row said "map only, via `map( map_name )`" until 2026-09-08, and that cost a live test.**
+It is right about *what* the function sets and lossy about *how*: `map()` only **stages** the load and
+**`switchmap_switch()` is what commits it**. `src/test_mapswitch/` was written from this summary,
+called `map()` alone, and **nothing happened at all** — no load, no error. Verbatim:
+
+```gsc
+function func_set_map(item, map_name) {
+    self menu_drawing_function("loading " + map_name);
+
+    map(map_name);
+    wait(1);
+    switchmap_switch();
+}
+```
+
+▶ **The lesson, and this project keeps relearning it: quote the source, never paraphrase a mechanism.**
+`func_set_gametype` is quoted verbatim below precisely because its sequence matters — and so does this
+one. A summary is fine for *what a thing does*; it is not fine for *how to call it*.
 
 Verified: `grep -c 'func_set_mapgametype' coldwar/scripts/core_common/menu_items.gsc` → **0**, and
 every one of the 48 map entries wires `&func_set_map`.

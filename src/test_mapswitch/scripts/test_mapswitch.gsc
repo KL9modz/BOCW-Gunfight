@@ -99,8 +99,24 @@ function private run()
     //   confirms the name comparison behaves before anything can reload.
     read_only = 0;   // ✅ read-only run 2026-09-08 read 100000/200000: guards behave. Live now.
 
-    // Hard cap on switch attempts, ever, for this game process. 1.
-    maxattempts = 1;
+    // Hard cap on switch attempts, ever, for this lobby. Still a hard cap.
+    //
+    // ⚠ RAISED 1 -> 2 ON 2026-09-08, and the reason is a trap worth keeping:
+    //   run 1 called map() with no switchmap_switch(), so nothing loaded - but the
+    //   counter had ALREADY incremented past the failed call. game. scope survives
+    //   the round AND a second match in the same lobby (the same property
+    //   gunfight.gsc:81 relies on for game.var_96a8ff4a), so at maxattempts = 1 the
+    //   retry would have been silently refused by guard 3 and looked identical to
+    //   the original failure - "nothing happened", twice, for two different reasons.
+    //
+    //   Diagnosing that from the outside is nearly impossible, which is exactly why
+    //   probe 2 emits the counter. READ IT: if probe 2 is already at the cap on
+    //   round 1, the guard is what stopped the switch, not the game.
+    //
+    //   ⚠ A cap of 2 is still a cap. Do not raise it to "just try until it works" -
+    //   the failure this guards against is an unbounded map load loop, and that
+    //   remains the worst outcome available here.
+    maxattempts = 2;
 
     wait( 10 );
 
@@ -141,9 +157,30 @@ function private run()
     }
     game.var_a4_attempts++;
 
-    // THE CALL. atian-menu-source.md:19 - func_set_map() is exactly this and
-    // nothing more. Every map entry in the menu wires it.
+    // ── THE SEQUENCE ────────────────────────────────────────────────────────
+    // ⚠⚠ THREE CALLS, NOT ONE. Run 1 (2026-09-08) called map() alone and NOTHING
+    //    HAPPENED - no load, no error. map() only STAGES the map;
+    //    switchmap_switch() is what commits it.
+    //
+    //    Verbatim from t8-atian-menu@master coldwar/.../menu_funcs.gsc:357 -
+    //    func_set_map(), the function all 48 of the menu's map entries wire:
+    //
+    //        map(map_name);
+    //        wait(1);
+    //        switchmap_switch();
+    //
+    // ⚠ atian-menu-source.md's table said "map only, via map( map_name )", which
+    //   is right about WHAT it sets and lossy about HOW. That summary is what run
+    //   1 was built on. The note is now corrected - and the lesson is the one this
+    //   project keeps relearning: quote the source, do not paraphrase a mechanism.
+    //
+    // ⚠ THE WAIT IS LOAD-BEARING. ate47 on the sibling sequence: "the wait is
+    //   important, I don't know why." Empirical, not understood. Do not remove it.
+    //   func_set_gametype uses util::wait_network_frame(1) where this uses a plain
+    //   wait(1); this mirrors func_set_map exactly rather than tidying it.
     map( target );
+    wait( 1 );
+    switchmap_switch();
 
     // Nothing after this is guaranteed to run; the map is loading. The result
     // comes from this script's NEXT on_start, on the new map.
