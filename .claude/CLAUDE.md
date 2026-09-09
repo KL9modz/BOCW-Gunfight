@@ -137,10 +137,28 @@ wave is over (`tdm.gsc:83` is the canonical line; dm/conf/clean/infect/prop/drop
 carry it) and **Gunfight has no `onspawnplayer` at all**; and Gunfight is one-life-per-round, so
 **every** spawn is a round-start spawn and nothing ever falls through to normal selection.
 
-▶ Candidate fix, one line held across rounds: `level.alwaysusestartspawns = 0` **and**
-`level.usestartspawns = 0`, so all spawns route through `function_99ca1277` against
-`level.default_spawn_lists` — the path Face Off uses on the same map. ⚠ It costs Gunfight's fixed
-symmetric openings; that is a design trade, not a free fix. `src/test_spawnmode/`, test B8.
+⚠ **But the symptom is "outside the play zone on some maps" (klaze), and that weakens the obvious
+fix.** Start spawns are map structs flagged `_human_were`, bucketed by `group_index` into per-team
+lists (`script_335d0650ed05d36d.gsc:225–250`). A map that also hosts Face Off carries **more**
+start_spawn structs than Gunfight uses, placed for the bigger mode across the wider map. So the likely
+story is not "the list ran out" — it is **"the list has 6 or 12 entries, Gunfight only ever touched
+the first 2–3, and player 4 got a valid point meant for Face Off."** If so, routing to
+`level.default_spawn_lists` covers the same wider map and more: **the same bug or worse.**
+
+▶ Three candidate fixes, and **mode 0 is what chooses between them** — get 4 on a side and see whether
+player 4 lands *near* players 1–3 (exhaustion → mode 2) or *elsewhere on the map* (extra list entries
+→ mode 3):
+- **mode 2** `alwaysusestartspawns = 0` **and** `usestartspawns = 0` → all spawns through
+  `function_99ca1277`. ⚠ Costs Gunfight's fixed symmetric openings — a design trade klaze has accepted
+  ("tdm spawns would be fine"), but only correct if the list is genuinely exhausted.
+- 🔓 **mode 3** — **cannot land outside the zone, by construction.** `self.var_b7cc4567` is a stock
+  spawn override read at `spawning_shared.gsc:290`, **before `usestartspawns()`**, with precedent at
+  `warzone.gsc:336`. Place the overflow player beside a teammate who has already spawned: the point is
+  derived from where the team actually is, so the map's spawn structs cannot send it anywhere.
+- **mode 1** transcribes `tdm.gsc:83`. Predicted not to help; included because if it *does*, the model
+  above is wrong and that matters more than the fix.
+
+`src/test_spawnmode/`, test B8.
 
 
 `usestartspawns()` (`hashed/script/script_44b0b8420eabacad.gsc:504` — the file `gunfight.gsc` pulls in

@@ -21,9 +21,13 @@ that is the check that caught `scene_model_shared`.
    `team_assignment.gsc:419`, which uses the team **verbatim, no fullness check** — the same branch
    klaze already sees fire when "a spot is open on the join". `src/test_seatspectator/`
 0. **B8 — Gunfight's 4-per-side spawns.** ⚠ **klaze has ALREADY had 4 on a team** (unreproducible
-   lobby glitch) **and the spawns broke.** So a working C11 walks straight into a known breakage.
-   Only 4 gametypes pin `alwaysusestartspawns`; Face Off is not one, and Face Off runs 6v6 on
-   Gunfight maps fine. **Run the mode-0 control before C11 succeeds.** `src/test_spawnmode/`
+   lobby glitch) **and the spawns broke — "outside the play zone on some maps".** So a working C11
+   walks straight into a known breakage. Only 4 gametypes pin `alwaysusestartspawns`; Face Off is not
+   one, and Face Off runs 6v6 on Gunfight maps fine.
+   ▶ **Run mode 0 before C11 succeeds, and the one thing to watch is where player 4 lands relative to
+   players 1–3.** Near them → the list is exhausted → mode 2. Elsewhere on the map → the list has
+   extra entries meant for a bigger mode → mode 3, which pins the spawn beside a teammate via
+   `self.var_b7cc4567` and cannot land outside the zone. `src/test_spawnmode/`
 0. **C10 — a late joiner lands on a team instead of in spectator.** the earlier, narrower version of
    C11 — it acts only at the instant of joining. Keep as fallback. ⬇ **the strongest route the
    project has had.** klaze already performs the whole workflow by hand (extras leave the pregame

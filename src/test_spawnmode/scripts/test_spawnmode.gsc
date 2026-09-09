@@ -44,7 +44,32 @@
 //    enemy start position, outside the play zone, and stacked-on-another-player
 //    are all still open, and they are not the same bug.
 //
-// ── THE THREE MODES ──────────────────────────────────────────────────────────
+// ── ⚠ AMENDED 2026-09-09 — "OUTSIDE THE PLAY ZONE" WEAKENS MODE 2 ───────────
+// klaze, asked what wrong actually looked like: **"outside the play zone on some
+// maps."** Not stacked, not failed - placed somewhere the Gunfight area is not.
+//
+// ⚠ That is probably NOT exhaustion, and if it is not, mode 2 is aimed at the
+//   wrong cause. Start spawns are map structs flagged `_human_were`, bucketed by
+//   `group_index` into per-team lists (script_335d0650ed05d36d.gsc:225-250). A map
+//   that also hosts Face Off has MORE start_spawn structs than Gunfight uses, and
+//   the extra ones are placed for the bigger mode - across the wider map.
+//
+//   So the likely story is not "the list ran out and the engine returned garbage."
+//   It is "the list has 6 or 12 entries, Gunfight only ever touched the first 2-3,
+//   and player 4 got a perfectly valid point meant for Face Off."
+//
+// ⚠ If that is right, mode 2 does not help: level.default_spawn_lists (auto_normal)
+//   covers the same wider map and more. It could be the same bug or worse.
+//
+// ⚠ klaze said "tdm spawns would be fine", which relaxes the requirement - but
+//   "fine" and "outside the play zone" are in tension, and this file does not
+//   pretend to resolve it. **Mode 0 resolves it.** Get 4 on a side and look at
+//   where player 4 lands RELATIVE TO PLAYERS 1-3:
+//
+//       near them, list clearly exhausted  -> mode 2 is right
+//       far away, elsewhere on the map     -> mode 2 is wrong, use mode 3
+//
+// ── THE MODES ────────────────────────────────────────────────────────────────
 //   0  off              stock. Control run - confirm the breakage before fixing it
 //   1  tdm_style        clear the per-round flag after grace, exactly tdm.gsc:83.
 //                       ⚠ Predicted NOT to fix it: Gunfight is one-life, so the
@@ -53,7 +78,19 @@
 //                       the fix
 //   2  fully_dynamic    never use start spawns. All spawns go through
 //                       function_99ca1277 against level.default_spawn_lists - the
-//                       same path Face Off uses on the same map. ⬅ THE PREDICTION
+//                       same path Face Off uses on the same map. Right IF the list
+//                       is genuinely exhausted; see the amendment above
+//   3  pin_to_team      ⬅ CANNOT land outside the play zone, by construction.
+//                       Places the overflow player next to a teammate who has
+//                       already spawned, via self.var_b7cc4567 - a stock spawn
+//                       override read at spawning_shared.gsc:290, BEFORE
+//                       usestartspawns() is consulted, with precedent at
+//                       warzone.gsc:336. The point is derived from where the team
+//                       actually is, so it is in the zone whatever the map's
+//                       spawn structs say.
+//                       ⚠ Bunched, not pretty, and it can put someone in geometry
+//                       if the offset direction is bad. It degrades gracefully:
+//                       with no spawned teammate it does nothing and stock runs.
 //
 // ⚠ MODE 2 CHANGES HOW GUNFIGHT FEELS, and that is klaze's call, not this file's.
 //   Gunfight's fixed symmetric openings are a design choice; dynamic spawns are
@@ -111,8 +148,9 @@ function private __init__()
 function private default_config()
 {
     return {
-        // 0 = stock (control) · 1 = tdm_style · 2 = fully_dynamic
-        // Run 0 FIRST. A fix with no confirmed baseline proves nothing.
+        // 0 = stock (control) · 1 = tdm_style · 2 = fully_dynamic · 3 = pin_to_team
+        // Run 0 FIRST, and not as a formality: mode 0 is what decides whether the
+        // right fix is 2 or 3. A fix chosen before the baseline is a guess.
         #mode:   0,
         #report: 1
     };
@@ -141,7 +179,32 @@ function private wrapped_onspawnplayer( predictedspawn )
 {
     level.var_gf_spawnhits++;
 
-    if ( level.var_gf_spawnmode === 2 )
+    if ( level.var_gf_spawnmode === 3 )
+    {
+        // Only act on the overflow. Players 1..3 keep their stock start spawns, so
+        // a map where the list is fine is left completely alone.
+        mates = [];
+
+        foreach ( other in getplayers( self.team ) )
+        {
+            if ( other != self && isalive( other ) )
+            {
+                mates[ mates.size ] = other;
+            }
+        }
+
+        if ( mates.size >= 3 )
+        {
+            anchor = mates[ 0 ];
+
+            // 48 units to the anchor's right. Far enough not to telefrag, close
+            // enough that it is unambiguously the same spawn cluster.
+            right = anglestoright( anchor.angles );
+
+            self.var_b7cc4567 = { #origin:anchor.origin + vectorscale( right, 48 ), #angles:anchor.angles };
+        }
+    }
+    else if ( level.var_gf_spawnmode === 2 )
     {
         // Both flags, because either one alone leaves usestartspawns() returning
         // true - the first short-circuits, the second is the fallthrough.
