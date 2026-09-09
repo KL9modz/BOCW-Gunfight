@@ -262,6 +262,31 @@ spawns explicitly in the first human 4v4.
 the session's own restore, not by anything gated on `isbot` — but that is a reason to expect it to
 transfer, not a measurement that it does.
 
+#### ▶ TOMORROW — the human 4v4. What to actually check, in order.
+
+Everything below is unverified with people. ⚠ **`gunfight_mod` does NOT add bots** — it only raises the
+cap. An empty lobby staying empty is correct and is not evidence about anything.
+
+1. **Do 4 players fit on one side?** The cap is `maxplayers = 8`; nothing has yet tried to occupy the
+   4th slot with a human. ⬅ **the actual open question**
+2. **Where does the 4th spawn?** [B8](#b8). The prediction is that it is FINE — klaze characterised the
+   bug as out-of-bounds *"when the team size is exceeded"*, and at `maxplayers = 8` a 4v4 no longer
+   exceeds the configured size, so the precondition is gone. ⚠ Bots played it cleanly, but bots
+   tolerate a spawn a player would notice. **If spawns are bad, `src/test_spawnmode/` mode 2 is built
+   and waiting** — do not re-derive it.
+3. **Does the 4th survive the round boundary?** Verified for bots (`600404`). Humans hold real session
+   slots where mid-match bots do not, so this should be *easier*, not harder.
+4. **Lobby return**, as after every write.
+
+⚠ **If a 4th cannot join at all**, that is a session-layer refusal and the route is C10/C11 — both
+built, both needing exactly this group.
+
+#### ✅ Hosting stack, end to end — 2026-09-08
+
+Menu injected → carried → `gunfight_mod` injected → **60-second rounds present on the carried map.**
+Confirms the mod links after a carry and `timer_override` survives it, for the third time. ⚠ Confirms
+**nothing** about team size: the lobby was solo.
+
 ⚠ **5v5 is now the untried edge, not an impossibility.** `com_maxclients` is 10 in a 3v3 lobby, so ten
 players fit exactly with zero casters. `#team_size: 5` is one number, and `clamp_team_size()` will
 refuse it in an 8-slot lobby rather than ask for what the session cannot hold.
