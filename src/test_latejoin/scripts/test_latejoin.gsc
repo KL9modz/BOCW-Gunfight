@@ -39,6 +39,34 @@
 //    com_maxclients, not the 3 the lobby enforced. It counts and balances. The
 //    only ceiling left is the engine refusing a 9th client, and 4v4 needs 8.
 //
+// ── WHERE THE CAP ACTUALLY LIVES, AND WHY OVERRIDING IT IS ENOUGH ────────────
+// klaze, 2026-09-09: "if a spot is open on the join, they get put on a team.
+// otherwise, forced to spectate." That is this code, branch for branch:
+//
+//   player_connect.gsc:433   getassignedteamname( self )   <- ENGINE BUILTIN, the verdict
+//   team_assignment.gsc:419  teamname !== #"none"  -> use it verbatim   ("a spot is open")
+//   team_assignment.gsc:424  function_a3e209ba()   -> #"spectator"      ("forced to spectate")
+//
+// So the per-team cap is an engine builtin, and branch :419 uses its answer with
+// NO fullness check in script - the script does not enforce the cap, it OBEYS a
+// verdict handed to it. ate47's 4,481-builtin table has getassignedteam and
+// getassignedteamname and no setter, so that verdict is unwritable from script.
+//
+// ✅ It does not need to be writable. The verdict is read ONCE, at connect, and
+//    only when the player has no team yet - it is not a running authority. What
+//    actually seats a player is teams::function_dc7eaabd()
+//    (hashed/script/script_3d703ef87a841fe4.gsc:19):
+//
+//        self.pers[ #"team" ] = assignment;
+//        self.team            = assignment;
+//        self.sessionteam     = assignment;
+//
+//    Three script fields, no engine call, nothing that can be refused. And it has
+//    a stock precedent that runs mid-match every game: infect.gsc:1345 and
+//    infection.gsc:249 call exactly this to flip a player onto the infected team
+//    after the match has started. Infected works. So "script cannot move a player
+//    onto a team mid-match" is not a live concern.
+//
 // ── WHICH LEVER, AND WHY ─────────────────────────────────────────────────────
 // LEVER 2 is the default here because it is surgical. level.var_a3e209ba is a
 // gametype-overridable predicate (team_assignment.gsc:27-29 installs the default

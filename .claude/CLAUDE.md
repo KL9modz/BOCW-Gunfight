@@ -200,7 +200,18 @@ teams, pick the smaller one* — with **no `maxsquadplayers`, no `com_maxclients
 
 🔓 **`menuteam()` has no cap check either.** `globallogic_ui.gsc:331`, the in-match team picker, gates
 only on `level.allow_teamchange` + `hasdonecombat` and then **assigns**. ⚠ This supersedes "the
-in-match gate is 8" — on the menu path there is no in-match gate.
+in-match gate is 8" — on the menu path there is no in-match gate. 🪦 **But casters cannot reach it** —
+klaze measured that a CoD Caster has no normal pause menu at all, so the "casters switch to teams"
+version of L0 is dead. A **plain spectator** is an ordinary player and is not ruled out; that has
+never been tested because `level.allow_teamchange` has never been turned on. [[lobby-settings]]
+
+🔓 **The per-team cap is `getassignedteamname()`, an engine builtin, evaluated at connect.**
+`player_connect.gsc:269` → `:433` reads it; `team_assignment.gsc:419` then uses its answer **verbatim,
+with no fullness check in script.** So the script does not enforce the cap — it obeys a verdict.
+✅ **And the verdict is read ONCE**, only when the player has no team yet. What seats a player is
+`teams::function_dc7eaabd()` — three script fields, no engine call, **the same call `infect.gsc:1345`
+uses to flip players mid-match every game.** Moving a player onto a team after the start is stock
+behaviour, not a hope.
 
 🔓 **Bots: the Nuketown-only restriction is a MENU fact, not a script one.** `mp_nuketown6.gsc` has
 **zero** bot or Gunfight references, and `bot::add_bot()` (`bot.gsc:98`) has no map gate and no cap

@@ -68,24 +68,38 @@ klaze measured the pre-game team screen capping at **2** (Gunfight), **3** (3v3)
 Not 8, not 3: it gates on `level.allow_teamchange` + `hasdonecombat` and then simply **assigns** the
 team. [`lobby-settings.md`](lobby-settings.md)
 
-🔓 **So the lobby you already fill is the test.** 3v3 Gunfight with both teams full and **both caster
-slots taken** is 3 + 3 + 2 = **8 clients — exactly `com_maxclients`, and exactly 4v4's headcount.**
-The two casters do not need to rejoin, re-queue or free a slot. They are already in the match.
+🪦 **The caster version of this test is DEAD.** klaze, 2026-09-09: **casters cannot open the normal
+pause menu.** They have their own control scheme (`category_codcaster_keybinds_codcaster.json`). No
+pause menu means no ChangeTeam, so a caster cannot reach `menuteam()` however permissive it is. Do not
+plan around casters switching to teams.
 
-1. Rules menu → find **Allow In-Game Team Change** → on
-2. Fill teams 3 v 3 **and both caster slots**. Start.
-3. **Each caster opens the in-match team menu and picks a side.** → 4v4
+✅ **The SPECTATOR version is alive, and it has never been tested — because the toggle has never been
+on.** klaze also reports: *"a spectator can only fill their spot if they also leave the match then
+rejoin rather than just choosing a team."*
+
+⚠ **Read that carefully: it is not evidence the assignment is refused.** `menus.gsc:101` and `:179`
+**both gate the ChangeTeam menu on `level.allow_teamchange`**, which is 0 unless the rules row is on
+(`serversettings.gsc:42`). klaze has never turned it on. **So "a spectator can't just choose a team"
+is fully explained by the menu not being there** — nobody has yet seen what happens when it is.
+
+And a plain spectator is not a caster: they are an ordinary player with an ordinary pause menu, and
+`menuteam()` has **no cap check** (`globallogic_ui.gsc:331`).
+
+1. Rules menu → **Allow In-Game Team Change** → on
+2. Fill teams 3 v 3. Start the match.
+3. A 7th player joins → the session has no slot → **forced to spectate** (klaze's normal outcome)
+4. **That spectator opens the pause menu and picks a team.**
 
 | Outcome | Means |
 |---|---|
-| both casters join teams | 🔓 **4v4 with ZERO code.** The single best outcome available anywhere in this queue |
-| row absent from Gunfight's rules | the bundle exists but this variant does not show it → C10 instead |
-| a caster has no in-game menu | the likeliest failure — casters have their own control scheme (`category_codcaster_keybinds_codcaster.json`). Record it, then C10 |
-| menu opens but the team is greyed out | the **LUI** is enforcing a cap the script does not. Record exactly what it says — that is a new enforcement point nobody has located |
+| they join a full team | 🔓 **4v4 with ZERO code.** The single best outcome anywhere in this queue |
+| the row is absent from Gunfight's rules | the bundle exists, this variant does not show it → C10 |
+| the menu opens, no ChangeTeam entry | `level.allow_teamchange` did not take. Read `serversettings.gsc:42` again — it needs `sessionmodeisprivate()` |
+| ChangeTeam opens but the team is greyed out | 🔓 the **LUI** enforces a cap the script does not. **Record exactly what it says** — that is an enforcement point nobody has located |
 
-⚠ **This and C10 are complementary, not alternatives.** L0 uses casters who are *already in the
-match*; C10 uses players who *left and rejoin*. Different doors into the same 8-client budget. If L0
-works you need no injection at all — **which is why it goes first.**
+⚠ **This and C10 are complementary.** L0 asks whether an existing spectator can *choose* a team; C10
+changes what happens when they *join*. Different doors into the same 8-client budget. L0 needs no
+injection — **which is why it goes first.**
 Result: `______`
 
 ### L1 · Is there a **Max Players** row in the Gunfight rules menu?
@@ -430,6 +444,17 @@ which **counts the teams and picks the smaller one, with no cap check of any kin
 | `2000404` | 🔓 **4v4, and the team-size goal is reached with one line** |
 | `2000303` after both rejoin | lever 2 did not fire — flip to `forceautoassign: 1`, run again |
 | they cannot rejoin at all | a **session-layer** refusal, nothing to do with this script. Record it: it says the 8-client budget was already spent, which is itself a measurement |
+
+✅ **The mechanism has a stock precedent, so this is not a hope.** The joiner ends up at
+`teams::function_dc7eaabd( assignment )`, which sets three script fields —
+`self.pers[#"team"]`, `self.team`, `self.sessionteam` — and calls **nothing the engine can refuse**.
+`infect.gsc:1345` and `infection.gsc:249` use that exact call to flip a player onto the infected team
+*after the match has started*, every game. Moving a player onto a team mid-match is something stock
+does routinely.
+
+⚠ **What the session decides, it decides ONCE.** `getassignedteamname()` (engine builtin, the real
+cap) is read at `player_connect.gsc:269` and only when the player has no team yet. It is not a running
+authority — which is why overriding the script's obedience to it is enough.
 
 ⚠ **One lever per match.** Both on and a good result tells you nothing about which one did it.
 

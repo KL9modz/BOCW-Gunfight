@@ -255,6 +255,44 @@ No `function_efe5a681`. No `getplayers(team).size`. No `com_maxclients`, no `max
 menu path there is no in-match gate.** `function_34a60b2f`, called just above the assignment, is
 elimination bookkeeping (`everexisted` / `teameliminated`), not a check.
 
+### ✅ klaze's join behaviour IS this code — and it locates the cap exactly
+
+klaze, 2026-09-09: *"if a spot is open on the join, they get put on a team. otherwise, forced to
+spectate."* That is `function_d22a4fbb` branch for branch, and the chain runs:
+
+```
+player_connect.gsc:269   var_4c542e39 = self function_2a8a03ed();
+player_connect.gsc:433                -> getassignedteamname( self )    <- AN ENGINE BUILTIN. the session's verdict
+player_connect.gsc:283   [[ level.autoassign ]]( 0, var_4c542e39, ... )
+team_assignment.gsc:396  function_d22a4fbb( comingfrommenu = 0, teamname = <that verdict>, ... )
+    :419   else if ( teamname !== #"none" && !comingfrommenu )   -> assignment = teamname   ✅ "a spot is open"
+    :424   else if ( function_a3e209ba( teamname, comingfrommenu ) ) -> #"spectator"        ✅ "forced to spectate"
+```
+
+🔓 **So the per-team cap lives in `getassignedteamname()`, an engine builtin, evaluated at connect.**
+⚠ Branch `:419` uses the session's answer **verbatim, with no fullness check in script at all** — the
+script does not enforce the cap, it *obeys* a verdict handed to it.
+
+⚠ `getassignedteam` (`+3bcfec0`) and `getassignedteamname` (`+3bd0150`) are the only two entries in
+ate47's 4,481-builtin table matching this. **Both getters; there is no setter.** Same shape as
+`com_maxclients`: script observes, never writes.
+
+✅ **But it does not need a setter, and this is the load-bearing point.** The verdict is consulted
+**once**, at connect, and only when `!isdefined( self.pers[#"team"] ) || isdefined( self.pers[#"needteam"] )`.
+It is not a running authority. What actually puts a player on a team is
+`teams::function_dc7eaabd( assignment )` (`hashed/script/script_3d703ef87a841fe4.gsc:19`):
+
+```gsc
+self.pers[ #"team" ] = assignment;
+self.team = assignment;
+self.sessionteam = assignment;
+```
+
+**Three script fields. No engine call, nothing that can be refused.** And it has a stock precedent
+that runs mid-match every game: `infect.gsc:1345` and `infection.gsc:249` call exactly this to flip a
+player onto the infected team after the match has started. **Infected works.** So "script cannot move
+a player onto a team mid-match" is not a live concern — it is a thing stock does routinely.
+
 ### 🔓🔓 Route A″ — the late joiner, and it is ONE LINE
 
 This is the strongest team-size route the project has had, because **klaze already performs the whole
