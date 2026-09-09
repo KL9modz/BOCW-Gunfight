@@ -52,6 +52,17 @@ KNOWN = [
     # If none of these five crack, the hash form is wrong, not the wordlist.
     "lobbylaunchgame", "killserver", "fast_restart", "full_restart", "map_restart",
     # quake lineage
+    # harvested from the dump as command-shaped strings - the only two that were
+    "party_autoteams", "matchmaking",
+    # CoD-lineage party / matchmaking spellings, single tokens the generator
+    # cannot compose because they are not head+stem+tail shaped
+    "xpartyjoin", "xpartyleave", "xpartykick", "xpartyinvite", "xpartycreate",
+    "xpartygo", "xpartyreadyup", "partygo", "partyready", "partybackout",
+    "matchmake", "startmatchmaking", "stopmatchmaking", "cancelmatchmaking",
+    "findgame", "searchforgame", "cancelsearch", "quicksearch", "quickmatch",
+    "joinsession", "leavesession", "joinlobby", "leavelobby", "joinparty",
+    "leaveparty", "lobbyjoin", "lobbyleave", "lobbycreate", "lobbyready",
+    "invitefriend", "acceptinvite", "declineinvite", "joinfriend", "join_friend",
     "map", "devmap", "connect", "disconnect", "reconnect", "quit", "exec",
     "bind", "unbind", "set", "seta", "sets", "setu", "toggle", "vstr", "wait",
     "cmdlist", "dvarlist", "screenshot", "clear", "echo", "kick", "banclient",
@@ -59,13 +70,27 @@ KNOWN = [
     "restart", "vid_restart", "snd_restart", "reset", "resetdvars",
 ]
 
+# ⚠ D10 has a SECOND question since 2026-09-09: klaze ruled the glitch's aborted
+# matchmaking search acceptable, so if party join / leave and the search itself are
+# console commands, the glitch could become one button from the DLL slot. The
+# dump cannot seed this - scripts never exec() console strings, and its party /
+# lobby hits are scene-animation names (lobby_pose, lobbyinspection) - so the
+# vocabulary below is CoD-lineage console knowledge, and a miss here means the
+# names were spelled differently, not that the operations are absent.
 HEADS = ["", "set", "get", "ui", "lobby", "host", "party", "match", "game",
-         "sv", "cl", "mp", "dev", "start", "launch", "change", "select", "force"]
+         "sv", "cl", "mp", "dev", "start", "launch", "change", "select", "force",
+         "xparty", "live", "xblive", "mm", "session", "invite", "join", "leave",
+         "cancel", "stop", "find", "search"]
 STEMS = ["map", "maps", "gametype", "gametypes", "mode", "playlist", "lobby",
          "match", "game", "round", "team", "teams", "player", "players", "bot",
-         "bots", "client", "clients", "spectator", "caster", "rotation", "level"]
+         "bots", "client", "clients", "spectator", "caster", "rotation", "level",
+         "party", "session", "matchmaking", "matchmake", "search", "invite",
+         "invites", "friend", "friends", "host", "member", "members", "leader",
+         "squad", "fill", "queue"]
 TAILS = ["", "name", "list", "index", "select", "set", "load", "start", "launch",
-         "next", "restart", "change", "override", "count", "size"]
+         "next", "restart", "change", "override", "count", "size", "join", "leave",
+         "kick", "invite", "accept", "decline", "cancel", "stop", "begin", "end",
+         "create", "destroy", "migrate", "autoteams", "teams", "ready", "toggle"]
 
 
 def candidates(extra):
@@ -98,7 +123,8 @@ def candidates(extra):
 
 # Anything whose name contains one of these is worth a human look even if the
 # rest of the dump is noise - these are the shapes that could set a lobby's map.
-INTERESTING = ("map", "gametype", "playlist", "lobby", "launch", "mode")
+INTERESTING = ("map", "gametype", "playlist", "lobby", "launch", "mode",
+               "party", "match", "search", "session", "invite", "join")
 
 
 def main():
