@@ -20,6 +20,9 @@ test_seatspectator/ C11 · seat an EXISTING spectator, no menu involved.
                   ⬅ SUPERSEDES C10. One stock call, no override at all
 test_spawnmode/   B8 · why 4-per-side spawns break, and the one-line candidate fix.
                   Face Off runs 6v6 on the same maps — the map is not the problem
+test_sessionswitch/ B1 · switch map with switchmap_load( map, gametype ) — the builtin
+                  STOCK uses — instead of map(), which has zero stock callers.
+                  ⬅ GOAL B. If the friend list / activity flips, the session moved
 ```
 
 B4 is the odd one out: it answers nothing about team size, it makes the **setup** shorter. Every other

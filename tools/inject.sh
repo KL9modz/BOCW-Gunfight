@@ -118,5 +118,6 @@ case "$NAME" in
     test_spawnmode)    echo "  READ PROBE 31 FIRST. Zero = the wrapper never ran, not 'the fix failed'" ;;
     test_seatspectator) echo "  read_only=1 on the first pass. 21/23 print before iscodcaster is called" ;;
     test_latejoin)     echo "  20xxxxx = allies*100 + axis. 2000404 is 4v4" ;;
+    test_sessionswitch) echo "  read_only=1 FIRST: 40 must not be 99999. Live: read 41 before judging presence" ;;
     *)    echo "  test a LOBBY RETURN afterwards if this payload writes anything" ;;
 esac

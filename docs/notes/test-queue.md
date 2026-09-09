@@ -701,6 +701,43 @@ it**, and loading it is the destructive act. So A4's only safe targets are maps 
 actually carried to them through the Atian Menu — which promotes **A2** (capture the menu's shipped
 19-map list) from a curiosity to a **prerequisite** for the automation route.
 
+### B1 · `switchmap_load( map, gametype )` — switch map the way STOCK does ← **Goal B**
+`src/test_sessionswitch/` · [`roadmap.md`](roadmap.md) Goal B
+
+After a carry, *"everywhere the map is written still says the last map — menu, scoreboard, friend
+list, activity, everything"* (klaze). The carry calls `map( name )`: **one argument, zero stock callers
+anywhere in the dump.** Campaign transitions, side-mission launches and Zombies all switch with
+`switchmap_load( map, gametype )`, and campaign tells the UI first via
+`lobby_root.transitionMapIdOverride`. This test calls what they call.
+
+🔓 **The criterion is presence — friend list / activity — and it is clean.** No GSC builtin writes
+presence (the engine table's only presence-shaped entry is `resetinactivitytimer`), so it can only
+change when the engine's own session record does. Observable from any friend's screen.
+
+1. `read_only = 1` → inject, restart. Read **`40xxxxx`**: **`99999` means the UI-model chain is wrong**
+   (it is inferred from stock's `getglobaluimodel()` pattern, not read) and `tell_ui` cannot work.
+   Anything else = the model exists. `42xxxxx` = 1.
+2. `read_only = 0`, `target` = a map **already carried to** (`mapexists()` returns 1 for everything —
+   B5 — and is not a guard; an unloadable map hung the game once in A4). Inject, restart.
+3. **Read `41xxxxx` first.** `99999` = `#"switchmap_preload_finished"` never signalled in 25s and the
+   load never started — presence proves nothing then. A number = seconds ×10 until it signalled.
+4. Then check **scoreboard · pause menu · AAR · a friend's view of your activity**. Write down which
+   say the NEW map and which the OLD.
+5. Two runs if there is time: `tell_ui: 1` and `tell_ui: 0`. One run with both cannot say which
+   mattered.
+6. ⚠ **Test a lobby return.**
+
+| Reading | Means |
+|---|---|
+| in-match UI **and** presence show the new map | 🔓 **Goal B closed.** The carry used the wrong builtin all along. Replace `map()` in `gunfight_mod` and the menu |
+| in-match UI new, **presence old** | reached the match, not the session. Better than the carry, not the glitch. D10 next |
+| `41` = `99999` | the load never began — wrong gametype string, or the thread died. Check for an `endon` before anything else |
+| `42` = 3 | refused: already on the target. Change `target` |
+
+⚠ The sequence runs in a thread with **no `level endon( #"game_ended" )`** — A4 found `map()` fires that
+notify mid-sequence and the endon killed the thread inside the wait.
+Result — run 1 (`read_only`): `______` · run 2 (`tell_ui: 1`): `______` · run 3 (`tell_ui: 0`): `______`
+
 ### B6 · `gunfightloadoutindex` — **snipers-only and melee-only Gunfight**
 [`gametype-settings-map.md`](gametype-settings-map.md)
 
