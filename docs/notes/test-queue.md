@@ -515,7 +515,46 @@ The walk recorded **19** maps; the CW source wires **48** entries, **37** of the
 | something else | record it; neither explanation fits |
 
 ⚠ Count by scrolling to the end, not by what fits on screen — the root menu is paged and the map
-submenu may be too. Result: `______`
+submenu may be too.
+
+#### ✅ ANSWERED 2026-09-08 — **37 registered, 19 visible. It is the SECOND row, and the walk
+undercounts.**
+
+klaze counted **19** on screen. But the shipped `.gscc` was **decompiled** (`acts gscd`) and it
+registers **all 37 MP maps unconditionally**, inside a single `if ( function_7813976a() )` —
+`is_multiplayer()` — with **no per-map filter anywhere in the block**:
+
+```gsc
+self function_d7ae9d08( "map", "mp_amerika",     &function_7856adb2, "mp_amerika" );
+...  36 more, one line each, no conditions ...
+self function_d7ae9d08( "map", "mp_zoo_rm",      &function_7856adb2, "mp_zoo_rm" );
+```
+
+▶ So the shipped binary is **not** older than master in this respect, and the 19 is a **display/paging
+artifact**. The full list is at [`../reference/atian-menu-maps.txt`](../reference/atian-menu-maps.txt).
+
+🪦 **AND THIS KILLS THE "USE THE MENU LIST AS A WHITELIST" PLAN, which was written an hour earlier.**
+`mp_hijacked_rm` is in the menu at line 2478, wired to the same `func_set_map`. **Carrying to Hijacked
+through the menu would break the session identically** — it is the same three calls. The hazard is not
+something the automation introduced; it is pre-existing in the menu workflow, and klaze simply never
+picked that entry.
+
+▶ **There is therefore NO source of a safe-map list except empirical confirmation.** Not the dump
+(38 names, script presence only), not `mapexists()` (returns true for everything, B5), not the menu
+(37 names, includes the one that breaks). **A map is safe when it has been loaded successfully, and
+not before.**
+
+⚠ **Name discrepancy worth chasing:** the menu registers **`mp_clhanger`**; the dump has
+**`mp_cliffhanger`** (`scripts/mp/mp_cliffhanger.gsc`). One is wrong. If it is the menu's, that entry
+is broken in the shipped build and is a second landmine of the same kind as Hijacked.
+
+🔓 **Technique worth reusing: `acts gscd` decompiles the shipped menu payload.** That is how this was
+answered in seconds without a menu walk, and it applies to any question about what the shipped build
+actually contains — a far better source than counting rows on screen.
+
+```bash
+acts gscd payloads/BlackOpsColdWar_atianmenu_pc.gscc -g cw -p pc -o menu-decomp
+```
 
 ### A3 · `mp_probe` on a carried lobby
 Classify a carried map's `gunfight_zone_center` count (`5xxxxx`). Expect **0**, the same as every

@@ -57,9 +57,23 @@
 //       destructive act.
 //
 //    ▶ SO: DO NOT RUN THIS LIVE AGAINST AN UNVERIFIED MAP NAME. The only safe
-//      targets are maps confirmed by having actually carried to them through the
-//      Atian Menu. Its shipped list is 19 of the source's 48 and may well BE the
-//      curated loadable set - capturing it is test A2, now load-bearing here.
+//      targets are maps confirmed by having actually carried to them.
+//
+//    ⚠⚠ AND THE HIJACKED RUN CHANGED TWO VARIABLES AT ONCE, which is why it
+//       explains nothing. Every successful carry on record is ZOO, VIA THE MENU.
+//       The failure was HIJACKED, VIA THIS SCRIPT. Map and mechanism both moved,
+//       so the break is attributable to either and to neither.
+//
+//       Three theories were floated for it and ALL THREE ARE DEAD:
+//         - "the map is unloadable"     -> mapexists is useless, proves nothing (B5)
+//         - "Hijacked never shipped"    -> it did, BOCW Season 4, 2021-06-17
+//         - "the install is partial"    -> 36 maps selectable in custom games,
+//                                          matching the menu's 36 exactly
+//
+//    ▶ THE TEST THAT ACTUALLY ISOLATES IT: run THIS SCRIPT against ZOO - the map
+//      known to carry cleanly by hand. Works -> the mechanism is fine and Hijacked
+//      is the problem. Fails -> the mechanism is the problem and the map never was.
+//      One variable. That is the current configuration.
 //
 // ⚠ A carry is a LOAD-TIME OVERRIDE. It does not touch the session, which is why
 //   the scoreboard keeps naming the old map. That is expected and is not a bug -
@@ -133,9 +147,16 @@ function private run()
     //    ▶ THE FAILURE IS SILENT AND DESTRUCTIVE. No error, no refusal, and no
     //      point after map() at which the script can still save the session.
     //
-    //    Hijacked is BO2-era content. Its script is in the dump; that only proves
-    //    the SCRIPT shipped, which is the exact caveat written three lines above
-    //    this before the run and ignored while picking a name off the listing.
+    //    🪦 RETRACTED: "Hijacked is BO2-era content that never shipped in CW."
+    //       WRONG - it shipped in BOCW Season 4, 2021-06-17, as a 6v6 map.
+    //    🪦 RETRACTED: "the install is partial, only 19 maps present."
+    //       WRONG - klaze counted 36 selectable in custom games, matching the
+    //       menu's 36 exactly. The install is complete and the earlier "19" was a
+    //       miscount, not a filter and not missing content.
+    //
+    //    ⚠ So there is NO established reason why Hijacked failed. Both stories
+    //      were invented to fit one observation and neither survived a check.
+    //      Leave it open rather than reaching for a third.
     //
     // 🪦 **B5 ANSWERED IT, AND THE ANSWER WAS "NO GUARD IS AVAILABLE".** The open
     //    question here was whether mapexists() returns 0 for this name. It does
@@ -154,7 +175,7 @@ function private run()
 
     // ⚠ RUN WITH THIS AT 1 FIRST. Reports the state, switches nothing, and
     //   confirms the name comparison behaves before anything can reload.
-    read_only = 1;   // ⚠ FORCED INERT 2026-09-08 after the KGB glitch - see notes below.
+    read_only = 0;   // LIVE. Target is mp_zoo_rm - a map klaze has carried to and PLAYED.
 
     // Hard cap on switch attempts, ever, for this lobby. Still a hard cap.
     //
