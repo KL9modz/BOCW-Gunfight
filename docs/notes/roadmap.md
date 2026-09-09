@@ -126,14 +126,16 @@ From a running Gunfight match on map X, target map Y:
 
 1. **read** `getuimodelvalue( getuimodel( <lobby_root>, "transitionMapIdOverride" ) )` — probe 40
 2. `setuimodelvalue( …, hash( Y ) )`
-3. `switchmap_load( Y, "gunfight" )` — ⚠ the gametype string: `"gunfight"` vs `"gunfight_3v3"` is
-   itself a question; `player_record.gsc:589` proves both names are real
+3. `switchmap_load( Y, getdvarstring( #"g_gametype" ) )` — the **current** gametype, read at
+   runtime (`util_shared.gsc:5873` is stock's own accessor). Not a guess between `"gunfight"` and
+   `"gunfight_3v3"`; whichever the lobby is, that is what gets passed
 4. `level waittilltimeout( 25, #"switchmap_preload_finished" )` — probe 41 = did it signal, and when
 5. `switchmap_switch()`
 
 | Outcome | Means |
 |---|---|
-| scoreboard / pause menu / AAR say **Y + Gunfight** | 🔓 **Goal B closed.** The carry was using the wrong builtin all along. Replace `map()` in `gunfight_mod` and the menu |
+| scoreboard / pause menu / AAR say **Y + Gunfight**, **and the friend list / activity shows Y** | 🔓 **Goal B closed.** The engine's session record moved. Replace `map()` in `gunfight_mod` and the menu |
+| in-match UI says Y but **presence still says X** | the call updated the match but not the session. Partial — better than the carry, not the glitch. D10 next |
 | loads Y, UI still says X | the session record is not set by `switchmap_load` either. Next: does step 2 alone change what the UI says (probe 40 read-back), and what does the glitch do that neither does |
 | `switchmap_preload_finished` never signals (probe 41 = 99999) | the load did not start — wrong gametype string, or the thread was killed. Check the wrapper for `endon` before anything else |
 | hangs on load | same failure A4 hit. **Only target maps already carried to** — `mapexists()` returns 1 for everything (B5) and is not a guard |
@@ -188,31 +190,39 @@ are all correct.
 scoreboard without knowing the glitch's steps, and the research confirms it from the other side. The two
 mechanisms are not variants of one thing — they touch different state.
 
-### 🛑 The glitch requires MATCHMAKING — do not automate it
+### ✅ The glitch requires matchmaking — and klaze has decided that is acceptable
 
-⚠ **Both variants pivot on "search for a Gunfight match".** That is the public matchmaking queue. The
-first line of this project's ground rules is:
+⚠ **Both variants pivot on "search for a Gunfight match"** — the public matchmaking queue. The first
+ground rule says *never matchmaking*. This was flagged as a decision rather than assumed.
 
-> **Private matches only.** Never public lobbies, never matchmaking.
+✅ **klaze, 2026-09-09:** *"Proceed without worrying about public matchmaking restrictions. The end goal
+is still a private match, which follows the rules just fine."* The search is aborted the instant a match
+is found; no public lobby is ever played; the end state is a private custom game. **Recorded as his
+decision, and the glitch is a legitimate route again** — for the *result*, and as a fallback.
 
-The search is *aborted* — you leave the instant a match is found and never play in a public lobby — so
-this is a genuine judgement call rather than a bright line. But it is klaze's call to make explicitly,
-not something to slide into by building a tool around it. ▶ **Recorded as a decision, not a plan.**
+▶ **It is still the fallback, not the plan.** Two players and a sequence of party operations is a worse
+route than one script call, *if* one script call works. **B1 tests that first.** And ⚠ D10 now has a
+second question to answer: whether party join / leave / matchmaking-search are **console commands** —
+if they are, the glitch itself may be automatable from the DLL slot, which is the only way it could ever
+become a one-button thing.
 
-✅ **And we do not need to replicate the glitch — only its RESULT.** What we want is a session holding
-the correct playlist descriptor for an arbitrary map. The glitch reaches that through matchmaking; **B1
-tests whether `switchmap_load( map, gametype )` reaches the same state from script**, with no queue and
-no second player. That is the whole reason B1 is worth running before anything else in Goal B.
+### ✅ Where the carry's UI goes stale — ANSWERED, and it is everywhere
 
-⚠ **If B1 fails**, the honest position is that the glitch remains the only known route to correct session
-state — and then the question is whether a two-player manual glitch, done once per session, is acceptable
-as *documentation* rather than as *automation*. Different question, and still klaze's.
+klaze, 2026-09-09: *"everywhere the map is written still says the last map. menu, scoreboard, friend
+list, activity, everything."*
 
-### ❓ What research could NOT answer — still needs klaze
-- **Where exactly does the carry's UI go stale?** Scoreboard, pause menu, AAR, loading screen, the lobby
-  afterwards — all of them, or some? Each reads a different source, and the pattern of which are stale
-  locates the record `map()` fails to update. **This is the highest-value observation available for free**,
-  on any carry he already does.
+🔓 **Friend list and activity are the tell.** Those are **platform presence** — what Battle.net
+broadcasts to other people about what you are playing. They are not in-match HUD; nothing in GSC
+writes them (the engine table has **no** presence-writing builtin at all — `resetinactivitytimer` is
+the only match). So they can only change when the **engine's own session record** changes. The carry
+leaves *all* of it untouched, which is the strongest possible confirmation that `map()` is a raw map
+load under an unchanged session — and it hands B1 a clean, binary success criterion:
+
+▶ **After `switchmap_load( map, gametype )`, does the friend list / activity show the new map?**
+If yes, the engine's session record moved and Goal B is closed. If no, no GSC call reaches it and the
+route is D10 (a console command) or the glitch.
+
+### ❓ Still needs klaze
 - **After the glitch, is *everything* right?** Spawns, the map list afterwards, map voting, the AAR. If
   everything is right it is a full playlist reconfiguration and B1 may not match it; if some things are
   off, it is closer to our carry than it looks.

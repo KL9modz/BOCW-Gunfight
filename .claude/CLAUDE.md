@@ -14,9 +14,11 @@ the only thing gating it. Then the in-match menu, then a Windows tool.
 ⚠ **Goal B — the stale UI after a carry — has a testable cause:** the carry calls `map()`, which has
 **zero stock callers anywhere in the dump** and cannot pass a gametype. Three stock systems switch
 maps with `switchmap_load( map, gametype )` and the session stays correct.
-🛑 **And the lobby glitch is now researched, not folklore: it is a PLAYLIST carry that pivots on a
-MATCHMAKING SEARCH** — which the first ground rule below forbids. **Do not automate it.** We need its
-*result* (correct session state), not its steps, and B1 tests a legitimate route to the same place.
+✅ **The lobby glitch is researched, not folklore: a PLAYLIST carry that pivots on an aborted
+MATCHMAKING SEARCH.** klaze has ruled the aborted search acceptable — the end state is a private match.
+It is the *fallback*; B1 tests whether `switchmap_load( map, gametype )` reaches the same session state
+from script with no queue and no second player. ⚠ The carry leaves **presence** (friend list, activity)
+stale too — and no GSC builtin writes presence, so that flipping is B1's binary success criterion.
 
 ⚠ **Do not record an untried route as a limitation.** "We measured X" belongs in this file. "Therefore
 Y is impossible" does not — every such conclusion in this project's history has had to be walked back
