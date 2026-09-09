@@ -82,8 +82,19 @@ carried map.
 | **13,824** | cwpatch — hotkeys live |
 | **3,891,512** | stock Microsoft SDK — hotkeys dead |
 
-⚠ **Battle.net's repair silently restores the stock SDK.** If F4–F7 stop working mid-session, check
-that file's size first.
+⚠ **Battle.net silently restores the stock SDK — on ROUTINE UPDATES, not just repairs.** Observed
+twice on 2026-09-08: once after a repair-triggered re-download, and again after an ordinary small
+patch a few hours later. **Check the file size after every Battle.net update.** If F4–F7 stop working
+mid-session, check it first.
+
+✅ **Restoring takes seconds now** — see *Irreplaceable binaries* below for the command. The second
+occurrence was fixed from the backup with a matching hash before it cost anything; the first cost the
+file outright.
+
+⚠ **An update may also change `BlackOpsColdWar.exe`.** It is encrypted at rest, so no static check can
+confirm cwpatch's offsets still fit the new build. **If F4–F7 are dead with the correct 13,824-byte
+file in place, suspect the patched game, not the DLL.** The same applies to ACTS: injection failing or
+behaving oddly right after an update points at the build, not the payload.
 
 ---
 
