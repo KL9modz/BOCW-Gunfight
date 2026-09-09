@@ -9,10 +9,18 @@
 // The menu exists in that list for ONE reason: it is the only thing that calls
 // map(). Nothing else about it is used.
 //
-// ▶ atian-menu-source.md:19 pins the mechanism exactly:
-//     func_set_map( item, map_name )  ->  map( map_name )
-//   ONE builtin. Not switchmap_load, not a sequence, not anything the menu adds.
-//   Every one of its 48 map entries wires that same call.
+// ▶ t8-atian-menu@master coldwar/scripts/core_common/menu_funcs.gsc:357, verbatim -
+//   func_set_map(), which all 48 of the menu's map entries wire:
+//
+//     map(map_name);
+//     wait(1);
+//     switchmap_switch();
+//
+//   THREE calls. map() only STAGES the load; switchmap_switch() commits it.
+//   ⚠ An earlier version of this header said "ONE builtin, not a sequence",
+//     paraphrasing atian-menu-source.md's summary table instead of the source.
+//     Run 1 called map() alone and nothing happened at all. Both the note and this
+//     header are now corrected from the source.
 //
 // So if map() works from our own script, the whole menu step disappears and the
 // workflow becomes: inject -> F7. That is the automation win the DLL route was
@@ -21,22 +29,27 @@
 // table, ACTS's cmd_function_t base is stale; D11: the lobby exports are not in
 // the binary).
 //
-// ⚠⚠ THE FAILURE MODE HERE IS A MAP LOAD LOOP, and it would be miserable - the
-//    game reloading forever with no way in. THREE independent guards, because one
-//    is not enough when the cost of being wrong is a stuck game:
+// ⚠⚠ TWO WAYS THIS BITES, and BOTH HAVE NOW HAPPENED. FOUR guards:
 //
 //      1. read_only        - default 1. Reports and switches nothing.
-//      2. already-there    - if the live map IS the target, do nothing. This is
-//                            the guard that SHOULD do all the work, since after a
-//                            successful switch the comparison stops matching.
-//      3. attempt counter  - game. scope, hard cap 1. Fires even if guard 2 is
-//                            wrong, e.g. if map() silently fails or the name does
-//                            not resolve, which would otherwise retry every round
-//                            forever. THIS is the one that matters.
+//      2. already-there    - if the live map IS the target, do nothing. Should do
+//                            all the work: after a good switch it stops matching.
+//      3. attempt counter  - game. scope, hard cap. Fires when guard 2's reasoning
+//                            is wrong, which would otherwise retry every round
+//                            forever. Guards the MAP LOAD LOOP.
+//      4. mapexists()      - ⚠ ADDED AFTER THE HANG. Guards the UNLOADABLE MAP.
 //
-//    Guard 3 is deliberately redundant with guard 2. Do not remove it as
-//    "unreachable" - it is reachable exactly when the reasoning behind guard 2 is
-//    wrong, which is the only case anyone cares about.
+//    Guard 3 is deliberately redundant with guard 2 - it is reachable exactly when
+//    guard 2's reasoning is wrong, which is the only case anyone cares about. Do
+//    not delete it as unreachable.
+//
+//    ⚠ Guard 4 exists because a bad TARGET is a different failure from a bad LOOP,
+//      and guards 1-3 do not touch it. On 2026-09-08 "mp_hijacked_rm" - a name
+//      taken from the dump's scripts/mp/ listing - HUNG THE GAME mid-load. The
+//      working set fell 8.2 GB -> 5.0 GB, so the load genuinely started and never
+//      finished. The caveat "a name in the dump proves the SCRIPT shipped, not that
+//      the map loads" was already written in this file, and was ignored anyway.
+//      Ask the engine (B5), do not trust the listing.
 //
 // ⚠ A carry is a LOAD-TIME OVERRIDE. It does not touch the session, which is why
 //   the scoreboard keeps naming the old map. That is expected and is not a bug -
@@ -48,6 +61,7 @@
 //   1xxxxx  is the live map already the target?   1/0
 //   2xxxxx  attempts used so far (game. scope)     0 on the first round
 //   3xxxxx  com_maxclients                         context, should not move
+//   4xxxxx  mapexists( target )                    1 = loadable, 0 = REFUSED, no switch
 //
 // Expected: round 1 reads 100000 (not there yet) and then the map loads.
 //           After the load, round 1 of the NEW map reads 100001 - and that is
@@ -93,7 +107,18 @@ function private run()
     // ⚠ A name being in the dump means the SCRIPT exists, not that the map is
     //   loadable in this build. B5 (mapexists) is the cheap way to check a name
     //   before trusting it; this test is also a way to find out the hard way.
-    target = "mp_hijacked_rm";
+    // ⚠⚠ HUNG THE GAME ON 2026-09-08 WITH "mp_hijacked_rm". The load STARTED -
+    //    working set fell 8.2 GB -> 5.0 GB, a real map unload - and never came
+    //    back. So the sequence works and the DESTINATION was wrong.
+    //
+    //    Hijacked is BO2-era content. Its script is in the dump; that only proves
+    //    the SCRIPT shipped, which is the exact caveat written three lines below
+    //    this before the run and ignored while picking a name off the listing.
+    //
+    // ▶ DEFAULT IS NOW A MAP KLAZE HAS ACTUALLY CARRIED TO AND PLAYED (Zoo,
+    //   3v3 Gunfight, 60s rounds, 2026-09-08). Prefer a map from the Atian menu's
+    //   own list over anything found only by grepping scripts/mp/.
+    target = "mp_zoo_rm";
 
     // ⚠ RUN WITH THIS AT 1 FIRST. Reports the state, switches nothing, and
     //   confirms the name comparison behaves before anything can reload.
@@ -155,6 +180,27 @@ function private run()
     {
         return;
     }
+
+    // ── guard 4 — ADDED AFTER THE 2026-09-08 HANG. mapexists() before map(). ──
+    // ⚠ This is the guard that would have PREVENTED the hang, and it was already
+    //   written down as test B5 while this script was being built. A map name in
+    //   scripts/mp/ proves a SCRIPT shipped, not that the map is loadable in this
+    //   install - so ask the engine instead of trusting the dump listing.
+    //
+    //   mapexists: 1 arg, BlackOpsColdWar.exe+3b0b2d0 (ate47's CW table).
+    //   Read-only, and cheap enough that there is no reason ever to skip it.
+    //
+    //   Emitted as probe 4 so a refusal is VISIBLE. A silent skip and a hung load
+    //   are the two outcomes here, and they must never look the same again.
+    exists = mapexists( target );
+
+    if ( !is_true( exists ) )
+    {
+        emit( 4, 0 );
+        return;
+    }
+    emit( 4, 1 );
+
     game.var_a4_attempts++;
 
     // ── THE SEQUENCE ────────────────────────────────────────────────────────
