@@ -60,21 +60,32 @@ team-size goal for free.
 ### L0 · **Allow In-Game Team Change** — the cheapest path to 4v4 that exists ← **do this first**
 
 klaze measured the pre-game team screen capping at **2** (Gunfight), **3** (3v3), **4** (CDL Pro S&D),
-**unrestricted** (TDM). That cap is a *lobby* rule. `serversettings.gsc:42` turns on in-match team
-switching for **private matches** when `allowingameteamchange` is set — and that setting **has a
-rules-menu row**. The in-match gate is `com_maxclients` (**8**), not 2 or 3.
+**unrestricted** (TDM) — plus **at most 2 CoD Casters** in any mode that supports them. That cap is a
+*lobby* rule. `serversettings.gsc:42` turns on in-match team switching for **private matches** when
+`allowingameteamchange` is set, and that setting **has a rules-menu row**.
+
+🔓 **And `menuteam()` — the in-match picker at `globallogic_ui.gsc:331` — has NO cap check at all.**
+Not 8, not 3: it gates on `level.allow_teamchange` + `hasdonecombat` and then simply **assigns** the
+team. [`lobby-settings.md`](lobby-settings.md)
+
+🔓 **So the lobby you already fill is the test.** 3v3 Gunfight with both teams full and **both caster
+slots taken** is 3 + 3 + 2 = **8 clients — exactly `com_maxclients`, and exactly 4v4's headcount.**
+The two casters do not need to rejoin, re-queue or free a slot. They are already in the match.
 
 1. Rules menu → find **Allow In-Game Team Change** → on
-2. Start a match, open the in-match team menu, try to join the full side
+2. Fill teams 3 v 3 **and both caster slots**. Start.
+3. **Each caster opens the in-match team menu and picks a side.** → 4v4
 
 | Outcome | Means |
 |---|---|
-| **switch succeeds past the lobby cap** | **4v4 needs no code** — only enough players in the lobby |
-| row absent from Gunfight's rules | the bundle exists but this variant does not show it |
-| switch blocked anyway | something past `serversettings.gsc` is enforcing it; record what the game says |
+| both casters join teams | 🔓 **4v4 with ZERO code.** The single best outcome available anywhere in this queue |
+| row absent from Gunfight's rules | the bundle exists but this variant does not show it → C10 instead |
+| a caster has no in-game menu | the likeliest failure — casters have their own control scheme (`category_codcaster_keybinds_codcaster.json`). Record it, then C10 |
+| menu opens but the team is greyed out | the **LUI** is enforcing a cap the script does not. Record exactly what it says — that is a new enforcement point nobody has located |
 
-⚠ Then the binding constraint is **lobby capacity**, not the cap: 4v4 needs 8 players in an 8-client
-lobby, so the two suspected spectator slots must be usable. Same question as C7/C8, different door.
+⚠ **This and C10 are complementary, not alternatives.** L0 uses casters who are *already in the
+match*; C10 uses players who *left and rejoin*. Different doors into the same 8-client budget. If L0
+works you need no injection at all — **which is why it goes first.**
 Result: `______`
 
 ### L1 · Is there a **Max Players** row in the Gunfight rules menu?
