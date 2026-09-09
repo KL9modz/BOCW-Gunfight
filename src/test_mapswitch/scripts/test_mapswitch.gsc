@@ -97,7 +97,7 @@ function private run()
 
     // ⚠ RUN WITH THIS AT 1 FIRST. Reports the state, switches nothing, and
     //   confirms the name comparison behaves before anything can reload.
-    read_only = 1;
+    read_only = 0;   // ✅ read-only run 2026-09-08 read 100000/200000: guards behave. Live now.
 
     // Hard cap on switch attempts, ever, for this game process. 1.
     maxattempts = 1;

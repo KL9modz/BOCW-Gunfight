@@ -325,6 +325,41 @@ free, and is worth taking the next time one is open.
 
 Result: **3v3 = 10 · 2v2 = 8** · third lobby: `______`
 
+#### 🔓🔓🔓 L7b · **`com_maxclients` FOLLOWED our `maxplayers` write. Measured 2026-09-08.**
+
+| When | Lobby | `maxplayers` | `com_maxclients` |
+|---|---|---|---|
+| baseline, earlier the same day | standard Gunfight (2v2) | 4 | **8** |
+| after `gunfight_mod` wrote `maxplayers = 8` | **standard Gunfight (2v2)** | 8 (written) | **12** |
+
+**Same lobby type. Same session. The input changed by 4 and the output changed by 4.**
+
+▶ **This is causal, not another correlation.** The two earlier readings (2v2 → 8, 3v3 → 10) were
+different lobbies and could only ever support a pattern. This one holds the lobby fixed and moves the
+variable, which is the difference between "these numbers co-vary" and "this one sets that one".
+
+▶ **So `com_maxclients` is REACHABLE FROM SCRIPT — indirectly, through `maxplayers`.** The dvar itself
+is still read-only (7 refs, all `getdvarint`, zero `setdvar`) and that was never wrong. What was wrong
+is the conclusion drawn from it: that the client budget could not be moved. It can — from upstream.
+
+▶ **4v4 is not the ceiling.** Twelve clients is **6v6** with no casters, or 5v5 with two. 6v6 was
+recorded in `.claude/CLAUDE.md` as *"not script-fixable"*.
+
+⚠ **CONFIRM BEFORE BUILDING ON IT — one `lobby_probe` run, read probes 7 and 1 together.** The `12`
+was read by `test_mapswitch`, which reads `com_maxclients` and **not** `maxplayers`, so "`maxplayers`
+is still 8 right now" is inferred from what we wrote rather than observed. Expect **7 = 8, 1 = 12**.
+Anything else and this entry is wrong.
+
+⚠ **Then test whether it RATCHETS, carefully.** `#team_size: 6` → `maxplayers = 12` → does
+`com_maxclients` go to **16**, or does something clamp? `clamp_team_size()` bounds the request at
+`com_maxclients / 2`, so as the budget grows the clamp loosens — **that is a feedback loop**, and it
+is worth knowing whether it terminates. Raise `team_size` **one step at a time** and read both probes
+after each. Do not jump to 6.
+
+⚠ **Unknown: whether the raised budget is real.** A larger `com_maxclients` means the *script* thinks
+there is room. Whether the session will actually seat a 9th–12th client is a separate question, and
+the answer that matters is C7/C10 with bodies in the slots — not the dvar.
+
 ### L3 · Bot Autofill / Bot Difficulty rows
 `bot_autofill_allies` and `bot_autofill_axis` are real bundles. If those rows exist, filling a test
 lobby needs **no injection** — strictly better than `bot::add_bot()` for C7/C8. Result: `______`

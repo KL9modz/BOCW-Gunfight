@@ -300,6 +300,27 @@ impossible, which is the failure mode this file's own header warns about.
 ⚠ **Read-only from script is UNAFFECTED** — still 7 refs, all `getdvarint`, zero `setdvar`. The
 **value** was wrong, not the access.
 
+🔓🔓🔓 **AND THE BUDGET IS REACHABLE ANYWAY — `com_maxclients` FOLLOWED a `maxplayers` write.**
+Measured 2026-09-08 in a **standard (2v2) Gunfight lobby**, which had been baselined at
+`maxplayers` 4 / `com_maxclients` **8** earlier the same day. After `gunfight_mod` wrote
+`maxplayers = 8`, the same lobby type read `com_maxclients` **12**. Input +4, output +4.
+
+▶ **This one is causal.** The earlier 2v2→8 / 3v3→10 pair came from *different* lobbies and could only
+support a correlation. This holds the lobby fixed and moves the variable.
+
+▶ So the long-standing conclusion — *the client budget cannot be moved from script* — is **retracted**.
+The dvar is read-only and always was; the **budget** is downstream of a setting we write.
+▶ **6v6 is back on the table.** Twelve clients is 6v6 with no casters. The "not script-fixable" chain
+below is about `setdvar` access, and access was never the thing that mattered.
+
+⚠ **Confirm with one `lobby_probe` run before building on it** — the 12 came from `test_mapswitch`,
+which reads `com_maxclients` but **not** `maxplayers`, so the 8 is inferred from what we wrote rather
+than observed. Expect probe 7 = 8 alongside probe 1 = 12.
+⚠ **Raise `team_size` one step at a time.** `clamp_team_size()` bounds requests at `com_maxclients / 2`,
+so a growing budget loosens its own clamp — a feedback loop whose termination is untested.
+⚠ **A bigger budget is not seated players.** It means the script believes there is room; whether the
+session seats a 9th–12th client is C7/C10 with bodies, not a dvar reading.
+
 🔓🔓 **The late-joiner path is script-side, and it has NO cap check.** `function_a3e209ba`
 (`team_assignment.gsc:600–656`) is a chain of **nine ANDs** that sends a mid-match joiner to
 spectator, and **two of the links are overridable**: `level.forceautoassign` and the gametype
