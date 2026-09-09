@@ -149,7 +149,25 @@ one.
 
 ---
 
-### 🔓 L5 · `maxsquadplayers` — **promoted 2026-09-08. The revert points straight at it.**
+### 🪦 L5 · `maxsquadplayers` — **DEAD, measured 2026-09-08. Read it before writing it, and that paid.**
+
+**Probe 6 = 0 and probe 12 = 0, in BOTH a 3v3 and a normal Gunfight lobby.** Predicted 3 and 2.
+
+✅ **The crack is VALIDATED, and the lead is dead — those are different results and both are real.**
+Probe 6 (by the cracked name `maxsquadplayers`) and probe 12 (`level.var_704bcca1`, the variable the
+hash actually feeds) **agree**, which is exactly the self-check A1 was built around. So
+`tools/crack-hash.py` maps the name correctly against the running game, and every other conclusion
+resting on the cracker stands. The setting is simply **0 — Gunfight does not use it.**
+
+🪦 **The `challenges.gsc:113` model is falsified, by its own stated test.** A1 said *"any lobby where
+`7 != 2 × 6` falsifies it."* Probe 7 = 6, probe 6 = 0, and 6 ≠ 0. Recorded as the falsification it is.
+
+⚠ `maxsquadplayers` reading 0 is not inert — `function_582e5d7c()` (`team_assignment.gsc:69`) treats
+`max_players == 0` as **no limit**. A 0 is "unset", not "capped at zero".
+
+▶ **Superseded by `maxplayers` — see L6.** The original text of this entry is below for the record.
+
+<details><summary>original L5 reasoning (kept — the prediction was wrong, the method was not)</summary>
 
 C7 measured that a Gunfight round boundary **restores the team size to 3** in a 3v3 lobby — session
 layer, not script (three script explanations ruled out; see C7). Separately, `maxsquadplayers`
@@ -169,7 +187,66 @@ invalidates the cracked name and everything resting on it.
 
 ⚠ **A write is a band-C action** — one per match, lobby return after. Do the read first; it is
 read-only and `lobby_probe` is already built.
-Result: read `______` · write `______`
+Result: read **0 / 0 — dead** · write **not attempted**
+
+</details>
+
+---
+
+### 🔓🔓 L6 · `maxplayers` — **the team-size setting, measured. Replaces L5.**
+
+**Probe 7 read `6` in a 3v3 Gunfight lobby and `4` in a normal one** — exactly the values A1
+predicted, and exactly **2 × the per-side size**. Everything the project wanted from
+`maxsquadplayers` is true of this instead:
+
+| Property | Status |
+|---|---|
+| Tracks team size | ✅ **measured**, 6 ↔ 3v3 and 4 ↔ 2v2 |
+| Is a gametype setting | ✅ `getgametypesetting( #"maxplayers" )` returned a value in both lobbies |
+| Runtime-writable | ✅ `setgametypesetting()` — Gunfight already calls it on itself at `gunfight.gsc:104`/`:106` |
+| Reachable from the menu | 🪦 **no** — L1 walked it. Script is the only way in |
+| Name resolved | ✅ plain-named, no crack needed |
+
+▶ **The write test: `setgametypesetting( #"maxplayers", 8 )`.** C7 measured that the round boundary
+restores team size from the session layer. **If it restores from this setting, the boundary that has
+been undoing 4v4 starts restoring it instead** — which is the whole team-size goal, for one line.
+
+⚠ **This is a band-C write.** One per match, lobby return after. ⚠ And it needs **B8 mode 2 shipped
+alongside it** — Gunfight spawns out of bounds past 3 a side, and a working 4v4 with broken spawns is
+not a working 4v4.
+Result: `______`
+
+---
+
+### 🔓🔓 L7 · `com_maxclients` is **NOT 8, and NOT fixed.** ← rewrites the project's team-size model
+
+**Probe 1 read `10` in a 3v3 Gunfight lobby and `8` in a normal Gunfight lobby.**
+
+The project has asserted `com_maxclients == 8` since the beginning, and built its entire team-size
+model on it — including *"8 clients is the budget, 4v4 is the ceiling, 5v5 needs ten and is
+unreachable."* **That was one reading, taken in one lobby type, and generalised.** It is wrong: the
+dvar tracks the playlist.
+
+| Lobby | `maxplayers` (7) | `com_maxclients` (1) | players + casters |
+|---|---|---|---|
+| normal Gunfight | 4 | **8** | 4 + 2 = 6, **2 spare** |
+| 3v3 Gunfight | 6 | **10** | 6 + 2 = 8, **2 spare** |
+
+⚠ **Two relationships, both n = 2 — patterns, not laws.** `maxplayers = 2 × per-side`, and
+`com_maxclients = maxplayers + 4`. A third lobby (CDL Pro S&D at 4 a side, or TDM) tests both for
+free, and is worth taking the next time one is open.
+
+**What this changes:**
+- **4v4 fits a 3v3 lobby with room to spare** — 8 players inside 10 slots, 2 left for casters. It is
+  no longer "exactly at the ceiling", which is consistent with C7 reaching 4v4 live.
+- 🔓 **5v5 is no longer ruled out.** Ten players is exactly `com_maxclients` in a 3v3 lobby, with zero
+  casters. That is tight, not impossible — and it was previously recorded as impossible.
+- ⚠ **The read-only claim still stands and is unaffected.** 7 refs, all `getdvarint`, zero `setdvar`.
+  Script still cannot write it. What changed is the **value**, not the access.
+- ⚠ **klaze's caster model is not refuted, it is incomplete.** "At most 2 casters" was measured
+  directly. The 2 spare slots beyond players+casters are unexplained and worth a probe.
+
+Result: **3v3 = 10 · 2v2 = 8** · third lobby: `______`
 
 ### L3 · Bot Autofill / Bot Difficulty rows
 `bot_autofill_allies` and `bot_autofill_axis` are real bundles. If those rows exist, filling a test

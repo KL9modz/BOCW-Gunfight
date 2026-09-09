@@ -67,7 +67,7 @@ almost nothing structurally vs T5 — **BO1 Gunfight experience transfers direct
 |---|---|---|
 | Round timer | `timeLimit` gametype setting | ✅ **CLOSED** — `timer_override`, 60s, survives a map carry |
 | Any map | the lobby's map, overridden at load time | ✅ **CLOSED** — Atian Menu carry, no DLL. [[menu-map]] |
-| Team size | `com_maxclients`, fixed at lobby creation | ⚠️ **3v3 working.** Script only ever *reads* the dvar — but the **late-joiner path is script-side and has no cap check at all**, which reaches 4v4 in one line: [[lobby-settings]] · test C10 |
+| Team size | the **`maxplayers` gametype setting** — `com_maxclients` is downstream of it | ⚠️ **3v3 working; 4v4 reached in-match with bots (C7).** ▶ `maxplayers` reads **2 × per-side**, is runtime-writable, and has **no menu row** — one `setgametypesetting` call: test **L6** |
 
 ⚠ The map row said `gunfight_zone_center` map entities through 2026-09-07. **That was wrong** — every
 stock Gunfight map reads zero of them, so it distinguishes nothing. See [[gunfight-findings]].
@@ -183,7 +183,10 @@ has. **No early return, no failure branch — the script layer cannot break at 1
 an engine builtin. Whether it returns `undefined` on exhaustion (graceful) or hands back an occupied
 point (telefrag) is engine-internal. **Only the Phase 1 live test answers this.**
 
-**6v6** — the chain, and why it is not script-fixable:
+**6v6** — the chain. ⚠ **Its conclusion is narrower than it was written to be.** Step 3 is a fact about
+**write access**, and it holds. It was read as also fixing the *value* at 8, and that part is
+retracted: the dvar reads **10** in a 3v3 lobby. The chain shows script cannot *set* the budget; it
+never showed the budget is small, and `maxplayers` sits upstream of it as a writable setting (L6).
 1. `team_assignment.gsc:94` `function_efe5a681( team )`:
    `if ( team_players.size >= max_players && max_players != 0 ) return false;`
 2. `player_shared.gsc:1300` `function_d36b6597()` — for a 2-team mode (`level.teamcount == 2`) the
@@ -193,7 +196,30 @@ point (telefrag) is engine-internal. **Only the Phase 1 live test answers this.*
    Script only ever observes it. It is set by the engine at session creation and bites at *join* time,
    before the gametype script exists.
 
-🔓 **`maxsquadplayers` — the strongest team-size lead yet.** `globallogic.gsc:241` reads
+🪦 **`maxsquadplayers` — DEAD, measured 2026-09-08. Superseded by `maxplayers`.**
+`lobby_probe` probe `6xxxxx` and probe `12xxxxx` **both read 0, in both lobby types** (predicted 3 and
+2). ✅ **The crack itself is VALIDATED and the lead is dead — two different results, both real.**
+Probe 6 asks by the cracked name and probe 12 reads `level.var_704bcca1`, the variable the hash
+actually feeds; **they agree**, which is the self-check A1 was built around. `tools/crack-hash.py` maps
+names correctly against the running game, so everything else resting on the cracker stands. The setting
+is just **0 — Gunfight does not use it.** ⚠ 0 means *unset*, not *capped at zero*:
+`team_assignment.gsc:69` treats `max_players == 0` as **no limit**.
+🪦 And `challenges.gsc:113`'s `maxplayers / maxsquadplayers` team-count model is **falsified by its own
+stated test** — probe 7 = 6, probe 6 = 0, and 6 ≠ 2 × 0.
+
+🔓🔓 **`maxplayers` is the team-size setting — measured, and it hit the prediction exactly.** Probe
+`7xxxxx` read **6** in a 3v3 lobby and **4** in a normal one: **2 × the per-side size**, both times.
+It is plain-named (no crack needed), it is a gametype setting, it is runtime-writable via
+`setgametypesetting()` — which `gunfight.gsc:104`/`:106` already does to itself — and L1 walked the
+menu and found **no row for it in Gunfight**, so script is the only way in.
+▶ **The write is `setgametypesetting( #"maxplayers", 8 )`.** C7 measured the round boundary restoring
+team size from the session layer; if it restores from this, the boundary that has been *undoing* 4v4
+starts *restoring* it. ⚠ Needs **B8 mode 2** alongside — 4v4 with out-of-bounds spawns is not 4v4.
+Test L6.
+
+<details><summary>original `maxsquadplayers` reasoning — the prediction was wrong, the method was not</summary>
+
+`globallogic.gsc:241` reads
 `getgametypesetting( #"hash_3a4691a853585241" )` into `level.var_704bcca1`. That hash cracks to
 **`maxsquadplayers`** (`tools/crack-hash.py`, exact 63-bit match), and the field is real: `uint:6`,
 **max 63**. It is present in `custom_games.ddl` and `gametype_settings.ddl` where **`maxteamplayers`
@@ -208,26 +234,55 @@ So the cap is a gametype setting with no menu exposure — precisely what `maxsq
 **Predicted: probe `6xxxxx` reads 3 in a 3v3 lobby and 2 in normal Gunfight.** Run both; one reading
 cannot distinguish the cap from a coincidence. [[dump-cross-check]]
 
+</details>
+
+⚠ **Both lobbies were run, and both read 0.** The prediction above is falsified; it is kept because
+running *both* lobbies is what made the result interpretable, and that part of the method was right.
+
 🔓 **The 3-per-team limit is NOT enforced by team assignment.** `function_d36b6597()` returns
-`com_maxclients` for a two-team mode (`teamcount == 2`, `com_maxclients == 8`, `8 != 2`), and
-`function_efe5a681` (`team_assignment.gsc:95–126`) refuses a team only at
-`team_players.size >= 8`. **Nothing in that path says three.** So 4v4 inside 8 client slots is not
-blocked at the script layer — what is blocked is a ninth client, and 4v4 needs only eight. Where the
-split actually comes from is narrowed, not answered: [[dump-cross-check]]. Test C8 asks the engine
-directly.
+`com_maxclients` for a two-team mode, and `function_efe5a681` (`team_assignment.gsc:95–126`) refuses a
+team only at `team_players.size >= com_maxclients`. **Nothing in that path says three.**
+✅ **Confirmed in-game 2026-09-08: C7 filled a Gunfight team to FOUR with bots.** Where the 3-split
+actually comes from is the session layer, not this path — C7 ruled out all three script explanations.
+
+⚠ **Both gates read `com_maxclients`, so their value is whatever the playlist sets — 10 in a 3v3
+lobby, not 8.** This paragraph said "8" as a constant until 2026-09-08; see the retraction below. The
+*structure* of the argument is unchanged and was confirmed live; only the number moved, and it moved
+**in our favour**.
 
 ⚠ **That gate has TWO checks; only the first was recorded until 2026-09-08.** The second is
 `party.var_a15e4438 > function_ee150fcc( team_players )` at `:113`. ✅ It does not change the answer —
-`function_ee150fcc` is `com_maxclients − …`, **not** `maxsquadplayers`, so both gates are 8 for a solo
-player. ⚠ But `player_shared.gsc:1338` makes a **non-`fill` party count as 8 by itself** when
-`level.var_7d3ed2bf` is set, which would let one party occupy a whole side. Probe it before trusting
-in-match team switching with a partied group. [[gametype-settings-map]]
+`function_ee150fcc` is `com_maxclients − …`, **not** `maxsquadplayers`, so both gates track the same
+playlist-derived number for a solo player. ⚠ `player_shared.gsc:1338` makes a **non-`fill` party count
+as the full budget by itself** when `level.var_7d3ed2bf` is set, which would let one party occupy a
+whole side. ✅ **Probed 2026-09-08: `level.var_7d3ed2bf` reads 0 in both Gunfight lobby types**, so
+this is not armed and in-match team switching is not exposed to it. [[gametype-settings-map]]
 
-🔓🔓 **`com_maxclients = 8` is a TOTAL CLIENT BUDGET, and casters spend from it.** klaze measured
-(2026-09-09) that every mode assigns a pregame player to a team **or** as a CoD Caster, at most **2**
-casters. 3v3 Gunfight = 3 + 3 + 2 = **8**. Extras cannot be assigned and the host cannot start with
-too many casters, so they **leave, the host starts, and they rejoin mid-match** — which the game
-allows. ⚠ **So 4v4 fits the existing budget; 5v5 does not** (ten clients, still lobby-side).
+🪦 **`com_maxclients = 8` — RETRACTED 2026-09-08. It reads 10 in a 3v3 lobby.** `lobby_probe` probe
+`1xxxxx` returned **10** in 3v3 Gunfight and **8** in normal Gunfight: the dvar **tracks the
+playlist**. The 8 was one reading, taken in one lobby type, and generalised into a law — every "the
+budget is 8" conclusion in this file and the notes descends from it and is suspect wherever it was not
+independently re-measured.
+
+| Lobby | `maxplayers` | `com_maxclients` | players + 2 casters | spare |
+|---|---|---|---|---|
+| normal Gunfight | 4 | **8** | 6 | 2 |
+| 3v3 Gunfight | 6 | **10** | 8 | 2 |
+
+✅ klaze's caster model is **not** refuted — every mode assigns a pregame player to a team or as a CoD
+Caster, at most 2 casters, and extras must leave / rejoin mid-match. That was measured directly. It is
+*incomplete*: two further slots exist that it does not account for.
+
+⚠ Both relationships here — `maxplayers = 2 × per-side` and `com_maxclients = maxplayers + 4` — are
+**n = 2**. Patterns, not laws. A third lobby type (CDL Pro S&D at 4 a side, or TDM) tests both for free.
+
+▶ **What it changes:** 4v4 fits a 3v3 lobby **with two slots spare**, not exactly at the ceiling —
+consistent with C7 reaching 4v4 live. And 🔓 **5v5 is no longer ruled out**: ten players is exactly
+`com_maxclients` there, with zero casters. Tight, not impossible — and it had been recorded as
+impossible, which is the failure mode this file's own header warns about.
+
+⚠ **Read-only from script is UNAFFECTED** — still 7 refs, all `getdvarint`, zero `setdvar`. The
+**value** was wrong, not the access.
 
 🔓🔓 **The late-joiner path is script-side, and it has NO cap check.** `function_a3e209ba`
 (`team_assignment.gsc:600–656`) is a chain of **nine ANDs** that sends a mid-match joiner to
