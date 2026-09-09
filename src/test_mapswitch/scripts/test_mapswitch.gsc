@@ -29,7 +29,8 @@
 // table, ACTS's cmd_function_t base is stale; D11: the lobby exports are not in
 // the binary).
 //
-// ⚠⚠ TWO WAYS THIS BITES, and BOTH HAVE NOW HAPPENED. FOUR guards:
+// ⚠⚠ TWO WAYS THIS BITES, and BOTH HAVE NOW HAPPENED. THREE guards - and the
+//    second failure mode HAS NO GUARD, see 4 below:
 //
 //      1. read_only        - default 1. Reports and switches nothing.
 //      2. already-there    - if the live map IS the target, do nothing. Should do
@@ -37,19 +38,28 @@
 //      3. attempt counter  - game. scope, hard cap. Fires when guard 2's reasoning
 //                            is wrong, which would otherwise retry every round
 //                            forever. Guards the MAP LOAD LOOP.
-//      4. mapexists()      - ⚠ ADDED AFTER THE HANG. Guards the UNLOADABLE MAP.
+//      4. mapexists()      - 🪦 REMOVED. B5 measured it returning TRUE FOR ANY
+//                            NAME, including invented ones. It would have passed
+//                            the map that broke the session. No guard 4 exists.
 //
 //    Guard 3 is deliberately redundant with guard 2 - it is reachable exactly when
 //    guard 2's reasoning is wrong, which is the only case anyone cares about. Do
 //    not delete it as unreachable.
 //
-//    ⚠ Guard 4 exists because a bad TARGET is a different failure from a bad LOOP,
-//      and guards 1-3 do not touch it. On 2026-09-08 "mp_hijacked_rm" - a name
-//      taken from the dump's scripts/mp/ listing - HUNG THE GAME mid-load. The
-//      working set fell 8.2 GB -> 5.0 GB, so the load genuinely started and never
-//      finished. The caveat "a name in the dump proves the SCRIPT shipped, not that
-//      the map loads" was already written in this file, and was ignored anyway.
-//      Ask the engine (B5), do not trust the listing.
+//    ⚠⚠ A bad TARGET is a different failure from a bad LOOP, guards 1-3 do not
+//       touch it, AND THERE IS NO GUARD FOR IT. On 2026-09-08 "mp_hijacked_rm" -
+//       a name taken from the dump's scripts/mp/ listing - tore down the live map,
+//       failed to load, and left the session glitched on the OLD map with no error.
+//
+//       B5 was run to build a guard for this and came back useless: mapexists()
+//       answers TRUE for every name including invented ones. There is currently no
+//       way to ask whether a map will load without trying it, and trying it is the
+//       destructive act.
+//
+//    ▶ SO: DO NOT RUN THIS LIVE AGAINST AN UNVERIFIED MAP NAME. The only safe
+//      targets are maps confirmed by having actually carried to them through the
+//      Atian Menu. Its shipped list is 19 of the source's 48 and may well BE the
+//      curated loadable set - capturing it is test A2, now load-bearing here.
 //
 // ⚠ A carry is a LOAD-TIME OVERRIDE. It does not touch the session, which is why
 //   the scoreboard keeps naming the old map. That is expected and is not a bug -
@@ -61,7 +71,7 @@
 //   1xxxxx  is the live map already the target?   1/0
 //   2xxxxx  attempts used so far (game. scope)     0 on the first round
 //   3xxxxx  com_maxclients                         context, should not move
-//   4xxxxx  mapexists( target )                    1 = loadable, 0 = REFUSED, no switch
+//   (probe 4 removed - mapexists is useless in this build, see B5)
 //
 // Expected: round 1 reads 100000 (not there yet) and then the map loads.
 //           After the load, round 1 of the NEW map reads 100001 - and that is
@@ -120,18 +130,22 @@ function private run()
     //    from a stale RSS reading and then "a slow load" when it recovered; both
     //    were wrong. Record the behaviour, not the first plausible story.
     //
-    //    ▶ THE FAILURE IS SILENT AND DESTRUCTIVE, which is why guard 4 has to run
-    //      BEFORE anything is torn down. There is no error, no refusal, and no
+    //    ▶ THE FAILURE IS SILENT AND DESTRUCTIVE. No error, no refusal, and no
     //      point after map() at which the script can still save the session.
     //
     //    Hijacked is BO2-era content. Its script is in the dump; that only proves
-    //    the SCRIPT shipped, which is the exact caveat written three lines below
+    //    the SCRIPT shipped, which is the exact caveat written three lines above
     //    this before the run and ignored while picking a name off the listing.
     //
-    //    ⚠ UNKNOWN, and do not assume: whether mapexists() actually returns 0 for
-    //      this name. If it returns 1 and the load still breaks, guard 4 does not
-    //      cover this case and the real precondition is something else. B5 over
-    //      the full 38-name list answers it read-only, and should be run FIRST.
+    // 🪦 **B5 ANSWERED IT, AND THE ANSWER WAS "NO GUARD IS AVAILABLE".** The open
+    //    question here was whether mapexists() returns 0 for this name. It does
+    //    not - B5's control read 900003, meaning it returns TRUE for the live map
+    //    AND for "zzz_not_a_map", with all 38 names coming back set. So it would
+    //    have passed mp_hijacked_rm straight through.
+    //
+    //    There is currently NO way to ask whether a map will load without loading
+    //    it, and loading it is the destructive act. Until that changes, the target
+    //    must be a map already confirmed by carrying to it through the menu.
     //
     // ▶ DEFAULT IS NOW A MAP KLAZE HAS ACTUALLY CARRIED TO AND PLAYED (Zoo,
     //   3v3 Gunfight, 60s rounds, 2026-09-08). Prefer a map from the Atian menu's
@@ -199,25 +213,32 @@ function private run()
         return;
     }
 
-    // ── guard 4 — ADDED AFTER THE 2026-09-08 HANG. mapexists() before map(). ──
-    // ⚠ This is the guard that would have PREVENTED the hang, and it was already
-    //   written down as test B5 while this script was being built. A map name in
-    //   scripts/mp/ proves a SCRIPT shipped, not that the map is loadable in this
-    //   install - so ask the engine instead of trusting the dump listing.
+    // ── guard 4 — 🪦 REMOVED THE DAY IT WAS ADDED. mapexists() IS USELESS HERE. ──
     //
-    //   mapexists: 1 arg, BlackOpsColdWar.exe+3b0b2d0 (ate47's CW table).
-    //   Read-only, and cheap enough that there is no reason ever to skip it.
+    // It was added as "the guard that would have prevented the hang". Test B5 then
+    // measured it (2026-09-08) and it **returns true for everything**:
     //
-    //   Emitted as probe 4 so a refusal is VISIBLE. A silent skip and a hung load
-    //   are the two outcomes here, and they must never look the same again.
-    exists = mapexists( target );
-
-    if ( !is_true( exists ) )
-    {
-        emit( 4, 0 );
-        return;
-    }
-    emit( 4, 1 );
+    //     control probe = mapexists( live_map )*2 + mapexists( "zzz_not_a_map" )
+    //     read 900003   -> true for the real map AND for a name that cannot exist
+    //     all 38 names  -> 32767 / 32767 / 63, every bit set in every group
+    //
+    // ⚠ So it would have returned 1 for mp_hijacked_rm and waved the destructive
+    //   switch straight through. **A guard that always passes is worse than no
+    //   guard**, because it manufactures confidence. Deleted rather than left in
+    //   with a caveat, since a caveat in a comment does not stop the next reader
+    //   trusting the code.
+    //
+    // ✅ B5's CONTROL is what caught this - the payload alone looked like a clean
+    //   "all 38 maps are loadable" result. That is the jump_height lesson from
+    //   mp-dvars.md, and the reason crack-cmds.py refuses to report when its own
+    //   controls fail. Keep putting controls in probes.
+    //
+    // ▶ THE REAL PRECONDITION IS STILL UNKNOWN, so there is no guard 4 to replace
+    //   it with. Until one exists, the ONLY safe targets are maps empirically
+    //   confirmed loadable by carrying to them through the Atian Menu - whose
+    //   shipped list is 19 of the source's 48, and may well BE the curated
+    //   loadable set. Recording that list is test A2, and it is now load-bearing
+    //   for this route rather than a curiosity.
 
     game.var_a4_attempts++;
 

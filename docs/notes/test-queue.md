@@ -578,7 +578,39 @@ loading it. Read-only.
 per name, batched in groups of ~20 so each number stays readable. Tells you which of the Atian
 source's names this build actually has, which is also a cross-check on A2's count.
 
-Result: `______`
+#### 🪦 RESULT 2026-09-08 — **`mapexists()` RETURNS TRUE FOR EVERYTHING. Useless.**
+
+Run as `src/test_mapexists/` over all 38 names from the dump's `scripts/mp/`.
+
+| Probe | Read | Meaning |
+|---|---|---|
+| `9xxxxx` **control** | **`900003`** | 🪦 true for the live map **and** for `"zzz_not_a_map"` |
+| `1xxxxx` group A (15) | `132767` | 32767 — **all 15 bits set** |
+| `2xxxxx` group B (15) | `232767` | 32767 — **all 15 bits set** |
+| `3xxxxx` group C (6) | `300063` | 63 — **all 6 bits set** |
+
+▶ **The payload is discarded, not interpreted.** On its own it reads as a clean "all 38 maps are
+loadable" finding. It is not a finding; it is a builtin that cannot say no.
+
+✅ **THE CONTROL IS WHAT CAUGHT IT.** Without probe 9 this would have entered the notes as a real map
+list and been trusted. That is the `jump_height` lesson from [`mp-dvars.md`](mp-dvars.md) firing
+exactly as intended, and the same discipline `crack-cmds.py` enforces by refusing to report when its
+five known-real controls fail. **Keep putting controls in probes.**
+
+⚠ **This kills A4's guard 4, which was written the same day.** `mapexists()` would have returned 1 for
+`mp_hijacked_rm` and passed the switch that broke the session. The guard is **deleted** rather than
+kept with a caveat — a guard that always passes manufactures confidence, and a warning in a comment
+does not stop the next reader trusting the code.
+
+⚠ **Untried — not ruled out.** As called, with a plain string, it is useless. Whether some *other*
+argument form (a hashed name, a different builtin) answers honestly is unknown; `mapexists` is 1-arg
+at `+3b0b2d0` and a string is the obvious form. Also unknown whether it is genuinely a stub or is
+answering about something other than installed content.
+
+▶ **What this leaves:** there is currently **no way to ask whether a map will load without loading
+it**, and loading it is the destructive act. So A4's only safe targets are maps confirmed by having
+actually carried to them through the Atian Menu — which promotes **A2** (capture the menu's shipped
+19-map list) from a curiosity to a **prerequisite** for the automation route.
 
 ### B6 · `gunfightloadoutindex` — **snipers-only and melee-only Gunfight**
 [`gametype-settings-map.md`](gametype-settings-map.md)
