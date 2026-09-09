@@ -17,8 +17,8 @@ others cannot:
 
 | Surface | Reaches | Cannot reach | Cost | Status |
 |---|---|---|---|---|
-| **In-match GSC menu** | everything script can — map, mode, team size, bot fill, move players, timer, loadout set, spy plane | the pregame lobby (no GSC runs there) | **low** — the Atian Menu source is public, its item/page API is three functions, and every control is a builtin this project has already called | ▶ second, after D10 |
-| **Pregame lobby control** | the lobby, via console commands from the one DLL slot that loads | anything GSC does | **gated on D10** — which command? nobody has looked | ⬅ **#1. Run D10 first** |
+| **In-match GSC menu** | everything script can — map, mode, team size, bot fill, move players, timer, loadout set, spy plane | the pregame lobby — it is hooked at `bb.gsc`, which is MP-only, and it `#using`s `mp_common`, which the frontend does not load | **low** — the Atian Menu source is public, its item/page API is three functions, and every control is a builtin this project has already called | ✅ built; ▶ second, after P1 |
+| **Pregame lobby control** | the lobby, from a **frontend-hooked GSC payload** (`load_shared.gsc` links in every VM) — 🪦 "no GSC runs there" retracted from the dump; the DLL command route stays as the fallback, blocked on a stale ACTS base | the lobby's map/mode pickers (LUA) unless `adddebugcommand()` is alive (P3) | **low** — `src/test_frontend/` is built, read-only first | ⬅ **#1. Run P1 first** [`pregame-routes.md`](pregame-routes.md) |
 | **Windows tool** | orchestration: compile, inject, flip configs, capture probes, drive the other two | the game itself | medium | ⏸ after the menu exists to orchestrate |
 
 ### A1 · The in-match menu — ✅ BUILT 2026-09-09 as `src/gunfight_menu/`, compile pending
@@ -173,7 +173,7 @@ From a running Gunfight match on map X, target map Y:
 | Outcome | Means |
 |---|---|
 | scoreboard / pause menu / AAR say **Y + Gunfight**, **and the friend list / activity shows Y** | 🔓 **Goal B closed.** The engine's session record moved. Replace `map()` in `gunfight_mod` and the menu |
-| in-match UI says Y but **presence still says X** | the call updated the match but not the session. Partial — better than the carry, not the glitch. D10 next |
+| in-match UI says Y but **presence still says X** | the call updated the match but not the session. Partial — better than the carry, not the glitch. Next: P3 (`adddebugcommand` → `map` / `gametype` from script) or the DLL route once a command table exists |
 | loads Y, UI still says X | the session record is not set by `switchmap_load` either. Next: does step 2 alone change what the UI says (probe 40 read-back), and what does the glitch do that neither does |
 | `switchmap_preload_finished` never signals (probe 41 = 99999) | the load did not start — wrong gametype string, or the thread was killed. Check the wrapper for `endon` before anything else |
 | hangs on load | same failure A4 hit. **Only target maps already carried to** — `mapexists()` returns 1 for everything (B5) and is not a guard |
@@ -239,10 +239,10 @@ is found; no public lobby is ever played; the end state is a private custom game
 decision, and the glitch is a legitimate route again** — for the *result*, and as a fallback.
 
 ▶ **It is still the fallback, not the plan.** Two players and a sequence of party operations is a worse
-route than one script call, *if* one script call works. **B1 tests that first.** And ⚠ D10 now has a
-second question to answer: whether party join / leave / matchmaking-search are **console commands** —
-if they are, the glitch itself may be automatable from the DLL slot, which is the only way it could ever
-become a one-button thing.
+route than one script call, *if* one script call works. **B1 tests that first.** And ⚠ the command
+list — D10, or P3 trying names from script if `adddebugcommand()` is alive — has a second question to
+answer: whether party join / leave / matchmaking-search are **console commands**. If they are, the
+glitch itself may be automatable, which is the only way it could ever become a one-button thing.
 
 ### ✅ Where the carry's UI goes stale — ANSWERED, and it is everywhere
 
@@ -258,7 +258,7 @@ load under an unchanged session — and it hands B1 a clean, binary success crit
 
 ▶ **After `switchmap_load( map, gametype )`, does the friend list / activity show the new map?**
 If yes, the engine's session record moved and Goal B is closed. If no, no GSC call reaches it and the
-route is D10 (a console command) or the glitch.
+route is a console command (P3 from script, or the DLL slot once D10 has a table) or the glitch.
 
 ### ❓ Still needs klaze
 - **After the glitch, is *everything* right?** Spawns, the map list afterwards, map voting, the AAR. If
@@ -270,8 +270,9 @@ route is D10 (a console command) or the glitch.
 ## Order of work
 
 ⚠ **REORDERED 2026-09-09.** klaze: *"pregame control would be the single most valuable mod for this
-entire project."* That moves A2 from third to first and pulls **D10** — the measurement that gates it —
-to the front of the whole roadmap.
+entire project."* That moves A2 from third to first. It pulled **D10** to the front; D10 ran and came
+back empty (stale ACTS base), and the dump then retracted the premise D10 rested on — that nothing GSC
+runs in the lobby — so **P1** holds the front now.
 
 1. **P1 — `src/test_frontend/`, read-only.** ⬅ **the new #1.** One payload, the frontend hook, no
    writes: does GSC run in the lobby, and does `getgametypesetting()` read the lobby's config there.
