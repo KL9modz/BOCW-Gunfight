@@ -143,6 +143,40 @@ Result: `______`
 
 ---
 
+### D10 · `acts dcfuncscw` — dump the game's console command list ← **gates the lobby-map DLL**
+[`lobby-map-dll.md`](lobby-map-dll.md)
+
+klaze wants an auto-loading DLL that picks the Gunfight map from the pregame lobby. **The machinery
+already exists** — cwpatch runs arbitrary console commands from the one DLL slot that loads, and
+`map %s\n` is in the blob it writes to. **The only open question is which command**, and nobody has
+ever looked at the list.
+
+```powershell
+acts dcfuncscw                                  # game RUNNING, in a Gunfight pregame lobby
+python3 tools\crack-cmds.py cfuncs_cw.csv
+```
+
+⚠ **Read the control line before anything else.** The tool checks five commands known real from
+cwpatch. **Zero resolving means the hash form or the CSV column is wrong and the rest is noise.**
+
+| Outcome | Means |
+|---|---|
+| a command that sets the lobby map | 🔓 **the DLL is one command in the shim.** Every step already proven by cwpatch |
+| only `map <name>` | bind it. ⚠ Untested whether `map` from a lobby keeps the Gunfight gametype |
+| nothing map-shaped | the wordlist was wrong first, the command layer second. Add guesses with `--words=` before concluding anything |
+| `dcfuncscw` errors or dumps garbage | its `cmd_function_t` base is hardcoded (`poolt9.cpp:607`) and may be stale for this build. That is a fact about ACTS, not about the game |
+
+⚠ Read-only, but it **attaches to the live process** — less exposure than the injector already in use,
+not zero. Result: `______`
+
+### D11 · `dumpbin /exports acts-bocw.dll | findstr /i lobby` — 30 seconds, no game
+`acts cwdllgt` calls `ACTS_EXPORT_SetLobbyGameType` / `ACTS_EXPORT_SetLobbyMap`. **Neither exists in
+ACTS master** — one export in the whole DLL. But the project pins **v3.3.0**, a release binary.
+Nothing back → drop the powrprof track entirely rather than trying to fix its crash.
+Result: `______`
+
+---
+
 ## 0 — Off-game. Dev PC, no game, zero exposure.
 
 ### A0 · `tools/dump-grep.sh` — resolve builtin argument shapes ← **run first**

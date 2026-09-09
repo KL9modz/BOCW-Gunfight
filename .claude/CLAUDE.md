@@ -454,9 +454,16 @@ The MP path is the undocumented one. **Validate it with a hello-world before wri
 None of this is needed for the mod. It is here because it shares the process and the anti-cheat
 surface, and because one piece of it is directly useful.
 
-- **Forcing gametype/map without the menu glitch** — `acts cwdllgt gunfight mp_moscow`, which needs
-  ACTS's `acts-bocw.dll` deployed as `powrprof.dll`. Why LoadLibrary injection cannot work for it:
-  [[dll-proxy]].
+- 🪦 **`acts cwdllgt gunfight mp_moscow` — DEAD TWICE OVER.** It needs ACTS's `acts-bocw.dll` as
+  `powrprof.dll`, which **crashes the game at startup** (3/3, identical offset — [[dll-proxy]]); and
+  the exports it calls, `ACTS_EXPORT_SetLobbyGameType` / `ACTS_EXPORT_SetLobbyMap`, **do not exist in
+  ACTS master** — `src/dll/bocw-dll/main.cpp` declares exactly one export, `CallNtPowerInformation`.
+  ⚠ Verify against **v3.3.0's binary**, not master: `dumpbin /exports acts-bocw.dll | findstr /i lobby`.
+- ▶ **Wanted: an auto-loading DLL that picks the Gunfight map from the lobby.** The machinery exists —
+  cwpatch already executes arbitrary console commands from the one slot that loads, and `map %s\n` is
+  in the blob it writes to. **The missing piece is which command**, and `acts dcfuncscw` +
+  `tools/crack-cmds.py` answers it before any C is written. Routes, costs and the two dead ends:
+  [[lobby-map-dll]].
 - **Starting the match once forced** — the cwpatch `discord_game_sdk.dll` binds **F4** to
   `lobbylaunchgame`, plus F6/F7 for `fast_restart` / `full_restart`. That is the missing half of the
   above, and it re-runs a match without leaving the lobby. Different DLL slot, so the two coexist.

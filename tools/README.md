@@ -6,6 +6,7 @@
 | `dump-grep.sh` | Offline — resolves builtin argument shapes from stock call sites in `bocw-source`. Writes `dump-report.md`. No game, no network |
 | `check-args.py` | Offline — checks builtin **argument counts** against ate47's Cold War table. `check-gsc.ps1` explicitly does not do this |
 | `crack-hash.py` | Offline — recovers the NAME behind a T9 script hash by guessing and hashing. Cracked `maxsquadplayers` and `gunfightloadoutindex`. Unsalted hash, so a 63-bit match is proof |
+| `crack-cmds.py` | Offline — recovers console-command NAMES from `acts dcfuncscw`'s hashed `cfuncs_cw.csv`. Command-shaped vocabulary, tries masked *and* raw hash forms, and refuses to be read at all if none of five known-real controls resolve. The gate on `docs/notes/lobby-map-dll.md` |
 | `settings-xref.py` | Offline — classifies all 463 gametype settings script reads by whether a **menu row** exists for them. Establishes *hashed ⇒ hidden*: 0 of 236 hashed keys has a bundle. Regenerates `docs/notes/gametype-settings-map.md` |
 | `check-dump.py` | Offline — **stages 3–4 of `check-gsc.ps1` without ACTS or PowerShell.** Resolves every call against the dump AND ate47's engine table, which splits "no stock caller" from "does not exist" |
 | `inject.sh` | Inject **one** payload (`menu` or `mod`) on the known-safe hook/replace pair |

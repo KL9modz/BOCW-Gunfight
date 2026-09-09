@@ -17,6 +17,11 @@ These are **not** auto-loaded. Open the one you need.
   cracks `gunfightloadoutindex` (snipers-only / melee-only Gunfight for one call), finds the value
   `gunfight_spy_plane` hides, corrects the join-gate citation and its missing second check, and flags
   the one setting that can break Route A.
+- [lobby-map-dll](lobby-map-dll.md) — **an auto-loading DLL that picks the Gunfight map from the
+  lobby.** Kills `acts cwdllgt` twice over (the proxy crashes *and* the exports are absent from ACTS
+  master), then lays out the route that does work: cwpatch already runs arbitrary console commands
+  from the one slot that loads, so the only open question is which command — and `acts dcfuncscw` plus
+  `tools/crack-cmds.py` answers it before any C gets written.
 - [lobby-settings](lobby-settings.md) — **the pre-match layer**: which step of hosting lives where, why
   `frontend.gsc` is not the lobby, and `scriptbundle/gamesettings/` — 427 JSON bundles that are the
   complete rules-menu surface. Carries the cheapest open lead in the project: a **Max Players** row
