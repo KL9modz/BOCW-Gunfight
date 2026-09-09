@@ -8,6 +8,11 @@ gametype (T9), for private/custom lobbies hosted from the owner's machine.
 and it **survived the round boundary** that had reverted every earlier attempt. ⚠ Verified with
 **bots**; a human 4v4 has not been played yet, and 5v5 is untried but no longer ruled out.
 The working recipe is [[menu-map]] → *PROCEDURE*. Read that before anything else here.
+▶ **What the project is for now: [[roadmap]]** — a real control surface for hosting (in-match menu
+first, pregame lobby second, Windows tool last), and loading Gunfight on any map *the way the glitch
+does* rather than the way the carry does. ⚠ Goal B has a testable cause: **the carry calls `map()`,
+which has zero stock callers anywhere in the dump, and never passes the gametype.** Three stock
+systems switch maps with `switchmap_load( map, gametype )` and the session stays correct.
 
 ⚠ **Do not record an untried route as a limitation.** "We measured X" belongs in this file. "Therefore
 Y is impossible" does not — every such conclusion in this project's history has had to be walked back
@@ -69,7 +74,7 @@ almost nothing structurally vs T5 — **BO1 Gunfight experience transfers direct
 | Goal | Lives in | Status |
 |---|---|---|
 | Round timer | `timeLimit` gametype setting | ✅ **CLOSED** — `timer_override`, 60s, survives a map carry |
-| Any map | the lobby's map, overridden at load time | ✅ **CLOSED** — Atian Menu carry, no DLL. [[menu-map]] |
+| Any map | the lobby's map, overridden at load time | ✅ **CLOSED** — Atian Menu carry, no DLL. [[menu-map]] ⚠ **but the UI stays stale** (scoreboard/menu still name the lobby's map) — the carry uses `map()`, not the session-aware `switchmap_load( map, gametype )` stock uses. Fix scoped as [[roadmap]] Goal B |
 | Team size | the **`maxplayers` gametype setting** — `com_maxclients` is downstream of it | ✅ **CLOSED** — `setgametypesetting( #"maxplayers", 8 )` = 4v4, survives the round boundary. `team_size_override` in `gunfight_mod`. L6 |
 
 ⚠ The map row said `gunfight_zone_center` map entities through 2026-09-07. **That was wrong** — every

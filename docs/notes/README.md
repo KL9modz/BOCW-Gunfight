@@ -7,6 +7,14 @@ These are **not** auto-loaded. Open the one you need.
 
 ## Index
 
+**Where the project is going**
+
+- [roadmap](roadmap.md) — **the two goals after the three closed ones.** A: a hosting control surface —
+  in-match GSC menu (every control is already a proven call), pregame lobby via the DLL command route
+  (gated on D10), Windows tool last. B: load Gunfight on any map with the session tracking correctly,
+  the way the glitch does — diagnosed as the carry using `map()` (zero stock callers, no gametype)
+  where stock uses `switchmap_load( map, gametype )`. Carries the four ❓ that shape the plan.
+
 **Start here if you are at the machine**
 
 - [gamesettings-catalog](gamesettings-catalog.md) — **all 427 rules-menu rows**, with the setting each
