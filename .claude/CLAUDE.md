@@ -3,7 +3,10 @@
 Unlock **any map**, **larger teams**, and an **editable round timer** for BOCW's stock Gunfight
 gametype (T9), for private/custom lobbies hosted from the owner's machine.
 
-**Status: map and timer are CLOSED and confirmed in-game. Teams are at 3v3; the target is 4v4-5v5.**
+**Status: ALL THREE GOALS CLOSED and confirmed in-game — map, timer, and team size.**
+4v4 verified 2026-09-08 (test L6 run 2): `setgametypesetting( #"maxplayers", 8 )`, filled with bots,
+and it **survived the round boundary** that had reverted every earlier attempt. ⚠ Verified with
+**bots**; a human 4v4 has not been played yet, and 5v5 is untried but no longer ruled out.
 The working recipe is [[menu-map]] → *PROCEDURE*. Read that before anything else here.
 
 ⚠ **Do not record an untried route as a limitation.** "We measured X" belongs in this file. "Therefore
@@ -67,7 +70,7 @@ almost nothing structurally vs T5 — **BO1 Gunfight experience transfers direct
 |---|---|---|
 | Round timer | `timeLimit` gametype setting | ✅ **CLOSED** — `timer_override`, 60s, survives a map carry |
 | Any map | the lobby's map, overridden at load time | ✅ **CLOSED** — Atian Menu carry, no DLL. [[menu-map]] |
-| Team size | the **`maxplayers` gametype setting** — `com_maxclients` is downstream of it | ⚠️ **3v3 working; 4v4 reached in-match with bots (C7).** ▶ `maxplayers` reads **2 × per-side**, is runtime-writable, and has **no menu row** — one `setgametypesetting` call: test **L6** |
+| Team size | the **`maxplayers` gametype setting** — `com_maxclients` is downstream of it | ✅ **CLOSED** — `setgametypesetting( #"maxplayers", 8 )` = 4v4, survives the round boundary. `team_size_override` in `gunfight_mod`. L6 |
 
 ⚠ The map row said `gunfight_zone_center` map entities through 2026-09-07. **That was wrong** — every
 stock Gunfight map reads zero of them, so it distinguishes nothing. See [[gunfight-findings]].
@@ -212,10 +215,23 @@ stated test** — probe 7 = 6, probe 6 = 0, and 6 ≠ 2 × 0.
 It is plain-named (no crack needed), it is a gametype setting, it is runtime-writable via
 `setgametypesetting()` — which `gunfight.gsc:104`/`:106` already does to itself — and L1 walked the
 menu and found **no row for it in Gunfight**, so script is the only way in.
-▶ **The write is `setgametypesetting( #"maxplayers", 8 )`.** C7 measured the round boundary restoring
-team size from the session layer; if it restores from this, the boundary that has been *undoing* 4v4
-starts *restoring* it. ⚠ Needs **B8 mode 2** alongside — 4v4 with out-of-bounds spawns is not 4v4.
-Test L6.
+✅✅ **CONFIRMED IN-GAME 2026-09-08 — `setgametypesetting( #"maxplayers", 8 )` gives 4v4, and it
+holds.** L6 run 1: the write is accepted (read-back 8, not clamped to 6) and **survives the round
+boundary** unaided. L6 run 2: filled to **4v4 with bots on round 1 only**, and round 2 read
+`600404` — **the boundary kept it.** klaze: *"it let the round play with 4v4 working."*
+
+That closes the team-size goal. Shipped as `team_size_override` / `team_size` in `gunfight_mod`,
+clamped at runtime against `com_maxclients` rather than a hardcoded ceiling.
+
+🔓 **B8 may be UNNECESSARY — downgraded, not deleted.** klaze characterised the spawn failure as
+*"it spawns people out of bounds **when the team size is exceeded**"*. With `maxplayers` at 8, a 4v4
+**no longer exceeds the configured team size** — so the precondition for the bug is gone, which is a
+different fix from mode 2 and a better one. Consistent with run 2 playing cleanly. ⚠ Not yet
+confirmed with humans, and bots may tolerate a bad spawn a player would notice. Keep mode 2 built.
+
+⚠ **Verified with BOTS.** A human 4v4 has not been played. Unlike C10 this is not a bot-only code
+path — `maxplayers` is a gametype setting the session's own team-size restore reads — but "should
+transfer" is not "measured".
 
 <details><summary>original `maxsquadplayers` reasoning — the prediction was wrong, the method was not</summary>
 

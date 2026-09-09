@@ -241,7 +241,32 @@ rounds 2+ only observe.
 | **`600404`** | 🔓🔓 **4v4 survived the boundary. The team-size goal is one `setgametypesetting` call** |
 | `600303` | reverted exactly as C7 measured — `maxplayers` persists but is **not** what the session restores team size from. Record it and move to C10/C11 |
 
-Result: run 1 **`400008` / `300008` — PASS** · run 2 `______`
+#### ✅✅ RUN 2 — 2026-09-08. **`600404`. 4v4 SURVIVED THE ROUND BOUNDARY.**
+
+klaze: *"600404 — it let the round play with 4v4 working!"*
+
+▶ **The team-size goal is CLOSED.** The session restores team size from `maxplayers`, so the round
+boundary that had been undoing every earlier 4v4 now restores it. One `setgametypesetting` call.
+
+Shipped as `team_size_override` / `team_size` in `src/gunfight_mod/`, clamped at runtime against
+`com_maxclients` rather than a hardcoded ceiling — the same mistake that had `com_maxclients == 8`
+recorded as a law for most of this project's life.
+
+🔓 **This may also have retired B8.** klaze characterised the spawn bug as *"it spawns people out of
+bounds **when the team size is exceeded**"*. With `maxplayers` at 8, a 4v4 no longer exceeds the
+configured size, so **the precondition is gone** — a cleaner fix than mode 2, and consistent with run
+2 playing cleanly. ⚠ Bots may tolerate a spawn a human would notice. **Keep mode 2 built**, and check
+spawns explicitly in the first human 4v4.
+
+⚠ **Still open: a human 4v4.** Unlike C10 this is not a bot-only code path — `maxplayers` is read by
+the session's own restore, not by anything gated on `isbot` — but that is a reason to expect it to
+transfer, not a measurement that it does.
+
+⚠ **5v5 is now the untried edge, not an impossibility.** `com_maxclients` is 10 in a 3v3 lobby, so ten
+players fit exactly with zero casters. `#team_size: 5` is one number, and `clamp_team_size()` will
+refuse it in an 8-slot lobby rather than ask for what the session cannot hold.
+
+Result: run 1 **`400008` / `300008` — PASS** · run 2 **`600404` — PASS. GOAL CLOSED.**
 
 ---
 

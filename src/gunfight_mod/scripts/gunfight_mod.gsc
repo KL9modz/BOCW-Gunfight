@@ -69,8 +69,54 @@ function private default_config()
                               // because it re-initialises gametype settings. The override survives
                               // because mod_apply() reruns on every on_start_gametype. Under a carry
                               // it is needed at ANY value, including ones the menu offers.
-        #timer_minutes:  1    // 1 minute = 60s. gettimelimit() returns MINUTES; range [0, 1440]
+        #timer_minutes:  1,   // 1 minute = 60s. gettimelimit() returns MINUTES; range [0, 1440]
+
+        // ── TEAM SIZE ── ✅ VERIFIED IN-GAME 2026-09-08 (test L6, run 2) ────────
+        // 4v4 filled with bots and SURVIVED the round boundary - the boundary that
+        // had been reverting every earlier attempt back to 3v3.
+        //
+        // `maxplayers` is a plain-named gametype setting reading 2x the per-side
+        // size (measured: 6 in a 3v3 lobby, 4 in a normal one). It has NO rules-menu
+        // row in Gunfight - L1 walked every page - so setgametypesetting() is the
+        // only way to reach it.
+        //
+        // ⚠ This supersedes `maxsquadplayers`, which the project chased for a long
+        //   time and which probes 6 and 12 both measured at 0 in every Gunfight
+        //   lobby. It is unused here. Do not re-open it.
+        //
+        // ⚠ BOUNDED BY com_maxclients, which is NOT 8 and NOT fixed - it tracks the
+        //   playlist. Measured: 10 in a 3v3 lobby, 8 in a normal one. So the ceiling
+        //   depends on which lobby you started in:
+        //     3v3 Gunfight lobby (com_maxclients 10) -> 5 per side, zero casters
+        //     normal Gunfight lobby (com_maxclients 8) -> 4 per side, zero casters
+        //   Casters spend from the same budget, at most 2. clamp_team_size() below
+        //   enforces this against the live dvar rather than a hardcoded number.
+        #team_size_override: 1,
+        #team_size:          4   // PER SIDE. 4 = 4v4. See the clamp above before raising.
     };
+}
+
+// Never ask the session for more clients than it has slots for. com_maxclients is
+// read-only from script (7 refs, all getdvarint) but it is READABLE, so the bound
+// is measured at runtime instead of assumed - which is precisely the mistake that
+// had "com_maxclients == 8" recorded as a law for most of this project's life.
+function private clamp_team_size( per_side )
+{
+    budget = getdvarint( #"com_maxclients", 0 );
+
+    if ( budget <= 0 )
+    {
+        return per_side;   // unreadable: trust the caller rather than clamp to zero
+    }
+
+    ceiling = int( budget / 2 );
+
+    if ( per_side > ceiling )
+    {
+        return ceiling;
+    }
+
+    return per_side;
 }
 
 function private __init__()
@@ -123,6 +169,16 @@ function private mod_apply()
     // = [0, 1440] minutes, so anything in range is accepted.
     if ( cfg.timer_override )
         level.gettimelimit = &mod_gettimelimit;
+
+    // Team size. Re-applied on every on_start_gametype, exactly like the timer
+    // override and for the same reason: a map carry re-initialises gametype
+    // settings, and mod_apply() running per round is what makes the value stick.
+    //
+    // ✅ L6 measured that the setting itself SURVIVES a round boundary unaided
+    //    (probe 3 read 8 on round 2 with no write that round). Re-applying is
+    //    therefore belt-and-braces against the CARRY, not against the boundary.
+    if ( cfg.team_size_override )
+        setgametypesetting( #"maxplayers", clamp_team_size( cfg.team_size ) * 2 );
 
     // Restore the presentation work that gunfight onstartgametype skips at
     // gunfight.gsc:119 (`if (!setupzones()) return;`).
