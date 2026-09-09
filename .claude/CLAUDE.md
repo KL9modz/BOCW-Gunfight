@@ -670,30 +670,54 @@ ceiling, measured instead of read — and the mechanism "bots before humans" alw
 
 ## Open questions
 
-⚠ **All three require the GAME. None are answerable from the dump** — that work is done. Do not go
-looking for them in `bocw-source`; the front end is compiled LUA and the spawn resolver is an engine
-builtin (see the two notes above).
+⚠ **REWRITTEN 2026-09-09, because all three goals closed and this section had not moved.** It still
+led with *"Does `switchmap_load` reconfigure the session? ← the team-size question, highest value"* —
+superseded twice over: team size closed via `maxplayers`, and the map-switch mechanism was diagnosed
+in A4. Everything below needs the GAME; none of it is answerable from the dump.
 
-- **Does `switchmap_load( map, gametype )` reconfigure the session, or only override the map?** This
-  is now *the* team-size question — it decides whether `com_maxclients` can be reached from script at
-  all. One probe run answers it: [[atian-menu-source]]. ← **highest value, cheapest**
-- **Does `com_maxclients` survive the map/mode carry glitch?** The glitch is a genuine playlist
-  reconfiguration where our carry is not. Needs the glitch to work once. [[menu-map]]
-- ~~**Does the engine's `function_77b7335` telefrag or return undefined when start spawns run out?**~~
-  ✅ **ANSWERED by klaze 2026-09-09.** It does **not** return undefined — he has had four on a Gunfight
-  team via a lobby glitch and saw **wrong** spawns, not **failed** ones, and the fallback at
-  `spawning_shared.gsc:295` fires only `if ( !isdefined( spawn ) )`. Characterised: **out of bounds,
-  and only past the team-size cap, and only in Gunfight** — TDM Face Off at 6v6 on the same maps
-  spawns cleanly. So the bad points belong to Gunfight's start-spawn path, not to the maps. Fix: B8
-  mode 2.
+### 👤 Needs people, not code — the largest gap between CLOSED and DONE
+- **A human 4v4.** The goal is verified **with bots**. `maxplayers` is a gametype setting the
+  session's own team-size restore reads, so it should transfer — but four claims this project felt
+  equally sure about have had to be walked back. No new code; it needs bodies.
+- **Do the spawns hold at a human 4v4?** With `maxplayers` at 8 a 4v4 no longer *exceeds* the
+  configured team size, so the out-of-bounds precondition should be gone. Run 2 played clean — with
+  bots, which tolerate a spawn a person would swear at. `src/test_spawnmode/` mode 2 stays built.
 
-⚠ **`com_maxclients` is read-only *from script*** — 7 refs, all `getdvarint`. That is a statement about
-the dvar, **not** a statement that team size is unreachable. `switchmap_load` and the lobby glitch both
-act on the layer that *sets* it, and neither has been tested.
+### 🔧 Diagnosed but unconfirmed
+- **A4 — the script-driven map carry.** The failure is understood: the calls sat inside a thread
+  carrying `level endon( #"game_ended" )`, `map()` starts the transition, the engine notifies
+  `game_ended`, and the `endon` kills the thread **during `wait(1)`** — so `switchmap_switch()` never
+  ran and the load was staged, never committed. Decompiling the shipped menu payload confirmed the
+  sequence itself was always identical to ours; **the wrapper was the difference.** ⚠ The fix has
+  **not been run**. If it works, the map workflow drops the Atian Menu.
+- **B9 — one clean re-run, guard dvar cleared.** B9 is what closes off unattended operation, and its
+  own caveat says frames were **sampled, not exhaustively read** (four, across one round). A
+  conclusion carrying that much weight deserves better than four frames.
 
-✅ **Answered.** *Is the Gunfight timer field exposed in the rules menu?* — **yes**, 0/20/30/40/50/60s,
-and it is live-settable. But it **does not survive a map carry**, so `timer_override` is required
-anyway. *Are the five presentation symptoms real?* — yes, and `presentation: 1` clears them.
+### 🔓 Not ruled out, and previously recorded as impossible
+- **5v5.** `setgametypesetting( #"maxplayers", 10 )` **lands and survives the round boundary**; what
+  did not follow was `com_maxclients`, which stayed at 8. So the setting reaches and the budget did
+  not. Ten clients with zero casters is tight, not impossible.
+- **The unexplained `12`.** One `com_maxclients` reading of 12 after a `maxplayers` write, which a
+  same-lobby retest (L8) failed to reproduce. ⚠ **Recorded as an anomaly, not as evidence.** It is
+  either a second variable nobody has identified or a misread, and both are worth knowing.
+
+### 🪦 Answered, and no longer open
+- ~~*Does `switchmap_load( map, gametype )` reconfigure the session?*~~ **Superseded.** Team size is
+  closed by `maxplayers`; the map switch is A4's problem and A4 has a diagnosis.
+- ~~*Does the engine's `function_77b7335` telefrag or return undefined on exhaustion?*~~ **It does not
+  return undefined** — klaze saw *wrong* spawns, not *failed* ones, and the fallback at
+  `spawning_shared.gsc:295` fires only `if ( !isdefined( spawn ) )`. Characterised: out of bounds,
+  only past the team-size cap, only in Gunfight. TDM Face Off at 6v6 on the same maps spawns cleanly.
+- ~~*Is the Gunfight timer field exposed in the rules menu?*~~ **Yes**, 0/20/30/40/50/60s, live-settable
+  — but it does not survive a map carry, so `timer_override` is required anyway.
+- ~~*Are the five presentation symptoms real?*~~ **Yes**, and `presentation: 1` clears them.
+- **F7 via `SendInput`** — 🪦 measured not working. cwpatch's hook ignores injected input
+  (`LLKHF_INJECTED`). `map_restart()` (B4) replaces it and needs no keyboard at all.
+
+⚠ **`com_maxclients` is read-only *from script*** — 7 refs, all `getdvarint`, zero `setdvar`. That is a
+statement about the **access**, and it was never the thing that mattered: `maxplayers` sits upstream
+as a writable setting, which is how team size got closed.
 
 ### Resolved by tracing, confirmation still wanted
 - **MP injection priming sequence** — **RESOLVED** from source + toolchain (`edd94bd` / `4de00c8`),

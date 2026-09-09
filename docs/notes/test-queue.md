@@ -16,47 +16,41 @@ that is the check that caught `scene_model_shared`.
 
 ### The results that would actually move a goal
 
-0. **C11 — seat an existing spectator with one stock call.** ⬅ **the strongest route, and it needs
-   no override at all.** `player [[ level.autoassign ]]( 0, team, undefined )` lands in
-   `team_assignment.gsc:419`, which uses the team **verbatim, no fullness check** — the same branch
-   klaze already sees fire when "a spot is open on the join". `src/test_seatspectator/`
-0. **B8 — Gunfight's 4-per-side spawns. ✅ Control already run; ship mode 2.** klaze: *"It spawns
-   people out of bounds when the team size is exceeded on gunfight not tdm. When I play TDM face off
-   on gunfight maps, the spawns are all good and valid."* **Same maps, 12 players, all valid** — so
-   the default lists are the known-good ones and mode 2 routes to them. ⚠ **Do not re-run mode 0**;
-   the failure is measured. ⚠ **Read probe `31xxxxx` first** — a zero means the wrapper never ran and
-   nothing was in effect, which is not the same as "the fix failed". Mode 3 is the fallback.
-   `src/test_spawnmode/`
-0. **C10 — a late joiner lands on a team instead of in spectator.** the earlier, narrower version of
-   C11 — it acts only at the instant of joining. Keep as fallback. ⬇ **the strongest route the
-   project has had.** klaze already performs the whole workflow by hand (extras leave the pregame
-   lobby, host starts, extras rejoin); the mod is **one line** and only changes where they land. The
-   auto-assign path they fall into has **no per-team cap check of any kind**. Reaches **4v4** — eight
-   clients, zero casters — and stops there; 5v5 needs ten and `com_maxclients` is still 8.
-   [`lobby-settings.md`](lobby-settings.md)
-0. **L0 — in-match team change working past the lobby cap.** Stock, private-match-only, one rules
-   toggle. If a player can join a full side after the match starts, **4v4 needs no code at all** and
-   the whole team-size track collapses to "get eight bodies in the lobby".
-   [`lobby-settings.md`](lobby-settings.md)
-1. **L2 — a Max Players row that goes to 12 and actually changes the slot count.** No injection, no
-   code, no exposure, about two minutes. If it works it closes the last open goal outright and makes
-   most of band C unnecessary. **Check this before anything else.**
-   [`lobby-settings.md`](lobby-settings.md)
-1. **A1's probe `6xxxxx` reading 3** — `maxsquadplayers` is a runtime-writable gametype setting that
-   bounds squad size, and for Gunfight a team *is* a squad. Reading 3 in a 3v3 lobby makes it the
-   lever this project has been hunting from the start, and the next step is **one
-   `setgametypesetting` call**, not a new mechanism. **The cheapest path to the goal that has ever
-   been on the table.** [`dump-cross-check.md`](dump-cross-check.md)
-1. **A1's bitmask above 7** — a stock Gunfight variant at 4v4 or larger turns the goal into a string.
-2. **C6 reading `100012` after the switch** — team size becomes script-reachable.
-3. **C8's probe `3xxxxx` reaching 4** — a team holds four, so 8 clients is 4v4 from the lobby you
-   already have. ⚠ That probe number changed when `test_setteam` became `test_teamfill`.
-4. **B4 keeping the carried map** — the hosting procedure loses its DLL prerequisite.
-5. **A1's probe `12xxxxx` matching probe `6xxxxx`** — validates hash-cracking against the running
-   game. Not a goal by itself, but it is the difference between "`maxsquadplayers` is a 63-bit match"
-   and "`maxsquadplayers` is the name." Everything built on that name depends on it.
-6. **B6 producing a snipers-only Gunfight** — a new feature this project did not know existed,
-   for one `setgametypesetting` call. [`gametype-settings-map.md`](gametype-settings-map.md)
+⚠ **REWRITTEN 2026-09-09. All three goals are CLOSED** — map, timer, and team size. The list this
+replaced still led with `maxsquadplayers` (measured **0/0**, dead), with L2 (**no such row**), and with
+C10/C11 as "the strongest route" to a goal that `maxplayers` closed by a different door. A queue that
+points at settled ground is worse than no queue, because it costs a session before it costs a match.
+
+1. 👤 **A HUMAN 4v4.** The goal is closed **with bots**. `maxplayers` is a gametype setting the
+   session's own team-size restore reads, so it *should* transfer — but "should transfer" is not
+   "measured", and this project has walked back four claims that felt safer than this one.
+   ▶ **Needs bodies, nothing else.** No new code, no new test. It is the single largest gap between
+   "closed" and "done".
+2. 👤 **Do the spawns hold at a human 4v4?** B8 is **downgraded, not deleted**: with `maxplayers` at 8
+   a 4v4 no longer *exceeds* the configured team size, so the precondition for the out-of-bounds bug
+   is gone. Run 2 played cleanly — with bots, which tolerate a spawn a player would swear at.
+   ▶ Same session as #1. Watch where people land. `src/test_spawnmode/` stays built as the fallback.
+3. **B9 re-run with the guard dvar cleared.** B9 concluded that injecting under a live script breaks
+   the link — and its own caveat says frames were **sampled, not exhaustively read**. That conclusion
+   is what closes off unattended operation, so it deserves one clean confirmation rather than
+   standing on four frames.
+4. 🔓 **5v5, and it is no longer ruled out.** `maxplayers = 10` **lands and sticks** (L8) — what did
+   not follow was `com_maxclients`, which stayed at 8. So the setting reaches; the budget did not.
+   ⚠ The one `12` reading remains **unexplained and is recorded as an anomaly, not evidence**. Ten
+   clients with zero casters is tight, not impossible.
+5. **B6 / B7 — two free features, one `setgametypesetting` each, never run.**
+   `gunfightloadoutindex` gives **snipers-only** and **melee-only** Gunfight; `gunfightspyplane` value
+   3 is a mode the menu hides. Neither has any menu path, so injection is the only door.
+   [`gametype-settings-map.md`](gametype-settings-map.md)
+6. **D10 — `acts dcfuncscw`.** Gates the auto-loading lobby-map DLL klaze asked for. The machinery is
+   proven (cwpatch already runs arbitrary console commands from the one slot that loads); the only
+   open question is *which command*. [`lobby-map-dll.md`](lobby-map-dll.md)
+
+🪦 **Closed or superseded — do not run these looking for a goal.** L1 (no Max Players row) · L2 (moot,
+L1 found no row) · A1 probes 6/12 (`maxsquadplayers` **0/0**, dead — but the *method* was validated:
+6 and 12 agreed) · C6/C7/C8/C10/C11 (routes to a team-size goal now closed by `maxplayers`; C11 keeps
+value only as a possible 5v5 route) · B4 (**passed** — `map_restart()` restarts from script and an
+already-linked script re-runs).
 
 Everything else is worth knowing but does not move a goal.
 
@@ -985,6 +979,57 @@ itself from the anti-cheat; that is out of scope by decision, not oversight.
 
 ---
 
+### A4 · script-driven map carry — **diagnosed, fix NOT yet run**
+`src/test_mapswitch/` · [`menu-map.md`](menu-map.md)
+
+If this works the map workflow drops the Atian Menu entirely — `gunfight_mod` carries the map itself.
+
+**The diagnosis, from decompiling the shipped menu payload:** its handler is
+
+```gsc
+self function_9441a07f( "loading " + name );   // cosmetic text draw, no state setup
+map( name );
+wait 1;
+function_f4472a8();                             // switchmap_switch, engine builtin
+```
+
+**Identical to our sequence.** Both `map()` and `function_f4472a8` are called *unqualified*, so they
+are global builtins — which also weakened the self-binding theory run 4 was built on.
+
+🔓 **The wrapper was the difference, not the sequence.** Runs 1–3 had the calls inline inside `run()`,
+which carries `level endon( #"game_ended" )`. `map()` starts the map transition → the engine notifies
+`game_ended` → **the endon kills the thread during `wait(1)`** → `switchmap_switch()` never runs. The
+load was staged and never committed.
+
+▶ **The fix is to call the sequence from a thread that does NOT carry that endon.** Untested.
+
+⚠ Only target maps confirmed present. `mapexists()` returns **1 for everything** (B5), so it is not a
+guard — loading a bad map is the destructive act, and A4 has already hung the game once that way.
+Result: `______`
+
+### B9 · does injecting under a live script link the new build? 🪦 **NO — re-run to confirm**
+`src/test_relink/`
+
+The version-stamp test. v1 injected, linked by one F7, ran, emitted `200001` (guard passed, restart
+firing). v2 — byte-identical except `version = 2` — injected during v1's 5s pre-restart window. The
+restart landed and produced a new round. **Then nothing emitted.** Neither `100001` nor `100002`,
+across frames spanning the whole round.
+
+That is the opposite of B4, where the same payload re-ran cleanly after its own `map_restart` and
+emitted `400001`. The single difference is that a new payload was injected over the buffer while the
+old one was live.
+
+▶ **Consequence: inject → self-restart → linked does NOT work, and unattended operation is not
+closed.** The resident-payload plan sketched after B4 rests on exactly the behaviour this falsified.
+
+⚠ **Its own caveat, and the reason it is still in this queue:** frames were **sampled, not
+exhaustively read** — four, spanning the round. Probe cadence is 5s and displays persist ~5s at a 3s
+capture interval, so a miss is unlikely but not impossible. **Re-run with the guard dvar cleared.**
+This one result is what closes off unattended operation; it is worth one clean run.
+Result: `______`
+
+---
+
 ## 🖥️ Unattended operation — what the agent can and cannot drive alone
 
 Established 2026-09-09, when klaze asked whether he could leave the machine running and drive testing
@@ -995,14 +1040,30 @@ by Remote Control.
 | Inject a payload (`tools/inject.sh`) | ✅ no user input needed |
 | Read probe output | ✅ `tools/capture-probes.ps1` — the agent reads its own probes |
 | Compile, commit, push | ✅ |
-| **Restart the match (F7)** | ⚠️ **UNCONFIRMED — the critical path** |
+| Restart the match from script (`map_restart()`) | ✅ **B4 PASSED** — and an already-linked script re-runs after it |
+| **Restart the match (F7 / SendInput)** | 🪦 **CONFIRMED NOT WORKING** |
+| **Link a freshly injected payload** | 🪦 **B9: breaks the link outright** ← the blocker |
 | Navigate the Atian Menu | 🪦 never tested |
 
-⚠️ **F7 is the blocker, and nothing else matters until it is settled.** An injection is inert until a
-map load links it, so without a working restart the agent can inject all night and change nothing.
-`tools/send-key.ps1` sends scan-code `SendInput` and reports both events accepted — but **two tests
-were confounded by the match ending before the key landed** (a round-win screen, then an After Action
-Report). Neither shows the mechanism failing; neither shows it working. **Retest mid-round.**
+🪦 **F7 is settled, and it is a measurement now, not an open question.** Clean mid-round test: before,
+a live round at 0:32; after F7, the same round, same position, clock running 22.8 → 4.9 across 25
+seconds. No reload. cwpatch's hotkey hook ignores injected input — `LLKHF_INJECTED`, which
+`tools/send-key.ps1`'s own header named as the first suspect. Not fixable from our side.
+
+✅ **B4 found the replacement, and it is better:** `map_restart()` is a GSC builtin, so it needs no
+keyboard at all, and **the linked script re-ran after the restart** — a `map_restart` is a real
+script-linking load, not a lighter reset.
+
+🪦 **But B9 closed the loop that would have made it autonomy.** Injecting v2 over a live v1 and letting
+v1's restart land produced **neither** version stamp. Swapping a payload under a running script does
+not link the new build; it appears to break the link outright, leaving nothing running. So
+inject → self-restart → linked **does not work**, and the agent still cannot put fresh code into the
+game unattended.
+
+⚠ **B9's own caveat, kept rather than glossed:** frames were **sampled**, not exhaustively read — four
+frames spanning the round. The probe cadence is 5s and displays persist ~5s at a 3s capture interval,
+so a miss is unlikely but not impossible. **Re-running with the guard dvar cleared would confirm it**,
+and since this one result is what closes off unattended operation, it is worth the one run.
 
 ⚠️ **The desktop must stay live.** Screen capture is GDI against the game window, so:
 - `powercfg` display-off / standby / disk-idle set to **0 on AC** (2026-09-09). Revert:
