@@ -86,6 +86,7 @@
 //   2xxxxx  attempts used so far (game. scope)     0 on the first round
 //   3xxxxx  com_maxclients                         context, should not move
 //   (probe 4 removed - mapexists is useless in this build, see B5)
+//   5xxxxx  reached the switch call?             1 = called on a player, 0 = no players
 //
 // Expected: round 1 reads 100000 (not there yet) and then the map loads.
 //           After the load, round 1 of the NEW map reads 100001 - and that is
@@ -284,12 +285,51 @@ function private run()
     //   important, I don't know why." Empirical, not understood. Do not remove it.
     //   func_set_gametype uses util::wait_network_frame(1) where this uses a plain
     //   wait(1); this mirrors func_set_map exactly rather than tidying it.
-    map( target );
-    wait( 1 );
-    switchmap_switch();
+    // ── RUN 4 CHANGE: run the sequence ON A PLAYER, not on level. ───────────
+    //
+    // ⚠ HYPOTHESIS, not a conclusion. What is actually observed so far:
+    //     run 1  map() alone,     Hijacked, level thread -> nothing happened
+    //     run 2  full sequence,   Hijacked, level thread -> tore the map down,
+    //                                                       never loaded, glitched
+    //     run 3  full sequence,   ZOO,      level thread -> nothing happened
+    //
+    //   Same three calls and same thread context produced two completely different
+    //   outcomes on two maps. So "the mechanism is broken" does not fit, and
+    //   neither does "the map was bad". Something else differs.
+    //
+    // ▶ The difference from the menu, missed while reading its source: func_set_map
+    //   runs as a METHOD ON THE PLAYER. The line above its call is
+    //   `self menu_drawing_function(...)`, so `self` is the menu's player entity and
+    //   the unqualified map() inside INHERITS it. We call from a level thread where
+    //   self is undefined. If map() is an entity method rather than a global
+    //   builtin, that is the whole story - and ate47's table records arity and
+    //   address but NOT whether a builtin needs a self.
+    //
+    // ⚠ getplayers()[0] is the host in a private lobby, the same role the menu runs
+    //   as. Guarded because indexing an empty array would crash, and a crash
+    //   mid-round is worse than another no-op.
+    players = getplayers();
+
+    if ( players.size == 0 )
+    {
+        emit( 5, 0 );   // nobody to run as; the call was never attempted
+        return;
+    }
+
+    emit( 5, 1 );
+
+    players[ 0 ] thread do_switch( target );
 
     // Nothing after this is guaranteed to run; the map is loading. The result
     // comes from this script's NEXT on_start, on the new map.
+}
+
+// Runs with self = the player, mirroring func_set_map's context exactly.
+function private do_switch( target )
+{
+    map( target );
+    wait( 1 );
+    switchmap_switch();
 }
 
 function private emit( id, value )
