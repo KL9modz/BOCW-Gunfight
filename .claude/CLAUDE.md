@@ -8,11 +8,15 @@ gametype (T9), for private/custom lobbies hosted from the owner's machine.
 and it **survived the round boundary** that had reverted every earlier attempt. ⚠ Verified with
 **bots**; a human 4v4 has not been played yet, and 5v5 is untried but no longer ruled out.
 The working recipe is [[menu-map]] → *PROCEDURE*. Read that before anything else here.
-▶ **What the project is for now: [[roadmap]]** — a real control surface for hosting (in-match menu
-first, pregame lobby second, Windows tool last), and loading Gunfight on any map *the way the glitch
-does* rather than the way the carry does. ⚠ Goal B has a testable cause: **the carry calls `map()`,
-which has zero stock callers anywhere in the dump, and never passes the gametype.** Three stock
-systems switch maps with `switchmap_load( map, gametype )` and the session stays correct.
+▶ **What the project is for now: [[roadmap]]** — **pregame lobby control is klaze's #1 priority for
+the whole project**, so `acts dcfuncscw` (test D10) is the next thing to run: it is a read, and it is
+the only thing gating it. Then the in-match menu, then a Windows tool.
+⚠ **Goal B — the stale UI after a carry — has a testable cause:** the carry calls `map()`, which has
+**zero stock callers anywhere in the dump** and cannot pass a gametype. Three stock systems switch
+maps with `switchmap_load( map, gametype )` and the session stays correct.
+🛑 **And the lobby glitch is now researched, not folklore: it is a PLAYLIST carry that pivots on a
+MATCHMAKING SEARCH** — which the first ground rule below forbids. **Do not automate it.** We need its
+*result* (correct session state), not its steps, and B1 tests a legitimate route to the same place.
 
 ⚠ **Do not record an untried route as a limitation.** "We measured X" belongs in this file. "Therefore
 Y is impossible" does not — every such conclusion in this project's history has had to be walked back

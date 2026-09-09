@@ -17,8 +17,8 @@ others cannot:
 
 | Surface | Reaches | Cannot reach | Cost | Status |
 |---|---|---|---|---|
-| **In-match GSC menu** | everything script can — map, mode, team size, bot fill, move players, timer, loadout set, spy plane | the pregame lobby (no GSC runs there) | **low** — the Atian Menu source is public, its item/page API is three functions, and every control is a builtin this project has already called | ▶ **build first** |
-| **Pregame lobby control** | the lobby, via console commands from the one DLL slot that loads | anything GSC does | **gated on D10** — which command? nobody has looked | ⏸ after D10 |
+| **In-match GSC menu** | everything script can — map, mode, team size, bot fill, move players, timer, loadout set, spy plane | the pregame lobby (no GSC runs there) | **low** — the Atian Menu source is public, its item/page API is three functions, and every control is a builtin this project has already called | ▶ second, after D10 |
+| **Pregame lobby control** | the lobby, via console commands from the one DLL slot that loads | anything GSC does | **gated on D10** — which command? nobody has looked | ⬅ **#1. Run D10 first** |
 | **Windows tool** | orchestration: compile, inject, flip configs, capture probes, drive the other two | the game itself | medium | ⏸ after the menu exists to orchestrate |
 
 ### A1 · The in-match menu — every control is already a known call
@@ -48,16 +48,16 @@ above has to be *in* it from the start. There is no "add a button later without 
 ❓ **How many people do you normally host?** "Move players" for 8 is a submenu of names; for 12 it
 needs paging. Sizing the menu wrong costs a rebuild.
 
-### A2 · The pregame lobby — gated, and the gate is cheap
+### A2 · The pregame lobby — ⬅ **klaze's #1 priority for the whole project**
 
 Nothing GSC runs in the pregame lobby. The only proven way in is cwpatch's technique — overwrite the
 game's command-string blob, call the dispatcher — from `discord_game_sdk.dll`, the one slot that
 auto-loads. **`map %s\n` is already in that blob.** What nobody has ever done is list the commands
 (`acts dcfuncscw` → `tools/crack-cmds.py`). Full write-up: [`lobby-map-dll.md`](lobby-map-dll.md).
 
-❓ **How much does pregame control matter versus in-match?** If in-match is 90% of the value, A2 waits
-behind everything. If you want to pick the map *before* inviting people, A2 moves up and D10 runs next
-session.
+✅ **Answered 2026-09-09 — klaze: "pregame control would be the single most valuable mod for this
+entire project."** So D10 runs first, ahead of everything in both goals, and A2 is built on whatever it
+finds. ⚠ D10 costs one read with the game running; it writes nothing.
 
 ### A3 · The Windows tool — last, because it orchestrates things that must exist first
 
@@ -155,37 +155,89 @@ m    = getuimodel( root, "transitionMapIdOverride" );
 and **read `getuimodelvalue( m )` first** (probe 40) — a `99999` there means the model does not
 exist on the MP side and the chain is wrong before anything is written.
 
-### B2 · What the glitch actually does — ❓ THE question, and only klaze can answer it
+### B2 · What the glitch actually does — ✅ **RESEARCHED 2026-09-09, and it is a PLAYLIST carry**
 
-Every note in this repo refers to "the lobby glitch" and none records its steps. It is the *control*
-for Goal B — the thing that provably produces the correct session state — and this project cannot
-compare against a mechanism it has never written down.
+klaze has only ever triggered it by accident, so this was researched rather than reported. ⚠ **Provenance
+is second-hand:** the primary write-up (a Se7enSins thread) and two YouTube tutorials were **blocked by
+this session's egress proxy**; what follows is reconstructed from three independent search summaries of
+those sources, which agree with each other. **Treat the step order as approximate and the mechanism as
+well-supported.** Anyone who can open the thread should replace this section with the verbatim steps.
 
-❓ **What are the exact steps of the glitch, from the main menu to the match starting?** Every
-button, in order, including anything that involves a search or a playlist.
+**Two documented variants, both from January 2021, both needing TWO players:**
 
-❓ **Does any step involve matchmaking or a public search?** The project's first ground rule is
-private matches only. If the glitch briefly touches a public queue, that has to be known before it is
-automated, because automating it changes the risk.
+| | Variant A — Social/party | Variant B — Bots and Players |
+|---|---|---|
+| 1 | P2 joins a friend in Multiplayer | Join a friend in Custom Games |
+| 2 | P2 opens **Social** | P2 opens **Bots And Players** |
+| 3 | **P1 searches for a Gunfight match** | P1 leaves Custom Games |
+| 4 | once found, **the host leaves alone** | P2 opens **Bots and Players** again |
+| 5 | P2 exits Social → **Custom Games** | **P1 searches for a Gunfight match** |
+| 6 | P1 joins P2 | once found, **the host leaves alone** |
+| 7 | P2 tries to join P1 → *"failed to connect"* | P2 exits Bots and Players and leaves the lobby |
+| 8 | P1 joins P2 again | |
+| 9 | P2 leaves the party alone | |
 
-❓ **After the glitch, is *everything* right — spawns, map voting, the lobby's map list afterward,
-the AAR — or is anything off?** "Everything" means the glitch is a full playlist reconfiguration and
-B1 may not be able to match it. "Some things off" means it is closer to what we do than it looks.
+🔓 **The mechanism, and it explains the whole symptom.** A **matchmaking search loads the Gunfight
+playlist descriptor into the session.** Aborting at the "match found" moment leaves that descriptor
+resident, and the party join/fail/rejoin churn **transplants it into the Custom Games lobby**. The
+session then genuinely holds *"Gunfight, on this map"* — which is why the scoreboard, pause menu and AAR
+are all correct.
 
-❓ **Where exactly does the carry's UI go stale?** Scoreboard, pause menu, AAR, loading screen, the
-lobby afterwards — all of them, or some? Each reads a different source, and the pattern of which are
-stale locates the record `map()` fails to update.
+▶ **So the glitch operates one layer above our carry.** It is a **playlist reconfiguration**; ours is a
+**map override at load time**. [`menu-map.md`](menu-map.md) diagnosed exactly that from the stale
+scoreboard without knowing the glitch's steps, and the research confirms it from the other side. The two
+mechanisms are not variants of one thing — they touch different state.
+
+### 🛑 The glitch requires MATCHMAKING — do not automate it
+
+⚠ **Both variants pivot on "search for a Gunfight match".** That is the public matchmaking queue. The
+first line of this project's ground rules is:
+
+> **Private matches only.** Never public lobbies, never matchmaking.
+
+The search is *aborted* — you leave the instant a match is found and never play in a public lobby — so
+this is a genuine judgement call rather than a bright line. But it is klaze's call to make explicitly,
+not something to slide into by building a tool around it. ▶ **Recorded as a decision, not a plan.**
+
+✅ **And we do not need to replicate the glitch — only its RESULT.** What we want is a session holding
+the correct playlist descriptor for an arbitrary map. The glitch reaches that through matchmaking; **B1
+tests whether `switchmap_load( map, gametype )` reaches the same state from script**, with no queue and
+no second player. That is the whole reason B1 is worth running before anything else in Goal B.
+
+⚠ **If B1 fails**, the honest position is that the glitch remains the only known route to correct session
+state — and then the question is whether a two-player manual glitch, done once per session, is acceptable
+as *documentation* rather than as *automation*. Different question, and still klaze's.
+
+### ❓ What research could NOT answer — still needs klaze
+- **Where exactly does the carry's UI go stale?** Scoreboard, pause menu, AAR, loading screen, the lobby
+  afterwards — all of them, or some? Each reads a different source, and the pattern of which are stale
+  locates the record `map()` fails to update. **This is the highest-value observation available for free**,
+  on any carry he already does.
+- **After the glitch, is *everything* right?** Spawns, the map list afterwards, map voting, the AAR. If
+  everything is right it is a full playlist reconfiguration and B1 may not match it; if some things are
+  off, it is closer to our carry than it looks.
 
 ---
 
 ## Order of work
 
-1. **B1** — one match, read-only pass then live. It is cheap, it has three stock precedents, and if it
-   works it changes what the menu in A1 is built on. **Do not build A1's map control on `map()`.**
-2. **A1** — the menu. Everything in it except the map/mode entries is already proven; those two wait
-   on B1.
-3. **D10** — the command list, when pregame control's priority is settled (❓ above).
-4. **A2**, then **A3**.
+⚠ **REORDERED 2026-09-09.** klaze: *"pregame control would be the single most valuable mod for this
+entire project."* That moves A2 from third to first and pulls **D10** — the measurement that gates it —
+to the front of the whole roadmap.
+
+1. **D10 — `acts dcfuncscw`, then `tools/crack-cmds.py`.** ⬅ **the new #1.** It is a read, it needs no
+   code written, and it is the only thing standing between here and pregame control. Everything about
+   the delivery mechanism is already proven: cwpatch executes arbitrary console commands from
+   `discord_game_sdk.dll`, the one slot that auto-loads, and `map %s\n` is already in the blob it writes
+   to. **Nobody has ever looked at the command list.** [`lobby-map-dll.md`](lobby-map-dll.md)
+2. **A2 — the pregame control itself**, shaped by whatever D10 finds. If a lobby map/mode command
+   exists, this is a small addition to `tools/cw-loader-shim/`.
+3. **B1 — `switchmap_load( map, gametype )`.** One match, read-only pass first. Cheap, three stock
+   precedents, and it decides what A1's map control is built on. ⚠ **Do not build any map control on
+   `map()`** — it has zero stock callers and cannot pass a gametype.
+4. **A1 — the in-match menu.** Everything in it except the map/mode entries is already a proven call;
+   those two wait on B1.
+5. **A3 — the Windows tool**, once there is something to orchestrate.
 
 ⚠ In parallel and unrelated to either goal: **a human 4v4** is still the largest gap between "closed"
 and "done" — see the Open questions in `.claude/CLAUDE.md`. Nothing here should jump that queue.
