@@ -107,13 +107,31 @@ function private run()
     // ⚠ A name being in the dump means the SCRIPT exists, not that the map is
     //   loadable in this build. B5 (mapexists) is the cheap way to check a name
     //   before trusting it; this test is also a way to find out the hard way.
-    // ⚠⚠ HUNG THE GAME ON 2026-09-08 WITH "mp_hijacked_rm". The load STARTED -
-    //    working set fell 8.2 GB -> 5.0 GB, a real map unload - and never came
-    //    back. So the sequence works and the DESTINATION was wrong.
+    // ⚠⚠ BROKE THE SESSION ON 2026-09-08 WITH "mp_hijacked_rm". What ACTUALLY
+    //    happened, after two wrong readings of it:
+    //
+    //      - working set fell 8.2 GB -> 5.0 GB and the game stopped responding
+    //      - it came back on its own after minutes
+    //      - it came back STILL ON THE OLD MAP (KGB), in a glitched state
+    //
+    //    So it is neither a hang nor a slow load nor a clean refusal. map() +
+    //    switchmap_switch() began TEARING DOWN the current map, failed to bring up
+    //    the target, and left the session half-transitioned. ⚠ I called it "hung"
+    //    from a stale RSS reading and then "a slow load" when it recovered; both
+    //    were wrong. Record the behaviour, not the first plausible story.
+    //
+    //    ▶ THE FAILURE IS SILENT AND DESTRUCTIVE, which is why guard 4 has to run
+    //      BEFORE anything is torn down. There is no error, no refusal, and no
+    //      point after map() at which the script can still save the session.
     //
     //    Hijacked is BO2-era content. Its script is in the dump; that only proves
     //    the SCRIPT shipped, which is the exact caveat written three lines below
     //    this before the run and ignored while picking a name off the listing.
+    //
+    //    ⚠ UNKNOWN, and do not assume: whether mapexists() actually returns 0 for
+    //      this name. If it returns 1 and the load still breaks, guard 4 does not
+    //      cover this case and the real precondition is something else. B5 over
+    //      the full 38-name list answers it read-only, and should be run FIRST.
     //
     // ▶ DEFAULT IS NOW A MAP KLAZE HAS ACTUALLY CARRIED TO AND PLAYED (Zoo,
     //   3v3 Gunfight, 60s rounds, 2026-09-08). Prefer a map from the Atian menu's
@@ -122,7 +140,7 @@ function private run()
 
     // ⚠ RUN WITH THIS AT 1 FIRST. Reports the state, switches nothing, and
     //   confirms the name comparison behaves before anything can reload.
-    read_only = 0;   // ✅ read-only run 2026-09-08 read 100000/200000: guards behave. Live now.
+    read_only = 1;   // ⚠ FORCED INERT 2026-09-08 after the KGB glitch - see notes below.
 
     // Hard cap on switch attempts, ever, for this lobby. Still a hard cap.
     //
