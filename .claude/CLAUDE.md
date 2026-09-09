@@ -67,7 +67,7 @@ almost nothing structurally vs T5 — **BO1 Gunfight experience transfers direct
 |---|---|---|
 | Round timer | `timeLimit` gametype setting | ✅ **CLOSED** — `timer_override`, 60s, survives a map carry |
 | Any map | the lobby's map, overridden at load time | ✅ **CLOSED** — Atian Menu carry, no DLL. [[menu-map]] |
-| Team size | `com_maxclients`, fixed at lobby creation | ⚠️ **3v3 working.** Script only ever *reads* the dvar — but `switchmap_load` may reach the layer that sets it, untested: [[atian-menu-source]] |
+| Team size | `com_maxclients`, fixed at lobby creation | ⚠️ **3v3 working.** Script only ever *reads* the dvar — but the **late-joiner path is script-side and has no cap check at all**, which reaches 4v4 in one line: [[lobby-settings]] · test C10 |
 
 ⚠ The map row said `gunfight_zone_center` map entities through 2026-09-07. **That was wrong** — every
 stock Gunfight map reads zero of them, so it distinguishes nothing. See [[gunfight-findings]].
@@ -183,6 +183,29 @@ directly.
 player. ⚠ But `player_shared.gsc:1338` makes a **non-`fill` party count as 8 by itself** when
 `level.var_7d3ed2bf` is set, which would let one party occupy a whole side. Probe it before trusting
 in-match team switching with a partied group. [[gametype-settings-map]]
+
+🔓🔓 **`com_maxclients = 8` is a TOTAL CLIENT BUDGET, and casters spend from it.** klaze measured
+(2026-09-09) that every mode assigns a pregame player to a team **or** as a CoD Caster, at most **2**
+casters. 3v3 Gunfight = 3 + 3 + 2 = **8**. Extras cannot be assigned and the host cannot start with
+too many casters, so they **leave, the host starts, and they rejoin mid-match** — which the game
+allows. ⚠ **So 4v4 fits the existing budget; 5v5 does not** (ten clients, still lobby-side).
+
+🔓🔓 **The late-joiner path is script-side, and it has NO cap check.** `function_a3e209ba`
+(`team_assignment.gsc:600–656`) is a chain of **nine ANDs** that sends a mid-match joiner to
+spectator, and **two of the links are overridable**: `level.forceautoassign` and the gametype
+predicate `level.var_a3e209ba` (default `function_321f8eb5`, literally `return true;`, installed only
+`if ( !isdefined( … ) )`). Break either and the joiner falls to `function_650d105d()` — *count the
+teams, pick the smaller one* — with **no `maxsquadplayers`, no `com_maxclients`, no 3.**
+▶ **One line, and it rides klaze's existing workflow.** `src/test_latejoin/`, test C10. [[lobby-settings]]
+
+🔓 **`menuteam()` has no cap check either.** `globallogic_ui.gsc:331`, the in-match team picker, gates
+only on `level.allow_teamchange` + `hasdonecombat` and then **assigns**. ⚠ This supersedes "the
+in-match gate is 8" — on the menu path there is no in-match gate.
+
+🔓 **Bots: the Nuketown-only restriction is a MENU fact, not a script one.** `mp_nuketown6.gsc` has
+**zero** bot or Gunfight references, and `bot::add_bot()` (`bot.gsc:98`) has no map gate and no cap
+check — `function_582e5d7c()` bounds bots at `com_maxclients`, not 3. **Predict C7 works on any
+Gunfight map and fills past 3 per side**, which makes solo testing of C8/C10 viable. [[lobby-settings]]
 
 ⚠ **`level.maxteamplayers` is a red herring** — `globallogic.gsc:240` sets it, but
 `function_d36b6597()` only consults it when `teamcount == 0` or `max_clients == teamcount`, i.e.

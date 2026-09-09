@@ -15,10 +15,20 @@ test_maprestart/  B4 · can map_restart replace F7, and drop the cwpatch prerequ
 test_switchmap/   C6 · gametype switch in a 12-slot TDM lobby. THE team-size question
 test_addclients/  C7 · fill until refused — the real client ceiling, measured
 test_teamfill/    C8 · fill ONE team until refused — is 8 clients 4v4?
+test_latejoin/    C10 · make a mid-match joiner land on a TEAM, not in spectator.
+                  ⬅ THE STRONGEST TEAM-SIZE ROUTE. One line, and it rides a workflow
+                  klaze already performs by hand
 ```
 
 B4 is the odd one out: it answers nothing about team size, it makes the **setup** shorter. Every other
 test costs a session; that one pays a session back on every future run.
+
+**C10 is the one to run first.** Every other team-size test attacks the pregame lobby, where
+`com_maxclients` is fixed and script cannot reach. C10 attacks the moment a player joins a match that
+is *already running* — which is script territory, and where the auto-assign path
+(`team_assignment.gsc` `function_650d105d`) has **no per-team cap check of any kind**. It removes one
+condition from a nine-AND rule. ⚠ It reaches **4v4** — eight clients, zero casters — and stops; 5v5
+needs ten. [`../docs/notes/lobby-settings.md`](../docs/notes/lobby-settings.md)
 
 **The queue, with what each reading means:** [`../docs/notes/test-queue.md`](../docs/notes/test-queue.md).
 

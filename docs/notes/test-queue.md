@@ -16,6 +16,12 @@ that is the check that caught `scene_model_shared`.
 
 ### The results that would actually move a goal
 
+0. **C10 — a late joiner lands on a team instead of in spectator.** ⬅ **the strongest route the
+   project has had.** klaze already performs the whole workflow by hand (extras leave the pregame
+   lobby, host starts, extras rejoin); the mod is **one line** and only changes where they land. The
+   auto-assign path they fall into has **no per-team cap check of any kind**. Reaches **4v4** — eight
+   clients, zero casters — and stops there; 5v5 needs ten and `com_maxclients` is still 8.
+   [`lobby-settings.md`](lobby-settings.md)
 0. **L0 — in-match team change working past the lobby cap.** Stock, private-match-only, one rules
    toggle. If a player can join a full side after the match starts, **4v4 needs no code at all** and
    the whole team-size track collapses to "get eight bodies in the lobby".
@@ -322,6 +328,12 @@ second. ⚠ ate47 on the sequence: *"the wait is important, I don't know why."* 
 Result: `______`
 
 ### C7 · `addtestclient()` — the **real** client ceiling, measured
+🔓 **Upgraded 2026-09-09, and it now unblocks solo testing.** klaze: Gunfight on **Nuketown** lets the
+host add bots (to the same 3-per-side cap); **no other Gunfight map does, stock.** But
+`scripts/mp/mp_nuketown6.gsc` contains **zero** bot or Gunfight references — the permission is
+playlist/LUI, not script — and `bot::add_bot()` (`bot.gsc:98`) has **no map gate and no cap check**,
+while `function_582e5d7c()` bounds bots at `com_maxclients`, not 3. **Predict: this works on any
+Gunfight map and fills past 3 per side.** If it does, C8 and C10 no longer need four friends.
 `src/test_addclients/` · [`cw-builtins.md`](cw-builtins.md) §4
 
 Everything this project believes about team size rests on `com_maxclients` reading 8. This fills the
@@ -381,6 +393,44 @@ map list but not the slot count.
 makes the game report *"Gunfight on \<map\>"* correctly, where the carry leaves the scoreboard naming
 the old map. If the scoreboard is stale you are in a carry, not a glitch, and the reading means
 something else. Result: `______`
+
+---
+
+### C10 · late joiners land on a TEAM ← **the strongest team-size route** 
+`src/test_latejoin/` · [`lobby-settings.md`](lobby-settings.md)
+
+klaze's measured caster model: a pregame lobby assigns players to a team **or** as a CoD Caster, and
+**at most 2 casters**. 3v3 Gunfight = 3 + 3 + 2 = **8** = `com_maxclients`. That is what the 8 has
+always been — a **total client budget** that casters spend from.
+
+The mod removes **one condition** from `function_a3e209ba` (`team_assignment.gsc:600–656`), the
+nine-AND rule that sends a mid-match joiner to spectator. They then fall into `function_650d105d()`,
+which **counts the teams and picks the smaller one, with no cap check of any kind**.
+
+1. Inject with `predicate: 1`, `forceautoassign: 0` (**lever 2 — surgical, try first**)
+2. Host 3v3 Gunfight private. Fill both teams: **3 v 3**
+3. Two extra players in the pregame lobby **leave** — klaze's normal workaround
+4. **Start the match**
+5. Those two **rejoin** while it is running
+6. Read probe `20xxxxx` = `allies*100 + axis`. `2000404` is **4v4**
+
+| Reading | Means |
+|---|---|
+| `2000404` | 🔓 **4v4, and the team-size goal is reached with one line** |
+| `2000303` after both rejoin | lever 2 did not fire — flip to `forceautoassign: 1`, run again |
+| they cannot rejoin at all | a **session-layer** refusal, nothing to do with this script. Record it: it says the 8-client budget was already spent, which is itself a measurement |
+
+⚠ **One lever per match.** Both on and a good result tells you nothing about which one did it.
+
+⚠ **Lever 1 has a second consumer.** `globallogic_ui.gsc:194` — with `forceautoassign` on, a player who
+*deliberately* picks spectator skips the spectator setup. That may break casters, which is how the 7th
+and 8th bodies get in. Hence lever 2 first.
+
+⚠ **This reaches 4v4, not 5v5.** Eight clients, zero casters. 5v5 needs ten and `com_maxclients` is
+untouched by this. Do not record it as solving the goal outright.
+
+⚠ **Test a lobby return afterwards.**
+Lever 2: `______` · Lever 1: `______`
 
 ---
 

@@ -212,6 +212,133 @@ players who queued together, read that probe first.**
 
 ---
 
+## 🔓🔓 klaze's caster model explains `com_maxclients = 8` — and opens a one-line route to 4v4
+
+**Measured by klaze, 2026-09-09**, across every mode, not just Gunfight:
+
+> A player in a pregame lobby is either **assigned to a team** or **assigned as a spectator (CoD
+> Caster)**. Any mode that supports casters allows **at most 2** of them assigned at a time. So a 3v3
+> Gunfight lobby holds **3 + 3 + 2 = 8**. More people can *sit* in the pregame lobby, but the host
+> **cannot start** with too many casters — so the extras leave, the host starts, **and they rejoin
+> once the match is running**, which the game allows.
+
+✅ **That is what `com_maxclients = 8` has always been.** Not "6 players and 2 mystery slots" — a
+**total client budget of 8, and casters spend from it.** The model is consistent across every lobby
+klaze has measured:
+
+| lobby | team cap | casters | total |
+|---|---|---|---|
+| Gunfight | 2 + 2 | 2 | 6 |
+| Gunfight 3v3 | 3 + 3 | 2 | **8** |
+| CDL Pro S&D | 4 + 4 | 2 | 10 |
+| TDM | unrestricted | 2 | 12 |
+
+⚠ **The immediate consequence: 4v4 fits in the budget klaze already has. 5v5 does not.** Eight clients
+is 4v4 with zero casters. 5v5 needs ten, and `com_maxclients` is still lobby-side and still 8. This
+route reaches the bottom of the 4v4–5v5 target and stops there — say so rather than implying otherwise.
+
+### 🔓 `menuteam()` has NO cap check. None.
+
+`globallogic_ui.gsc:331` is the in-match team picker, reached from `menus.gsc:179`. Its **only** gate:
+
+```gsc
+if ( !level.console && !level.allow_teamchange && isdefined( self.hasdonecombat ) && self.hasdonecombat )
+{
+    return;
+}
+```
+
+After that it **assigns**: `self.pers[#"team"] = team; self.team = team; self.sessionteam = team;`
+
+No `function_efe5a681`. No `getplayers(team).size`. No `com_maxclients`, no `maxsquadplayers`, no 3.
+⚠ **This corrects what this note said a day earlier.** "The in-match gate is 8" was too weak — **on the
+menu path there is no in-match gate.** `function_34a60b2f`, called just above the assignment, is
+elimination bookkeeping (`everexisted` / `teameliminated`), not a check.
+
+### 🔓🔓 Route A″ — the late joiner, and it is ONE LINE
+
+This is the strongest team-size route the project has had, because **klaze already performs the whole
+workflow by hand.** The only thing the mod changes is where the rejoining player lands.
+
+`team_assignment.gsc:600–656`, `function_a3e209ba()`, decides "send this player to spectator". It
+returns true only when **all nine** of these hold:
+
+| condition | for klaze's rejoiner |
+|---|---|
+| `!level.rankedmatch` | true (private) |
+| `!level.inprematchperiod` | true (match started) |
+| `teamname == #"none"` | true (no team came with them) |
+| `!comingfrommenu` | true |
+| `!self ishost()` | true |
+| **`!level.forceautoassign`** | ⬅ **LEVER 1** |
+| `!isbot( self )` | true |
+| `!self issplitscreen()` | true |
+| **`[[ level.var_a3e209ba ]]()`** | ⬅ **LEVER 2** |
+
+Nine ANDs. **Break one and they are not sent to spectator** — they fall through to
+`function_bec6e9a()` → `function_650d105d()`, which is:
+
+```gsc
+playercounts = self count_players();
+if ( teamplayercountsequal( playercounts ) ) assignment = function_dd2e9892( teamkeys );  // random
+else                                          assignment = function_d078493a( playercounts ); // smaller team
+```
+
+⚠⚠ **That path has no per-team cap check of any kind.** It counts and balances. The only ceiling left
+is the engine refusing a 9th client — and 4v4 needs eight.
+
+**LEVER 2 is the surgical one.** `level.var_a3e209ba` is a gametype-overridable predicate:
+`team_assignment.gsc:27–29` installs the default **only** `if ( !isdefined( … ) )`, and that default,
+`function_321f8eb5`, is literally `return true;`. It is consulted in exactly one place — the last line
+of `function_a3e209ba`. Overriding it touches nothing else.
+
+```gsc
+level.var_a3e209ba = &never_force_spectator;   // function never_force_spectator( *player ) { return false; }
+```
+
+**LEVER 1 is the hammer.** `level.forceautoassign` is stock and shipped — **Zombies runs at 1**
+(`zm_gametype.gsc:87`) — but in MP it has a second consumer, `globallogic_ui.gsc:194`:
+`if ( assignment === #"spectator" && !level.forceautoassign ) { …; return; }`. With it on, a player
+who *deliberately* picks spectator skips the spectator setup and falls through. ⚠ That may break
+choosing spectator on purpose — which matters, because casters are how the 7th and 8th bodies get into
+the lobby in the first place. **Lever 2 first; lever 1 as the fallback.**
+
+▶ `src/test_latejoin/` — **test C10**, with the protocol and a `20xxxxx` probe printing `allies*100 + axis`.
+
+### 🔓 Bots on Nuketown Gunfight only — the restriction is not in the script
+
+klaze: *"specifically Gunfight on Nuketown allows the host to add bots… it fills the teams with bots to
+the same cap of three per side. No other Gunfight map supports bots stock."*
+
+✅ **`scripts/mp/mp_nuketown6.gsc` contains no bot reference and no Gunfight reference at all.** Zero.
+So the per-map bot permission is **not** in the map script — it is playlist/LUI data, the same wall as
+everything else pregame.
+
+✅ **And `bot::add_bot()` has no map gate.** `bot.gsc:98`:
+
+```gsc
+function add_bot( team, name = undefined, clanabbrev = undefined )
+{
+    bot = addtestclient( name, clanabbrev );
+    if ( !isdefined( bot ) ) return undefined;
+    ...
+    if ( level.teambased && isdefined( team ) && isdefined( level.teams[ team ] ) ) bot.botteam = team;
+```
+
+It calls `addtestclient` and assigns the team. No map check, no cap check. And `team_assignment.gsc:66`
+`function_582e5d7c()` bounds bots at `getplayers( self.botteam ).size < max_players` — **`com_maxclients`,
+not 3.**
+
+🔓 **Prediction, and a cheap one: C7 (`test_addclients`) should work on ANY Gunfight map, not just
+Nuketown, and should fill past 3 per side.** The Nuketown-only restriction is a menu fact. Exactly the
+same shape as the round timer: normal Gunfight has the row, 3v3 does not, and `setgametypesetting` does
+not care either way.
+
+⚠ **This makes solo testing viable.** Bots fill both teams with no second person, which unblocks C7,
+C8 and C10's team-count reading without waiting on four friends.
+
+---
+
 ## ✅ CONFIRMED IN-GAME — the two Gunfight variants have different bundle sets
 
 Observed by klaze 2026-09-08:
