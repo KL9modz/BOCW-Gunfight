@@ -27,16 +27,46 @@ contains literally `null`, so there is no config surface to disable the heavy in
 `0xc0000142` / STATUS_DLL_INIT_FAILED dialog appears downstream — that is Windows reporting that
 DllMain failed *because* it crashed, not a separate fault.
 
-### Likely cause — a timing problem inherent to the design
+### 🪦 The real cause — `acts-bocw`'s init fails, full stop. ERROR_DLL_INIT_FAILED (1114)
 
-`DllMain` calls `cw::InitDll()` at `DLL_PROCESS_ATTACH` (`main.cpp:653`), the earliest possible moment
-in process startup. But **`BlackOpsColdWar.exe` is encrypted at rest** — signature scans only match
-against the decrypted in-memory image. At `DLL_PROCESS_ATTACH` the image is *not yet decrypted*.
+⚠ **A previous version of this note blamed decryption timing. That hypothesis is DEAD — disproven
+2026-09-08.** It read: `InitDll` runs at `DLL_PROCESS_ATTACH`, the EXE is encrypted at rest, so it
+pattern-scans an undecrypted image and null-derefs. Plausible, fitted the fixed fault offset, and
+**wrong**. It is corrected here rather than deleted, because it is exactly the kind of tidy
+explanation that survives on elegance and sends the next person down a dead road.
 
-So the probable story is `InitDll` pattern-scanning an encrypted image, finding nothing, and
-dereferencing null. A fixed fault offset across every attempt fits that exactly. If so it is inherent
-to loading at process start, and no amount of further config will fix it. `UNVERIFIED` — nobody has
-stepped through it.
+**What actually happened.** A purpose-built proxy `powrprof.dll` (zig, 67 KB) was written that
+forwards **all 144** powrprof exports to a renamed copy of the system DLL, exports
+`ACTS_EXPORT_SetLobbyGameType` / `SetLobbyMap` as real functions, has an **empty `DllMain`**, and
+`LoadLibrary`s `acts-bocw.dll` lazily on first call. Findings, in order:
+
+1. **The game launches.** The `0x17557` crash is gone. It *was* caused by `acts-bocw`'s own `DllMain`
+   running at `DLL_PROCESS_ATTACH` — an empty `DllMain` fixes it. That much of the timing story was
+   right.
+2. **`cwdllgt` finds and calls both exports.** It prints `Set gametype gunfight... Set map ... Done`.
+3. **But `Done` is a FALSE SUCCESS.** The proxy's log shows the lazy load failing at both candidate
+   paths with **`GetLastError = 1114`**, the stub returning 0, and `cwdllgt` reporting success anyway.
+   **`cwdllgt`'s success output cannot be trusted.**
+
+**1114 is `ERROR_DLL_INIT_FAILED`.** The DLL is found, mapped, and every dependency resolves — then
+`DllMain` returns FALSE. Not `126` (missing module), not `193` (bad format); both plausible locations
+were tested to rule out dependency resolution.
+
+That happened in a **fully loaded game, in a live private match, against an image decrypted hours
+earlier**. So the failure has nothing to do with when the DLL loads. **ACTS's `cw` init simply does
+not work against this game build**, and no loading strategy engineers around it.
+
+### What that closes
+
+`cwdllgt` is unusable here **however the DLL is loaded**, so this entire route to forcing gametype/map
+is closed — not by Battle.net, not by load order, not by timing, but by ACTS's own init failing.
+
+The only untried lever is **a different ACTS version**: 3.3.0 shipped 2026-09-05 and the game may have
+patched since. That breaks the same-build pin with the dev laptop and is not obviously worth much.
+
+⚠ **`injectcw` is UNAFFECTED.** It is ACTS's external `OpenProcess` / `WriteProcessMemory` path, not
+the in-process DLL, and it has worked reliably throughout. Every GSC result the project has came
+through it. Do not let this note's failure taint that.
 
 ### ⚠ Read the VERIFIED labels below correctly
 
@@ -125,8 +155,19 @@ All four preconditions **VERIFIED** on 2026-07-26:
 | Does `acts-bocw.dll` forward it? | **Yes** — `src\dll\bocw-dll\main.cpp:668-683` exports `CallNtPowerInformation` and forwards to the real system powrprof. |
 | Are the needed exports in the shipped binary? | **Yes** — `ACTS_EXPORT_SetLobbyGameType`, `ACTS_EXPORT_SetLobbyMap`, `CallNtPowerInformation`, `DLL_DecryptGSCScripts` all present. |
 
-So the proxy is a **complete** substitute — nothing the game needs from powrprof
-goes missing.
+🪦 **That "complete substitute" conclusion is FALSE — disproven 2026-09-08.**
+
+The check above only asked what **`BlackOpsColdWar.exe` itself** imports. But a `powrprof.dll` in the
+application directory intercepts powrprof for **every module in the process** — D3D12, DXGI, and the
+GPU driver among them, and those import other powrprof functions. A proxy exporting only
+`CallNtPowerInformation` produces **"No valid DX12 video card found"** and the game will not start.
+
+**Forward all 144 exports**, not one. The working proxy renames the real System32 copy to
+`powrprof_orig.dll` beside it and forwards everything.
+
+⚠ The transferable error: the precondition was *"which functions does the game import"* when the
+question was *"which functions does the **process** import"*. Narrowing a question to the obvious
+consumer is how a check passes while the thing it was checking fails.
 
 ## Caveat before you install it
 

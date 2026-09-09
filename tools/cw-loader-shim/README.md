@@ -10,8 +10,18 @@ Neither payload is reimplemented or modified. The shim just chain-loads them.
 `BlackOpsColdWar.exe` `LoadLibrary`s six DLLs by name at runtime — `bink2w64`,
 `discord_game_sdk.dll`, `dxgi.dll`, `ole32.dll`, `oo2core_8_win64.dll`,
 `steam_api64.dll`. Discord is the only viable one: it resolves a single symbol
-(`DiscordCreate` — `DiscordVersion` is never referenced), it loads late enough
-that the exe is already decrypted, and the game tolerates it failing.
+(`DiscordCreate` — `DiscordVersion` is never referenced) and it loads late enough
+that the exe is already decrypted.
+
+> 🪦 **CORRECTION 2026-09-08 — "the game tolerates it failing" is FALSE.** The game
+> **statically imports `DiscordCreate`**, so any DLL placed in this slot **must**
+> export it or launch dies immediately with *"Entry Point Not Found"*. There is no
+> tolerance for failure here; the export is mandatory.
+>
+> ✅ The slot itself is **confirmed working** — `cwpatch.dll` runs in it with F4–F7
+> hotkeys verified live in-game, and it needs no shim precisely because it exports
+> `DiscordCreate` itself. So this slot is viable, but only for a DLL that satisfies
+> that import.
 
 The other five are load-bearing and load far too early to pattern-scan against.
 
