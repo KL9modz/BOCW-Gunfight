@@ -21,7 +21,29 @@ others cannot:
 | **Pregame lobby control** | the lobby, via console commands from the one DLL slot that loads | anything GSC does | **gated on D10** — which command? nobody has looked | ⬅ **#1. Run D10 first** |
 | **Windows tool** | orchestration: compile, inject, flip configs, capture probes, drive the other two | the game itself | medium | ⏸ after the menu exists to orchestrate |
 
-### A1 · The in-match menu — every control is already a known call
+### A1 · The in-match menu — ✅ BUILT 2026-09-09 as `src/gunfight_menu/`, compile pending
+
+`gunfight_mod`'s four fixes + team size + the menu, **in one payload** (B9: nothing can be injected on
+top of a live one). The engine is the Atian Menu's own `menu.gsc`/`keymanager.gsc` **rewritten in ACTS
+dialect** — it could not be copied, because the original is built with `debugcompiler` in the
+`#include` / bare-`autoexec` / `#ifdef` dialect this project's history records as crashing at script
+link under ACTS. Same keys as the shipped menu. Settings are **dvars** (`gf_team_size`,
+`gf_timer_seconds`, `gf_loadout`, `gf_spyplane`, `gf_map_method`, `gf_menu_lines`) because `level` is
+rebuilt every round and `game.` resets at match end; B4 measured a dvar surviving a `map_restart`.
+
+Offline checks: `check-dump` 0 fatal (the one unused-by-stock call is `map()` itself — the proven
+carry), `check-args` 0 mismatches. ⚠ **Never compiled, never injected.** The map entry ships **both**
+methods behind `gf_map_method` — carry (`map()`, verified) by default, session (`switchmap_load`, B1)
+as the toggle — so B1's answer flips a dvar rather than forcing a rebuild.
+
+⚠ **A contradiction found while building it, recorded rather than resolved.** A4 diagnosed its map
+switch failing because `level endon( #"game_ended" )` killed the thread inside `wait(1)`. But the
+shipped Atian Menu's `menu_think` carries the **same endon**, runs its map action **inside that
+thread** with the same `wait(1)`, and works — klaze uses it. So the endon cannot be the whole story,
+and A4 run 4's self=player theory is back in play. The menu routes around it: every map switch is
+threaded onto the **player** with **no endons**, which satisfies both theories without choosing.
+
+
 
 The Atian Menu declares a page in one line and an item in one line
 (`menu.gsc:71` `add_menu`, `:93` `add_menu_item( menu_id, name, &func, data… )`). Its CW source ships

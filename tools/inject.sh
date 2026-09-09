@@ -119,5 +119,6 @@ case "$NAME" in
     test_seatspectator) echo "  read_only=1 on the first pass. 21/23 print before iscodcaster is called" ;;
     test_latejoin)     echo "  20xxxxx = allies*100 + axis. 2000404 is 4v4" ;;
     test_sessionswitch) echo "  read_only=1 FIRST: 40 must not be 99999. Live: read 41 before judging presence" ;;
+    gunfight_menu)     echo "  RMB+V opens. RMB up / LMB down / R select / V back. Settings persist as gf_* dvars" ;;
     *)    echo "  test a LOBBY RETURN afterwards if this payload writes anything" ;;
 esac
