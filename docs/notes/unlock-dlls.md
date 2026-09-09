@@ -9,7 +9,7 @@ Capstone (`zig cc` was installed the same day, see the shim section).
 
 | | `CW_Soft_Unlock.dll` | `discord_game_sdk.dll` |
 |---|---|---|
-| SHA-256 | `857c5045…4870` | `f7224920…84f1` |
+| SHA-256 | `857c5045…4870` ⚠ still truncated — recompute in full when the file is to hand | ✅ `f72249204ff2cc03620a66e2bda8eb8308023e3a16754f5bfada611e646e84d1` |
 | Size | 15,360 B | 13,824 B |
 | Built | 2023-10-04 | 2024-02-01 |
 | Real project (PDB) | `COD-BOCW-UA` | `cwpatch` |

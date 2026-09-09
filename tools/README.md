@@ -89,9 +89,18 @@ that file's size first.
 
 ## Irreplaceable binaries — the rule, and the one that got away
 
-🪦 **The cwpatch DLL was lost on 2026-09-08.** A `rm -rf` on the game's `Data` folder forced a full
-Battle.net re-download, the repair wrote the stock 3,891,512-byte SDK back over cwpatch, and **the repo
-held no copy because `.gitignore` has a blanket `*.dll`.** A machine-wide search found nothing.
+⚠ **The cwpatch DLL was lost on 2026-09-08 and RECOVERED the same day** — klaze had a copy and put it
+back. The near-miss stands as the reason this section exists.
+
+A `rm -rf` on the game's `Data` folder forced a full Battle.net re-download, the repair wrote the stock
+3,891,512-byte SDK back over cwpatch, and **the repo held no copy because `.gitignore` has a blanket
+`*.dll`.** Recycle Bin scan: nothing (the repair overwrote in place). ✅ **Now backed up** — see the
+location at the end of this section.
+
+🪦 **And the truncated hash failed at exactly the job it was kept for.** The recovered file is
+authentic — 13,824 bytes, prefix `f7224920` matching to 32 bits — but the notes recorded the tail as
+`84f1` and it is **`84d1`**. A one-character transcription slip. Had those four characters been used to
+authenticate a re-download, **the correct file would have been rejected.** Record hashes in full.
 
 ⚠ **Two mistakes, and the second is the instructive one:**
 
@@ -119,7 +128,7 @@ binary on 2026-09-06, while we still had it:
 | | |
 |---|---|
 | Size | **13,824 bytes** |
-| SHA-256 | `f7224920…84f1` ⚠ **truncated in the notes, and the file is gone, so it cannot be completed.** Still ~48 bits — good enough to confirm a candidate, not to reconstruct one |
+| SHA-256 | ✅ **`f72249204ff2cc03620a66e2bda8eb8308023e3a16754f5bfada611e646e84d1`** — computed in full from the recovered file, 2026-09-08. ⚠ The notes previously carried this truncated as `…84f1`, which is **wrong in the last four characters** |
 | Built | 2024-02-01 |
 | PDB path | `C:\Users\Alaix\source\repos\cwpatch` |
 | Exports | `DiscordCreate` (the stock SDK also exports `DiscordVersion`, `rust_eh_personality`) |
@@ -131,6 +140,25 @@ verifiable artifact becomes an unverifiable description.
 **Backup location for anything in the "neither" class: `C:\bocw\vendor-backup\`.** Not in the repo, not
 under the game folder (Battle.net repairs that), not in the scratchpad (cleared on reboot — which is
 how the payload directory was lost the same day).
+
+✅ **Seeded 2026-09-08**, named so the size is visible without hashing anything:
+
+| File | Size | Why it is there |
+|---|---|---|
+| `discord_game_sdk.CWPATCH-13824.dll` | 13,824 | ⚠ **the irreplaceable one.** No source, no URL |
+| `discord_game_sdk.STOCK-3891512.dll` | 3,891,512 | the real Microsoft SDK, to restore a clean game folder |
+| `BlackOpsColdWar_atianmenu_pc.gscc` | 66,320 | re-fetchable, but a 404 saved to disk is still a file |
+
+**Restoring cwpatch after a Battle.net repair:**
+
+```bash
+cp /c/bocw/vendor-backup/discord_game_sdk.CWPATCH-13824.dll \
+   "/d/Battle.net/Call of Duty Black Ops Cold War/discord_game_sdk.dll"
+```
+
+Then confirm F4/F6/F7 respond in game — the file being the right size does not prove the build still
+matches the current game binary, and `BlackOpsColdWar.exe` is encrypted at rest so no static check can
+tell you.
 
 ---
 
