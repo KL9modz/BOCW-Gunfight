@@ -87,6 +87,8 @@ STEMS = ["map", "maps", "gametype", "gametypes", "mode", "playlist", "lobby",
          "party", "session", "matchmaking", "matchmake", "search", "invite",
          "invites", "friend", "friends", "host", "member", "members", "leader",
          "squad", "fill", "queue"]
+VERBS = ["set", "get", "change", "select", "load", "start", "launch", "join",
+         "leave", "create", "cancel", "find", "pick", "choose", "vote"]
 TAILS = ["", "name", "list", "index", "select", "set", "load", "start", "launch",
          "next", "restart", "change", "override", "count", "size", "join", "leave",
          "kick", "invite", "accept", "decline", "cancel", "stop", "begin", "end",
@@ -111,6 +113,19 @@ def candidates(extra):
         if s1 == s2:
             continue
         w = (h + sep if h else "") + s1 + sep + s2
+        if w not in seen:
+            seen.add(w)
+            yield w
+    # head + VERB + stem: lobby_set_map, party_join_session, ui_select_playlist.
+    # The self-test on 2026-09-09 missed lobby_set_map because "set" is a head,
+    # not a stem, so no pass above could put it in the middle. A miss on exactly
+    # the shape D10 most wants is the kind of gap that reads as "the command does
+    # not exist" if nobody checks the generator - so this pass exists, and the
+    # test file keeps lobby_set_map in it.
+    for h, v, st, sep in itertools.product(HEADS, VERBS, STEMS, ["", "_"]):
+        if not h or v == h or st == v:
+            continue
+        w = h + sep + v + sep + st
         if w not in seen:
             seen.add(w)
             yield w
