@@ -21,6 +21,10 @@ replaced still led with `maxsquadplayers` (measured **0/0**, dead), with L2 (**n
 C10/C11 as "the strongest route" to a goal that `maxplayers` closed by a different door. A queue that
 points at settled ground is worse than no queue, because it costs a session before it costs a match.
 
+0. **A1 — `gunfight_menu` is BUILT and needs the compile gate.** One payload: gunfight_mod's fixes +
+   team size + the in-match menu (teams, bot fill, move players, timer, loadout, spy plane, restart,
+   map). Offline checks green; **never compiled, never injected.** It replaces `inject.sh mod` +
+   the Atian Menu in the hosting workflow once it runs. Protocol below (band M).
 1. 👤 **A HUMAN 4v4.** The goal is closed **with bots**. `maxplayers` is a gametype setting the
    session's own team-size restore reads, so it *should* transfer — but "should transfer" is not
    "measured", and this project has walked back four claims that felt safer than this one.
@@ -1064,6 +1068,57 @@ exhaustively read** — four, spanning the round. Probe cadence is 5s and displa
 capture interval, so a miss is unlikely but not impossible. **Re-run with the guard dvar cleared.**
 This one result is what closes off unattended operation; it is worth one clean run.
 Result: `______`
+
+---
+
+## M — THE MENU. `src/gunfight_menu/` — compile first, then a read-only walk
+
+**One payload carries everything** — B9 measured that nothing can be injected on top of a live one —
+so this replaces *both* `inject.sh mod` and the Atian Menu in the hosting workflow. `gunfight_mod`
+stays as the no-menu variant.
+
+### M1 · Compile gate
+```powershell
+.\tools\check-gsc.ps1 .\src\gunfight_menu\scripts\gunfight_menu.gsc -CompileOnly
+```
+963 lines, ACTS dialect, no preprocessor. ⚠ **The engine is a rewrite of the Atian Menu's, not a copy**
+— the original is `#include` / bare-`autoexec` / `#ifdef` under `debugcompiler`, the dialect that
+crashed at script link under ACTS. If this fails to compile, the failure is in the translation, and the
+line number is the finding. Result: `______`
+
+### M2 · Read-only walk — open every page, select NOTHING that writes
+Inject (`bash tools/inject.sh gunfight_menu`), restart the match, then:
+
+| Key | Expect |
+|---|---|
+| **RMB + V** | `---- Gunfight Host (1/3) ----` with two items |
+| **RMB / LMB** | cursor moves, pages advance |
+| **R** on a page name | opens it |
+| **V** | back, then closes |
+
+Walk: Teams · Players (should list every human with `allies` / `axis` / `spec`) · Round · Loadout ·
+Spy plane · Map · All maps. **Select nothing.** If the menu draws and navigates, the engine
+translation is right and every later result is about the controls, not the menu.
+⚠ If only 1 item shows per page, or lines overwrite each other, set `gf_menu_lines` — the Atian author
+chose 2 for MP and it is a dvar here for exactly this reason. Result: `______`
+
+### M3 · Controls, one per match, cheapest and most-proven first
+| Order | Control | Proven? | What to look for |
+|---|---|---|---|
+| 1 | Round → Timer 60s | ✅ shipped | round clock changes within a second |
+| 2 | Teams → 4v4, then Fill with bots | ✅ L6 + C7 | `4v4` message; bots land 4 a side; **survives the round** |
+| 3 | Round → Restart match | ✅ B4 | restarts; menu still opens afterwards (`menu_restart` on start_gametype) |
+| 4 | Teams → Remove all bots | — | bots gone |
+| 5 | Loadout → Snipers | ⚠ B6 | **next round** is snipers-only |
+| 6 | Spy plane → Shared | ⚠ B7 | next round |
+| 7 | Players → someone → To Axis | ⚠ C11 | they switch sides and spawn normally |
+| 8 | Map → Zoo (method: carry) | ✅ the Atian carry | loads Zoo exactly like the Atian menu did |
+| 9 | Map → Method toggle → session → Zoo | ⚠ B1 | **scoreboard / friend list / activity say Zoo?** |
+
+⚠ **Test a lobby return after 3, 8 and 9.** ⚠ Settings are dvars — they persist until the game is
+restarted, including across matches. `gf_team_size`, `gf_timer_seconds`, `gf_loadout`, `gf_spyplane`,
+`gf_map_method`, `gf_menu_lines`.
+Results: `______`
 
 ---
 
