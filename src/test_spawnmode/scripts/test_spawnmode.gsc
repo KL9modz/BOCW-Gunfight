@@ -44,30 +44,29 @@
 //    enemy start position, outside the play zone, and stacked-on-another-player
 //    are all still open, and they are not the same bug.
 //
-// ── ⚠ AMENDED 2026-09-09 — "OUTSIDE THE PLAY ZONE" WEAKENS MODE 2 ───────────
-// klaze, asked what wrong actually looked like: **"outside the play zone on some
-// maps."** Not stacked, not failed - placed somewhere the Gunfight area is not.
+// ── ⚠ THE CONTROL IS ALREADY RUN. klaze measured both halves. ───────────────
+// Asked what "wrong" looked like, and then asked again because a first reading of
+// "outside the play zone" suggested the start_spawn list might simply contain
+// far-away entries meant for a bigger mode:
 //
-// ⚠ That is probably NOT exhaustion, and if it is not, mode 2 is aimed at the
-//   wrong cause. Start spawns are map structs flagged `_human_were`, bucketed by
-//   `group_index` into per-team lists (script_335d0650ed05d36d.gsc:225-250). A map
-//   that also hosts Face Off has MORE start_spawn structs than Gunfight uses, and
-//   the extra ones are placed for the bigger mode - across the wider map.
+//   "It spawns people out of bounds when the team size is exceeded on gunfight
+//    not tdm. When I play TDM face off on gunfight maps, the spawns are all good
+//    and valid. That's why I said using tdm spawns for gunfight would be good."
 //
-//   So the likely story is not "the list ran out and the engine returned garbage."
-//   It is "the list has 6 or 12 entries, Gunfight only ever touched the first 2-3,
-//   and player 4 got a perfectly valid point meant for Face Off."
+// ✅ **Same maps. 12 players. All spawns valid.** So the TDM/default lists on those
+//    maps are not the out-of-bounds ones - they are the known-good ones. The bad
+//    points are specific to the path Gunfight takes, and only once the team size
+//    is exceeded.
 //
-// ⚠ If that is right, mode 2 does not help: level.default_spawn_lists (auto_normal)
-//   covers the same wider map and more. It could be the same bug or worse.
+// ⚠ A previous revision of this file weakened mode 2 on the theory that the
+//   default lists would carry the same far-flung points. **That theory is refuted
+//   by the Face Off half of klaze's own observation** and has been removed rather
+//   than left standing. Mode 2 is the fix, and it is the default below.
 //
-// ⚠ klaze said "tdm spawns would be fine", which relaxes the requirement - but
-//   "fine" and "outside the play zone" are in tension, and this file does not
-//   pretend to resolve it. **Mode 0 resolves it.** Get 4 on a side and look at
-//   where player 4 lands RELATIVE TO PLAYERS 1-3:
-//
-//       near them, list clearly exhausted  -> mode 2 is right
-//       far away, elsewhere on the map     -> mode 2 is wrong, use mode 3
+// ⚠ DO NOT RE-RUN MODE 0 AS A CONTROL. It has been run, twice over: Gunfight
+//   breaks above 3 per side, Face Off on the same map at 6v6 does not. Mode 0 is
+//   kept only to reproduce the failure deliberately if a later change needs a
+//   baseline again.
 //
 // ── THE MODES ────────────────────────────────────────────────────────────────
 //   0  off              stock. Control run - confirm the breakage before fixing it
@@ -76,11 +75,15 @@
 //                       grace wave IS every spawn. Included because if it DOES
 //                       help, the model above is wrong and that matters more than
 //                       the fix
-//   2  fully_dynamic    never use start spawns. All spawns go through
-//                       function_99ca1277 against level.default_spawn_lists - the
-//                       same path Face Off uses on the same map. Right IF the list
-//                       is genuinely exhausted; see the amendment above
-//   3  pin_to_team      ⬅ CANNOT land outside the play zone, by construction.
+//   2  fully_dynamic    ⬅ DEFAULT, AND THE FIX. Never use start spawns. All spawns
+//                       go through function_99ca1277 against
+//                       level.default_spawn_lists - the lists klaze has directly
+//                       watched carry 12 players on these maps with no bad points.
+//                       ⚠ Costs Gunfight's fixed symmetric openings. klaze has
+//                       accepted that trade explicitly ("tdm spawns for gunfight
+//                       would be good"); it is still a change in how the mode
+//                       plays, not a free repair.
+//   3  pin_to_team      FALLBACK. Cannot land outside the play zone, by construction.
 //                       Places the overflow player next to a teammate who has
 //                       already spawned, via self.var_b7cc4567 - a stock spawn
 //                       override read at spawning_shared.gsc:290, BEFORE
@@ -112,12 +115,15 @@
 //   Do not interpret "no change" as "the fix does not work" until 31 has printed.
 //
 // ── PROTOCOL ─────────────────────────────────────────────────────────────────
-//  1. mode 0 first. Get 4 on a side (C7 bots are the cheap way) and WATCH THE
-//     SPAWNS. Write down what wrong actually looks like - that detail is the
-//     finding, more than the fix is.
-//  2. mode 2. Same setup. Spawns should look like Face Off on that map.
-//  3. Probe 31xxxxx counts wrapper invocations. If it never prints, the wrapper
-//     never ran and neither mode was ever in effect.
+//  1. mode 2 (the default). Get 4 on a side - C7 bots are the cheap way - and
+//     watch the spawns. They should look like Face Off does on that map.
+//  2. ⚠ READ PROBE 31 FIRST. It counts wrapper invocations. A zero means
+//     level.onspawnplayer was reassigned after us (spawning_squad.gsc:172 is the
+//     suspect) and NOTHING here was ever in effect - which is not the same result
+//     as "the fix did not work", and must not be recorded as one.
+//  3. Still out of bounds with 31 counting up? Then the default lists are not the
+//     answer either. Go to mode 3, which derives the point from where the team
+//     actually is and cannot land outside the zone whatever the lists hold.
 //  4. ⚠ Test a lobby return.
 //
 // Once mode 2 is confirmed this belongs in gunfight_mod as a switch, not here.
@@ -148,10 +154,12 @@ function private __init__()
 function private default_config()
 {
     return {
-        // 0 = stock (control) · 1 = tdm_style · 2 = fully_dynamic · 3 = pin_to_team
-        // Run 0 FIRST, and not as a formality: mode 0 is what decides whether the
-        // right fix is 2 or 3. A fix chosen before the baseline is a guess.
-        #mode:   0,
+        // 0 = reproduce the failure · 1 = tdm_style · 2 = FIX · 3 = fallback
+        // Defaults to 2. The control does not need re-running - klaze has measured
+        // both halves of it (Gunfight breaks above 3, Face Off at 6v6 on the same
+        // map does not), and making him reproduce a known failure costs a session
+        // for nothing.
+        #mode:   2,
         #report: 1
     };
 }
