@@ -61,6 +61,16 @@ def strip_comments(src):
     return re.sub(r"//[^\n]*", "", src)
 
 
+def strip_strings(src):
+    """Blank the INSIDE of every string literal, keeping the quotes and the length,
+    so the call scanner never reads a label's parentheses as a call. Keeping the
+    quotes preserves argument structure: setteam("allies","extra") still counts as
+    two arguments. Learned from three garbage rows on one file - "Zoo (verified)",
+    "Shared (hidden)", "CARRY (map - verified)" - each reported as a one-arg call."""
+    return re.sub(r'"(?:\\.|[^"\\\n])*"',
+                  lambda m: '"' + " " * (len(m.group(0)) - 2) + '"', src)
+
+
 def scan_calls(code):
     """Yield (name, argcount). Balanced-paren scan, so NESTED CALLS are handled -
     a regex like \\w+\\([^()]*\\) silently skips switchmap_load(get_map_name(), x),
@@ -108,7 +118,7 @@ def main():
 
     bad = unknown = 0
     for path in files:
-        code = strip_comments(open(path, encoding="utf-8").read())
+        code = strip_strings(strip_comments(open(path, encoding="utf-8").read()))
         local = set(re.findall(
             r"^function\s+(?:private\s+)?(?:autoexec\s+)?(\w+)", code, re.M))
         rows, seen = [], set()

@@ -566,11 +566,14 @@ function private menu_render( lines )
 // KEYS — translated from t8-atian-menu keymanager.gsc, same bindings
 // ═════════════════════════════════════════════════════════════════════════════
 
-// Combos are built with [] and index assignment, never bare array( ... ):
-// stock MP scripts contain ZERO bare array() calls - `array` is a namespace
-// there (array::add etc.) - and the Atian source only gets away with it under
-// its own compiler. A link-time failure on a key table would take the whole
-// menu with it, so this uses the one construction that cannot fail.
+// Combos are built with [] and index assignment rather than bare array( ... ).
+// ⚠ Not because array() is missing: the engine table lists it (array, 0-100
+// args). But stock MP scripts contain ZERO bare array() calls - every stock use
+// is the array:: namespace - so under ACTS it is a builtin with no precedent in
+// the code we link against, and a link-time failure on a key table would take
+// the whole menu with it. [] construction is the form that cannot fail either
+// way. (A commit message once said "array is a namespace under T9" as if that
+// were the whole story; it is a namespace AND a builtin.)
 function private keys_init()
 {
     self.gfkeys = [];
