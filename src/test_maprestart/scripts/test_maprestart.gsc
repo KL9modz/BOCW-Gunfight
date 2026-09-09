@@ -118,6 +118,38 @@ function private run()
 
     emit( 3, 1 );
 
+    // ⚠⚠⚠ ONCE-GUARD. ADDED 2026-09-09, BEFORE THIS WAS EVER RUN LIVE.
+    //
+    //   Without it this test is an INFINITE RESTART LOOP BY CONSTRUCTION, and it
+    //   would reveal that only by SUCCEEDING: map_restart() works -> the match
+    //   restarts -> on_start_gametype fires -> run() -> map_restart() -> forever.
+    //   The game becomes unusable with no way in and the only exit is killing the
+    //   process. Strictly worse than A4's map-load failure, which stopped by itself.
+    //
+    //   ⚠ TWO carriers, deliberately, because EITHER MAY NOT SURVIVE A RESTART and
+    //     that is the very thing this test exists to measure:
+    //       - game. scope survives a ROUND, but a map_restart is not a round
+    //         boundary and nobody knows whether it clears game.
+    //       - a dvar is process-level and survives more - which is why this test
+    //         already uses scr_gf_prevmap as its carrier - but probe 1 is what
+    //         MEASURES that, so it cannot be assumed here either.
+    //     Neither alone is trustworthy. Both together fail only if both reset, and
+    //     probe 1 reports it when they do.
+    //
+    //   ⚠ DO NOT REMOVE THIS TO "SEE IF IT LOOPS". The loop IS the failure, not the
+    //     measurement. One restart is all the evidence needed - the second reading
+    //     arrives from the next on_start either way.
+    if ( isdefined( game.var_b4_fired ) || getdvarint( #"scr_gf_b4_fired", 0 ) == 1 )
+    {
+        emit( 4, 1 );        // guard held: a restart already fired, stopping here
+        return;
+    }
+
+    game.var_b4_fired = 1;
+    setdvar( #"scr_gf_b4_fired", 1 );
+
+    emit( 4, 0 );            // first and only attempt
+
     // Give the emits above time to be read before the screen goes away.
     wait( 5 );
 
