@@ -79,7 +79,7 @@ function private run()
 
     // ⚠ RUN WITH THIS AT 1 FIRST. It reports the map comparison and restarts
     //   nothing, which confirms the dvar carrier works before you spend a restart.
-    read_only = 1;
+    read_only = 0;   // LIVE 2026-09-09. Once-guard (game. + dvar) is in place above.
 
     // map_restart is 0-1 args and the table says nothing about what the argument
     // means. 0 = call the no-argument form, the only one that cannot be wrong about
