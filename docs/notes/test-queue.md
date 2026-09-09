@@ -120,7 +120,19 @@ Result: `______`
 look for it.
 
 ⚠ Phase 0 **T0.2** already walked those pages — **looking for the timer**. Nobody was looking for a
-player count, so its silence is not a negative. Result: `______`
+player count, so its silence is not a negative.
+Result: 🪦 **NO. Walked 2026-09-08 — there is no Max Players row in the Gunfight rules menu.**
+
+⚠ **This is a fact about the MENU, not about the setting.** `max_players.json` is a real bundle
+publishing 1–12; the Gunfight variant simply does not show it, which is the same playlist-level
+filtering that hides the round-timer row from 3v3 Gunfight while `timer_override` still holds 60s
+there. Per [`../../.claude/CLAUDE.md`](../../.claude/CLAUDE.md): **a setting being absent from the menu
+says nothing about what `setgametypesetting()` accepts.** `maxplayers` stays live as a write target —
+it is `lobby_probe` probe `7xxxxx`.
+
+**Worth one minute when convenient:** does a **TDM** custom lobby show the row? Present there and
+absent here proves the filtering is per-variant rather than the row being dead everywhere, and that
+directly feeds C6 (start in a 12-slot TDM lobby, switch the gametype in place).
 
 ### L2 · If it exists, set it to 12 and count the slots ← **the whole goal, with no code**
 `com_maxclients` is fixed at lobby creation and read-only from script. A rules row that sets max
@@ -131,7 +143,33 @@ players *before* the match acts at exactly that layer.
 | **12** | **team size solved with no mod at all.** Most of band C stops mattering |
 | still 8 | `maxPlayers` does not drive lobby size — it may only feed challenge logic |
 
-Result: `______`
+Result: 🪦 **MOOT for Gunfight — L1 found no row to set.** Not attempted. Revisit only if the TDM
+walk under L1 shows the row exists there, in which case this becomes a C6 question rather than an L
+one.
+
+---
+
+### 🔓 L5 · `maxsquadplayers` — **promoted 2026-09-08. The revert points straight at it.**
+
+C7 measured that a Gunfight round boundary **restores the team size to 3** in a 3v3 lobby — session
+layer, not script (three script explanations ruled out; see C7). Separately, `maxsquadplayers`
+(`globallogic.gsc:241` → `level.var_704bcca1`, cracked from `#"hash_3a4691a853585241"`) is
+**predicted to read exactly 3 in that same lobby**, is `uint:6` (max 63), is present in
+`custom_games.ddl`, has **no menu row** — and L1 has now confirmed by walking the menu that no
+per-side row exists to contradict it.
+
+▶ **The two numbers being the same 3 is the lead.** If the session restores team size *from* that
+setting, then the round-boundary revert stops being the obstacle and becomes the lever: one
+`setgametypesetting( #"maxsquadplayers", 4 )` and the boundary restores **4v4** instead of undoing it.
+
+⚠ **Read before writing.** A1 probe `6xxxxx` (by cracked name) and probe `12xxxxx` (the variable the
+hash actually feeds) must **agree**, and must read **3 in the 3v3 lobby and 2 in normal Gunfight**.
+One lobby cannot tell "it is the cap" from "it happens to be 3". Disagreement between 6 and 12
+invalidates the cracked name and everything resting on it.
+
+⚠ **A write is a band-C action** — one per match, lobby return after. Do the read first; it is
+read-only and `lobby_probe` is already built.
+Result: read `______` · write `______`
 
 ### L3 · Bot Autofill / Bot Difficulty rows
 `bot_autofill_allies` and `bot_autofill_axis` are real bundles. If those rows exist, filling a test
