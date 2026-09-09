@@ -300,6 +300,23 @@ impossible, which is the failure mode this file's own header warns about.
 ⚠ **Read-only from script is UNAFFECTED** — still 7 refs, all `getdvarint`, zero `setdvar`. The
 **value** was wrong, not the access.
 
+🪦🪦 **RETRACTED 2026-09-09 — the budget does NOT follow `maxplayers`. Test L8 killed it.**
+In a standard Gunfight lobby, `setgametypesetting( #"maxplayers", 10 )` **landed** (read-back 10) and
+**survived the round boundary** (round 2 read 10 before any write) — and `com_maxclients` **stayed at
+8** in that same round. Input +6, output **0**.
+
+⚠ **The claim below was built on ONE before/after pair taken in DIFFERENT SESSIONS, and called
+"causal" on that basis. That was the error** — not the reading, the inference. A single pair cannot
+separate "our write moved it" from "the session was different", which is precisely the trap this
+file's own header warns about and which A1 was designed around with its dual-lobby rule.
+
+▶ **What survives:** `maxplayers` is writable, sticky across a round boundary, and has no menu row.
+▶ **What does not:** any route from script to the client budget. **6v6 and 5v5 are undemonstrated
+again**, and the earlier `12` reading is **unexplained** — record it as an anomaly, not as evidence.
+⚠ **4v4 is untouched by this** — it was verified independently with bots in L6, inside a budget of 8.
+
+<details><summary>the retracted reasoning, kept because the retraction is the lesson</summary>
+
 🔓🔓🔓 **AND THE BUDGET IS REACHABLE ANYWAY — `com_maxclients` FOLLOWED a `maxplayers` write.**
 Measured 2026-09-08 in a **standard (2v2) Gunfight lobby**, which had been baselined at
 `maxplayers` 4 / `com_maxclients` **8** earlier the same day. After `gunfight_mod` wrote
@@ -320,6 +337,8 @@ than observed. Expect probe 7 = 8 alongside probe 1 = 12.
 so a growing budget loosens its own clamp — a feedback loop whose termination is untested.
 ⚠ **A bigger budget is not seated players.** It means the script believes there is room; whether the
 session seats a 9th–12th client is C7/C10 with bodies, not a dvar reading.
+
+</details>
 
 🔓🔓 **The late-joiner path is script-side, and it has NO cap check.** `function_a3e209ba`
 (`team_assignment.gsc:600–656`) is a chain of **nine ANDs** that sends a mid-match joiner to

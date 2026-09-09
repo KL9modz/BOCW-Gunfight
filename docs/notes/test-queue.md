@@ -325,6 +325,28 @@ free, and is worth taking the next time one is open.
 
 Result: **3v3 = 10 · 2v2 = 8** · third lobby: `______`
 
+#### 🪦🪦 L7b — **RETRACTED 2026-09-09 by test L8. The budget does NOT follow `maxplayers`.**
+
+**L8, standard Gunfight lobby, read by screen capture rather than transcription:**
+
+| Round | Probe | Read | Meaning |
+|---|---|---|---|
+| 1 | `4` `maxplayers` after write | **`400010`** | the write **lands** — not refused, not clamped |
+| 2 | `2` `maxplayers` before write | **`200010`** | it **survives the round boundary** |
+| 2 | `3` `com_maxclients` before | **`300008`** | 🪦 **unchanged.** Input +6, output **0** |
+
+▶ **So `maxplayers` is writable, sticky, and the client budget ignores it.**
+
+⚠ **The error was the inference, not the reading.** L7b rested on ONE before/after pair taken in
+**different sessions** and called it causal. A single pair cannot separate "our write moved it" from
+"the session was different" — which is exactly the trap A1's dual-lobby rule exists to avoid, and it
+was not applied here. The earlier `12` is **unexplained**; record it as an anomaly, never as evidence.
+
+▶ **Consequences:** 5v5 and 6v6 are **undemonstrated again**. ✅ **4v4 is untouched** — L6 verified it
+with bots inside a budget of 8, independently of any of this.
+
+<details><summary>the retracted L7b reasoning, kept because the retraction is the lesson</summary>
+
 #### 🔓🔓🔓 L7b · **`com_maxclients` FOLLOWED our `maxplayers` write. Measured 2026-09-08.**
 
 | When | Lobby | `maxplayers` | `com_maxclients` |
@@ -359,6 +381,40 @@ after each. Do not jump to 6.
 ⚠ **Unknown: whether the raised budget is real.** A larger `com_maxclients` means the *script* thinks
 there is room. Whether the session will actually seat a 9th–12th client is a separate question, and
 the answer that matters is C7/C10 with bodies in the slots — not the dvar.
+
+</details>
+
+---
+
+### 🔧 Reading probes: `tools/capture-probes.ps1` — stop transcribing numbers
+
+Added 2026-09-09 after klaze said, correctly, *"i'm tired of doing this number stuff."* Every probe in
+this project printed via `iprintlnbold` and was read off the screen and typed out by hand, for hours.
+GDI capture of the game window works, so **the agent reads its own probes now.**
+
+```powershell
+pwsh tools/capture-probes.ps1 -Seconds 240 -Every 3    # start BEFORE restarting the match
+```
+
+⚠ **Start it before the restart.** Probes begin ~10s into the round, 5s apart, and are gone in under a
+minute. A capture started afterwards catches nothing — that happened on the first attempt.
+
+⚠ **`SetProcessDPIAware()` is load-bearing.** Without it, window coords come back in logical pixels
+while capture works in physical ones, and on a scaled display the grab is offset. Measured: it started
+~390px left of the game and pulled **the terminal** into frame — which was displaying this project's
+own *predicted* probe values. A capture tool that can photograph its own expectations and hand them
+back as data is worse than no tool.
+
+⚠ **Frame-scoring by white-pixel count does NOT work** — bright map geometry (skylights, marble)
+swamps the glyphs at any threshold tried. Read frames directly; probe N lands roughly at frame
+`(10 + 5N) / interval`.
+
+🔧 **`tools/send-key.ps1` sends F4/F6/F7 via `SendInput` with SCAN CODES** (games read raw input;
+`SendKeys` and `PostMessage` are ignored). It focuses the window first, since input goes to the
+foreground window and would otherwise land in the terminal. ⚠ **Whether cwpatch's hook honours
+injected input is UNCONFIRMED** — a test on 2026-09-09 sent F7 with both events accepted, but the
+observed screen showed a normal round-win, so nothing distinguished "F7 worked" from "the round ended
+on its own". Retest deliberately, mid-round.
 
 ### L3 · Bot Autofill / Bot Difficulty rows
 `bot_autofill_allies` and `bot_autofill_axis` are real bundles. If those rows exist, filling a test
