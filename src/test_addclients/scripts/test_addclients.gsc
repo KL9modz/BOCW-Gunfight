@@ -71,6 +71,36 @@ function private on_start()
 
 function private run()
 {
+    // ⚠⚠ ONCE-GUARD, ADDED 2026-09-08 AFTER THE FIRST LIVE RUN. Without it this
+    //    test invalidates its own reading.
+    //
+    //    on_start_gametype fires ONCE PER ROUND in round-based Gunfight (the
+    //    cadence gunfight_mod.gsc records, confirmed by hello_world's counter).
+    //    run() has no endon, so round 2 threaded a SECOND copy while the first
+    //    was still looping, round 3 a third. They then broke each other's exit
+    //    condition: thread A's add raises getplayers().size, thread B reads the
+    //    rise and resets its own `stalled` counter, so no thread ever reaches
+    //    `stalled < 2`. Every one of them runs to maxtries=20 instead - 20 adds
+    //    per thread per round against an 8-client budget.
+    //
+    //    Measured 2026-09-08: bots poured in continuously, the count differed
+    //    every round, and it read 4v4, then 3v3, then 2v4.
+    //
+    //    `game.` scope and not `level.`: level is torn down and rebuilt every
+    //    round (mp_probe probe 6), so a level guard would be undefined exactly
+    //    when it is needed. game. survives the round - the same property
+    //    gunfight.gsc:81 relies on for game.var_96a8ff4a. It also clears on a
+    //    new lobby, which is how you re-run this: take a NEW LOBBY, not a new
+    //    round.
+    if ( isdefined( game.var_c7_done ) )
+    {
+        return;
+    }
+    game.var_c7_done = 1;
+
+    // Stop cleanly at round end rather than looping on into a torn-down level.
+    level endon( #"game_ended" );
+
     // on_start_gametype fires before players are in the match.
     wait( 10 );
 

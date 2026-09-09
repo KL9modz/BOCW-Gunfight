@@ -421,6 +421,57 @@ match.
 | `4xxxxx` adds that stuck | `3xxxxx` minus the baseline | `______` |
 | `5xxxxx` attempts | if this reads 20, the cap was hit and the ceiling is higher than the test looked — raise `maxtries` and rerun | `______` |
 
+#### ✅ RUN 1 — 2026-09-08. Both predictions confirmed; numeric ceiling NOT yet clean.
+
+klaze, solo start, a **non-Nuketown** Gunfight map: *"i started round 1 with just me, then bots started
+pooring in, at one point it was 4v4!"*
+
+- ✅ **`bot::add_bot()` has no map gate.** The Nuketown-only bot restriction is playlist/LUI, exactly as
+  predicted. Bots fill on any Gunfight map.
+- ✅ **The 3-per-side cap is not enforced in-match.** **4v4 was observed live.** This also lands C8's
+  headline early — a team held four, so the eight clients of the existing lobby *are* 4v4.
+- ⚠ **The numbers are NOT a ceiling reading.** `run()` had no once-guard and no `endon`, and
+  `on_start_gametype` fires **per round**, so rounds 2+ threaded additional concurrent copies. They
+  break each other's exit condition (A's add raises the count, B resets its own `stalled`), so every
+  thread ran to `maxtries = 20`. **Fixed** — `game.var_c7_done` guard + `level endon( #"game_ended" )`.
+  Re-run needs a **NEW LOBBY**, not a new round (`game.` scope survives rounds).
+
+#### ⚠ RUN 1's REAL FINDING — the revert is at the ROUND BOUNDARY, and it is above script
+
+klaze: *"at the start of every round, it removes the extra bots and reverts to 3v3, or it glitches and
+turns into 2v4."*
+
+**Three script-side explanations are ruled out, by grep:**
+
+1. **No retail script path drops a bot.** The only `remove_bot` call sites in MP are
+   `team_assignment.gsc:1102` and two in `bot_devgui.gsc` — **all inside `Type: dev` functions**,
+   stripped from retail. `bot.gsc:192` `botdropclient()` is the sole definition and has no live caller.
+2. **The NOTSPAWNED kick cannot fire.** `globallogic_spawn.gsc:1021`
+   `kick( …, "EXE/PLAYERKICKED_NOTSPAWNED" )` sits below `if ( sessionmodeisprivate() ) return;`.
+3. **Re-assignment cannot evict.** Our bots are `botteam = "autoassign"`, so `function_582e5d7c()`
+   (`:66`) is false and `:435` does not return early. They fall to `function_bec6e9a()` (`:339`) →
+   `function_650d105d()` — count the teams, pick the smaller — **no cap, no eviction**.
+
+▶ **So the round-boundary revert is session/playlist-layer, not script.** ⚠ And note *what* it reverts
+to: **3v3, the playlist's team size — NOT `com_maxclients`'s 8.** That is the same playlist layer that
+fixes `com_maxclients` at lobby creation and that the map carry rides underneath.
+
+⚠ **Do NOT read this as "4v4 cannot persist."** It is measured for **bots**, and bots are the weakest
+possible proxy here: a bot added mid-match by `addtestclient` holds no lobby/session slot, so a session
+that re-derives its client list at a round boundary has nothing to restore it from. A **human** who
+joined the session holds a real slot. Whether a human 4th survives the round boundary is **untested and
+not ruled out** — it is precisely what C10/C11 ask.
+
+#### 🪦 C7 does NOT unblock C10. Corrected 2026-09-08.
+
+This entry previously read *"if it does, C8 and C10 no longer need four friends."* **Half wrong.**
+`function_a3e209ba` (`team_assignment.gsc:634`) contains `if ( isbot( self ) ) return false;` — a bot
+exits the nine-AND spectator rule **before** the branch C10 overrides. **A bot can never exercise
+C10's code path**, whichever lever is set.
+
+- **C8 — still fine with bots.** It fills a named team and reads where it lands. No spectator path.
+- **C10 / C11 — still need humans.** No substitute exists.
+
 ⚠ Bots may not leave cleanly. `kick` (1–2 args, `+3b0a3a0`) is the only obvious undo; A0 reports its
 call sites. **Also the mechanism Phase 3's "bots before humans" always assumed and never had** — if
 this works, every later test gets cheaper.
