@@ -982,3 +982,32 @@ likely to matter; both are cheap to settle.
 
 ⚠ Injecting begins host-side exposure — [`tac-risk-model.md`](tac-risk-model.md). Nothing here hides
 itself from the anti-cheat; that is out of scope by decision, not oversight.
+
+---
+
+## 🖥️ Unattended operation — what the agent can and cannot drive alone
+
+Established 2026-09-09, when klaze asked whether he could leave the machine running and drive testing
+by Remote Control.
+
+| Capability | Status |
+|---|---|
+| Inject a payload (`tools/inject.sh`) | ✅ no user input needed |
+| Read probe output | ✅ `tools/capture-probes.ps1` — the agent reads its own probes |
+| Compile, commit, push | ✅ |
+| **Restart the match (F7)** | ⚠️ **UNCONFIRMED — the critical path** |
+| Navigate the Atian Menu | 🪦 never tested |
+
+⚠️ **F7 is the blocker, and nothing else matters until it is settled.** An injection is inert until a
+map load links it, so without a working restart the agent can inject all night and change nothing.
+`tools/send-key.ps1` sends scan-code `SendInput` and reports both events accepted — but **two tests
+were confounded by the match ending before the key landed** (a round-win screen, then an After Action
+Report). Neither shows the mechanism failing; neither shows it working. **Retest mid-round.**
+
+⚠️ **The desktop must stay live.** Screen capture is GDI against the game window, so:
+- `powercfg` display-off / standby / disk-idle set to **0 on AC** (2026-09-09). Revert:
+  `powercfg /change monitor-timeout-ac 15 ; powercfg /change standby-timeout-ac 120 ; powercfg /change disk-timeout-ac 20`
+- The screensaver is active at 20 min but **not** secure, so it does not lock. Leave it that way.
+- 🪦 **Do NOT RDP in and then disconnect.** Disconnecting locks the console session and GDI capture
+  goes black — the agent loses all probe reading with no error to explain it. Use Claude Remote
+  Control (message the session) and leave the PC logged in, or stay connected for the whole run.
