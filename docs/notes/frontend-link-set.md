@@ -144,3 +144,22 @@ blocks. Losing it costs nothing shipping code touches.
 - **LUI models from the match VM.** Untested: the client payload demonstrably runs in the MATCH, and
   nobody has asked whether `lobby_root` resolves there — the assumption that it is lobby-only was
   never checked, and P6a's server-side zero does not settle a client-side question.
+
+### ▶ NEXT PROBE — does `lobby_root` resolve from the MATCH client VM?
+
+Never asked. The assumption that the model tree is lobby-only was inherited, not measured, and the
+only zero we have for it came from the **server** VM (P6a), which cannot settle a client-side
+question.
+
+**All three pieces are already proven**, so this costs one launch and no new code:
+
+| | |
+|---|---|
+| hook | `scripts\core_common\load_shared.csc` — runs in the MATCH client VM (prints were seen) |
+| replace | `scripts\mp_common\devgui.csc` — proven safe this session |
+| payload | `src/test_uimodel_c/` unchanged; it prints `99 P T R LL` directly, no stash needed |
+
+Expect `P ≥ 1` and `T ≥ 1` (it runs there). **`R` and `LL` are the finding**: if the roots resolve in
+the match client VM, the UI model API is reachable from a VM we can already inject into — and the
+question becomes whether a model written there survives back to the lobby, not whether we can touch
+models at all.
