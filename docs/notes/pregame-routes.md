@@ -293,3 +293,45 @@ the round boundary. That is why this is A2 and why it outranks polishing A1.
   having, because it is the custom-games map list
 - Whether *Load* clamps a saved value to the rules bundle, or restores it verbatim
 - What "save online game mode to Custom Games" copies — settings only, or the map list as well
+
+---
+
+## ✅✅ P1 RESULT — 2026-09-09. **GSC RUNS IN THE PREGAME LOBBY. Confirmed in-game.**
+
+`src/test_frontend/` injected at `load_shared.gsc`, read-only, all write switches off. Sequence:
+match (links MP half) → lobby, ~1 min, switched to 3v3 (links frontend half, samples into dvars) →
+match (prints the stash). Read by screen capture.
+
+| Probe | Read | Meaning |
+|---|---|---|
+| `51xxxxx` flags | **63** | **ALL SIX BITS.** `is_frontend_map` + private + multiplayergame + onlinegame + `getplayers().size > 0` + one answered `ishost()` |
+| `52xxxxx` `maxplayers` **in the lobby** | **6** | 🔓 **THE READ.** 6 in a 3v3 lobby — **the frontend store is the pending lobby config** |
+| `54xxxxx` `maxsquadplayers` | **0** | control, consistent with L5's in-match reading |
+| `58xxxxx` `com_maxclients` **in the lobby** | **2** | ⚠ **not 10.** See below |
+| `60xxxxx` `maxplayers` in-match | **6** | matches probe 52 exactly |
+| `61xxxxx` `timelimit` in-match | **40** | default, `gunfight_mod` not injected |
+
+▶ **"Nothing runs in the pregame lobby" is dead, and it was never measured.** A server VM executes
+there, `util::is_frontend_map()` answers true, and there is a **player entity that answers
+`ishost()`** — so player-scoped calls are available in the lobby, not just level-scoped ones.
+
+▶ **The frontend store is the pending lobby config.** Probe 52 (lobby) and probe 60 (match) both read
+**6** for the same 3v3 lobby. Whatever the frontend holds is what the match receives. **That is the
+layer this project has been unable to reach all along** — every wall (playlist, team size,
+`com_maxclients`) is set there, before anyone is seated.
+
+🔓 **NEW, and it reframes `com_maxclients`: it reads 2 in the lobby and 10 in the match.** So it is
+**not** "fixed at lobby creation" as this project has recorded since the beginning — it is *derived at
+match start*, and the lobby's value is a placeholder. ⚠ That does not make it writable; L8 measured
+that writing `maxplayers` does not move it. But it does mean the thing that computes it runs **after**
+the frontend store is read, which is a different and more promising place to intervene.
+
+▶ **Next: the write phase.** `write_maxplayers = 1`, one switch, one launch. Probe 59 reports whether
+the write took and whether the read-back matched; probe 60 says whether it **carried into the match**.
+That is the whole pregame-control question, and P1 has established the reads are honest.
+
+⚠ Probe 50 (sample count) was not captured — the emit order is `60, 61, 50, 51, 58, 56, 55, 52, …` at
+5s intervals, and a ~40s Gunfight round truncates it. **Probe 51 reading 63 rather than 99999 proves
+the frontend half ran**, which is what 50 exists to establish, so this is a gap in the record and not
+in the finding. ▶ For the write run, either lengthen the round (`gunfight_mod` cannot coexist) or read
+the frames around emit position 3.
