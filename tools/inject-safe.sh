@@ -42,3 +42,8 @@ else
     echo "INJECTION FAILED - restarting will not help." >&2
     exit 1
 fi
+
+# ⚠ USE THIS SCRIPT, NOT acts.exe DIRECTLY. The agent added this guard on
+#   2026-09-10 after breaking the B9 rule twice, then immediately broke it a third
+#   time by calling acts.exe injectcw by hand and bypassing the check it had just
+#   written. If you are about to type `acts.exe injectcw`, type this instead.

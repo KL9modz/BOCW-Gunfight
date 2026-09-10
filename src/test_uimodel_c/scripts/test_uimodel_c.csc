@@ -91,6 +91,13 @@ function private watch()
 //   evidence before it could be read.
 function private sample()
 {
+    // ⚠⚠ THE TICK COUNTER IS THE POINT NOW. klaze, 2026-09-10: "i dont like that
+    //    we are using the match to check the lobby." Correct - every zero so far
+    //    was read in-match, and NOTHING ever confirmed this script runs in the
+    //    LOBBY at all. Prints were only ever seen in a match. If the lobby half
+    //    never executes, every model reading is meaningless rather than negative.
+    setdvar( "gf_uc_t", getdvarint( "gf_uc_t", 0 ) + 1 );
+
     stash_max( "gf_uc_95", roots_defined() );
     stash_max( "gf_uc_90", control_via_lobby() );
     stash_max( "gf_uc_94", control_via_global() );
@@ -196,11 +203,19 @@ function private global_model_exists( name )
 //   on the least useful values.
 function private report()
 {
-    packed = getdvarint( "gf_uc_95", 0 ) * 10000
-           + getdvarint( "gf_uc_90", 0 ) * 100
-           + getdvarint( "gf_uc_94", 0 );
+    // ONE line, read as T-R-LL:
+    //   T  ticks the sampler has run, capped at 9. **0 = the lobby half never
+    //      ran, and every other digit is meaningless.** This is the digit that
+    //      was missing from all three previous runs.
+    //   R  roots: 1 lobby_root · 2 global · 3 both · 0 neither
+    //   LL best control of the two roots (0-15). 7 = the win.
+    t = getdvarint( "gf_uc_t", 0 );
+    if ( t > 9 ) { t = 9; }
 
-    emit( 99, packed );
+    best = getdvarint( "gf_uc_90", 0 );
+    if ( getdvarint( "gf_uc_94", 0 ) > best ) { best = getdvarint( "gf_uc_94", 0 ); }
+
+    emit( 99, t * 1000 + getdvarint( "gf_uc_95", 0 ) * 100 + best );
 }
 
 // ── probe 93 REMOVED — CALLING THE FILE I/O FAMILY CRASHES THE GAME ─────────
