@@ -673,9 +673,13 @@ sets `gamestate::set_state( #"pregame" )`, eleven stock GSC files guard on `util
 from inside the lobby-pose state — **the lobby keeps a live gametype-setting store script can read.**
 Writing it from there, before anyone is seated, is test P1/P2. [[pregame-routes]]
 
-### ▶ The queue — [[test-queue]]
-**Every open test on one sheet, ordered by risk, with record slots.** Start there at the machine; the
-phases below are the map, that is the checklist.
+### ▶ At the machine — [[desktop-session]], then [[test-queue]]
+**[[desktop-session]] is the runbook**: everything open, ordered by cost, built around the one
+constraint that shapes a session — **one payload per game launch** (a payload's config is compiled in,
+and B9 says nothing links on top of a live one). It opens with six questions answerable from memory
+and the free no-injection observations, because those can delete whole stages of injected work.
+**[[test-queue]] is the reference** — the same tests grouped by risk with their full decision tables.
+The phases below are the map; those two are the checklist.
 
 ### Phase 4 — the builtin sweep ← **where the untested work now is**
 Seven staged tests, ordered by risk, in [[cw-builtins]]. The first three are **read-only**:

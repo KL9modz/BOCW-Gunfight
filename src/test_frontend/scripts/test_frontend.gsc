@@ -72,6 +72,8 @@
 //   61xxxxx  timelimit in the match (seconds). Same test for the timer.
 //   62xxxxx  adddebugcommand: 0 off · 1 canadddebugcommand() said yes
 //            · 2 the dvar landed · 3 both · 4 neither (nulled, like BO4)
+//            ⚠ ON by default - it is in-match only and touches nothing but a
+//            private dvar, so it rides run 1 rather than costing a launch.
 //
 // ── PROTOCOL ─────────────────────────────────────────────────────────────────
 //  1. All switches off. Inject AT THE MAIN MENU. Play or restart one match
@@ -84,7 +86,7 @@
 //     whether it carried.
 //  3. write_timelimit = 1, separately - the rules-menu row makes this one
 //     visible without starting anything.
-//  4. debugcmd = 1: in-match only, sets one private dvar via the console path.
+//  4. debugcmd already answers itself on run 1 (probe 62) - no separate run.
 //  ⚠ Test a lobby return after every run. This payload links in the frontend;
 //    that is exactly where scene_model_shared broke.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -113,7 +115,14 @@ function private default_config()
         // In-match only. adddebugcommand("set gf_fe_dbg 7") then read it back.
         // BO4's table says nulled (ate47: "nulled; cbuff"); CW's row is
         // unannotated and NOT dev-flagged, so it is a question, not a verdict.
-        #debugcmd:         0,
+        //
+        // ⚠ ON BY DEFAULT, unlike every other switch in this project. It is
+        //   in-match only, independent of the frontend half, and the only thing
+        //   it can change is a private dvar this payload invented - so it rides
+        //   the read-only run for free instead of costing a whole game launch of
+        //   its own. Emitted LAST, so if it throws, everything else has printed.
+        //   Set it to 0 if a run must be provably read-only end to end.
+        #debugcmd:         1,
 
         // Frontend sample cadence. 10s is enough to catch the walk from main
         // menu to a configured lobby; the LAST sample is what gets read.

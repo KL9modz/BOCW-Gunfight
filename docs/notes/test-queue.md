@@ -14,6 +14,11 @@ that is the check that caught `scene_model_shared`.
 
 **Setup for anything injected:** [`menu-map.md`](menu-map.md) → *PROCEDURE*.
 
+▶ **At the machine, open [`desktop-session.md`](desktop-session.md) instead.** This file is the
+reference — every test with its full decision table, grouped by risk. That one is the runbook: the
+same tests ordered by what they cost, starting with six questions that need no game at all and the
+free observations that can delete whole stages below.
+
 ### The results that would actually move a goal
 
 ⚠ **REWRITTEN 2026-09-09. All three goals are CLOSED** — map, timer, and team size. The list this

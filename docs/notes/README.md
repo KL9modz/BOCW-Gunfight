@@ -24,6 +24,13 @@ These are **not** auto-loaded. Open the one you need.
 
 **Start here if you are at the machine**
 
+- [desktop-session](desktop-session.md) — ⬅ **THE RUNBOOK.** Everything open, ordered by what it
+  costs, from six questions answerable from memory through to a human 4v4. Built around the one
+  constraint that shapes a session: **one payload per game launch**, because a payload's config is
+  compiled in and B9 says nothing links on top of a live one. Six of the cheap items can delete the
+  expensive ones, which is why they come first. `test-queue.md` stays the reference with the full
+  decision tables.
+
 - [gamesettings-catalog](gamesettings-catalog.md) — **all 427 rules-menu rows**, with the setting each
   writes, what it publishes, and what it **hides**. 184 rows offer the menu fewer values than the
   setting accepts.

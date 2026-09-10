@@ -275,6 +275,9 @@ route is a console command (P3 from script, or the DLL slot once D10 has a table
 
 ## Order of work
 
+▶ **At the machine, the runbook is [`desktop-session.md`](desktop-session.md)** — this section is the
+strategy, that is the session plan, ordered by cost rather than by goal.
+
 ⚠ **REORDERED 2026-09-09.** klaze: *"pregame control would be the single most valuable mod for this
 entire project."* That moves A2 from third to first. It pulled **D10** to the front; D10 ran and came
 back empty (stale ACTS base), and the dump then retracted the premise D10 rested on — that nothing GSC
