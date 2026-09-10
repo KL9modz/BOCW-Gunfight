@@ -758,3 +758,45 @@ declares `script_client=scripts\core_common\load_shared.csc`, so the injector co
 ⚠ **This is a new track, not a variation on the existing one** — different VM, different compile flags,
 different replace target, and every safety property of the GSC pipeline has to be re-established. Worth
 scoping deliberately rather than continuing tonight.
+
+## 🪦 P6b — client scripts run in the MATCH client VM, not the FRONTEND one
+
+2026-09-10, four runs. Combining them localises the failure precisely:
+
+| Hook | Ran in match? | Ran in lobby? | Evidence |
+|---|---|---|---|
+| `load_shared.csc` | ✅ | 🪦 | prints appeared in-match only; tick digit **T = 0** |
+| `frontend.csc` | 🪦 | 🪦 | no prints anywhere; preinit digit **P = 0** |
+
+▶ **So an injected client payload executes in the match's client VM and not in the
+frontend's.** Every model reading tonight — three separate all-zeros results — was a sampler that
+never sampled. They were never evidence about the model tree.
+
+⚠ **The likely blocker is the REPLACE target, not the hook.** Our payload lives in
+`radiation_debug.csc`'s slot. If that script is not in the frontend VM's linked set, the code has
+nowhere to be — and the six 0-byte candidates are safe to destroy *precisely because nothing
+references them*, which is the same property that would stop them being loaded. **Empty and linked may
+be mutually exclusive here.**
+
+### ✅ What tonight DID establish, and it is not nothing
+
+1. **Client-script injection works at all.** `acts gscc` builds `.cscc` from a `.csc`, `injectcw`
+   places it, and the payload runs — first client-side payload in this project.
+2. 🔓 **TWO payloads can coexist on different REPLACE targets.** B9's rule is about *sharing* a
+   replace, and these did not: client `frontend.csc → radiation_debug.csc` alongside server
+   `bb.gsc → clientids_shared.gsc`. The server half printed while the client half was loaded. That
+   removes the one-payload-per-launch constraint for genuinely different pairs.
+3. **A lobby→match reporting channel exists**: client stashes to dvars, server prints in-match. It is
+   built and working (`src/gf_dvar_read/`), waiting only on a client half that actually runs.
+4. 🪦 **File I/O (`openfile`/`fprintln`/`closefile`) CRASHES the game** — type=1 dev builtins, fatal
+   rather than inert. Do not retry.
+5. ⚠ **The chat feed holds ~3 lines and each print costs two.** Probes must pack into ONE line.
+
+### ▶ The next step is analysis, not another blind run
+
+**Determine which `.csc` scripts the FRONTEND VM actually links**, then pick a replace target from that
+set. Guessing has now cost four launches. ate47's BO4 capture
+(`t8-atian-menu/docs/notes/loaded/link_frontend.txt`) lists ~190 scripts linked in a BO4 frontend —
+**same lineage, not the same game**, so it is a candidate list to verify, not an answer.
+⚠ A linked script is by definition one something references, so replacing it is not free. The
+`scene_model_shared` failure is exactly this hazard.

@@ -55,8 +55,29 @@ function private autoexec __init__system__()
     system::register( #"test_uimodel_c", &preinit, undefined, undefined, undefined );
 }
 
+// ⚠⚠ THE STOCK CLIENT PATTERN, and the previous version got it wrong.
+//
+//    Client scripts DO use system::register -> preinit, but they do not thread
+//    from preinit. They register callback::on_localclient_connect there and do
+//    the work in that handler - audio_shared.csc:29, armor_carrier.csc:27,
+//    blood.csc:27 all follow it. Threading straight out of preinit, as the
+//    previous build did, may never get a valid client context, which fits T=0.
+//
+//    And frontend.csc:1807 DISPATCHES that callback itself
+//    (callback::callback( #"on_localclient_connect", localclientnum )), so a
+//    handler registered this way is guaranteed to fire in the lobby.
+//
+//    gf_uc_p records that preinit ran at all, so "preinit never fired" and
+//    "preinit fired but the handler did not" stop looking identical.
 function private preinit()
 {
+    setdvar( "gf_uc_p", 1 );
+    callback::on_localclient_connect( &on_connect );
+}
+
+function private on_connect( localclientnum )
+{
+    setdvar( "gf_uc_p", 2 );
     level thread watch();
 }
 
