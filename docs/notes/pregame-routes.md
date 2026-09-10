@@ -335,3 +335,37 @@ That is the whole pregame-control question, and P1 has established the reads are
 the frontend half ran**, which is what 50 exists to establish, so this is a gap in the record and not
 in the finding. ▶ For the write run, either lengthen the round (`gunfight_mod` cannot coexist) or read
 the frames around emit position 3.
+
+## 🔓🔓🔓 P2 RESULT — 2026-09-09. **THE PREGAME WRITE WORKS. 4v4 CONFIGURED FROM THE LOBBY.**
+
+`test_frontend` with `write_maxplayers = 1`, `maxplayers_value = 8`. Injected **at the main menu** —
+which incidentally confirms the prediction that `load_shared.gsc` is in the scriptparsetree pool with
+no match loaded first (previously backed only by ate47's **BO4** capture, now measured on CW).
+
+Walk: match (links MP half) → lobby, 3v3, ~30s (frontend half writes `maxplayers = 8` every sample) →
+team screen → start.
+
+▶ **klaze: *"i did not notice any options but it let me put 4 bots on a team and start the match 4v4."***
+
+✅ **Confirmed on the HUD**: four player icons per side, team health 150 vs 356 — four players each.
+
+### Why this is better than the in-match route it replaces
+
+| | in-match (`gunfight_mod`, L6) | **pregame (P2)** |
+|---|---|---|
+| When it acts | after the match starts | **before anyone is seated** |
+| Team screen | still shows the old cap | **accepts a 4th on a side** |
+| Needs a running match | yes | **no** |
+| Survives the round boundary | needed L6 to prove it | not applicable — the lobby is already configured |
+
+▶ **The team screen honoured it with no menu row appearing.** klaze saw *no new options* — the pending
+config simply allowed a 4th. So the cap the team screen enforces reads from the same store the
+frontend half writes.
+
+⚠ **Probes 59 and 60 were NOT captured** — the match ended (Best Play) before the emit sequence reached
+position 12. So "the write's read-back matched" is **not** directly measured; what is measured is the
+behaviour, which is stronger evidence for the goal but weaker evidence about the mechanism. Re-run for
+59/60 if the mechanism matters. Probe 58 re-read **2** (lobby `com_maxclients`), consistent with P1.
+
+⚠ **Bots, not humans, again.** The team screen accepted them, which is more than the in-match route
+ever achieved — but a human 4th joining a pregame lobby is still untested.

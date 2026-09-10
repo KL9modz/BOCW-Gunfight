@@ -107,7 +107,7 @@ function private default_config()
     return {
         // The frontend half writes NOTHING with both of these at 0.
         // One at a time: a single run with both on cannot say which one mattered.
-        #write_maxplayers: 0,
+        #write_maxplayers: 1,
         #maxplayers_value: 8,
         #write_timelimit:  0,
         #timelimit_value:  60,
