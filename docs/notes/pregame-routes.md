@@ -1012,3 +1012,32 @@ into `mpmaps` (from mp_custom_game.ddl — we HAVE this enum: mp_zoo_rm=0x19, mp
     index. Practical and klaze-drivable, but attaching a scanner/debugger is exactly what TAC flags —
     higher exposure than injection. Test-box/throwaway call only.
   ▶ Pursue (a) first.
+
+## ✅ TARGET CONFIRMED: `presence.mapid` is a DDL STRUCT FIELD (int), address-only
+
+`presence.ddl` (version `hash_fd18c1f4757a153e`): `int mapid` at struct order after the version header,
+then clantag, context, difficulty, `int playlist`, modeparam, `int gametype`, activity. So the selected
+map is a **struct field holding an enum index**, not a dvar — cwpatch's set-dvar-by-hash cannot reach
+it, and there is no name to find. Reachable **only by memory address**.
+
+⚠ ACTS live introspection is all unavailable on this build: `ddv` (dvars) is BO4-only; `dcfuncscw`
+(commands) and `dpncw` (pool names) return header-only from stale hardcoded bases. So ACTS cannot hand
+us the address or a pool anchor. Address must come from a **value-scan**.
+
+▶ **THE PLAN — value-scan `presence.mapid` (Cheat Engine or equivalent), then write it.** The enum has
+TWO versioned index layouts (e.g. mp_satellite = 0x5 vs 0x3), so we do NOT rely on a known index — we
+scan for the int that changes when the picker map changes:
+1. Gunfight custom lobby, note current map. Attach scanner. Scan unknown-initial (4-byte int).
+2. Change picker to another map → next-scan "changed". Repeat 3-4 map changes → narrow to the
+   address(es) holding the map id (expect the presence copy + possibly a session/LUI mirror).
+3. Write the target incompatible map's index into the winning address, keep playlist=Gunfight.
+4. Launch + real-joiner test: does the joiner load the target map and play?
+
+⚠ **Exposure:** a memory scanner/debugger attaching is exactly what TAC flags (higher than the injector
+already in use). Throwaway test-box / account decision only, per ground rules. Lower-signature
+alternative to Cheat Engine: a minimal custom RPM scanner (compiled), but heavier to build and likely
+guard-blocked for the agent to author — klaze's execution either way.
+
+▶ This is the honest end of the non-memory search: every GSC/dvar/console/UI-model/save/carry route to
+the session map is closed or blocked. Memory-address write is the remaining path, and it is the one
+klaze named.
