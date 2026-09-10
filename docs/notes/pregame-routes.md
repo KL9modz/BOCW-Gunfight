@@ -713,3 +713,48 @@ closed routes, not an assumption.
 - **B1** (`src/test_sessionswitch/`) — does *not* set the lobby map, but tests whether in-match
   `switchmap_load( map, gametype )` fixes the **stale UI** after a carry. That is Goal B, and it is
   still the achievable half of the map problem: the carry already works, it just lies to the UI.
+
+## ⚠ P6a RESULT — **`800000`. The UI models are in the CLIENT VM, not the server VM.**
+
+2026-09-10, `test_uimodel`, read-only. **Control probe 80 read 0** — not even the three names the dump
+proves exist (`room`, `transitionMapIdOverride`, `fullscreenBlackCount`) resolved. Per the legend that
+is "the root or the accessor is wrong", so **bitmasks 81/82 were discarded, not interpreted.**
+
+✅ **The control earned its place again.** Without it this would have entered the notes as "no
+map-shaped lobby models exist" — a confident, wrong, and very expensive conclusion. Same shape as B5.
+
+### Why it failed, and it was visible in the dump before the run
+
+| | `.csc` (client) | `.gsc` (server) |
+|---|---|---|
+| files calling `getuimodel` | **31** | 5 |
+| `lobby_root` uses | **3** — `frontend.csc`, `character_customization.csc` | 1 — `cp_common/load.gsc`, **campaign** |
+
+▶ **The UI model tree belongs to the CLIENT VM.** Our payload is a **server** script hooked at
+`load_shared.gsc`, so it was asking a VM that has no lobby model tree. The single GSC precedent is
+campaign, whose VM context is not the MP frontend.
+
+⚠ **I had this evidence before building** — the three `.csc` paths were in the same grep output I used
+to find the chain — and read past it because `function_5f72e972` appears in *both* the GSC and CSC
+builtin tables. **A builtin existing in a VM does not mean the data it reaches exists there.**
+
+### ▶ The route is not closed — it moved to the client VM
+
+ACTS's compiler **already supports client scripts**: `acts gscc -c --csc`, plus `--crc-client`,
+`--name-client`, `--namespace-client`. And `t8-atian-menu/gsc.conf` (the T8 root, not the CW one)
+declares `script_client=scripts\core_common\load_shared.csc`, so the injector concept exists upstream.
+
+**What is unknown and must be established before writing a payload:**
+1. Does `injectcw` resolve a **`.csc` target** in the scriptparsetree pool at all? Cheap to find out —
+   a wrong target fails harmlessly with *"Can't find target script"*. ⚠ But if it DOES resolve, the
+   injection happens, so do not test it with a server-compiled payload: that links a GSC script into
+   the client VM and the likely outcome is a crash.
+2. Which `.csc` is a **safe replace target**. `clientids_shared.gsc` is the proven safe one on the
+   server side; its client counterpart is unverified, and `scene_model_shared` is the standing proof
+   that "looks empty" is not "safe to lose".
+3. Whether a client-side write to `transitionMapIdOverride` is honoured, or whether LUI ignores a model
+   change it did not originate.
+
+⚠ **This is a new track, not a variation on the existing one** — different VM, different compile flags,
+different replace target, and every safety property of the GSC pipeline has to be re-established. Worth
+scoping deliberately rather than continuing tonight.
