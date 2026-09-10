@@ -447,3 +447,29 @@ reads 60, **the mod's settings persist on the account with no injection at all**
 match starts from a saved, modded config.
 
 ⚠ Not predicted either way. The save may serialise from a different store than the row displays.
+
+### ⚠ P3's save test was INVALID — 60 is a menu value. klaze caught it.
+
+klaze, 2026-09-09: *"i could have saved a game with 60s myself normally."* **Correct, and it voids the
+save half of P3.** `scriptbundle/gamesettings/time_limit_seconds.json` declares 20 values but sets
+`"optionscount": 6`, so the row publishes **0 / 20 / 30 / 40 / 50 / 60**. A save containing 60 is
+indistinguishable from one a player made by hand — it proves the save works, not that it captured
+anything modded.
+
+⚠ **P3's LOBBY result still stands.** The row reading 60 after a GSC write, with no match started, is
+unaffected — that was about the write reaching the display, not about persistence.
+
+▶ **The fix: write a value the menu CANNOT produce.** `test_frontend_t90` writes **`timelimit = 90`**,
+which is off the published list entirely. If a saved game loads at 90 on a clean launch with nothing
+injected, that is unforgeable — no menu path to it exists.
+
+### 🔓 The save button is gated on a UI dirty flag, and the GSC write does not set it
+
+klaze: *"i actually cant save it unless i edit something else first."* The pregame write lands in the
+store and renders in the row, but **Save stays disabled until the player edits some other row by
+hand**. So the UI's "something changed" flag is separate from the value store the write reaches.
+
+▶ **Workaround, already proven to work:** change any unrelated row by hand, leave the written value
+alone, then save. klaze did exactly this.
+⚠ **Worth knowing for any future auto-save route** — a script that writes settings and expects to save
+them without a human touching the menu will find Save greyed out.
