@@ -120,8 +120,13 @@ function private default_config()
         //   in-match only, independent of the frontend half, and the only thing
         //   it can change is a private dvar this payload invented - so it rides
         //   the read-only run for free instead of costing a whole game launch of
-        //   its own. Emitted LAST, so if it throws, everything else has printed.
-        //   Set it to 0 if a run must be provably read-only end to end.
+        //   its own. Set it to 0 if a run must be provably read-only end to end.
+        //
+        // ⚠ EMITTED FIRST since 2026-09-10. It used to be last "so if it throws,
+        //   everything else has printed" - and the consequence was that it was
+        //   NEVER ONCE READ: a Gunfight round is ~40s and the emit chain is 13
+        //   probes at 5s apart, so the round always ended first. Ordering for a
+        //   failure mode that never happened cost the reading entirely.
         #debugcmd:         1,
 
         // Frontend sample cadence. 10s is enough to catch the walk from main
@@ -312,6 +317,17 @@ function private report( cfg )
     wait( 8 );
 
     // 60/61 FIRST: read before anything in this payload (or anything else) writes.
+    // ⚠ PROBE 62 FIRST. It emitted LAST until 2026-09-10 and was never once read:
+    //   a Gunfight round is ~40s, the emit chain is 13 probes at 5s, and the
+    //   round always ended first. It answers whether adddebugcommand() - the
+    //   console from script - is alive, which is now the best remaining lead for
+    //   setting the lobby MAP (no GSC setter exists; the save is cloud, not local).
+    //   Put the most important probe where it will actually be seen.
+    if ( cfg.debugcmd )
+    {
+        emit( 62, debugcmd_test() );
+    }
+
     emit( 60, getgametypesetting( #"maxplayers" ) );
     emit( 61, getgametypesetting( #"timelimit" ) );
 
@@ -329,10 +345,6 @@ function private report( cfg )
     emit( 57, unstash( 57 ) );
     emit( 59, unstash( 59 ) );
 
-    if ( cfg.debugcmd )
-    {
-        emit( 62, debugcmd_test() );
-    }
 }
 
 function private debugcmd_test()
