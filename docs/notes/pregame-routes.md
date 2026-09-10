@@ -675,3 +675,41 @@ works when the frontend half *survives* to a next match. **If the frontend actio
 crash, the reporting path dies with it.** Any future frontend write-test needs its readout to survive
 the action — write the probe to a dvar *before* the risky call and read it externally, or accept that
 a crash yields no probe data at all.
+
+## 🪦 P3 CLOSED — `adddebugcommand()` IS NULLED. Probe 62 = 4.
+
+2026-09-10, `test_frontend_dbg` (writes off, probe 62 moved to emit FIRST so a 40s round could not
+truncate it again). **Read `6200004`.**
+
+`4` is the "neither" branch: `canadddebugcommand()` returned false **and** `set gf_fe_dbg 7` did not
+land. So the console is not reachable from GSC in CW retail — the same state ate47 records for BO4
+(*"nulled; cbuff"*). CW's row in the table was unannotated, which made it a question rather than a
+verdict; it is now a verdict.
+
+### ▶ Where that leaves the lobby MAP: **no route with the tools this project has**
+
+| Route | Status |
+|---|---|
+| A map **gametype setting** to write | 🪦 none exists — only `allowmapscripting` in the whole dump |
+| A **builtin** that sets lobby map / playlist / session | 🪦 none — all 4,481 CW functions matching playlist/lobby/session/matchmaking/presence are **read-only**; the only writer is `enablelobbyjoins` |
+| The **per-map enable array** in the save | 🪦 sits *outside* `gametypesettings`, so `setgametypesetting()` cannot reach it. It is LUA's |
+| **Offline edit** of the save | 🪦 the save is **CLOUD** — nothing custom-game-shaped appears in `Documents\...\player` after a confirmed save |
+| **P3** console from GSC (`adddebugcommand`) | 🪦 **nulled.** This test |
+| **P4** console from the DLL slot | ⚠ blocked — D10 (`acts dcfuncscw`) returns zero rows; ACTS's `cmd_function_t` base is stale for this build |
+| **`switchmap_load` from the frontend** | 🪦 B2 — **crashed the game** |
+
+▶ **So the glitch stays manual.** klaze's goal — *"set the pregame lobby map to achieve the same result
+as the tricky glitch"* — has no reachable mechanism today. That is a measured conclusion from seven
+closed routes, not an assumption.
+
+### ⚠ Untried — not ruled out
+
+- **P6, the LUI channel.** `luinotifyevent` (GSC→LUI) and `menu_response` (LUI→GSC) are both live in
+  the lobby. Only stock events can be fired or received without LUA, but **nobody has enumerated which
+  stock lobby events exist** — and the map picker is LUI, which is exactly the layer that owns this.
+  This is the one route that has never been looked at.
+- **Unblocking P4** by finding `cmd_function_t` for this build by hand, so `dcfuncscw` produces a
+  command list. Real RE work against an exe that is encrypted at rest, so runtime only.
+- **B1** (`src/test_sessionswitch/`) — does *not* set the lobby map, but tests whether in-match
+  `switchmap_load( map, gametype )` fixes the **stale UI** after a carry. That is Goal B, and it is
+  still the achievable half of the map problem: the carry already works, it just lies to the UI.
