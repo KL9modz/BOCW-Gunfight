@@ -636,3 +636,42 @@ Joiners need nothing — they inherit it from the host, which is the right shape
 
 ⚠ Casual observation, not a controlled test — the exact sequence on the second account was not
 recorded step by step. Worth a proper run before relying on it.
+
+## 🪦 B2 — `switchmap_load()` FROM THE FRONTEND **CRASHES THE GAME**
+
+2026-09-10. `test_lobbymap_live`: injected at the main menu, one match, back to the lobby, sit ~20s,
+then `switchmap_load( "mp_zoo_rm", "gunfight" )` → `waittilltimeout( 25, #"switchmap_preload_finished" )`
+→ `switchmap_switch()`.
+
+▶ **The game crashed.** Minidump written by the engine's own handler:
+`%LOCALAPPDATA%\Activision\Call Of Duty Black Ops Cold War\crash_reports\BlackOpsColdWar.20260910-074102.zip`,
+`mini_dumper.log` `[2026.09.10-07h40m23s] Beginning`. Process gone; desktop showed the Battle.net
+launcher.
+
+⚠ **What is proven and what is not.** Proven: this payload, in the frontend, ends in a hard crash.
+**Not** proven: that `switchmap_load` itself is the faulting call. The probes stash to dvars and are
+printed by the *in-match* half on the next match — and there was no next match, so **probes 70–73 were
+never read**. The crash could equally be the frontend VM lacking session state the call assumes.
+**Do not record this as "switchmap_load is unsafe"** — record it as "this sequence, from this VM,
+crashed."
+
+▶ **The route is not dead, it is mis-aimed.** Every stock caller of `switchmap_load` runs **in-match**,
+not in the frontend: `cp_common/load.gsc:412`, `zm_utility_zsurvival.gsc:153`,
+`callbacks_shared.gsc:2227` (`switchmap_preload`). Calling it where stock never does was the
+speculative part of B2, and it is the part that failed.
+
+▶ **Next: B1 (`src/test_sessionswitch/`), which is the stock-shaped version and is already written.**
+Same builtin, same two-argument form, but **in-match at `bb.gsc`** — exactly where stock uses it. It
+ships `read_only = 1`. Its presence criterion is still the right one: platform presence is unwritable
+from GSC, so if it moves, the session moved.
+
+⚠ **Nothing was lost.** The injection is memory-only, and the 4v4 saved custom game is account-side and
+unaffected — P5 stands.
+
+### ⚠ Method note: a frontend-only test cannot report through the in-match half
+
+B2's probes were stashed to dvars for the next match to print, copying `test_frontend`'s design. That
+works when the frontend half *survives* to a next match. **If the frontend action is the thing that can
+crash, the reporting path dies with it.** Any future frontend write-test needs its readout to survive
+the action — write the probe to a dvar *before* the risky call and read it externally, or accept that
+a crash yields no probe data at all.
