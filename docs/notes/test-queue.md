@@ -1180,6 +1180,20 @@ being touched, the write reached what the UI reads.
 ⚠ The write repeats every 10s on purpose (the store may be rebuilt when the mode is picked). That
 repetition is untested. Lobby return after each. Result: `______`
 
+### P5 · Three observations, NO code — the saved-games route ← **do these before P1 if you are at the machine anyway**
+[`pregame-routes.md`](pregame-routes.md) P5. The save format is the match-time settings blob with
+`maxplayers` in seven bits; the only question is how a modded value gets into it.
+
+1. **After a `gunfight_mod` match, does the lobby's timer row read 60?** `gunfight_mod` writes
+   `timelimit = 60` in-match. If the row shows 60 back in the lobby, the in-match write flows back and
+   **Save captures modded settings today** — then Save it, start a fresh lobby, Load it, and read
+   `lobby_probe` 2xxxxx (60 = it round-tripped through the account). Row reads 40 → route 2 (P2).
+   Result: `______`
+2. **Save a custom game, then sort the `player` folder by modified time.** New file = local (the DDL is
+   its schema). Nothing = cloud. Result: `______`
+3. **How long a name / description does the Save dialog accept?** The DDL says 64 / 128. Matching caps
+   = the format is confirmed against the game. Result: `______`
+
 ### P3 · `debugcmd = 1` — is `adddebugcommand()` alive in CW?
 
 In-match only. `adddebugcommand( "set gf_fe_dbg 7\n" )`, then read the dvar. `62`: **2 or 3 = the

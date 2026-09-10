@@ -92,6 +92,12 @@ The same payload carries a one-line test of `adddebugcommand()` — nulled in BO
 dev-flagged in CW's table — which, if alive, is the console from script and folds the DLL route into
 one GSC line.
 
+🔓 **And the endgame may need no injection at all (klaze, 2026-09-10): the game's own "save custom
+game" is the match-time settings blob, verbatim** — `mp_custom_game.ddl` carries `maxplayers` in seven
+bits, the loadout index, the spy-plane value, and a per-map enable array. One modded value in one save
+loads from the account before anyone is seated. Whether the in-match write already flows back into the
+lobby is P5's first observation, and it costs nothing. [`pregame-routes.md`](pregame-routes.md) P5.
+
 ✅ **Answered 2026-09-09 — klaze: "pregame control would be the single most valuable mod for this
 entire project."** 🪦 D10 (`acts dcfuncscw`) **ran 2026-09-08 and returned zero rows** — ACTS's
 command-table base is stale for this build — so the DLL route ([`lobby-map-dll.md`](lobby-map-dll.md))

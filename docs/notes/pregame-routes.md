@@ -10,6 +10,11 @@ that script can read.** Both were recorded as false in three files. The test is 
 [`../../src/test_frontend/`](../../src/test_frontend/), read-only by default, offline checks green,
 never compiled or injected.
 
+▶ **And the save format has room for all of it (P5):** a saved custom game is the match-time settings
+blob itself — same struct, `mp_custom_game.ddl` — with `maxplayers` in seven bits. Get one modded
+value into a save and it loads from the account with no injection. Whether the in-match write already
+flows back into the lobby is a question klaze can answer from memory.
+
 ---
 
 ## The claim this retracts
@@ -158,14 +163,81 @@ resolved BO4 console names (`gametype_setting`, `gametype`, `map`, `customgames_
 `joinplayersessionbyxuid`) so the moment a table exists, the cracker has the right vocabulary. Until
 then the route needs runtime RE against an encrypted exe. P3 is the cheap way around it.
 
-### P5 · Saved custom-game presets on disk
+### P5 · Saved custom games — klaze's idea, and the DDL says the format has room for everything we set
 
-BO4 has console commands `customgames_save` / `customgames_load` / `customgames_count`, and CW ships
-`ddl/custom_games.ddl` (11 structs) plus `ddl/fileshare_customgame.ddl`. Local player data lives in
-`%USERPROFILE%\Documents\Call Of Duty Black Ops Cold War\player`. ⚠ Web reporting says settings other
-than graphics and campaign saves sync to the Activision account, so a preset may be cloud-authoritative
-and a local edit may be overwritten — or rejected. **Cheapest check, no code:** save a preset from the
-UI, diff the player folder. Untried.
+klaze, 2026-09-10: *"the game lets you 'save' custom game mode settings. potentially letting me save a
+modded one to my account?"* The dump ships the save format, so most of this is readable offline.
+
+**The Cold War save format is `ddl/mp_custom_game.ddl`** — 69 versions, one per patch that touched a
+setting, because saved blobs must migrate. Its root:
+
+| Field | Width | Note |
+|---|---|---|
+| `loadoutversion` | int | |
+| `hash_b1850166655019a` | int | **uncracked** — ~150 guesses across map-index / version / id vocabularies missed |
+| `gamedescription` / `gamename` | string(128) / string(64) | ⚠ if the UI caps at these lengths, the format is confirmed against the game for free |
+| `createtime` | int | |
+| `gametype` | string(32) | |
+| **`gametypesettings`** | 0x65b30 bits, **993 members** | **byte-identical to `mp_gametype_settings.ddl`'s root member** (`:2843-2844` in both files) — the match-time settings blob |
+| `inuse`, `downloaded`, `loadoutinitialized` | bool | `downloaded` = fileshare |
+| `hash_3d4fd60ba0b69eb[mpmaps]` | 43 bools | **a per-map flag array** — the map list, at root, *outside* the settings struct. Name **uncracked** (~180 guesses). `zm_custom_game.ddl` has the same root with `[zmmaps]` (5) |
+
+So **a saved custom game IS the match-time settings blob, plus a name, a gametype string and a
+per-map enable list.** Inside that blob, every value this project writes from script has a slot:
+
+| Setting | In the save | Width | Room for |
+|---|---|---|---|
+| `maxplayers` | `:3022` | `uint:7` | 0–127 — **8 fits, 10 fits, 12 fits** |
+| `timelimit` | `:2846` | `fixed<8,2>` | |
+| `gunfightloadoutindex` (`hash_3b05ecbff72f1065`) | `:3554` | `uint:5` | snipers / melee presets |
+| `gunfightspyplane` | `:2888` | `uint:2` | the hidden value 3 |
+| `gunfightroundsperloadout` | `:3584` | `uint:3` | |
+| `maxsquadplayers` | `:3446` | `uint:6` | |
+| `allowingameteamchange` | `:4778` | bool | |
+
+⚠ **What the save does NOT carry: the current map.** There is no map field in the root — only the
+per-map enable flags. The map being played lives in the session and in presence (`presence.ddl`:
+`int mapid`, `int gametype`, `int playlist`), not in the save. So a save cannot hold "Gunfight on
+Hijacked" as *the map*; it can at most hold *which maps are enabled* — and that array sits outside
+`gametypesettings`, so `setgametypesetting()` cannot reach it even in principle. It is LUA's.
+
+🪦 `ddl/custom_games.ddl` is **not** the CW save: a BO4-era six-slot format (`customgames[6]`,
+`gametype string(8)`, `maxplayers uint:4`, **zero Gunfight rows** across all ten versions), kept for
+migration. `fileshare_customgame.ddl` wraps that legacy struct for the file share.
+
+**Where it lives — expected cloud, not measured.** The `downloaded` flag, the BO4 console verbs
+(`customgames_save` / `_load` / `_count`, `gamesettings_upload` / `_download`, `storagewriteddl`,
+the `fileshare*` family) and Activision's own statement that every setting except graphics syncs
+through the account all point at Demonware storage, like custom classes. ▶ **Measured in one
+minute with no code:** save a custom game, sort `%USERPROFILE%\Documents\Call Of Duty Black Ops
+Cold War\player` by modified time. A new or changed file = local, and the DDL above is its schema.
+Nothing = cloud. ⚠ If it is local, an offline edit is *technically* the lowest-exposure route in the
+whole project (no process handle, no memory write) — but the blob is then uploaded with a value no
+menu can produce, and whether the service validates it is unknowable from here. klaze's call, not
+the note's.
+
+**How a modded value gets into a save.** Two ways, and one of them may already work:
+
+1. **Match → lobby → Save.** `gunfight_mod` writes `timelimit = 60` in-match every time. After that
+   match, back in the lobby, **does the rules-menu timer row read 60?** If the in-match write flows
+   back into the lobby's copy, then *Save* captures modded settings **today, with no new code**,
+   and *Load* replays them into a fresh lobby before anyone is seated. klaze has run that match a
+   dozen times and may already know the answer. If the row reads 40, the match's copy is discarded
+   on return, and it is route 2.
+2. **Lobby write → Save.** P2's `setgametypesetting( #"maxplayers", 8 )` from the frontend — if it
+   lands in the live `mp_custom_game` blob rather than a runtime copy, *Save* captures it. Same test,
+   one more readout.
+
+Either way the payoff is the same: after one successful save, **`maxplayers = 8` lives in the account
+and loads with no injection at all**, and the lobby's own seating logic gets the value before the
+first player connects. ⚠ Whether *Load* re-validates values against the rules bundles is the
+unknown that survives both routes; the menu shows 6 values for a timer the setting accepts 1440 of,
+and nobody knows whether *Load* is a menu or a memcpy.
+
+❓ **"Save Online Game Modes To Custom Games"** — a YouTube title (`tdosMUo3pMY`, egress-blocked here)
+says CW can save an *online playlist's* mode into Custom Games. If that is real, it is the designed
+version of what the glitch does by accident: a playlist's settings blob copied into a save. Worth
+knowing exactly what it copies — settings only, or the playlist's map list too.
 
 ### P6 · The LUI channel
 
@@ -216,3 +288,8 @@ the round boundary. That is why this is A2 and why it outranks polishing A1.
   `intpayload` — a free input channel if any lobby button reaches it
 - `hash_5462586bdce0346e`, the flag gating the `maxsquadplayers` read at `frontend.csc:2918` —
   uncracked; a squad-lobby feature switch by context
+- `hash_3d4fd60ba0b69eb` (the per-map flag array) and `hash_b1850166655019a` (the root int) in
+  `mp_custom_game.ddl` — both uncracked after ~330 guesses; the map array's name is the one worth
+  having, because it is the custom-games map list
+- Whether *Load* clamps a saved value to the rules bundle, or restores it verbatim
+- What "save online game mode to Custom Games" copies — settings only, or the map list as well
