@@ -264,3 +264,41 @@ from stacking changes onto payloads whose last-known-good state had drifted.
 
 ▶ **So the UI model tree has not been reached from any VM this project can inject into.** That is now
 four independent negatives, and it is the honest state of the map goal.
+
+## 🔓 P6c — THE ROOT RESOLVES. The zeros meant "wrong names", not "no API".
+
+2026-09-10, payload reset to its last-known-good state plus one probe.
+**`960001` and `900000`.**
+
+| Reading | Meaning |
+|---|---|
+| `96` = **1** | 🔓 `function_5f72e972( #"lobby_root" )` **returns a valid model in the match client VM** |
+| `90` = 0 | none of `room` / `transitionMapIdOverride` / `fullscreenBlackCount` are under it **there** — and neither is the invented control name |
+
+▶ **`getuimodel()` is discriminating, not blanket-failing.** The fake name returning 0 alongside the
+real ones is what makes this readable: the API works, the accessor works, and the root is valid. The
+three real names simply are not children of `lobby_root` *in the match*.
+
+🪦 **This corrects what was written earlier tonight.** Three separate zero readings were recorded as
+"the model tree is not reachable". They actually meant **"these particular names are not under this
+root in this VM"** — a much narrower and much more workable statement. The distinction was never
+tested because no run asked whether the ROOT resolved, and one `isdefined()` was all it took.
+
+### What it implies
+
+- **The UI model API is usable from a VM this project can already inject into.** That is the first
+  working piece of it here.
+- `room` IS queried on `lobby_root` by `frontend.csc:1809`, so it exists in the FRONTEND. It does not
+  exist in the match. ▶ **`lobby_root`'s children are context-dependent** — the tree is populated
+  where the lobby UI is live.
+- ⚠ So the map-relevant children still live in the frontend VM, which injected client scripts do not
+  reach. **The route is still blocked — but for a precisely known reason, and one layer further in
+  than we thought.**
+
+### ▶ Next, and it is cheap
+
+Find child names that DO exist under `lobby_root` in the match, to confirm the tree is populated at all
+there rather than merely rooted. Candidates from the dump's other `getuimodel` sites: `stream`,
+`active`, `count`, `clientNum`, `visible`, `state`, `type`. ⚠ Most of those are queried on OTHER roots
+in stock, so they are guesses — but the control pattern now works, so a guess that lands is
+unambiguous.
