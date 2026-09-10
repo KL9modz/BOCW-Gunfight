@@ -97,41 +97,27 @@ function private report()
     emit( 91, maskof( groupa ) );
     emit( 92, maskof( groupb ) );
 
-    emit( 93, filelog_test() );
 }
 
-// ── probe 93: is the file I/O family alive in retail? ────────────────────────
+// ── probe 93 REMOVED — CALLING THE FILE I/O FAMILY CRASHES THE GAME ─────────
 //
-// ⚠ PREDICTED DEAD, and tested anyway because it costs nothing here.
-//   openfile / fprintln / closefile are all **type=1 (dev)** in ate47's CW table,
-//   the same column that marks setdebugsideswitch and starthostmigration. For
-//   comparison `map` and `setgametypesetting` are type=0. And `adddebugcommand`
-//   was type=0 for GSC and STILL measured dead (probe 62 = 4), so a type=1 family
-//   is worse odds, not better.
+// ⚠⚠ MEASURED 2026-09-10, and worse than predicted. openfile/fprintln/closefile
+//    are type=1 (dev) in the CW table, so they were expected to be nulled and
+//    return undefined. They do not: the call CRASHED the process. Engine minidump
+//    at 09h22m25s, and NO gf_probe.txt was ever created.
 //
-// ⚠ Every stock call site is inside a `<dev string:...>` block — util_shared.gsc's
-//   own fileprint_start is marked `Type: dev` — so nothing here is exercised by
-//   retail code.
+//    ⚠ The previous build of this exact payload ran fine and printed its probes.
+//      The ONLY change was adding the file test. So this is not the client-script
+//      mechanism, not the hook, and not radiation_debug.csc as a replace target -
+//      all three were already working.
 //
-// ▶ But it is SELF-VERIFYING and free: if a file appears on disk, it worked, and
-//   that can be checked directly without reading a single screenshot. If this
-//   ever returns 2, every probe in this project stops needing screen capture.
+// 🪦 THE LESSON, and it cost a launch: "self-verifying and free" was half right.
+//    The verification was sound; the cost was not zero. A predicted-dead DEV
+//    builtin must be tested ALONE, in a payload with nothing to lose - never
+//    bolted onto a working probe, where its failure mode takes the working part
+//    with it.
 //
-//   0 = openfile returned nothing   1 = got a handle, write not confirmed
-//   2 = handle AND the write path ran to closefile
-function private filelog_test()
-{
-    f = openfile( "gf_probe.txt", "write" );
-
-    if ( !isdefined( f ) )
-    {
-        return 0;
-    }
-
-    fprintln( f, "gf_probe alive" );
-    closefile( f );
-    return 2;
-}
+// ▶ Do not retry file logging. Screen capture stays the readout.
 
 function private model_exists( name )
 {
