@@ -78,7 +78,13 @@ esac
 # hook decides which VMs the payload runs in, and that is not a thing to guess.
 FRONTEND=0
 case "$NAME" in
-    test_frontend) TARGET="$FE_TARGET"; FRONTEND=1 ;;
+    # All build variants of src/test_frontend/ — same source, different
+    # compiled-in switches, same load_shared.gsc hook. Listed individually
+    # rather than prefix-matched: the hook decides which VMs a payload runs in,
+    # and a pattern would silently hand the frontend hook to any future name
+    # that happened to start the same way.
+    test_frontend|test_frontend_maxp|test_frontend_time)
+        TARGET="$FE_TARGET"; FRONTEND=1 ;;
 esac
 if [ -n "${GF_TARGET:-}" ]; then
     TARGET="$GF_TARGET"

@@ -389,3 +389,21 @@ exists there for a second, independent confirmation in the same run.
 ⚠ **Worth enumerating at some point:** walk both variants' rules pages side by side and list what 3v3
 is missing. `settings-xref.py` maps settings to bundles, but which rows a *variant* publishes is
 playlist-layer and not in the dump — so this can only come from a menu walk.
+
+### ▶ Two builds ready — one launch each, both to be run in a **normal 2v2 lobby**
+
+Same `src/test_frontend/` source, different compiled-in switches. Variants are staged at
+`C:\bocw\build-variants\` and built into `$GF_PAYLOADS`. `tools/inject.sh` knows both names and gives
+them the `load_shared.gsc` hook.
+
+| Payload | Switch | What to watch |
+|---|---|---|
+| `test_frontend_maxp` | `write_maxplayers = 1`, value **8** | **the team screen.** 2v2 caps at 2 a side — does it accept **4**? Double, vs 3v3's +1 |
+| `test_frontend_time` | `write_timelimit = 1`, value **60** | **the rules-menu timer row, in the lobby, without starting anything.** 2v2 HAS this row; 3v3 does not |
+
+▶ **`test_frontend_time` is the cheaper and more diagnostic of the two.** It needs no match at all: if
+the row reads 60, the pregame write is confirmed *visually*, which is the confirmation P2 could not
+give because the match ended before probes 59/60 printed. Run it first.
+
+⚠ **One per launch** (B9). ⚠ **2v2, not 3v3** — a timer write in 3v3 would land correctly and display
+nothing, and the silence would look exactly like failure.
