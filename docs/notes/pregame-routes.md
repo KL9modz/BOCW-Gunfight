@@ -866,3 +866,33 @@ is P10, only if P9 resolves.
 Live integer, no stock caller, no enum in the dump. Reading it across states (main menu / custom games
 / in-match) would map the enum — a real lobby-state *detector*. Not a map setter, but the kind of
 primitive a future feature (detect map-select, detect host-ready) would use. Recorded; not chased now.
+
+## 🔓🔓 P9 — the server frontend VM CAN create a model under lobby_root
+
+2026-09-10. **`7100006 / 7400015 / 7500023`**, no crash.
+
+Mask 74 = 15 (all bits, stash-max across samples): root resolves (bit0); `createuimodel` returned a
+defined handle (bit2); the child **resolves after creating it** (bit3); and it **persists** — later
+samples find it already present (bit1). getlobbyuiscreen still 23.
+
+▶ **The tree is shared and writable-by-creation from a VM we own, in the lobby.** P8's prediction
+holds: `transitionMapIdOverride` was absent server-side only because nothing created it. `createuimodel`
+does, and the model sticks.
+
+⚠ **Necessary, not sufficient.** This proves the model exists in the SERVER VM's view. It does not
+prove the client frontend LUI binds to it or re-reads it. That is exactly P10.
+
+## ▶ P10 — set the map value and notify LUI (the payoff, and a write)
+
+`setuimodelvalue( m, hash( map ) )` + `forcenotifyuimodel( m )`, replicating `cp_common/load.gsc:398-399`
+almost verbatim — the **most stock-precedented write attempted in this whole map investigation** (a
+real GSC call, unlike the speculative writes that crashed). Guarded once. Reports whether each call
+completed; **the real output is what klaze SEES** — loading-screen map, scoreboard "Gunfight on X",
+menu, presence.
+
+⚠ Expectation management: `transitionMapIdOverride` is the map the UI shows DURING a transition
+(campaign sets it right before switchmap). It may move the **loading/transition display** without
+moving the persistent scoreboard text — the scoreboard map likely comes from session/presence
+(`presence.ddl: mapid`), which is read-only from GSC (established). So P10's realistic best case is
+"the load screen shows the carried map", which is still more than the carry does today; its blank case
+is "the UI model channel is inert for the lobby's persistent map text". Both are clean.
