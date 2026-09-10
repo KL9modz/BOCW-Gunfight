@@ -148,3 +148,37 @@ a genuine reduction in the thing that is actually detectable. Worth doing, not u
   the proxy crashes, but it means any export added to `acts-bocw.dll` is callable without a new tool
 - Whether v3.3.0's `acts-bocw.dll` exports the lobby functions that master does not
 - Patching the LUI map list (above)
+
+## ▶ 2026-09-10 — the below-LUI angle, and a ready one-string cwpatch test
+
+After P10 closed the GSC->LUI map route by exhaustion, the fresh angle is the ENGINE CONSOLE `map`
+command, which runs below LUI and therefore below the Custom-Games map<->mode compatibility gate (the
+"Choosing this map will automatically change your mode selection" warning in klaze's map-picker
+screenshot — that gate is the real barrier the glitch defeats).
+
+Ruled out first, so the DLL is the only path:
+- **No GSC console-exec builtin.** Full table scan: only `adddebugcommand` (nulled/fatal, probe 62),
+  nothing like `executeconsolecommand`/`cbuf`/`exec`. GSC cannot run `map`.
+- **No playlist/party/matchmaking WRITE builtin** in GSC — only host-migration verbs. The glitch's
+  matchmaking-search mechanism is platform/LUI, not script-callable. Confirmed.
+- **No lobby map/mode dvar** readable by frontend GSC: the frontend's 13 hashed dvar reads are all
+  dev/zombie-map (pumpkins, AAR cmd, weapon names); a 211k-candidate FNV crack with a lobby-shaped
+  wordlist (control `maxsquadplayers` verified) found **zero** lobby/map/playlist dvar names. The
+  selection is LUI-internal.
+- **config.ini has no `bind`/exec** — pure `key="value"`; keybinds are in the binary profile. No
+  text-config route.
+
+🔓 **So: cwpatch's proven console dispatcher, one static string swap.** cwpatch already fires
+`full_restart` on F7 through the game's command dispatcher from the lobby. At file offset **0x1e48** in
+`discord_game_sdk.CWPATCH-13824.dll` the ASCII string `full_restart` (12 bytes, null-terminated, 12
+null bytes of slack after) can be swapped **in place, same length** for `map mp_miami` (also 12 bytes).
+F7 then runs `map mp_miami` — the engine map command, below LUI. Miami is a Gunfight-INCOMPATIBLE map
+in the picker, so Gunfight-on-Miami loading is unambiguous proof the gate is bypassed.
+
+Bounded risks: same-length swap avoids truncation/pointer issues; worst case F7 no-ops or the lobby
+crashes (relaunch); F7 loses full_restart for the duration of the test (F4/F6 unaffected; swap the real
+cwpatch back after). The real unknown — is `map` registered and functional from a pregame lobby — is
+exactly what the test settles. If it works, the whole map goal is a one-string DLL the shim already
+knows how to load.
+
+⚠ Agent cannot write the DLL/patch script (correctly guard-blocked). klaze runs the patch himself.
