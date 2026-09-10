@@ -1,50 +1,52 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST P6a — enumerate the LOBBY'S UI MODEL TREE. Read-only.
+// P8 — does `lobby_root`'s MAP model resolve in the SERVER FRONTEND VM?
 //
-// Hook: scripts\core_common\load_shared.gsc  (FRONTEND — see ../gsc.conf)
-// docs/notes/pregame-routes.md P6
+// Hook:    scripts\core_common\load_shared.gsc  -> FRONTEND server VM (P1: runs
+//          in the lobby, probe 51 = 63). Replace clientids_shared.gsc (proven).
 //
-// ── WHY THIS IS THE LAST ROUTE STANDING ──────────────────────────────────────
-// Seven routes to the pregame MAP are closed (see pregame-routes.md): no map
-// gametype setting exists, every playlist/lobby/session builtin in the 4,481-row
-// table is read-only, the per-map array sits outside gametypesettings, the save
-// is cloud, adddebugcommand is nulled (probe 62 = 4), the DLL console is blocked
-// by D10, and switchmap_load from the frontend crashes (B2).
+// ── WHY THIS, AND WHY NOW ────────────────────────────────────────────────────
+// P6c corrected a mistake: in the MATCH client VM `function_5f72e972(#"lobby_root")`
+// RESOLVES (probe 96 = 1) and getuimodel discriminates (fake name -> 0). The old
+// zeros meant "wrong names", not "no API". The names were the problem, and they
+// were pure invention — dump-wide, `lobby_root` has exactly THREE known children:
+//     "room"  "transitionMapIdOverride"  "fullscreenBlackCount"
+// Nothing else this project guessed appears in the dump at all.
 //
-// The LUI channel is the one nobody looked at — and LUI is the layer that OWNS
-// the map picker.
+// The SAME mistake was made on the server side (P6a read control = 0) and never
+// corrected — that probe used the junk names and had no root-resolves digit. So
+// the real question was never asked:
 //
-// ── THE CHAIN IS STOCK, AND IT IS A BUILTIN ──────────────────────────────────
-// cp_common/load.gsc:398, verbatim:
-//     var_31924550 = getuimodel( function_5f72e972( #"lobby_root" ), "transitionMapIdOverride" );
-//     setuimodelvalue( var_31924550, hash( var_83104433 ) );
+//   ▶ In the SERVER FRONTEND VM — the one VM that BOTH runs in the lobby AND is
+//     reliably injectable — does getuimodel(lobby_root, "transitionMapIdOverride")
+//     resolve?
 //
-// function_5f72e972 is a BUILTIN (1 arg, BlackOpsColdWar.exe+9715b00) present in
-// BOTH the GSC and CSC tables, so an injected server script can reach it. Model
-// names are PLAIN STRINGS, not hashes — which is why they can be guessed at all.
+// That model is the map-transition override. `cp_common/load.gsc:398` — a SERVER
+// GSC script — does exactly:
+//     m = getuimodel( function_5f72e972( #"lobby_root" ), "transitionMapIdOverride" );
+//     setuimodelvalue( m, hash( map ) );
+// to set the campaign's transitioning map. If the model resolves here, that write
+// is stock-precedented and reachable from a VM we own, in the lobby. That is the
+// whole map route, and this read is its gate.
 //
-// ── WHAT THIS DOES ───────────────────────────────────────────────────────────
-// Asks the lobby root for a list of candidate child models and reports which
-// EXIST, as bitmasks. Nothing is written. This is B5's sweep shape applied to a
-// different namespace.
+// ── READ-ONLY. Discipline from five crashes: change one thing, prove it. ──────
+// No write. No getglobaluimodel (unproven + the prime crash suspect). No
+// dev-flagged builtins. Only function_5f72e972 + getuimodel + isdefined, all
+// type=0 and all exercised safely already, plus getlobbyuiscreen (0-arg, type=0).
 //
-// ⚠⚠ CONTROLS FIRST, AND B5 IS EXACTLY WHY. `mapexists()` looked like a perfect
-//    guard until its control showed it returns true for EVERY name including
-//    invented ones — an entire payload of 38 "results" that were noise. So probe
-//    80 carries three knowns and one fake, and **if it does not read 7, every
-//    bitmask below it is discarded, not interpreted.**
+// ── STASH IN LOBBY, PRINT IN MATCH (P7: the lobby has no text surface) ────────
+// The server VM runs in BOTH; is_frontend_map() gates sampling to the lobby only.
+// Stash the MAX seen so a lobby hit survives the transition into the match, where
+// the same models may read 0.
 //
-// ── PROBES (id*100000 + value) ───────────────────────────────────────────────
-//   80xxxxx  CONTROL. bit0 "room" · bit1 "transitionMapIdOverride" ·
-//            bit2 "fullscreenBlackCount" · bit3 "zzz_not_a_model"
-//            **7 = the three real ones exist and the fake does not. TRUST.**
-//            15 = everything "exists" → useless, discard the rest (the B5 failure)
-//            0  = nothing resolves → the root or the accessor is wrong
-//   81xxxxx  group A bits 0..14  (map-shaped names)
-//   82xxxxx  group B bits 0..14  (playlist / gametype / lobby-state names)
-//   83xxxxx  value of "transitionMapIdOverride" if it is an int, else 88888
-//
-// Names per group are listed beside each array below — bit 0 is the first entry.
+// ── OUTPUT (id*100000+value; read via screen capture across frames) ──────────
+//   71xxxxx  lobby ticks. 0 = never sampled in the frontend -> everything else moot
+//   72xxxxx  resolve mask:  bit0 root defined
+//                           bit1 "transitionMapIdOverride"  <- THE MAP MODEL
+//                           bit2 "room"
+//                           bit3 "fullscreenBlackCount"
+//            15 = all four resolve; 1 = root only, no children (populated elsewhere)
+//   73xxxxx  getlobbyuiscreen() — the lobby's UI-screen enum. No stock caller ever
+//            read it; klaze's "lobby state" intuition. 88888 = defined non-int
 // ─────────────────────────────────────────────────────────────────────────────
 
 #using scripts\core_common\callbacks_shared;
@@ -60,6 +62,8 @@ function private autoexec __init__system__()
 
 function private __init__()
 {
+    // Plain thread: the frontend has no globallogic, so on_start_gametype never
+    // dispatches there (P1). callback for the in-match report half.
     level thread lobby_watch();
     callback::on_start_gametype( &on_start );
 }
@@ -68,89 +72,52 @@ function private lobby_watch()
 {
     wait( 3 );
 
-    if ( !util::is_frontend_map() )
-    {
-        return;
-    }
-
-    ticks = 0;
-
     while ( true )
     {
-        ticks++;
-        setdvar( #"gf_um_79", ticks );
+        if ( util::is_frontend_map() )
+        {
+            sample();
+        }
 
-        // Sample repeatedly: the lobby tree may only be populated once the
-        // player is actually in a configured lobby rather than the main menu.
-        sample();
-
-        wait( 8 );
+        wait( 6 );
     }
 }
 
 function private sample()
 {
-    // ── the control ─────────────────────────────────────────────────────────
-    ctrl = 0;
-    if ( model_exists( "room" ) )                    { ctrl += 1; }
-    if ( model_exists( "transitionMapIdOverride" ) ) { ctrl += 2; }
-    if ( model_exists( "fullscreenBlackCount" ) )    { ctrl += 4; }
-    if ( model_exists( "zzz_not_a_model" ) )         { ctrl += 8; }
-    setdvar( #"gf_um_80", ctrl );
+    stash_max( #"gf_um_71", getdvarint( #"gf_um_71", 0 ) + 1 );
 
-    // group A — map-shaped
-    groupa = array( "mapId", "mapName", "map", "selectedMap", "currentMap",
-                    "mapIndex", "mapid", "mapImage", "nextMap", "mapDisplayName",
-                    "transitionMapId", "mapIdOverride", "levelName", "mapList",
-                    "mapCount" );
-
-    // group B — playlist / gametype / lobby state
-    groupb = array( "playlist", "playlistId", "playlistName", "gametype",
-                    "gameMode", "gameModeName", "gametypeName", "modeId",
-                    "lobbyState", "isHost", "maxPlayers", "teamSize",
-                    "matchStarting", "customGame", "privateMatch" );
-
-    setdvar( #"gf_um_81", maskof( groupa ) );
-    setdvar( #"gf_um_82", maskof( groupb ) );
-
-    v = 88888;
-    m = getuimodel( function_5f72e972( #"lobby_root" ), "transitionMapIdOverride" );
-    if ( isdefined( m ) )
-    {
-        raw = getuimodelvalue( m );
-        if ( isdefined( raw ) && isint( raw ) )
-        {
-            v = raw;
-        }
-    }
-    setdvar( #"gf_um_83", v );
-}
-
-function private model_exists( name )
-{
-    m = getuimodel( function_5f72e972( #"lobby_root" ), name );
-    return isdefined( m );
-}
-
-function private maskof( names )
-{
     mask = 0;
-    bit  = 1;
 
-    foreach ( name in names )
+    root = function_5f72e972( #"lobby_root" );
+    if ( isdefined( root ) )
     {
-        if ( model_exists( name ) )
-        {
-            mask += bit;
-        }
+        mask += 1;
 
-        bit *= 2;
+        // getuimodel on a DEFINED root — P6c proved this is safe and discriminating.
+        if ( isdefined( getuimodel( root, "transitionMapIdOverride" ) ) ) { mask += 2; }
+        if ( isdefined( getuimodel( root, "room" ) ) )                    { mask += 4; }
+        if ( isdefined( getuimodel( root, "fullscreenBlackCount" ) ) )    { mask += 8; }
     }
 
-    return mask;
+    stash_max( #"gf_um_72", mask );
+
+    screen = getlobbyuiscreen();
+    v = 88888;
+    if ( isdefined( screen ) && isint( screen ) )
+    {
+        v = screen;
+    }
+    stash_max( #"gf_um_73", v );
 }
 
-// ── in-match half: print the stash ───────────────────────────────────────────
+function private stash_max( key, value )
+{
+    if ( value > getdvarint( key, 0 ) )
+    {
+        setdvar( key, value );
+    }
+}
 
 function private on_start()
 {
@@ -161,12 +128,13 @@ function private report()
 {
     wait( 10 );
 
-    // Control FIRST. If it is not 7, stop reading.
-    emit( 80, getdvarint( #"gf_um_80", 99999 ) );
-    emit( 81, getdvarint( #"gf_um_81", 99999 ) );
-    emit( 82, getdvarint( #"gf_um_82", 99999 ) );
-    emit( 83, getdvarint( #"gf_um_83", 99999 ) );
-    emit( 79, getdvarint( #"gf_um_79", 0 ) );
+    while ( true )
+    {
+        emit( 71, getdvarint( #"gf_um_71", 0 ) );
+        emit( 72, getdvarint( #"gf_um_72", 0 ) );
+        emit( 73, getdvarint( #"gf_um_73", 0 ) );
+        wait( 5 );
+    }
 }
 
 function private emit( id, value )
@@ -177,11 +145,9 @@ function private emit( id, value )
         v = value;
     }
 
-    tagged = id * 100000 + v;
-
     foreach ( player in getplayers() )
     {
-        player iprintlnbold( tagged );
+        player iprintlnbold( id * 100000 + v );
     }
 
     wait( 5 );
