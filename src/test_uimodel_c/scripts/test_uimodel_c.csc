@@ -60,43 +60,125 @@ function private preinit()
     level thread watch();
 }
 
+// ⚠⚠ STASH IN THE LOBBY, PRINT IN THE MATCH. The fix for the all-zeros run.
+//
+//    That run asked for `lobby_root` **while in a match** — because the match is
+//    the only place client prints are visible (klaze saw output in-match and
+//    nothing in the lobby). A lobby model tree is a LOBBY thing, so a control of
+//    0 read from inside a match says nothing about whether it exists where it
+//    lives. The reading was taken in the wrong place, not from the wrong VM.
+//
+//    Sampling and reporting are now separate: sample() runs constantly and writes
+//    into dvars (setdvar is type=0 and in the CSC table, so a client script can
+//    carry values across a map load exactly as the server-side P1 payload does),
+//    and report() prints whatever is stashed. What the LOBBY measured is then
+//    readable from inside the match.
 function private watch()
 {
-    // No is_frontend_map() guard: it is a server-side util and this VM may not
-    // have it. Printing in the match too is harmless and tells us whether the
-    // tree differs between lobby and match, which is itself worth knowing.
     wait( 5 );
 
     while ( true )
     {
+        sample();
         report();
-        wait( 15 );
+        wait( 10 );
     }
+}
+
+// ⚠ Keeps the MAXIMUM ever seen, not the latest. If the tree exists in the lobby
+//   and vanishes in the match, "latest" overwrites the real answer with a zero on
+//   the way in — which is precisely how the previous run destroyed its own
+//   evidence before it could be read.
+function private sample()
+{
+    stash_max( "gf_uc_95", roots_defined() );
+    stash_max( "gf_uc_90", control_via_lobby() );
+    stash_max( "gf_uc_94", control_via_global() );
+    stash_max( "gf_uc_91", maskof( group_a() ) );
+    stash_max( "gf_uc_92", maskof( group_b() ) );
+}
+
+function private stash_max( key, value )
+{
+    if ( value > getdvarint( key, 0 ) )
+    {
+        setdvar( key, value );
+    }
+}
+
+// probe 95 — does either ROOT resolve at all? Neither previous run asked this,
+// and it is the first question: getuimodel() on an undefined root can only return
+// undefined, so a 0 control never separated "no such model" from "no such root".
+//   bit0 = function_5f72e972( #"lobby_root" )    bit1 = getglobaluimodel()
+function private roots_defined()
+{
+    n = 0;
+
+    r = function_5f72e972( #"lobby_root" );
+    if ( isdefined( r ) ) { n += 1; }
+
+    g = getglobaluimodel();
+    if ( isdefined( g ) ) { n += 2; }
+
+    return n;
+}
+
+function private control_via_lobby()
+{
+    n = 0;
+    if ( model_exists( "room" ) )                    { n += 1; }
+    if ( model_exists( "transitionMapIdOverride" ) ) { n += 2; }
+    if ( model_exists( "fullscreenBlackCount" ) )    { n += 4; }
+    if ( model_exists( "zzz_not_a_model" ) )         { n += 8; }
+    return n;
+}
+
+// The same four names asked of the GLOBAL root. If 94 beats 90, the accessor was
+// the problem all along — not the VM, not the names.
+function private control_via_global()
+{
+    n = 0;
+    if ( global_model_exists( "room" ) )                    { n += 1; }
+    if ( global_model_exists( "transitionMapIdOverride" ) ) { n += 2; }
+    if ( global_model_exists( "fullscreenBlackCount" ) )    { n += 4; }
+    if ( global_model_exists( "zzz_not_a_model" ) )         { n += 8; }
+    return n;
+}
+
+function private group_a()
+{
+    return array( "mapId", "mapName", "map", "selectedMap", "currentMap",
+                  "mapIndex", "mapid", "mapImage", "nextMap", "mapDisplayName",
+                  "transitionMapId", "mapIdOverride", "levelName", "mapList",
+                  "mapCount" );
+}
+
+function private group_b()
+{
+    return array( "playlist", "playlistId", "playlistName", "gametype",
+                  "gameMode", "gameModeName", "gametypeName", "modeId",
+                  "lobbyState", "isHost", "maxPlayers", "teamSize",
+                  "matchStarting", "customGame", "privateMatch" );
+}
+
+function private global_model_exists( name )
+{
+    g = getglobaluimodel();
+    if ( !isdefined( g ) )
+    {
+        return false;
+    }
+
+    return isdefined( getuimodel( g, name ) );
 }
 
 function private report()
 {
-    ctrl = 0;
-    if ( model_exists( "room" ) )                    { ctrl += 1; }
-    if ( model_exists( "transitionMapIdOverride" ) ) { ctrl += 2; }
-    if ( model_exists( "fullscreenBlackCount" ) )    { ctrl += 4; }
-    if ( model_exists( "zzz_not_a_model" ) )         { ctrl += 8; }
-
-    emit( 90, ctrl );
-
-    groupa = array( "mapId", "mapName", "map", "selectedMap", "currentMap",
-                    "mapIndex", "mapid", "mapImage", "nextMap", "mapDisplayName",
-                    "transitionMapId", "mapIdOverride", "levelName", "mapList",
-                    "mapCount" );
-
-    groupb = array( "playlist", "playlistId", "playlistName", "gametype",
-                    "gameMode", "gameModeName", "gametypeName", "modeId",
-                    "lobbyState", "isHost", "maxPlayers", "teamSize",
-                    "matchStarting", "customGame", "privateMatch" );
-
-    emit( 91, maskof( groupa ) );
-    emit( 92, maskof( groupb ) );
-
+    emit( 95, getdvarint( "gf_uc_95", 0 ) );
+    emit( 90, getdvarint( "gf_uc_90", 0 ) );
+    emit( 94, getdvarint( "gf_uc_94", 0 ) );
+    emit( 91, getdvarint( "gf_uc_91", 0 ) );
+    emit( 92, getdvarint( "gf_uc_92", 0 ) );
 }
 
 // ── probe 93 REMOVED — CALLING THE FILE I/O FAMILY CRASHES THE GAME ─────────
