@@ -541,3 +541,30 @@ any round longer than 63.75s.**
 (max 127), which is why 8 and 10 both took cleanly — but any `fixed<n,m>` or narrow `uint:n` field has
 a ceiling that will silently saturate rather than refuse. **The DDL is the place to look, and it is
 free.**
+
+### ⚠⚠ CORRECTION — the field-width conclusion above is NOT settled. Two hypotheses fit.
+
+klaze: *"maybe its 62s"* — and that prompted a recheck that the previous section should have done
+before concluding. **Both explanations predict a ~63-second clock**, and they differ only in whether
+the round clock includes the 3s grace period:
+
+| Hypothesis | Store holds | Clock if grace is ADDED | Clock if grace is NOT added |
+|---|---|---|---|
+| **H1** field saturation, `fixed<8,2>` → 63.75 | 63.75 | ~1:07 ✗ | **1:03 ✓** |
+| **H2** clamped to the menu's published max | 60 | **1:03 ✓** | 1:00 ✗ |
+
+⚠ **62 vs 63 does not separate them** — that is just when the clock was read. What separates them is
+whether grace shows on the clock, and the dump does not answer it cleanly: `globallogic.gsc:4904`
+`graceperiod()` is a concurrent `wait`, and the clock is `setgameendtime( gettime() + timeleft )` off
+`level.timelimit * 60`.
+
+▶ **THE DECISIVE TEST, and it is one launch: write `timelimit = 30`** — a published value, far below
+both ceilings.
+- clock starts **0:30** → grace is not on the clock → **H1**, the `fixed<8,2>` ceiling is real
+- clock starts **0:33** → grace is on the clock → **H2**, and the write was clamped to the menu max
+  of 60, which would mean `setgametypesetting()` **is** bounded by the published option list — a
+  retraction of one of this project's standing claims
+
+⚠ **H2 is the more consequential outcome**, which is exactly why it should not be assumed away. The
+`fixed<8,2>` reading is *structurally* true regardless — 63.75 IS the field ceiling — but that does not
+prove it is the ceiling we hit at 90.
