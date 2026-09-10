@@ -568,3 +568,48 @@ both ceilings.
 ⚠ **H2 is the more consequential outcome**, which is exactly why it should not be assumed away. The
 `fixed<8,2>` reading is *structurally* true regardless — 63.75 IS the field ceiling — but that does not
 prove it is the ceiling we hit at 90.
+
+## 🔓🔓🔓🔓 P5 CLOSED — **A SAVED CUSTOM GAME CARRIES THE MODDED TEAM SIZE. NO INJECTION.**
+
+2026-09-10. `test_frontend_maxp` (`write_maxplayers = 1`, value 8) injected at the main menu into a
+**normal 2v2** lobby. Walk: match → lobby → ~30s → edit an unrelated row to un-grey Save → **Save
+Custom Game** → **quit, relaunch, inject NOTHING, load the save.**
+
+▶ **klaze: *"holy shit...it worked"*** — 4 per side, from the save, on a clean launch.
+
+### Verified clean at the moment it worked
+
+| Check | Result |
+|---|---|
+| GSC payload injected? | 🪦 **no** — payload went to pid 35804; the working process was **pid 32744**, a different launch. ACTS injection is memory-only and cannot survive process exit |
+| Any injection since relaunch? | **none run** |
+| cwpatch DLL loaded? | 🪦 **no** — `discord_game_sdk.dll` was the **stock 3,891,512-byte Microsoft SDK** at the time |
+
+▶ **So the game was entirely vanilla.** The only carrier was the saved custom game.
+
+### Why this is unforgeable, and why the timer test was not
+
+`maxplayers` has **no rules-menu row at all** ([[lobby-settings]] L1 walked every page). There is no
+menu path to any value, so a save holding 8 cannot have been produced by hand. Contrast P3's timer
+save, which klaze correctly voided: 60 **is** a published option, so that save proved only that saving
+works. ⚠ **`uint:7` (max 127)** — 8 is nowhere near the field ceiling that made the timer ambiguous.
+
+### What it changes
+
+▶ **Injection is now OPTIONAL for team size.** Host 4v4 from a saved custom game on a stock client.
+The whole ACTS pipeline becomes a *configuration step performed once*, not a per-session dependency.
+▶ **And it means the save serialises the same store the frontend write reaches** — which
+`mp_custom_game.ddl` predicted (its `gametypesettings` member is the match-time blob byte for byte,
+`uint:7 maxplayers` at the same offset in both DDLs) and which is now measured rather than inferred.
+▶ 🪦 **0.1 is superseded in effect.** An *in-match* write still does not flow back to the lobby copy —
+that measurement stands. It simply does not matter, because the pregame write never needed to.
+
+### Still open
+
+⚠ **Bots, not humans.** The team screen accepted 4 a side and the save restored that. A human 4th
+joining a saved-config lobby is untested.
+⚠ **Untested: how far it goes.** 8 worked. `uint:7` allows up to 127 and `com_maxclients` is derived at
+match start (P1) — so 10 and 12 are now worth trying *through the save*, which is a different question
+from L8's failed in-match attempt.
+⚠ **Untested: durability.** Whether the value survives a Battle.net patch, a settings reset, or being
+re-saved from a stock client.
