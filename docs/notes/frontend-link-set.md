@@ -189,3 +189,38 @@ counter and the print), same hook, same replace.
 client replace target on the strength of a run where the payload never ran. **That claim is now
 provisional** — it is proven safe only for the frontend hook, and only in the case where nothing
 executed. Downgraded accordingly.
+
+## ✅ Crash ATTRIBUTED — `devgui.csc` is an unsafe replace in the MATCH VM
+
+2026-09-10. The minimal payload — a tick counter and a print, calling **nothing** else — crashed with
+`load_shared.csc` + `devgui.csc`. With hypothesis 2 (fatal model calls) removed by construction, the
+answer is unambiguous: **the replace target did it.**
+
+🪦 **Retracting the earlier claim.** `devgui.csc` was recorded as a proven-safe client replace on the
+strength of the frontend-hook run — but in that run **the payload never executed** (P = 0), so nothing
+ever exercised what depends on devgui. "No crash" from a run where nothing ran is not evidence of
+safety. The claim was downgraded to provisional an hour ago and is now withdrawn.
+
+### ▶ The correct match-VM pair was already proven, and was abandoned for no reason
+
+The **first** client injection of the session used:
+
+```
+hook     scripts\core_common\load_shared.csc
+replace  scripts\core_common\radiation_debug.csc
+```
+
+…and it **ran and printed in the match**. `radiation_debug.csc` is a safe replace in the match VM;
+it is only useless in the *frontend*, because nothing links it there.
+
+⚠ The switch to `devgui.csc` was reasoned for the FRONTEND problem — "linked, therefore loaded" — and
+then carried over to a MATCH-VM test where it was never needed. **Two crashes came from applying a
+frontend fix to a match-VM question.**
+
+### Where each target actually stands
+
+| Replace | frontend VM | match VM |
+|---|---|---|
+| `radiation_debug.csc` | 🪦 not linked, payload never runs | ✅ **safe, payload runs and prints** |
+| `devgui.csc` | ✅ safe (but payload never runs) | 💥 **crash** |
+| `script_7ca3324ffa5389e4` | 💥 crash | untested |
