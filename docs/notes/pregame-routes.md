@@ -473,3 +473,33 @@ hand**. So the UI's "something changed" flag is separate from the value store th
 alone, then save. klaze did exactly this.
 ⚠ **Worth knowing for any future auto-save route** — a script that writes settings and expects to save
 them without a human touching the menu will find Save greyed out.
+
+### ⚠ The unconditional write RACED THE RULES MENU — fixed, and the race is itself a finding
+
+klaze, 2026-09-09, running `test_frontend_t90` (`timelimit = 90`):
+*"almost every time i open the match options, it reads a different time. then i started the match and
+the round began with like 1:03 on the clock."*
+
+▶ **The row first rendered "unlimited".** That is a DISPLAY fallback, not a clamp: `value1` is `0` and
+its label is `menu/unlimited`, so the row maps a value to a published option index and 90 has none.
+**What it renders is not what the store holds.**
+
+▶ **And the write was not rejected.** A match starting at ~**1:03** is neither the 40 default nor
+unlimited, so the written value reaches the match. It simply never **settled**.
+
+🪦 **Cause: our own design.** The frontend half wrote on *every* 10s sample, unconditionally. The rules
+menu renders by mapping to an option index and commits on its own cycle, so the store was whatever
+touched it last before each read — hence a different number every time the menu opened.
+
+✅ **Fixed: `write_and_check()` is now IDEMPOTENT** — it reads first and writes only when the value is
+not already the target. New return **4** = already correct, nothing written. A settled run reads **2**
+once and then **4**; a 2 that never becomes 4 means something else keeps overwriting us, which is a
+finding rather than a malfunction.
+⚠ The old every-sample write existed to survive the store being rebuilt on mode/lobby change. **Still
+handled** — a rebuild makes the read-back stop matching and the next sample rewrites. Only the
+hammering stops.
+
+⚠ **Consequence for the whole pregame route, and it is not small:** an off-list value is **invisible in
+the rules menu by construction**. Any modded setting outside a row's published options will render as
+whatever option index the UI falls back to. **Judge these writes by the MATCH, not by the menu** — the
+menu is a lossy view. P3's 60 displayed correctly only because 60 is a published option.

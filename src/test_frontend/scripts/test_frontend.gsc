@@ -239,8 +239,36 @@ function private sample( cfg, ticks )
     }
 }
 
+// ⚠⚠ IDEMPOTENT. Writes ONLY when the value is not already what we want.
+//
+//   Measured 2026-09-09 with an unconditional write every 10s (klaze):
+//   "almost every time i open the match options, it reads a different time",
+//   and the match then started at ~1:03 - neither the 40 default nor unlimited.
+//
+//   Cause: the write was RACING THE RULES MENU. The menu renders a value by
+//   mapping it to a published option index and commits on its own cycle, so a
+//   write landing every 10s left the store as whatever touched it last before
+//   the read. The value did reach the match - it just never SETTLED, which makes
+//   every reading of it unreliable.
+//
+//   ⚠ The previous comment justified rewriting every sample because the lobby
+//     store "may be rebuilt when the mode is picked or the lobby created". That
+//     is still handled: if the store is rebuilt, the read-back stops matching and
+//     the next sample writes again. What stops is the hammering when nothing
+//     changed - which is the case the menu was losing to.
+//
+//   Return 4 = already correct, nothing written. A run that settles reads 2 once
+//   and then 4 from then on; a 2 that never becomes 4 means something else keeps
+//   overwriting us, which is a finding rather than a malfunction.
 function private write_and_check( key, value )
 {
+    before = getgametypesetting( key );
+
+    if ( isdefined( before ) && before == value )
+    {
+        return 4;
+    }
+
     setgametypesetting( key, value );
     readback = getgametypesetting( key );
 
