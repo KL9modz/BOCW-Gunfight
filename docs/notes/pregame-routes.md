@@ -980,3 +980,35 @@ the lobby; host launches (F4). **Does the 2nd account load onto the carried map 
 command (vs `map` which only LOADS) — is unobtainable without reversing the encrypted exe. The DLL
 `map`-command test loads a map but does NOT set the joinable lobby selection, so it does not satisfy
 "lobby-side" and is deprioritised behind the joiner test.
+
+## 🪦 JOINER TEST FAILED — carry is host-only. Reframe (0aff361) RETRACTED.
+
+2026-09-10. Host carried Gunfight-on-Zoo; 2nd account (real friends-list invite) tried to join and
+**loaded the OLD map (the lobby's original), then CRASHED.** So the joiner's client does NOT connect to
+the host's `sv_mapname` level — it reads the **session/presence map descriptor** (still the old map)
+and loads that, mismatching the host's actual level → crash.
+
+▶ **The architectural prediction was wrong.** Custom-games joiners are driven by the SESSION DESCRIPTOR,
+not the host's loaded `sv_mapname`. The carry updates `sv_mapname` (host-side) but not the descriptor,
+so it is fundamentally unsuitable for hosting with joiners. The functional map goal is NOT met by the
+carry. klaze's read is correct and now measured: **we must write the session descriptor itself** — what
+the glitch does — not the loaded level.
+
+### The target is now exact: the resident SESSION/PRESENCE map descriptor
+`presence.ddl` gives its shape: `int mapid`, `int playlist`, `int gametype`. `mapid` is an ENUM index
+into `mpmaps` (from mp_custom_game.ddl — we HAVE this enum: mp_zoo_rm=0x19, mp_miami=0x1, ...). Writing
+`mapid` (+ keeping playlist=Gunfight) is the whole goal.
+
+### Routes to write it, by exposure
+- 🪦 GSC: no presence/session write builtin (established).
+- 🪦 Console: `dcfuncscw` header-only (stale base) — command list unobtainable, so "replicate the glitch"
+  via party/matchmaking console commands is blocked too.
+- ▶ **Memory-address write (klaze's suggestion)** — directly write `mapid` in the resident descriptor.
+  Consistent with the accepted toolset (ACTS already patches the scriptparsetree pool; cwpatch patches
+  command blobs). Needs the instance ADDRESS. Two sub-paths:
+  - **(a) lower exposure:** locate a session/presence/lobby POOL or global via ACTS (`dpncw`/`dpcw`),
+    pointer-chain to the descriptor. Read-only discovery, then a targeted write.
+  - **(b) value-scan (Cheat Engine):** change map in the picker, scan for the changed int = mpmaps
+    index. Practical and klaze-drivable, but attaching a scanner/debugger is exactly what TAC flags —
+    higher exposure than injection. Test-box/throwaway call only.
+  ▶ Pursue (a) first.
