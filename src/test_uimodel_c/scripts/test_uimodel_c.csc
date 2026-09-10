@@ -187,13 +187,15 @@ function private global_model_exists( name )
 //      LL = control via lobby_root   (2 digits, 0-15)
 //      GG = control via global root  (2 digits, 0-15)
 //    e.g. 9930700 = both roots resolve, lobby control 7 (the win), global 0.
+// ⚠ ONE LINE. NOT THREE, NOT FIVE.
+//   klaze, 2026-09-10: *"there was a new line between them. just compact"* — each
+//   iprintlnbold costs TWO lines of feed, so five probes was ten lines against a
+//   ~3-line window and the important ones were gone before they could be read.
+//   91/92 are dropped rather than reordered: they are meaningless until the
+//   control passes, so printing them at all was spending the only scarce resource
+//   on the least useful values.
 function private report()
 {
-    // Detail first — these may scroll away, and that is fine now.
-    emit( 91, getdvarint( "gf_uc_91", 0 ) );
-    emit( 92, getdvarint( "gf_uc_92", 0 ) );
-
-    // The one line that must survive.
     packed = getdvarint( "gf_uc_95", 0 ) * 10000
            + getdvarint( "gf_uc_90", 0 ) * 100
            + getdvarint( "gf_uc_94", 0 );
