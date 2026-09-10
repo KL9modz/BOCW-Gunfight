@@ -613,3 +613,26 @@ match start (P1) — so 10 and 12 are now worth trying *through the save*, which
 from L8's failed in-match attempt.
 ⚠ **Untested: durability.** Whether the value survives a Battle.net patch, a settings reset, or being
 re-saved from a stock client.
+
+### Persistence and propagation — first observations (klaze, 2026-09-10)
+
+*"i joined from another account and backed out and it was still 4v4 on that account too, until i saved
+it and reset then loaded the save it was 2v2. but it survived 2 game restarts for the account on this
+pc."*
+
+| Observation | Reading |
+|---|---|
+| ✅ Survived **2 game restarts** on the host account | the save is durable, not a one-shot |
+| A **joining account** saw 4v4, and still did after backing out | the joiner receives the host's live session config, as expected for host-authoritative P2P |
+| That account **saved, reset, loaded its own save → 2v2** | 🔓 **the joiner's save did NOT capture it** |
+
+▶ **So the modded value rides the live session but does not serialise into a joiner's own save.** The
+save appears to write from the account's *own* pending-lobby store, which only the pregame write
+touches — and that write only happened on the host.
+
+▶ **Workflow consequence:** one injected setup per account that wants to **host** a modded save.
+Joiners need nothing — they inherit it from the host, which is the right shape for this project
+(`tac-risk-model.md`: joiners are expected to be unexposed).
+
+⚠ Casual observation, not a controlled test — the exact sequence on the second account was not
+recorded step by step. Worth a proper run before relying on it.
