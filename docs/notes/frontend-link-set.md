@@ -103,3 +103,44 @@ made it a candidate: **`frontend.csc` `#using`s it**, so it is in the frontend V
 returns may be expected to exist by something not visible in the dump. **Test a lobby return.**
 ⚠ If this one also crashes, the honest conclusion is that the frontend link set has no expendable
 member, and the client-side route needs a different mechanism entirely — not another target.
+
+## 🪦 CLOSED — injected client scripts DO NOT execute in the frontend VM
+
+2026-09-10, third and final replace target. `mp_common/devgui.csc`: linked by `frontend.csc`,
+functionally dead in retail, **did not crash** — and **P = 0**. Our code still never ran.
+
+| Replace target | Linked in frontend? | Expendable? | Result |
+|---|---|---|---|
+| `radiation_debug.csc` (0 bytes) | 🪦 no | ✅ yes | P = 0, no crash |
+| `script_7ca3324ffa5389e4` | ✅ yes | 🪦 no | 💥 **crash** |
+| `mp_common/devgui.csc` | ✅ yes | ✅ yes | **P = 0**, no crash |
+
+▶ **The third row is decisive.** It satisfies both conditions the first two failed, and the payload
+still did not run. **So linkage of the replace target was never the blocker**, and the model that
+drove three launches was wrong. Whatever stops an injected `.csc` executing in the frontend is
+upstream of which script it displaces — the hook mechanism, the pool the frontend loads from, or
+autoexec dispatch in that VM.
+
+⚠ **Recorded as measured, not as impossible.** Three targets and two hooks (`load_shared.csc`,
+`frontend.csc`) is enough to stop guessing; it is not enough to prove no route exists. What is
+established is narrow and solid: **this technique, as this project can currently apply it, does not
+reach the frontend VM.**
+
+### ✅ What this run banked anyway
+
+🔓 **`mp_common/devgui.csc` is a PROVEN-SAFE client replace target.** It took the replace, the game did
+not crash, and the lobby returned cleanly. That is the client-side counterpart to
+`clientids_shared.gsc` — which this project spent months without — and it is the thing any future
+`.csc` work should use.
+⚠ Its one retail effect is `level.var_f9f04b00 = debug_center_screen::register()`, read only from dev
+blocks. Losing it costs nothing shipping code touches.
+
+### Untried — not ruled out
+
+- **Whether ANY injected script runs in the frontend client VM**, by any hook. Every attempt used
+  `injectcw`'s hook+replace model; a different injection method was never tried.
+- **The frontend's own `.gsc` side is NOT affected** — P1/P2/P3 prove server payloads run and write
+  there. Only the CLIENT half is closed.
+- **LUI models from the match VM.** Untested: the client payload demonstrably runs in the MATCH, and
+  nobody has asked whether `lobby_root` resolves there — the assumption that it is lobby-only was
+  never checked, and P6a's server-side zero does not settle a client-side question.
