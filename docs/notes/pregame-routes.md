@@ -822,3 +822,47 @@ a nicety; without it a null reading is uninterpretable.
 ⚠ `print()` and `println()` were deliberately not tried — both `type=1`, the flag on the file I/O
 family that crashed the game earlier the same night. Untried, and not recommended: a dev-flagged
 builtin has now been measured as fatal rather than inert.
+
+## P8 — the map model is UNREACHABLE from every injectable VM, but the tree is SHARED
+
+2026-09-10, server frontend VM (`load_shared.gsc`), read-only. **`710005 / 720001 / 730023`.**
+
+| Probe | Value | Meaning |
+|---|---|---|
+| `71` ticks | **5** | ✅ the server frontend VM sampled the lobby — no ambiguity |
+| `72` mask | **1** | root resolves (bit0); **zero children** — no `transitionMapIdOverride`, no `room`, no `fullscreenBlackCount` |
+| `73` screen | **23** | 🔓 `getlobbyuiscreen()` = 23 in a Custom Games lobby — a live integer, **no stock caller ever read it** |
+
+### The wall, now triangulated from three sides
+
+`transitionMapIdOverride` (the map-transition model `cp_common/load.gsc:398` writes) is populated in
+**exactly one VM: the frontend CLIENT VM** — and that is the one VM injected scripts do not execute in.
+
+| VM | `lobby_root` resolves | map model present | injectable? |
+|---|---|---|---|
+| server frontend (`load_shared.gsc`) | ✅ | 🪦 no (P8) | ✅ |
+| match client (`load_shared.csc`) | ✅ (P6c) | 🪦 no (P6c) | ✅ |
+| **frontend client** (`frontend.csc`) | — | ✅ (stock reads it) | 🪦 **no (P6b)** |
+
+### 🔓 But the root is SHARED, which reopens the route via `createuimodel`
+
+`function_5f72e972( #"lobby_root" )` returns a **defined** handle in every VM tested — server and
+client both. A per-VM-private root would read undefined where nothing populated it; a shared/global
+named root reads defined everywhere and its children are created by whichever VM creates them.
+
+▶ **So the children may be absent server-side simply because no MP server script creates them** — only
+campaign's `cp_common/load.gsc` does, and that is not loaded in MP. `createuimodel` (type=0, GSC, 2
+args) can force-create one. Stock idiom is `setuimodelvalue( createuimodel( parent, "name" ), value )`.
+If the tree is shared, a server-created + written `transitionMapIdOverride` is what the client LUI
+binds to for the map display. **That is a novel, untried, stock-adjacent mechanism** — the first live
+map lead since the DLL route.
+
+⚠ Staged deliberately (five crashes from stacking): **P9 creates the model only** (no value write),
+lowest-risk form, to confirm the server VM can populate `lobby_root`. Value write + `forcenotifyuimodel`
+is P10, only if P9 resolves.
+
+### `getlobbyuiscreen() = 23` — a new lobby-state primitive
+
+Live integer, no stock caller, no enum in the dump. Reading it across states (main menu / custom games
+/ in-match) would map the enum — a real lobby-state *detector*. Not a map setter, but the kind of
+primitive a future feature (detect map-select, detect host-ready) would use. Recorded; not chased now.
