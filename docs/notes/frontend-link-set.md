@@ -224,3 +224,43 @@ frontend fix to a match-VM question.**
 | `radiation_debug.csc` | 🪦 not linked, payload never runs | ✅ **safe, payload runs and prints** |
 | `devgui.csc` | ✅ safe (but payload never runs) | 💥 **crash** |
 | `script_7ca3324ffa5389e4` | 💥 crash | untested |
+
+## 🛑 STOP — the match-VM question was ALREADY ANSWERED, hours earlier
+
+The **first** client injection of the session used `load_shared.csc` → `radiation_debug.csc`. That hook
+runs in the **MATCH client VM**. It printed probes 90/91/92 and klaze reported **all zeros**.
+
+▶ **That was the match-VM measurement.** `lobby_root` does not resolve in the match client VM either.
+The last several launches re-asked a question already on record, because the agent lost track of which
+run measured which VM — the runs were distinguished by hook and replace in the notes, but the
+*consequence* of each hook (which VM it lands in) was only worked out later, and the earlier results
+were never re-read in that light.
+
+⚠ **The lesson is about bookkeeping, not the game.** Each probe result must be recorded against the VM
+it measured, at the time it is taken — not against the payload name. Every zero in this section was
+ambiguous for hours purely because "which VM was that?" was not written down beside it.
+
+### And the final crash was self-inflicted
+
+The payload that crashed is not the payload that worked. Since the run that printed, `test_uimodel_c`
+gained `getglobaluimodel()`, `callback::on_localclient_connect` registration, and the dvar stash.
+**`getglobaluimodel()` is the prime suspect** — it did not exist in the version that ran cleanly, and
+this game has already demonstrated that an unavailable builtin crashes rather than returning undefined
+(`openfile`).
+
+▶ **If this is picked up again, the correct next step is NOT another target or another hook.** It is:
+take the payload that printed, change exactly ONE thing, and run that. Five crashes tonight all came
+from stacking changes onto payloads whose last-known-good state had drifted.
+
+## Where the client-side route actually stands
+
+| Question | Answer |
+|---|---|
+| Do injected `.csc` payloads run at all? | ✅ yes, in the **match** client VM (`load_shared.csc` → `radiation_debug.csc`) |
+| Do they run in the **frontend** VM? | 🪦 no — three replace targets, two hooks |
+| Does `lobby_root` resolve in the **match** client VM? | 🪦 **no** — measured by the first run |
+| Does it resolve in the **server** VM? | 🪦 no — P6a |
+| Is there a lobby text surface? | 🪦 no — P7 |
+
+▶ **So the UI model tree has not been reached from any VM this project can inject into.** That is now
+four independent negatives, and it is the honest state of the map goal.
