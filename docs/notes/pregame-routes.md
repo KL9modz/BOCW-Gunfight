@@ -407,3 +407,43 @@ give because the match ended before probes 59/60 printed. Run it first.
 
 ⚠ **One per launch** (B9). ⚠ **2v2, not 3v3** — a timer write in 3v3 would land correctly and display
 nothing, and the silence would look exactly like failure.
+
+## 🔓🔓🔓 P3 RESULT — 2026-09-09. **THE RULES MENU SHOWS THE PREGAME WRITE. 60s, in the lobby.**
+
+`test_frontend_time` (`write_timelimit = 1`, value 60), normal **2v2** Gunfight lobby, injected at the
+main menu. Walk: one match → lobby → ~30s → open the rules menu.
+
+▶ **klaze: *"it shows 60s!"*** — the timer row, in the lobby, **with no match started**.
+
+### Pregame control is CONFIRMED on all three surfaces
+
+| Surface | Evidence |
+|---|---|
+| Rules-menu **display** | ✅ P3 — the row reads 60 |
+| Team-screen **cap** | ✅ P2 — accepted a 4th on a side |
+| The **match** receives it | ✅ P2 — 4v4 played; P1 — probe 52 (lobby) == probe 60 (match) |
+
+▶ **This is the confirmation P2 could not give.** P2's match ended before probes 59/60 printed, so the
+read-back was inferred from behaviour. P3 needs no probe and no match at all: the value is on screen,
+in the pregame UI, written by GSC.
+
+▶ **It also supersedes the in-match approach for SETTINGS.** `gunfight_mod`'s `timer_override` and
+`team_size_override` fight the round boundary and leave the lobby UI stale. A pregame write is in the
+lobby's own store before anyone is seated — no boundary to survive, and the UI is correct because it
+is reading the same value.
+
+### 🔓 P5 IS BACK — and 0.1 is the reason it now might work
+
+Stage 0 question **0.1** measured that an **in-match** write does NOT flow back to the lobby's copy
+(timer read 40 on return, with `gunfight_mod` live). That killed *Save Custom Game* as a route.
+
+⚠ **A pregame write is not an in-match write.** P3 puts 60 **in the lobby store itself**, which is the
+thing the save serialises — `mp_custom_game.ddl`'s `gametypesettings` member is the match-time settings
+blob byte for byte. So:
+
+▶ **Free test, no injection, ~2 minutes: with the pregame write still applied and the row reading 60,
+SAVE THE CUSTOM GAME. Then relaunch clean, with nothing injected, and load it.** If the timer row still
+reads 60, **the mod's settings persist on the account with no injection at all** — and every future
+match starts from a saved, modded config.
+
+⚠ Not predicted either way. The save may serialise from a different store than the row displays.
