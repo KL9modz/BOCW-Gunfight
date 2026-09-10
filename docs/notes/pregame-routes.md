@@ -943,3 +943,40 @@ rather than assumption.
   the safe match-VM client replace is `radiation_debug.csc`.
 - The server frontend VM runs in the lobby and its UI-model reads/creates are safe — the platform for
   any future lobby-side GSC feature that does NOT depend on an unknown LUI binding.
+
+## 🔑 REFRAME 2026-09-10 — the carry may already deliver the map to JOINERS; the gap is cosmetic
+
+De-risking the "lobby-side / joinable" requirement (klaze) against the dump revealed two SEPARATE map
+sources, which changes what "solving the map" means:
+
+| Source | What it is | After a carry | Who reads it |
+|---|---|---|---|
+| `sv_mapname` (`get_map_name()`) | the **actually loaded level** | ✅ = the carried map | gameplay; the host's P2P server |
+| `presence.ddl: mapid` (+ playlist, gametype) | the **presence/session label** | 🪦 stale (old map) | scoreboard, menu, friend list — DISPLAY |
+
+▶ **Custom games are host-authoritative P2P (established): joiners connect to the HOST's running
+level.** The host's carry sets `sv_mapname` to the target map, so a joiner loading into the host's
+game **plays on the carried map**. The stale scoreboard/menu name is `presence.mapid`, a separate
+DISPLAY record the carry never touches — and presence is read-only from GSC (13-route close). So the
+glitch's ONLY functional advantage over the carry is cosmetic label correctness + picking the map in
+the lobby UI.
+
+▶ **Strong architectural prediction, never measured:** a human joiner in a carried-map Gunfight lobby
+**loads onto the carried map and plays it correctly**, with only the label wrong. If true, the map
+goal is FUNCTIONALLY MET by the existing carry today — the whole pregame-map investigation was
+chasing a cosmetic gap.
+
+### ▶ The cheap de-risk (no code, no DLL, bounded)
+Host carries Gunfight-on-<map> on the main account; the 2nd account (klaze has used one to join) joins
+the lobby; host launches (F4). **Does the 2nd account load onto the carried map and play?**
+- ✅ loads & plays the carried map → map goal is functionally solved by the carry; only cosmetic label
+  remains, and that is presence (GSC-unreachable) → glitch stays the only cosmetic fix, but the
+  FUNCTION is done.
+- 🪦 joiner drops / loads the old map → the carry is host-only, and the session descriptor genuinely
+  must be written → back to the console-command / glitch-automation route.
+
+⚠ The console route to the descriptor is currently blocked: `dcfuncscw` returns header-only (stale
+`cmd_function_t` base for this build), so the command list — needed to find any lobby/party map-SELECT
+command (vs `map` which only LOADS) — is unobtainable without reversing the encrypted exe. The DLL
+`map`-command test loads a map but does NOT set the joinable lobby selection, so it does not satisfy
+"lobby-side" and is deprioritised behind the joiner test.
