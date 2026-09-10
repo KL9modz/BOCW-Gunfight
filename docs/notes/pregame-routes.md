@@ -896,3 +896,50 @@ moving the persistent scoreboard text — the scoreboard map likely comes from s
 (`presence.ddl: mapid`), which is read-only from GSC (established). So P10's realistic best case is
 "the load screen shows the carried map", which is still more than the carry does today; its blank case
 is "the UI model channel is inert for the lobby's persistent map text". Both are clean.
+
+## 🪦 P10 — the map-model write is INERT. The pregame map route is CLOSED.
+
+2026-09-10. **`7100006 / 7600011 / 7700000`**, no crash, nothing visible in the lobby.
+
+Mask 76 = 11: model resolved (bit0), `setuimodelvalue` ran (bit1), `forcenotifyuimodel` ran (bit3) —
+but **bit2 clear: the readback ≠ the written hash**, and probe 77 = 0 means `getuimodelvalue` returned
+**undefined**. The value did not round-trip even in our own VM, and nothing displayed.
+
+▶ **The created model is an ORPHAN.** createuimodel returns a handle and setuimodelvalue does not crash,
+but the model has no backing: its value cannot be read back and no LUI element renders it. The reason
+is structural — `transitionMapIdOverride` is a **campaign** LUI binding (cp_common/load.gsc is the only
+user). MP's custom-games lobby LUI never binds that name, so creating it server-side makes an orphan.
+
+### The pregame MAP is unreachable from GSC — final, by exhaustion
+
+| Route | Result |
+|---|---|
+| A map gametype setting to write | none exists (only `allowmapscripting`) |
+| Any builtin that sets map/playlist/session | all read-only; sole writer `enablelobbyjoins` is join-perms |
+| Per-map enable array in the save | outside `gametypesettings`; LUA's |
+| Offline save edit | save is cloud |
+| `adddebugcommand` console | nulled |
+| DLL console | D10 empty table |
+| `switchmap_load` from frontend | crash |
+| GSC participates in map selection? | 🪦 no — `frontend.gsc:on_menu_response` handles 3 unrelated events |
+| UI model bridge (`transitionMapIdOverride`) | 🪦 **orphan — writes inert, nothing binds it in MP** |
+
+▶ **Root cause of the whole wall:** the map picker, its map↔mode compatibility gate, the scoreboard
+map text, and every lobby map model MP actually binds live in **compiled MP LUI**, which is in no dump
+and which GSC cannot address by name (the names are unknown, and creation cannot discover them because
+creating a name makes it resolve unconditionally — destroying the discriminator). **The pregame map is
+LUI-locked.** The manual carry/glitch remains the only route, now established by ~13 measured dead ends
+rather than assumption.
+
+### ✅ Salvage — real capabilities banked from this investigation
+
+- 🔓 **`createuimodel` / `setuimodelvalue` / `forcenotifyuimodel` run safely from the server frontend
+  GSC VM.** Inert for lobby-map models (no MP binding), but **live for any model MP LUI DOES bind** —
+  directly useful for future in-match HUD/UI features, which have real bindings.
+- 🔓 **`getlobbyuiscreen()` = 23 in Custom Games** — a live lobby-state integer, no stock caller. A
+  usable state *detector* (map its values across states) for features like "act when host reaches
+  map-select".
+- 🔓 **Client-script (.csc) injection works**, `mp_common/devgui.csc`... (unsafe replace, match VM) —
+  the safe match-VM client replace is `radiation_debug.csc`.
+- The server frontend VM runs in the lobby and its UI-model reads/creates are safe — the platform for
+  any future lobby-side GSC feature that does NOT depend on an unknown LUI binding.
