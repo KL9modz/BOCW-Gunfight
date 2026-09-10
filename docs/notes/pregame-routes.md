@@ -800,3 +800,25 @@ set. Guessing has now cost four launches. ate47's BO4 capture
 **same lineage, not the same game**, so it is a candidate list to verify, not an answer.
 ⚠ A linked script is by definition one something references, so replacing it is not free. The
 `scene_model_shared` failure is exactly this hazard.
+
+## 🪦 P7 — the lobby has NO GSC-reachable text surface
+
+2026-09-10. Three type=0 print calls from the frontend server VM (which P1 proved runs there), each
+with a distinct number so any one appearing would identify itself:
+
+| Call | Number | Seen? |
+|---|---|---|
+| `player iprintlnbold` | `7710001` | 🪦 no |
+| `iprintln` (level-scoped) | `7720002` | 🪦 no |
+| `printtoprightln` (different surface) | `7730003` | 🪦 no |
+
+▶ **Nothing renders in the lobby.** So a lobby measurement must be stashed to a dvar and read back
+inside a match — the indirection stays, and with it the ambiguity that cost four launches tonight
+(a zero means "no data" *or* "the sampler never ran", and only an explicit tick digit separates them).
+
+▶ **Every future lobby probe therefore needs a tick/ran-marker digit as its FIRST value.** That is not
+a nicety; without it a null reading is uninterpretable.
+
+⚠ `print()` and `println()` were deliberately not tried — both `type=1`, the flag on the file I/O
+family that crashed the game earlier the same night. Untried, and not recommended: a dev-flagged
+builtin has now been measured as fatal rather than inert.
