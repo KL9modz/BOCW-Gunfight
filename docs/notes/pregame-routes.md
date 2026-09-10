@@ -503,3 +503,41 @@ hammering stops.
 the rules menu by construction**. Any modded setting outside a row's published options will render as
 whatever option index the UI falls back to. **Judge these writes by the MATCH, not by the menu** — the
 menu is a lossy view. P3's 60 displayed correctly only because 60 is a published option.
+
+## 🔓 THE 1:03 IS A FIELD-WIDTH CAP. `timelimit` cannot exceed **63.75 seconds**.
+
+Writing `timelimit = 90` produced a **63-second round, twice, deterministically** — so the earlier
+"unstable write racing the menu" theory does not explain it. The dump does:
+
+```
+ddl/mp_gametype_settings.ddl:2846    fixed<8,2> timelimit;
+ddl/mp_custom_game.ddl:2846          fixed<8,2> timelimit;      // same field in the SAVE blob
+```
+
+**`fixed<8,2>` = 8 bits, 2 fractional bits → max representable value `255 / 4 = 63.75`.** A write of 90
+saturates to 63.75 and the round clock reads **1:03**.
+
+⚠ **The grace period is a red herring here, and it nearly fit.** `gunfight.gsc:99` sets
+`level.graceperiod = 3`, so "60 + 3" also produces 63 — a coincidence that would have supported the
+wrong conclusion (that the value was clamped to the menu's published max of 60). The field width is the
+explanation that survives, because it predicts 63.75 rather than 63 exactly, and because it is
+structural rather than inferred.
+
+### What this settles
+
+| Claim | Status |
+|---|---|
+| "The menu cap says nothing about what `setgametypesetting()` accepts" | ✅ **still true** — the menu stops at 60, the field allows 63.75 |
+| Longer Gunfight rounds via the `timelimit` **setting** | 🪦 **IMPOSSIBLE.** 63.75s is a hard ceiling in the data format |
+| `gettimelimit()`'s `[0, 1440]` **minute** clamp | ⚠ **irrelevant** — the setting cannot hold a value big enough to reach it |
+| `gunfight_mod`'s `timer_override` | 🔓 **the ONLY route to rounds > 63.75s**, and now explained: it overrides `level.gettimelimit` directly and never passes through this field |
+
+▶ **So the two mechanisms are complementary, not redundant.** Pregame writes own everything up to
+63.75s and are visible before the match; `timer_override` is required for anything longer and always
+will be. An earlier note called `timer_override` superseded by the pregame route — **that is wrong for
+any round longer than 63.75s.**
+
+⚠ **Check other settings for the same trap before trusting a big write.** `maxplayers` is `uint:7`
+(max 127), which is why 8 and 10 both took cleanly — but any `fixed<n,m>` or narrow `uint:n` field has
+a ceiling that will silently saturate rather than refuse. **The DDL is the place to look, and it is
+free.**
