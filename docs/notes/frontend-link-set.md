@@ -66,3 +66,40 @@ so **test a lobby return** before trusting it.
 The remaining unknown is narrow and specific: **does an injected client payload run in the frontend VM
 when its replace target is one the frontend actually links?** P6b showed it does not with an unlinked
 target. That is one testable question, not a search.
+
+## 🪦 `script_7ca3324ffa5389e4` — CRASHED. And it exposes the real bind.
+
+2026-09-10. `injectcw` **accepted** it as a replace target, which settles one thing: it is a real
+client script in the pool, so the dump was missing its `.csc` rather than the game lacking one.
+
+Then the game **crashed**. `frontend.csc` `#using`s it and evidently needs it — `scene_model_shared`
+again, in a new place.
+
+### ▶ The bind, stated plainly
+
+| | linked in the frontend? | safe to overwrite? |
+|---|---|---|
+| the six 0-byte `.csc` files | 🪦 **no** — nothing references them, which is *why* they are empty | ✅ yes |
+| every named script in the 46 | ✅ yes | 🪦 **no** — referenced means needed |
+
+**Those are two ends of the same property.** A script is loaded because something references it, and
+anything referenced may be depended on. Guessing inside this set is not a search with a good ending.
+
+### 🔓 The escape: LINKED but FUNCTIONALLY DEAD — `mp_common/devgui.csc`
+
+One script in the direct `#using` list is loaded by the frontend and does essentially nothing in
+retail:
+
+- **448 lines, 96 dev strings** — nearly all of it inside `/# … #/`, stripped from retail.
+- Its **entire retail body** is one statement:
+  `preinit() { level.var_f9f04b00 = debug_center_screen::register(); }`
+- **Nothing in retail reads `var_f9f04b00`.** The only readers are `devgui.gsc:1125` and `:1127`,
+  both inside dev blocks.
+
+▶ So overwriting it costs one variable that no shipping code touches, while keeping the property that
+made it a candidate: **`frontend.csc` `#using`s it**, so it is in the frontend VM's link set.
+
+⚠ Not risk-free. It still calls `debug_center_screen::register()` at preinit, and the LUI element that
+returns may be expected to exist by something not visible in the dump. **Test a lobby return.**
+⚠ If this one also crashes, the honest conclusion is that the frontend link set has no expendable
+member, and the client-side route needs a different mechanism entirely — not another target.
