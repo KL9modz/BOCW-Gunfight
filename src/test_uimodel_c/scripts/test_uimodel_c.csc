@@ -172,13 +172,33 @@ function private global_model_exists( name )
     return isdefined( getuimodel( g, name ) );
 }
 
+// ⚠⚠ THE CHAT FEED HOLDS ABOUT THREE LINES. Measured 2026-09-10: printing five
+//    probes back-to-back, klaze saw only the LAST THREE (94, 91, 92) — the two
+//    that mattered, 95 and 90, had already scrolled off.
+//
+//    "Print them all at once" fixed the 5s-per-value problem and replaced it with
+//    a scrollback one. So:
+//      1. the LAST line printed is the one guaranteed to be readable, and
+//      2. the critical values go in a SINGLE PACKED number, so no amount of
+//         scrolling can separate them.
+//
+//    Packed as 99[R][LL][GG]:
+//      R  = roots defined   1 lobby_root · 2 global · 3 both · 0 neither
+//      LL = control via lobby_root   (2 digits, 0-15)
+//      GG = control via global root  (2 digits, 0-15)
+//    e.g. 9930700 = both roots resolve, lobby control 7 (the win), global 0.
 function private report()
 {
-    emit( 95, getdvarint( "gf_uc_95", 0 ) );
-    emit( 90, getdvarint( "gf_uc_90", 0 ) );
-    emit( 94, getdvarint( "gf_uc_94", 0 ) );
+    // Detail first — these may scroll away, and that is fine now.
     emit( 91, getdvarint( "gf_uc_91", 0 ) );
     emit( 92, getdvarint( "gf_uc_92", 0 ) );
+
+    // The one line that must survive.
+    packed = getdvarint( "gf_uc_95", 0 ) * 10000
+           + getdvarint( "gf_uc_90", 0 ) * 100
+           + getdvarint( "gf_uc_94", 0 );
+
+    emit( 99, packed );
 }
 
 // ── probe 93 REMOVED — CALLING THE FILE I/O FAMILY CRASHES THE GAME ─────────
