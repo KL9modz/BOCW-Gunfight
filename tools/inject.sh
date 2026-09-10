@@ -83,7 +83,7 @@ case "$NAME" in
     # rather than prefix-matched: the hook decides which VMs a payload runs in,
     # and a pattern would silently hand the frontend hook to any future name
     # that happened to start the same way.
-    test_frontend|test_frontend_maxp|test_frontend_time|test_frontend_t90|test_lobbymap|test_lobbymap_live|test_frontend_dbg|test_uimodel)
+    test_frontend|test_frontend_maxp|test_frontend_time|test_frontend_t90|test_lobbymap|test_lobbymap_live|test_frontend_dbg|test_uimodel|test_lobbyprint)
         TARGET="$FE_TARGET"; FRONTEND=1 ;;
 esac
 if [ -n "${GF_TARGET:-}" ]; then
