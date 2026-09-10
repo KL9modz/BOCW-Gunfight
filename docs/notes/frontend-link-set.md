@@ -163,3 +163,29 @@ Expect `P ≥ 1` and `T ≥ 1` (it runs there). **`R` and `LL` are the finding**
 the match client VM, the UI model API is reachable from a VM we can already inject into — and the
 question becomes whether a model written there survives back to the lobby, not whether we can touch
 models at all.
+
+## ⚠ Match-VM probe CRASHED — and the cause is ambiguous between two things
+
+2026-09-10. `load_shared.csc` (hook) + `devgui.csc` (replace) + the model payload → **crash**.
+
+**Two candidates, and the run cannot distinguish them:**
+
+1. **`devgui.csc` is safe in the FRONTEND but not in the MATCH VM.** `mp_common/devgui` is a match
+   script. In the previous run the payload never executed (P = 0), so devgui's *absence* was the only
+   effect and nothing exercised whatever depends on it. This run put the payload in the match VM,
+   where devgui normally lives.
+2. **The model calls crash in the match VM.** `function_5f72e972()` / `getuimodel()` on a root that
+   does not exist there, behaving like `openfile` did earlier tonight — **fatal rather than
+   returning undefined**. That failure mode is now measured precedent in this game, not speculation.
+
+⚠ **Do not record either as the cause.** One launch, one variable:
+
+▶ **The disambiguating test: inject the payload with the model calls REMOVED** (leave only the tick
+counter and the print), same hook, same replace.
+  - still crashes → **`devgui.csc` is an unsafe replace in the match VM**, and hypothesis 1 holds.
+  - runs fine → the replace is innocent and **the model calls are fatal there**, hypothesis 2.
+
+⚠ That also matters beyond this route: `devgui.csc` was recorded earlier tonight as a proven-safe
+client replace target on the strength of a run where the payload never ran. **That claim is now
+provisional** — it is proven safe only for the frontend hook, and only in the case where nothing
+executed. Downgraded accordingly.
