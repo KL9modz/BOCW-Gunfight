@@ -369,3 +369,23 @@ behaviour, which is stronger evidence for the goal but weaker evidence about the
 
 ⚠ **Bots, not humans, again.** The team screen accepted them, which is more than the in-match route
 ever achieved — but a human 4th joining a pregame lobby is still untested.
+
+### ⚠ 3v3 Gunfight's rules menu is missing SEVERAL rows that normal 2v2 has
+
+klaze, 2026-09-09: *"3v3 for some reason does not have the lobby match option for timer like 2v2 does.
+3v3 seems to be missing several custom options that 2v2 has in the lobby."*
+
+`.claude/CLAUDE.md` already recorded the timer row specifically. **It is broader than one row** — the
+per-variant filter strips a set of options from 3v3, and which ones is unenumerated.
+
+▶ **Practical consequence, and it redirects the next test:** any check that needs to SEE a value in the
+rules menu must run in a **normal (2v2) Gunfight lobby**. A `write_timelimit` run in 3v3 would write
+correctly and show nothing, and the silence would be indistinguishable from failure.
+
+▶ **2v2 is also the better team-size test.** It baselines at `maxplayers = 4`, so writing 8 asks a
+lobby that normally caps at **2 a side** to accept **4** — double, against 3v3's +1. And the timer row
+exists there for a second, independent confirmation in the same run.
+
+⚠ **Worth enumerating at some point:** walk both variants' rules pages side by side and list what 3v3
+is missing. `settings-xref.py` maps settings to bundles, but which rows a *variant* publishes is
+playlist-layer and not in the dump — so this can only come from a menu walk.
