@@ -114,3 +114,28 @@ joiners — the priority). Everything else is confirmed closed at this layer:
   by client memory (CE, pending), not by any injectable GSC VM (P11).
 ▶ So at the script layer, the map problem reduces to ONE experiment (in-match `switchmap_load` + joiner)
   and ONE deeper tool (CE on the client LUI compat state). No third GSC avenue remains unexamined.
+
+## 9. Concrete gunfight_mod expansion roadmap (grounded in §1–8 + current mod)
+Current mod (`src/gunfight_mod`, 267 lines): config-driven, self-healing (`mod_apply` reruns every round
+via `on_start_gametype`), server-side GSC. Flags: zones_guard, timelimit_fix, presentation, timer_override/
+timer_minutes, team_size_override/team_size (clamped to `com_maxclients`). Grounded next steps:
+
+1. **Real overtime on any map (`#synth_zones`).** Instead of guard-and-skip, spawn a `trigger_radius` at a
+   map-derived centre + a `script_model` zone + `gameobjects::create_use_object`, and set `level.zones`
+   yourself (§6). Gives faithful Gunfight overtime (capturable flag) on off-Gunfight maps. Medium effort;
+   the stock `setupzones()` (gunfight.gsc:827) is the exact template.
+2. **Custom loadout rotation (`#loadout_override`).** Gunfight pulls the round weapon set from scriptbundle
+   `gunfightloadoutlist`→`mp_gunfight_loadout_default` into `game.var_96a8ff4a` (gunfight.gsc:80-88). The
+   mod can override `level.givecustomloadout` / `setloadout` to inject a chosen weapon rotation. Low-med.
+3. **Expose the stock settings the gametype already reads:** `capturetime`, `extratime`, `gunfightspyplane`
+   (0/1/2), `gunfightroundsperloadout` — all via `setgametypesetting` like timer/team already are. Trivial.
+4. **Map control (`#map_target`)** — pending the PRIORITY AVENUE test: if in-match `switchmap_load(target,
+   level.gametype)` is joiner-safe, a flag that coordinated-switches to a verified map at match start is the
+   whole lobby-map solution, delivered from the mod. Gate on a verified-safe map list (mapexists lies).
+5. **Round/score tuning:** score/round limits via `globallogic`/`util::registerscorelimit`; the no-zone
+   tiebreak is total team health (`function_c4915ac`) — could be swapped for round-time or kills if desired.
+
+⚠ Cross-cutting rules for ALL joiner-facing expansion: (a) only drive STOCK clientfields/uimodels — never
+register new ones with vanilla joiners present (§2 CONSTRAINT — can crash them); (b) team size ≤
+`com_maxclients/2`; (c) any map target must be a verified-loadable name; (d) keep it in `mod_apply` so it
+self-heals each round; (e) one payload at a time (shared `clientids_shared` replace target).
