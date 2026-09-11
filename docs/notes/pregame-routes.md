@@ -1285,3 +1285,44 @@ most important unknown, and the thing to resolve before sinking more time into i
 ▶ Decision point: (A) Cheat Engine — watchpoints + pointer-scan (proper tool); (B) keep gfscan with
 strictly-committed selections + live-verify every candidate; (C) step back and reassess whether a
 host-side memory write can reach joiners at all.
+
+## 🔬 RESEARCH — what the glitch actually changes: MODE/PLAYLIST reconfig, NOT a map write (2026-09-10)
+
+Prompted to research the lobby state the glitch changes before more address-hunting. Cross-read the notes
++ dump. Conclusion reframes the whole session:
+
+**The glitch is a playlist/mode RECONFIGURATION, not a map field change** (menu-map.md:151 already said this):
+it imports an online playlist's session config into the private lobby. It makes EVERY map selectable
+*under Gunfight*, the game then reports "Gunfight on <map>" correctly, and it changes "the thing that sets
+`com_maxclients`". So the state it changes is the **active mode/playlist config**:
+1. the mode's **map-compatibility set** (the picker's "not compatible with selected mode" gate),
+2. **com_maxclients** (session slot count, stamped at session creation — the 6v6 lever),
+3. mode rules.
+
+**Then the NORMAL selection path runs.** Once the mode allows the map, selecting it drives the authoritative
+LUI/Lua selection, which propagates *consistently* to presence.mapid, sv_mapname, display, and the session
+descriptor. That consistency is almost certainly why a glitched lobby is joinable (⚠ note 0.6 —
+"after the glitch is everything right?" — is still formally UNMEASURED, but the mechanism implies yes).
+
+### Why every approach this session was aimed at the wrong layer
+- **Atian carry** sets `sv_mapname` only (load-time override); never touches the mode config, so the picker,
+  compat gate, and presence stay on the old map → joiner reads stale presence → crash. (Measured.)
+- **Writing `presence.mapid`** is the WRONG target: the glitch never touches it directly — it's a DOWNSTREAM
+  product of the legit selection path. Even a perfectly-isolated write doesn't reconfigure the mode, and
+  (as feared) may be rebuilt from the master. The whole presence.mapid hunt was one layer too low.
+
+### Where the target state actually lives
+- Map↔mode compatibility + playlist config = **LUI/Lua + downloaded online-playlist data**. NOT in the
+  dump's GSC/CSC/CSV/scriptbundle-JSON — searched: no compat table; `arena_playlist_game_modes_maps` is a
+  hash-obfuscated datasourcelist pointing into a LUI scriptbundle. Same LUI-locked wall, now precisely placed.
+- Config-blob structure (mp_custom_game.ddl): `gametypesettings` holds `maxplayers`+`teamcount` (**team size —
+  already controlled; the 4v4 win**); `com_maxclients` (session slots) is separate and set at creation by the
+  playlist (**the 6v6 lever we can't reach from config**); root `bool[mpmaps]` (43) is the per-map
+  enable/rotation list (pick among ALREADY-compatible maps), not the compat gate itself.
+
+### Implication for the approach
+The thing to replicate is the **mode/playlist reconfiguration** (make the mode allow the map + set slots),
+not a map write. If pursuing memory: the target is the **runtime mode/playlist config that gates the picker
+and sets com_maxclients** — NOT presence.mapid. Best tool to locate it: a **Cheat Engine watchpoint on the
+compat check** — select an incompatible map, catch the code that reads the "is this map allowed for this
+mode" set, and follow it to the config struct. That is a far better use of CE than hunting presence.mapid.
