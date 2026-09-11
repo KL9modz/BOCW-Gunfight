@@ -70,3 +70,39 @@ reaches **every client, including un-modded joiners** — no client injection ne
 (fires per map load — survives a carry, re-applies each round). `injectcw` replaces `clientids_shared.gsc`
 (the one known-safe replace target). One payload at a time (shared replace target). Server-side GSC only;
 joiners inherit via clientfields (§2).
+
+## 6. Mod-expansion opportunities found in the source
+- **Synthesize the overtime zone on any map.** Off-Gunfight maps lack `gunfight_zone_center`/`_trigger`,
+  so stock `setupzones()` fails. But **script CAN spawn trigger volumes** (`spawn("trigger_radius")` — 33
+  stock uses; `spawn("trigger_box")` — 1). So the mod could spawn a trigger at map centre + a
+  `script_model` zone entity + `gameobjects::create_use_object` and set `level.zones` itself — giving
+  **real Gunfight overtime on any map**, not just the current guard-and-skip. Bigger than the current mod.
+- **No-zone tiebreak is already sane.** The path the mod reaches via timelimit_fix, `function_c4915ac()`,
+  breaks a tied round by **total remaining team health** (sum `player.health` allies vs axis). So the
+  simple guard path is functional and fair; zone-synthesis is a fidelity upgrade, not a correctness fix.
+- **Bots:** `addtestclient()` is the only bot-add builtin. The mod fills teams with it, hard-bounded by
+  `com_maxclients` (session-controlled, script-read-only — the real 6v6 ceiling; not raisable from script).
+- **Delivery to joiners:** clientfields (§2) — server-only mechanics become joiner-visible with no client
+  install.
+
+## 7. Event / lifecycle system (mod hook points)
+Engine fires `event_handler[name]` handlers at lifecycle points. Registration via `system::register` /
+`callback::*`; dispatch is engine-side (hashed `function_d8abfc3d`/`function_52ac9652`). Relevant events:
+`gametype_precache → gametype_init → gametype_start`, `level_preinit → level_init → level_finalizeinit`,
+`maprestart`, `hostmigration_setupgametype` (state to rebuild on host migration — worth reading if the mod
+ever needs migration resilience). ⚠ `sidemission_launch` (the campaign event that triggers switchmap) is
+engine-fired in CP only — a script can't dispatch it in MP, so it is NOT a back-door to a clean switch;
+call the `switchmap_*` builtins directly (§3 / pregame-routes PRIORITY AVENUE).
+
+## 8. Map-selection avenue sweep — FINAL (GSC/dvar/data layer exhausted)
+After a full source pass, the only live GSC-layer map lever is **`switchmap_load` in-match** (untested for
+joiners — the priority). Everything else is confirmed closed at this layer:
+- No map-unlock / allow-all-maps dvar exists (searched). Custom-match map-offering is `gamemodeismode(1|7)`
+  → resolved entirely in **client LUI**, no server/dvar input.
+- `com_maxclients` (team ceiling) is session-set, script-read-only — the glitch changes it via playlist
+  reconfig; script cannot.
+- `g_gametype` is a writable dvar, but changing gametype needs a map reload to take (→ switchmap path).
+- The compat/allowed-map set is the client-LUI `uimodeldatastruct #hash_109ccf57a41ffd82` — reachable only
+  by client memory (CE, pending), not by any injectable GSC VM (P11).
+▶ So at the script layer, the map problem reduces to ONE experiment (in-match `switchmap_load` + joiner)
+  and ONE deeper tool (CE on the client LUI compat state). No third GSC avenue remains unexamined.
