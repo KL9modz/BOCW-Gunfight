@@ -1226,3 +1226,33 @@ never recorded, and every later filter operated on a set that didn't contain it.
 
 Method is sound and reusable; the miss was a home-map/range choice. Enum now in hand to read the build's
 true indices straight off the isolated field.
+
+## 🎯🎯 presence.mapid CANDIDATE ISOLATED — 2026-09-10 (post-restart redo)
+
+Redid the value-scan correctly after a game restart wiped the heap addresses:
+- **KGB as home map** (mid-index, so presence.mapid ∈[8..42] is captured — the first scan's
+  [8..42] home-range miss is fixed).
+- Captured KGB, Game Show, KGB(return), Nuketown, Amsterdam.
+- Filter: **gs==0** (game_show=0, stable enum anchor) + **returned to exact KGB index** (kill noise) +
+  **ams == nuke+1** (in BOTH dump enum versions amsterdam immediately follows nuketown — a structural
+  invariant almost certain to survive).
+- ▶ **UNIQUE survivor: `0x2df9901242c`** (session-specific heap addr) — vector gs=0, nuke=1, ams=2, kgb=16.
+
+**The build's Gunfight-map ordering is its OWN layout** (neither dump version): game_show=0, nuketown=1,
+amsterdam=2, … kgb=16. Looks like a Gunfight-subset enum (consecutive from 0), which is why the dump's
+full-mpmaps fingerprints (v1 kgb=19/nuke=14, v2 kgb=11/nuke=8) gave 0 hits.
+
+### Tooling note
+`gfscan read <addr>` does NOT read one address — it dumps the whole candidate list (>64MB). To read a
+single address, use the write path (`write <addr> <val>` prints `old -> new`, i.e. a read+write). A clean
+single-address `read`/`dump <addr> <n>` mode is the one gfscan enhancement worth adding.
+
+### ▶ Next: stickiness/re-sync check, then joiner test
+1. Double-write a sentinel to `0x2df9901242c` — the 2nd write's printed `old` says whether the game
+   re-syncs it (reverts) or the write holds. Re-sync in the picker is expected; the CARRY scenario
+   (master stale) is where a write should hold.
+2. Joiner test (the actual measurement): write presence.mapid to a different map, host launches, 2nd
+   account joins — does it load the written map? That answers the pivotal unknown.
+
+⚠ Heap addr is per-session (dies on restart). A repeatable fix needs a pointer-chain/AOB from a module
+global. Proof-of-concept first.
