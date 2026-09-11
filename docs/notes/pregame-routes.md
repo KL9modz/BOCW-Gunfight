@@ -1066,3 +1066,42 @@ Build a 1-int WriteProcessMemory tool (gfwrite), write a value to `0x207c6279ab4
 
 If the joiner still gets the wrong map, there are presence/session MIRRORS to also write (this scan
 found one clean tracker; mirrors outside the [8..42] candidate set would have been missed).
+
+## 🧱 ROOT CAUSE PROVEN — the map selection is LUI/Lua-authoritative; memory ints are reflections
+
+2026-09-10, decisive experiment. Located a memory field tracking the committed map
+(`0x207c6279ab4` and a cluster of others) via 4-map value-scan signature. Then WROTE them and launched:
+
+| Test | Result |
+|---|---|
+| Write field to a different index | ✅ write succeeds (WriteProcessMemory) |
+| Lobby display after write | 🪦 **no change** — display is LUI-driven, not from this int |
+| Wrote 4 different candidate addresses | 🪦 none changed the display |
+| **Launch the match with fields written** | 🪦 **loaded Gunfight on the DISPLAYED map (Game Show), ignoring every write** |
+
+▶ **So every int32 we can scan/write is a DOWNSTREAM REFLECTION of the selection, not the master.**
+Data flows selection → reflections; nothing reads the reflections back. The authoritative map
+selection lives in the **compiled LUI / Lua VM state**, which drives display, presence, and launch. The
+joiner reads presence (fed from LUI), which is why the carry (host `sv_mapname` only) crashed joiners.
+
+### Every tractable route is now exhausted — by measurement
+| Layer | Result |
+|---|---|
+| GSC builtins / settings | no map/playlist/session write; all read-only |
+| Console command | list unobtainable (dcfuncscw stale base) |
+| UI models (createuimodel) | orphan — writes inert, MP LUI binds none |
+| Saved custom game | no map field; per-map array is LUA's |
+| Atian carry | host `sv_mapname` only — joiners crash |
+| **Memory value-scan** | **only downstream reflections; master is Lua-side** |
+
+### The one remaining path is qualitatively harder
+Writing LUI's authoritative selection means modding the **Lua VM state**: locating the specific Lua
+table/field, understanding this build's Lua value representation (tagged, GC-managed — not a plain
+int), and writing it without corrupting the GC or getting recomputed on the next LUI event. That is a
+major, higher-risk RE effort (crash-prone, higher anti-cheat surface), not an extension of the
+int-scan. It is the honest next step IF the map is worth that investment; otherwise the manual
+glitch/carry-solo stays the map method.
+
+✅ The tooling built this session works and is reusable: `gfscan.exe` (region-walk value-scanner with
+find/changed/same/read/write). Located the reflections; proved the boundary. Not wasted — it is the
+foundation for any future memory work, and it definitively answered where the selection is NOT.
