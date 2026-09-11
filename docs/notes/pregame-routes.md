@@ -1374,3 +1374,23 @@ it reads the client's Lua-VM memory directly, indifferent to VM/script boundarie
 compat check (select an incompatible map → catch the read of the "is this map allowed for this mode" set)
 lands straight in the client model struct that GSC can't address. That is the honest next step for the
 memory route.
+
+## 🧭 CARRY IS DEAD FOR JOINERS — measured (klaze, 2026-09-10)
+
+Direct answers that resolve the joiner question:
+- **Carrying while a friend is already in the match CRASHES them** (not just friends who join after a
+  carry). So the carry's `map mp_miami` is a **host-local level swap that desyncs connected clients**, not a
+  clean server map-change they can follow. → the carry cannot deliver joiners in ANY ordering
+  (join-first-then-carry is dead too). The in-match carry is host-only, permanently.
+- **The glitch's lobbies play fine for everyone with NOTHING installed** → the glitch is a *proper* lobby
+  reconfiguration, genuinely vanilla-joinable. (Partially answers open Q 0.6: a glitched lobby IS joinable.)
+- **Goal restated by klaze:** set the map at the **pregame LOBBY level, outside an active match** — replicate
+  what the glitch does at the lobby, not an in-match mod-menu carry.
+- gunfight_mod is server-side (host=server) so it covers a joiner's gameplay (problem B), but the carry's
+  client desync + stale descriptor (problem A) make the carry unusable regardless. Only the glitch's
+  lobby-level reconfig produces a joinable result.
+
+▶ Two live paths remain, both aimed at the lobby-level reconfig (client-LUI compat/playlist state):
+  (1) Cheat Engine on the client Lua-VM state (memory), or (2) automate the glitch's actual input sequence
+  (aligned with klaze's premise "if a basic lobby glitch can do it, we can programmatically"). Need the
+  glitch's steps to evaluate (2).
