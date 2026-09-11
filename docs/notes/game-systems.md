@@ -185,3 +185,41 @@ Gunfight assigns the round weapon via `givecustomloadout()` → `setloadout( gam
    (custom classes on) — so a loadout-mod must set `disablecustomcac = 1` OR re-install the hook AFTER
    onstartgametype runs. `mod_apply` (on_start) runs at the right time to do the latter.
 ⚠ All joiner-safe: loadouts are server-assigned (`setloadout`), so joiners get them with nothing installed.
+
+## 12. Host-side client (CSC match VM) capability map
+The one injectable client surface (`load_shared.csc` → replace `radiation_debug.csc`, per §10). Runs on the
+**HOST's client during a match**. Full capability inventory from the dump:
+
+**Hook** — a CSC payload registers via `system::register` + `callback::*`, and can attach to the whole
+client-side match lifecycle: `on_localclient_connect`, `on_localplayer_spawned`, `on_spawned`,
+`on_gameplay_started`, `on_start_gametype`, `on_end_game`, `on_killcam_begin`/`on_killcam_end`,
+`on_team_change`, `on_weapon_change`, `on_player_killed`, `on_laststand`, `on_ping`. (Same callback module
+as server, client side.)
+
+**Read** — `localclientnum` (the client identity, threaded everywhere), `getlocalplayers`,
+`getcurrentweapon`, entity state, **server→client clientfields** via `clientfield::get` / the registered
+handler (this is how the stock client reacts to server state — §2), and crucially **player INPUT**:
+`buttonpressed` / `isbuttonpressed` / `attackbuttonpressed` / `getstance`. Input-reading is what makes
+host-side interactive tools work (it's how `gunfight_menu`'s RMB+V navigation reads the pad).
+
+**Present** — `luinotifyevent(#"event")` is the dominant lever (223 stock uses): fire LUI/HUD notifications,
+splashes, timers — repurposable stock events include `announcement_event`, `score_event`,
+`show_gametype_objective_hint`, `create_prematch_timer`, `round_start`, `show_outcome`, `killstreak_received`,
+`waypoint_captured`. Plus `hudelem` HUD elements (87 uses), `playfx`/`playfxontag` world VFX (77),
+`objective_add` world markers. UI-model API works here too (P6c: `function_5f72e972(#"lobby_root")`
+resolves in this VM — though the frontend children do not).
+
+**⚠ THE BOUNDING CONSTRAINT — host-only.** Injection runs on the HOST's client only; **joiners run stock
+CSC**. So every custom client feature here (custom HUD, VFX, overlays, input tools) is **host-only** — a
+joiner never sees it. Joiners see only: server-GSC gameplay + their stock client's reactions to stock
+clientfields/uimodels the server sets (§2).
+
+**▶ What the CSC match VM is FOR (given host-only):**
+- Host-side **dev/debug overlays** — read client state, print diagnostics (the project's P-series probes
+  ran here via `iprintlnbold`), visualize spawns/zones while developing.
+- Host-side **interactive tools** — input-driven menus like `gunfight_menu` (RMB+V), a map-carry trigger, a
+  mod control panel. All host-only, which is fine for a host-operated control surface.
+- Host-side **polish the host alone needs** — a custom scoreboard/timer overlay for the host's own view.
+**▶ What it is NOT for:** anything a JOINER must see or do. Those MUST be server-GSC + stock clientfields.
+This is why the switchmap map change (server GSC) and gunfight_mod (server GSC) are the right layer for the
+multiplayer goal, and CSC is reserved for host-operated controls and dev tooling.
