@@ -35,9 +35,17 @@ reaches **every client, including un-modded joiners** — no client injection ne
   `scriptmover`(34) `world`(28) `vehicle` `missile` `playercorpse` `actor`.
 - `set / set_to_player / set_world_uimodel / set_player_uimodel` — push values (bit-packed, versioned).
 - `register_clientuimodel` / `register_luielem` — drive LUI/HUD from server gameplay.
-- ▶ **Mod-expansion implication:** any new mechanic that needs the client to *see or do* something (custom
-  HUD, timers, states, prompts) is delivered to joiners through clientfields/uimodels — the same way stock
-  Gunfight drives `hudItems.*.noRespawnsLeft`. This is the lever that makes server-only mods joiner-visible.
+- ⚠⚠ **Mod-expansion CONSTRAINT (corrected 2026-09-11):** clientfields are SYMMETRIC — the client reads
+  each via its own registered HANDLER in `gunfight.csc` (e.g. `activeTrigger`→`function_f789a70b`). A
+  VANILLA joiner runs STOCK `gunfight.csc`, which registers ONLY the stock fields (`activeTrigger`,
+  `scriptid`, `gunfight_pregame_rob`) with stock handlers. So a server-only mod can drive joiner-visible
+  behaviour **only through clientfields/uimodels the STOCK client already registers** (repurpose those +
+  the stock HUD uimodels). It CANNOT invent a new synced field and have a vanilla joiner react — there is
+  no client handler for it. ⚠ WORSE: registering EXTRA clientfields server-side shifts the field
+  count/version and can **desync or crash vanilla joiners**. Rule: with vanilla joiners present, do NOT add
+  clientfields — only `set()` existing stock ones. Genuinely new synced mechanics require a matching `.csc`
+  mod on every client, which vanilla joiners by definition lack. (This bounds "server-only mod features
+  reach joiners": true for repurposed stock channels, false for new ones.)
 
 ## 3. Session / map / gametype builtins (levers, from cw-builtins.md + dump usage)
 - `switchmap_load(map, gametype?)` +3b7c710 · `switchmap_preload` +3b7c6e0 · `switchmap_switch` +3b7c780 —
@@ -82,7 +90,7 @@ joiners inherit via clientfields (§2).
   simple guard path is functional and fair; zone-synthesis is a fidelity upgrade, not a correctness fix.
 - **Bots:** `addtestclient()` is the only bot-add builtin. The mod fills teams with it, hard-bounded by
   `com_maxclients` (session-controlled, script-read-only — the real 6v6 ceiling; not raisable from script).
-- **Delivery to joiners:** clientfields (§2) — server-only mechanics become joiner-visible with no client
+- **Delivery to joiners:** ONLY via stock clientfields/uimodels the vanilla client already handles (§2 caveat) — repurpose existing channels; new synced fields need a client-side mod joiners lack, and adding fields can crash them. Server-only
   install.
 
 ## 7. Event / lifecycle system (mod hook points)
