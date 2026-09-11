@@ -223,3 +223,45 @@ clientfields/uimodels the server sets (§2).
 **▶ What it is NOT for:** anything a JOINER must see or do. Those MUST be server-GSC + stock clientfields.
 This is why the switchmap map change (server GSC) and gunfight_mod (server GSC) are the right layer for the
 multiplayer goal, and CSC is reserved for host-operated controls and dev tooling.
+
+## 13. Persistence / save system sweep (P5 mechanics)
+The custom-game save is the `mp_custom_game.ddl` root blob. Fields: `gametype` (string32), `gametypesettings`
+(the settings struct — `maxplayers`, `timelimit`, `teamcount`, …), `bool[mpmaps]` (43 per-map enable flags),
+`gamename`/`gamedescription`/`createtime`/`inuse`/`downloaded`/`loadoutinitialized`. **No single
+"selected-map" field.**
+
+### How P5 works (pregame write vs in-match write — the crux)
+- An **in-match** write (on_start_gametype) is DISCARDED on return to lobby (measured, Q0.1). Cannot reach a save.
+- A **pregame (frontend-VM) write** — `setgametypesetting` in the lobby before launch — lands in the
+  **pending-lobby config store**, which is *exactly* what `gametypesettings` serialises. So **Save Custom
+  Game captures it.** Proven: `test_frontend_maxp` wrote `maxplayers=8` in the lobby; saved; relaunched
+  fully vanilla (no injection, stock DLL, different pid); loaded → **4v4 from the save.** `maxplayers` has
+  no menu row, so an 8 is unforgeable.
+- Save button is gated on a **UI dirty flag** — you must hand-edit some other row to un-grey Save; the GSC
+  write reaches the value store but not that flag.
+
+### Properties (measured)
+- **Cloud / account-bound.** Nothing custom-game-shaped in `Documents\...\player\<id>` after a save → no
+  local file to offline-edit. Durable (survived 2 game restarts). **Per-account:** a joiner inherits the
+  host's live 4v4 (P2P) but their OWN save does NOT capture it — only the host's pregame write did.
+- **Workflow:** one pregame-injection setup per *hosting* account bakes a modded save; injection becomes a
+  one-time config step, not per-session. Joiners need nothing.
+
+### ▶ Does the save help the MAP problem? NO — the write path is missing.
+The blob DOES hold `bool[mpmaps]`, so in principle a saved enable-array could carry map state like it
+carries settings. But:
+- **No GSC setter for it.** No `setmapenabled`/`selectmap`/`enablemap`/`setgametype` exists, and
+  `setgametypesetting` writes INTO `gametypesettings` (offset 0x760) while `bool[mpmaps]` is at ROOT offset
+  0x66293, *outside* that struct — structurally unreachable. So there is **no pregame GSC write to capture**
+  (unlike maxplayers). The enable array is set only by the client-LUI picker.
+- Even with a setter, `bool[mpmaps]` is the enabled/rotation list among ALREADY-COMPATIBLE maps; the compat
+  gate (client-LUI) decides what is offered, upstream of it. Enabling ≠ making Miami selectable.
+- The save is cloud → no offline craft either.
+🪦 **So persistence carries SETTINGS (the 4v4 win) but cannot carry a MAP.** Confirmed closed — consistent
+with the whole map problem living in client-LUI, which this route also cannot write.
+
+### Persistence as a mod-expansion lever (settings only)
+Any `gametypesettings` value a **frontend-VM** payload writes can be baked into a vanilla-loadable save:
+team size, timer, and (per §11) the loadout-bundle index / other Gunfight settings. So a "modded Gunfight
+preset" (4v4, 60s, snipers, …) is bakeable **once** per hosting account with zero per-session injection —
+the strongest low-exposure delivery the project has. Bounded to `gametypesettings` fields only.
