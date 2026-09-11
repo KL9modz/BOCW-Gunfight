@@ -1256,3 +1256,32 @@ single-address `read`/`dump <addr> <n>` mode is the one gfscan enhancement worth
 
 ⚠ Heap addr is per-session (dies on restart). A repeatable fix needs a pointer-chain/AOB from a module
 global. Proof-of-concept first.
+
+## ⚠ Candidate FAILED live re-verification — gfscan snapshot-diff snags transient/hover copies
+
+`0x2df9901242c` did not survive a live re-test (read via the write-path):
+- select **Game Show → 0** (matches scan gs=0) ✅ but select **KGB → 1** (scan said kgb=16) ❌;
+  earlier "commit" reads gave scrambled values (5, 1, 0). Not a clean function of the SELECTED map.
+
+**Root problem with the method:** gfscan's snapshot/`changed` diff captures every int that *momentarily*
+correlates with the map at capture time — the hover/cursor index, map-transition/animation targets,
+preview-panel state — not only the persistent `presence.mapid`. These pass the offline filters
+(gs==0, returned-KGB, ams==nuke+1) yet fail live re-verification. **Hover-vs-select contamination** is a
+major confound: unless every capture is a deliberate *committed selection*, the scan tracks the wrong thing.
+
+**gfscan lacks the tool that cracks this cleanly:** a WATCHPOINT — "find what writes this address." Select a
+map and the watchpoint pinpoints the exact instruction+address writing the selected-map field, with zero
+transient confusion. Cheat Engine has this, plus pointer-scan to get a **restart-stable** path (heap addrs
+die every relaunch — see the two restarts this session). It was deprioritised earlier for anti-cheat
+exposure; on the throwaway box that trade is acceptable.
+
+**Deeper unresolved doubt (the real crux):** the joiner's map descriptor is fed from the LUI/Lua master,
+which this session proved is the authoritative source and is NOT writable via C ints (all are downstream
+reflections). Even a correctly-located `presence.mapid` write may be **rebuilt from the master at
+broadcast/join time**, so it might never reach the joiner. A watchpoint on the descriptor's READ (at the
+moment a joiner connects) would settle whether a host-side write can reach the wire at all — the single
+most important unknown, and the thing to resolve before sinking more time into isolation.
+
+▶ Decision point: (A) Cheat Engine — watchpoints + pointer-scan (proper tool); (B) keep gfscan with
+strictly-committed selections + live-verify every candidate; (C) step back and reassess whether a
+host-side memory write can reach joiners at all.
