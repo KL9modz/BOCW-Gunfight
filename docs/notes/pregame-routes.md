@@ -1142,3 +1142,52 @@ The crash has two candidate causes, unresolved:
 ⚠ Honest status: strongest signal yet that memory-writing the map is viable, but not yet a controlled
 result. Replicating the glitch this way may require writing the CONSISTENT whole session state
 (map hash + the actively-synced pair + gametype/rules), not just scattered map-hash copies.
+
+## 🧭 METHOD CORRECTION — we validated every write against the WRONG surface, 2026-09-10
+
+The hash-write launch **crashed** (recorded above). Stepping back over the whole memory investigation
+surfaced a methodological gap that matters more than the crash:
+
+**Every write test — enum-index and hash — was judged by (a) the HOST's lobby display and (b) the HOST's
+launch.** Neither reads `presence.mapid`:
+- Host display  ← Lua master (proven).
+- Host launch   ← Lua master / `sv_mapname` (proven; carry sets sv_mapname).
+- `presence.mapid` ← read by the **JOINER**, nothing host-side.
+
+So "no change on my screen" and "host launched the displayed map, ignoring writes" are the EXPECTED
+result of a correct `presence.mapid` write too — they cannot distinguish "downstream reflection" from
+"the joiner's descriptor, which the host never displays." **THE PLAN's step 4 (write presence.mapid →
+JOINER test) was never run.** The "everything is downstream, only Lua RE remains" close is proven for
+*host-side map selection* (glitch replication) — it is NOT proven for the *joiner* goal.
+
+### Why this is the higher-leverage experiment, and why it sidesteps the crash
+The user's acceptance criterion is the JOINER, not the host picker: the host already loads the target
+incompatible map via the Atian carry (`sv_mapname`). The only thing broken is the joiner reads a stale
+`presence.mapid` and crashes on the mismatch. So:
+- We do **not** need to change what the host picks (the Lua-hard problem). We need the joiner's
+  descriptor to match the host's already-carried level.
+- `presence.mapid` is a plain **C int in a DDL struct** — clean to write, **no Lua GC / tagged-value
+  corruption risk** (the thing most likely behind the hash-write crash).
+- **The carry scenario has no host relaunch:** the host is already IN the carried game when the joiner
+  arrives. The crash came from writing then hitting Start Match on the host. Write-while-resident +
+  joiner-join has no launch step to crash.
+
+### ▶ THE UNRUN EXPERIMENT (fresh session — crash lost the addresses anyway)
+1. Host: Gunfight custom lobby on a COMPATIBLE map (e.g. Zoo). Consistent: master = presence = Zoo.
+2. Attach gfscan. **Find the map-id reflections** by picker-change scan (known fast procedure):
+   note Zoo's int, change picker to KGB → `changed`, back to Zoo → `changed`, 2–3 cycles → the handful
+   of addresses tracking the picked map. (This is the [8..42] set we already know how to isolate.)
+3. Set the picker back to the compatible map. **Atian carry → target incompatible map (Miami).** Now
+   host is IN Miami; `sv_mapname` = Miami; presence.mapid still = Zoo (stale) — the exact crash setup.
+4. **Write the target index into the map-id reflections** (exclude heap/Lua-suspect `0x19f…`/`0x1fb…`;
+   write module-space + clearly-non-Lua candidates, one at a time if needed). Keep playlist = Gunfight.
+5. **JOINER TEST** (the actual measurement, never done): friends-list invite → does the joiner now
+   load Miami (matching the host) and PLAY, instead of loading Zoo and crashing?
+
+### Honest caveat (what would refute it)
+`presence.mapid` is fed FROM the Lua master, so the engine MIGHT re-sync it before the joiner reads it
+(the module statics DID re-sync during active picker writes). In the carry scenario the picker/master is
+QUIESCENT (carry never touched it), so re-sync pressure is lower — but only the joiner test resolves it.
+- Joiner loads Miami & plays → **functional map goal MET for joiners**, no Lua RE needed. Biggest result.
+- Joiner still loads Zoo / crashes → presence re-syncs from the master; THEN the honest floor is Lua-VM
+  RE or hooking the Lua→presence feed. Not before this test says so.
