@@ -1568,3 +1568,33 @@ no-respawn-within-round, fixed rotating loadouts, round win/loss. That is real G
 and the result is "Gunfight-like", not literally the shipped gametype. But it is the only remaining path
 that needs **no glitch, no memory writes, and no LUI access**, and it delivers the actual goal: friends
 joining and playing the target map.
+
+## 📌 REQUIREMENT PINNED (klaze, 2026-09-11) — and what it leaves
+
+> **"Gunfight on any map at the lobby/match/state level, without glitch steps."** The TDM-reskin route
+> is **NOT an option**: the real Gunfight gametype, real session descriptor, no glitch input sequence.
+
+### Routes CLOSED by measurement (do not re-open without new evidence)
+| Route | Why closed |
+|---|---|
+| GSC builtins / settings / UI models from any injectable VM | no map/playlist/session writer; compat model is client-LUI, unreachable (P1–P11) |
+| Atian carry (`map` override) | host-local, desyncs & crashes connected clients, stale descriptor |
+| Console / command list | `dcfuncscw` stale base; list unobtainable |
+| Saved custom game | no map field locally; slots are server-side |
+| Memory value-scan of C state | map table mode-independent; no adjacent flag; toggle scan noise; all C ints are downstream reflections of the Lua master |
+| TDM + GSC reskin | ruled out by requirement |
+| Glitch (manual or automated) | ruled out by requirement |
+
+### The only layer that satisfies the requirement: the Lua master itself
+Every measurement points the same way: the lobby's mode/compat/selection is authoritative in the
+**client frontend Lua VM** (LUI). Writing it there is the one path that yields the real gametype, a
+consistent descriptor, and vanilla-joinable sessions. Two concrete ways in:
+1. **Cheat Engine watchpoint** on the compat check ("Find what accesses this address" from a known-good
+   anchor, or break on the triangle-rendering path) → walks back to the Lua table that holds the allowed
+   set → write there. Locates the master instead of its reflections.
+2. **Hook the compat-check function** (the native `IsMapAllowedForMode`-equivalent): return "allowed" for
+   everything. A one-function detour; needs the exe's code-side address, which CE's watchpoint also gives.
+
+Both are memory-modding of the client. Exposure is higher than injection (klaze's throwaway-box call,
+previously accepted). This is the Lua-VM path klaze chose earlier, now with the target precisely known:
+**the map↔mode compat check / allowed-set, in the client frontend LUI state.**
