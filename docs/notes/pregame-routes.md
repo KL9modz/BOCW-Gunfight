@@ -1470,3 +1470,45 @@ Steps 5-6 require P1 to actually **search AND CONNECT to a real public online ma
 that window and P1 leaves normally — but it IS deliberately entering a public lobby, which the rule
 states as a blanket line, not a harm-based one. Recorded here as an open decision point, not resolved
 unilaterally; see conversation for klaze's call before this is attempted.
+
+## 🧪 MODE-SWITCH DIFF — watching the game reconfigure the compat set legitimately (2026-09-11)
+
+klaze's idea, and a better instrument than the glitch: **switching the MODE in Custom Games makes the
+game legitimately do what the glitch does** — reconfigure the map-compatibility set (Gunfight = a few
+maps allowed, TDM = all 36). Repeatable on demand, no timing luck, and with an **instant visual tell**
+(the red warning triangles) so the first signal needs no joiner and no second account.
+
+### Method — 4-snapshot A/B/A/B toggle
+Rationale: a single `changed` after one switch keeps everything that merely churns (timers, animation,
+preview state). Requiring a value to be **identical on both Gunfight visits, identical on both TDM
+visits, and different between them** is far more restrictive and kills the churn.
+
+```
+GF  : find                -> p_gf1.dat
+TDM : changed             -> p_tdm1.dat
+GF  : changed             -> p_gf2.dat
+TDM : changed             -> p_tdm2.dat
+offline: keep gf1==gf2 && tdm1==tdm2 && gf1!=tdm1
+```
+
+### Range choice (the expensive lesson)
+`find` over `[2 .. 2^31]` = **764M candidates / 12.2GB**, and the copy doubled it to 24GB — passes
+time out streaming that much. Narrowed to **`[256 .. 16843009]`** = 165M / 2.6GB, which covers both
+plausible encodings while cutting the tiny-counter flood and the float/pointer garbage above it:
+- **per-map bool array** (43 bools as bytes) read as int32 → distinctive values 257 / 65793 / 16843009
+- **bitmask** of allowed maps → small-to-mid ints
+⚠ Known blind spot: a raw *count* of pool maps (10 vs 36) is < 256 and would be MISSED by this range.
+Acceptable — the flags matter more than the count, and the count is downstream of them.
+
+Prune: 165M -> 10.5M (TDM) -> 7.47M (GF) -> 6.53M (TDM). The per-switch `changed` steps only get the
+set to ~6.5M because plenty of state churns every switch; the **offline toggle join is the real filter.**
+
+### Analysis beyond the toggle
+`toggle.pl` also groups survivors by `(gf_value => tdm_value)` pair and detects **contiguous address
+runs (>=4 adjacent)** — because a per-map compat array is an ARRAY, so the real thing should appear as a
+run of neighbouring addresses flipping together, which random noise will not.
+
+▶ Next after a hit: write the TDM (permissive) values into those addresses **while Gunfight is
+selected** and watch the warning triangles. That is the glitch's effect, by memory write, with immediate
+feedback. ⚠ Prior lesson still applies (P11 / root-cause): the picker is LUI-driven, so a hit may again
+be a downstream reflection — the triangle test settles it in seconds either way.
