@@ -1,46 +1,43 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST C6 — does switchmap_load reconfigure the session, or only the map?
+// TEST — in-match switchmap_load + JOINER FOLLOW (the priority avenue)
 //
-// docs/notes/test-queue.md C6 · docs/notes/atian-menu-source.md
-// Hook: scripts\mp_common\bb.gsc, mode=mp
+// Hook: scripts\mp_common\bb.gsc  → MP MATCH server VM (the DEFAULT inject pair,
+//       replace scripts\core_common\clientids_shared.gsc). NOT a frontend payload.
 //
-// ⚠⚠ START IN A PRIVATE **TDM** LOBBY, NOT GUNFIGHT. The whole test is whether a
-//    12-slot lobby KEEPS its 12 slots after the gametype is switched to Gunfight
-//    in place. Starting in Gunfight makes the reading meaningless.
+// ── THE QUESTION ─────────────────────────────────────────────────────────────
+// The carry (`map()` + switchmap_switch) desyncs and CRASHES connected clients.
+// switchmap_load(map, gametype) + switchmap_switch() is the COORDINATED two-phase
+// load stock uses IN-MATCH (cp_common/load.gsc:412, zm_utility_zsurvival:153) where
+// clients FOLLOW. B2 only proved it crashes from the FRONTEND VM (mis-aimed). This
+// runs it from the in-match server VM — where stock calls it — and asks:
+//   B) does an in-match switchmap even change the map without crashing the host?
+//   C) does a CONNECTED FRIEND FOLLOW onto the new map instead of crashing?
+// If C is yes → real Gunfight, any map, joiner-safe, host-inject only. Requirement met.
 //
-// WHY. com_maxclients is fixed at lobby creation by the playlist and script only
-// ever reads it. The map carry (map()) is a load-time override that leaves the
-// session alone - which is why the scoreboard still names the old map, and why it
-// can never move the slot count.
+// ── STAGED SAFETY (flip read_only, recompile+reinject — gunfight_mod's pattern) ──
+//   Phase A: read_only=1            → diagnostics only, NEVER switches. Zero risk.
+//   Phase B: read_only=0, min=1     → HOST ALONE. Does in-match switchmap work at all?
+//   Phase C: read_only=0, min=2     → friend joined + launched. Does the friend follow?
+//   Phase D (LATER, in gunfight_mod): target an INCOMPATIBLE map with the mod's guards.
 //
-// switchmap_load is a DIFFERENT builtin that takes a gametype and runs a
-// preload -> load -> switch sequence. Whether that reaches the playlist layer is
-// unknown, and it is the layer com_maxclients is fixed at.
+// ── GUARDS (load-bearing, from test_mapswitch's scars) ───────────────────────
+//   • ONCE-ONLY via dvar #"gf_sw_done" — set BEFORE the call, SURVIVES the reload,
+//     so the switch fires exactly once ever (else on_start on the new map re-fires
+//     → infinite reload loop).
+//   • target_map must be a VERIFIED-LOADABLE name. mapexists() LIES (B5). A bad name
+//     tears the session down with no error. "mp_kgb" is a native Gunfight map — safe.
+//   • startup_delay lets the match fully settle before switching (mid-load = crash).
+//   • visible countdown so klaze/friend can back out if anything looks wrong.
 //
-// func_set_gametype() in the Atian Menu's Cold War source does exactly this and is
-// dead code - written, present, never wired into the menu. This is that function,
-// extracted, with instrumentation.
-//
-// ⚠ The gametype argument is OPTIONAL per the function table (switchmap_load is
-//   1-2 args). That the 2-arg form EXISTS does not prove the CW build honours the
-//   second argument. If probe 2 never reads 1, that is the finding: record it.
-//
-// ⚠ ate47 on the sequence: "the wait is important, I don't know why."
-//   Empirical, not understood. Do not remove the wait.
-//
-// ── HOW TO READ THE OUTPUT ────────────────────────────────────────────────────
-// This script emits on EVERY on_start_gametype - so you get one reading before
-// the switch and another after. That is the measurement.
-//
-//   1xxxxx  com_maxclients
-//   2xxxxx  is the live gametype our target?  1/0
-//
-// Expected sequence:
-//   BEFORE   100012 / 200000     TDM lobby, 12 slots, not yet Gunfight
-//   AFTER    100012 / 200001     <- THE WIN. Gunfight running in a 12-slot lobby
-//        or  100008 / 200001     <- switchmap re-derived the lobby from the
-//                                   gametype, same as the map carry. No win.
-//        or  1xxxxx / 200000     <- the gametype argument was ignored entirely
+// ── OUTPUT (id*100000+value, iprintlnbold) ───────────────────────────────────
+//   70xxxxx  reporter: level.gametype defined (1/0)
+//   71xxxxx  reporter: player count
+//   72xxxxx  reporter: read_only flag
+//   73xxxxx  reporter: gf_sw_done guard.  ★ 7300001 SEEN ON A MAP YOU DID NOT LAUNCH
+//            = the switch fired and the new map's match VM is alive = SUCCESS
+//   90xxxxx  countdown seconds before firing
+//   91xxxxx  FIRING switchmap_load NOW (value = player count at fire)
+//   92xxxxx  returned from switchmap_switch still alive (unexpected)
 // ─────────────────────────────────────────────────────────────────────────────
 
 #using scripts\core_common\callbacks_shared;
@@ -54,83 +51,100 @@ function private autoexec __init__system__()
     system::register( #"test_switchmap", &__init__, undefined, undefined, undefined );
 }
 
+function private config()
+{
+    return {
+        #read_only:     1,          // 1 = diagnostics only, NEVER switch. Flip to 0 to arm.
+        #target_map:    "mp_kgb",   // VERIFIED-LOADABLE ONLY. Host on a DIFFERENT compatible map.
+        #min_players:   1,          // 1 = solo (Phase B). 2 = require the friend (Phase C).
+        #startup_delay: 4,          // seconds into a round before arming. Kept short: a round can end fast
+                                    // by elimination, killing this thread; it self-retries next round
+                                    // until ONE round lasts long enough. Let a round breathe to fire.
+        #countdown:     3           // visible seconds before the switch fires
+    };
+}
+
 function private __init__()
 {
+    level.gfsw = config();
+    level thread reporter();
     callback::on_start_gametype( &on_start );
 }
 
 function private on_start()
 {
-    level thread run();
+    level thread maybe_switch();
 }
 
-function private run()
+function private maybe_switch()
 {
-    // ── config. Plain locals, not preprocessor macros - see test_addclients.gsc.
+    cfg = level.gfsw;
 
-    // ✅ CONFIRMED against ate47/bocw-source (PRIMARY dump) 2026-09-08:
-    //      player_record.gsc:589            case #"gunfight_3v3":
-    //      hashed/script/script_74453936abc39adf.gsc:68   case #"gunfight_3v3":
-    //
-    // ⚠ A retraction of this was briefly written and is itself WRONG. The alternate
-    //   dump (shiversoftdev/t9-src) leaves that name as an unresolved hash, so a grep
-    //   for the literal found nothing - absence in the alternate dump is not absence
-    //   in the game. See docs/notes/dump-cross-check.md.
-    //
-    //   If lobby_probe's bitmask turns up another variant, try that here.
-    target = "gunfight_3v3";
-
-    // ⚠ RUN WITH THIS AT 1 FIRST. It reports the lobby state and switches nothing,
-    //   which confirms you are in the right lobby before spending a session reload.
-    read_only = 1;
-
-    wait( 10 );
-
-    live = getdvarstring( #"g_gametype", "" );
-
-    is_target = 0;
-    if ( live == target )
+    if ( cfg.read_only )
     {
-        is_target = 1;
+        return;                                  // Phase A: never switch
     }
 
-    emit( 1, getdvarint( #"com_maxclients", 0 ) );
-    emit( 2, is_target );
-
-    if ( read_only )
+    if ( getdvarint( #"gf_sw_done", 0 ) != 0 )
     {
-        return;
+        return;                                  // already fired (we are on the NEW map now)
     }
 
-    // Already there - switching again would prove nothing and costs a reload.
-    if ( is_target )
+    wait cfg.startup_delay;                       // let the match fully load and settle
+
+    if ( getplayers().size < cfg.min_players )
     {
-        return;
+        return;                                   // not enough players — relaunch with the friend in
     }
 
-    // ── The switch. This is func_set_gametype() from the Atian Menu CW source. ──
-    switchmap_load( util::get_map_name(), target );
-    wait( 1 );                  // load-bearing per ate47; reason unknown
+    for ( i = cfg.countdown; i > 0; i-- )
+    {
+        emit( 90, i );
+        wait 1;
+    }
+
+    if ( getplayers().size < cfg.min_players )
+    {
+        return;                                   // someone left during the countdown — abort
+    }
+
+    setdvar( #"gf_sw_done", 1 );                  // GUARD FIRST — survives the reload, no re-fire
+    emit( 91, getplayers().size );
+
+    m = getrootmapname( cfg.target_map );
+    switchmap_load( m, level.gametype );          // level.gametype carries the LIVE Gunfight code
+    util::wait_network_frame( 1 );
     switchmap_switch();
 
-    // Nothing after this line is guaranteed to run - the session is reloading.
-    // The post-switch reading comes from this script's NEXT on_start, not here.
+    emit( 92, 1 );                                // only if the VM somehow survives the switch
+}
+
+function private reporter()
+{
+    wait 5;
+
+    while ( true )
+    {
+        cfg = level.gfsw;
+        emit( 70, isdefined( level.gametype ) ? 1 : 0 );
+        emit( 71, getplayers().size );
+        emit( 72, cfg.read_only );
+        emit( 73, getdvarint( #"gf_sw_done", 0 ) );
+        wait 4;
+    }
 }
 
 function private emit( id, value )
 {
     v = 99999;
+
     if ( isdefined( value ) )
     {
         v = value;
     }
 
-    tagged = id * 100000 + v;
-
     foreach ( player in getplayers() )
     {
-        player iprintlnbold( tagged );
+        player iprintlnbold( id * 100000 + v );
     }
-
-    wait( 5 );
 }
