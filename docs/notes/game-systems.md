@@ -164,3 +164,24 @@ VM can't be injected at all (frontend-link-set). So the picker gate is **definit
 - **Client frontend:** unreachable — no menu/picker modding by injection, ever.
 ▶ Rule of thumb: a mod feature reaches JOINERS iff it is (server GSC gameplay) OR (a value pushed on a
   clientfield/uimodel the STOCK client already handles). Everything else is host-only or impossible.
+
+## 11. Custom loadouts — concrete override (supersedes roadmap #2 sketch)
+Gunfight assigns the round weapon via `givecustomloadout()` → `setloadout( game.var_96a8ff4a[ game.var_b6beb735 ] )`:
+- `game.var_96a8ff4a` = `array::randomize( bundle.defaultloadouts )` — the shuffled loadout list (game-scope,
+  built once at gametype_init).
+- `game.var_b6beb735` = current index into the rotation (advances every `gunfightroundsperloadout` rounds).
+- Bundle chosen by `getscriptbundle("gunfightloadoutlist").var_d6f55369[bundle_index].loadout`, bundle_index
+  from gametype setting `#"hash_3b05ecbff72f1065"` (default → `mp_gunfight_loadout_default`).
+
+**The game already ships themed sets:** `mp_gunfight_loadout_default`, `_melee`, `_snipers`,
+`_blueprints`. So three easy tiers of custom-loadout mod feature:
+1. **Themed (trivial):** `setgametypesetting(#"hash_3b05ecbff72f1065", N)` to select melee/snipers/etc. from
+   the shipped list — one line, no loadout data to author. "Gunfight: Snipers" for free.
+2. **Custom array (medium):** at gametype_init, set `game.var_96a8ff4a` = your own array of loadout structs
+   (same shape as `defaultloadouts`: talents, primary/secondary + attachments — via `getscriptbundle` on a
+   set you point to, or built in script). Overrides the rotation entirely.
+3. **Per-round control (medium):** override `level.givecustomloadout` to pick loadouts by any rule (round #,
+   team, random each life). ⚠ `onstartgametype` CLEARS `level.givecustomloadout` when `disablecustomcac != 1`
+   (custom classes on) — so a loadout-mod must set `disablecustomcac = 1` OR re-install the hook AFTER
+   onstartgametype runs. `mod_apply` (on_start) runs at the right time to do the latter.
+⚠ All joiner-safe: loadouts are server-assigned (`setloadout`), so joiners get them with nothing installed.
