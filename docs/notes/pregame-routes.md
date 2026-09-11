@@ -1598,3 +1598,28 @@ consistent descriptor, and vanilla-joinable sessions. Two concrete ways in:
 Both are memory-modding of the client. Exposure is higher than injection (klaze's throwaway-box call,
 previously accepted). This is the Lua-VM path klaze chose earlier, now with the target precisely known:
 **the map↔mode compat check / allowed-set, in the client frontend LUI state.**
+
+## 🔧 TOOLING — Cheat Engine built from source (2026-09-11)
+
+Decision: build CE from `github.com/cheat-engine/cheat-engine` rather than use the website installer.
+- cheatengine.org's Download button serves a **random-named `.exe` on CloudFront** (`d3gpt2g9zwv61d`,
+  filename rotates per request). That is genuine — but it is wrapped in an **OfferCore download-manager**
+  (adware bundler): Defender removed two attempts as `PUADlManager:Win32/OfferCore` before they ran.
+- GitHub releases carry **no binaries** (source archives only; latest tag 7.5, 2023). So: build.
+
+Toolchain (README-pinned, verified against `cheatengine.lpi`):
+- **Lazarus 2.2.2 + FPC 3.2.2 win64** → `C:\lazarus` (silent: `/VERYSILENT /NORESTART /DIR=C:\lazarus`).
+- Installer from SourceForge: `lazarus-2.2.2-fpc-3.2.2-win64.exe`, **201,950,698 bytes**,
+  SHA-256 `3aecce3f12f9c1824dcb149142abfbaee4e162a2624e62cb0ecd9b7c2142b7e3`.
+  ⚠ SourceForge's `/download` redirector 403s curl, and `downloads.sourceforge.net` returns an HTML
+  mirror-picker page with HTTP **200** (so `--fail` does not trip). **Always verify `MZ` header + size**;
+  the working URL is the `?ts=…&use_mirror=…` link extracted from that HTML page.
+- All required packages ship with Lazarus (LCL, SynEdit, LazControls, SQLDBLaz, IDEIntf, CodeTools,
+  laz.virtualtreeview_package); no CE `.lpk` to register. `appveyor.yml` is stale (Lazarus 1.6.4) — ignore.
+- Only the main project is needed for scanning/watchpoints/pointer-scan: the Windows-debugger backend is in
+  the Pascal exe. None of the .sln components (DirectX hooks, .NET/Java collectors, kernel driver, speedhack,
+  vehdebug) are required. `bin/` already ships the prebuilt helper DLLs (lua53, libipt, clibs, D3D hooks).
+- Build: `lazbuild --lazarusdir=C:\lazarus --compiler=C:\lazarus\fpc\3.2.2\bin\x86_64-win64\fpc.exe
+  --build-mode="Release 64-Bit" cheatengine.lpi` → `Cheat Engine\bin\cheatengine-x86_64.exe`.
+- **Defender** flags CE as `HackTool:Win32/CheatEngine` (quarantined `bin\standalonephase1.dat` on clone).
+  Narrow exclusion added: `C:\bocw\cheat-engine` only. Restore quarantined tracked files with `git checkout -- .`.
