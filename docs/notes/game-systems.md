@@ -382,3 +382,41 @@ the spawn analog of the mod's zones_guard — worth adding for true "Gunfight on
 Teams come from `level.teams` (masked in `init_teams`); size is bounded by `maxplayers`/`com_maxclients`
 (§1, §13). Team-change/assignment is `gamemodeismode(1|7)`-aware for custom matches (globallogic). For 4v4+
 the ceiling is the session's `com_maxclients` — not a spawn limit.
+
+### 16b. 🐛 The combined-arms / large-variant spawn bug (klaze report, 2026-09-11)
+**Symptom:** on SOME carried maps, players spawn out of bounds or in odd spots, "as if using the combined
+arms playlist version of the map."
+
+**Root cause (strong hypothesis, evidence-backed):** map scripts branch on `util::get_game_type()` and
+toggle map features — spawn sets, bounds/clip volumes, cover props — per mode. Proof of the pattern:
+`mp_cartel.gsc:213` keys off `array("dom10v10","koth10v10","war12v12","tdm10v10")` (the large/Combined-Arms
+= `war12v12` configs) and toggles map state when the gametype is/ isn't one of them. **Gunfight is in NONE
+of these lists**, so on maps whose script only provisions a small-format spawn/bounds config for specific
+recognized modes, Gunfight falls into a branch that leaves the LARGE-format state active (or fails to
+enable the small-format clips). Gunfight then uses `mp_tdm_spawn_<team>_start` (§16) — which on that
+config are positioned for the 12v12 layout → spread out / staging areas / outside the small-format bounds.
+It is map-specific ("some maps") because each map's script has its own mode branching.
+
+⚠ Distinct from the overtime-zones crash: that is a CRASH guarded by zones_guard; this is a spawn-POSITION
+bug and is currently UNGUARDED. The mod does not touch spawns yet.
+
+**The fix — a spawn override, the spawn analog of zones_guard (server-side → joiner-safe):**
+Set `level.var_cda5136b` (§16) to a callback that places `self` at a guaranteed-good origin and returns
+true, bypassing the map's spawn selection entirely. This works **regardless of the exact per-map branch** —
+it takes placement out of the map's hands. Implementation options, cheapest first:
+1. **Central-cluster placement (no per-map data):** gather all `mp_tdm_spawn_*_start` (and/or all spawn
+   ents), compute a robust centre (median position, or the tightest cluster), and place the two teams a
+   short fixed distance apart there, facing each other. Fixes OOB by construction and suits Gunfight's
+   close format. Validate the origin is on the playable mesh before using it.
+2. **Per-map known-good origins** for the specific problem maps — reliable, tedious; only needed if (1)'s
+   auto-centre lands somewhere bad on a given map.
+3. **Filter the existing set:** keep only `mp_tdm_spawn` points within the actual play bounds / near the
+   cluster centroid, discard the far large-format outliers, then let stock selection run on the survivors.
+
+▶ Recommended: add a `#spawn_guard` flag to gunfight_mod doing option 1, guarded like zones_guard/
+timelimit_fix, re-applied in `mod_apply`. That is the concrete "Gunfight on EVERY map" hardening, and it
+directly answers klaze's any-map control goal.
+
+**To pin the exact cause per map (optional):** read the problem map's `.gsc` mode-branch (like
+`mp_cartel.gsc`), find what its gametype list gates, and confirm whether Gunfight's `get_game_type()` value
+is absent — but the fix above does not require this.
