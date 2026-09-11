@@ -1512,3 +1512,59 @@ run of neighbouring addresses flipping together, which random noise will not.
 selected** and watch the warning triangles. That is the glitch's effect, by memory write, with immediate
 feedback. ⚠ Prior lesson still applies (P11 / root-cause): the picker is LUI-driven, so a hit may again
 be a downstream reflection — the triangle test settles it in seconds either way.
+
+### RESULTS — the compat set is not in any C structure we can reach
+
+Three independent, well-formed tests, all negative:
+
+**1. Is the allowed-map set a list of map name-hashes?** 🪦 NO.
+Scanned for `mp_miami`'s hash (1192113032) under **TDM** (Miami allowed) → **82 addresses**. Switched to
+**Gunfight** (Miami incompatible) → `changed` → **0 remain**. Every one of the 82 kept Miami's hash. The
+map name table is completely **mode-independent** — which matches the UI showing all 36 maps in both
+modes, just with warning triangles. Maps do not enter/leave a list; a flag elsewhere toggles.
+
+**2. Is a compat flag stored ADJACENT to each map's hash record?** 🪦 NO.
+Added a `dump <addr> <bytes>` mode to gfscan (the enhancement flagged earlier as worth having), dumped
+**-128..+256 bytes around all 82 anchors** in both modes, diffed byte-by-byte:
+- **80 of 82 anchors byte-IDENTICAL** across the whole 384-byte window.
+- The 2 that differ do so at **scattered offsets** (+25, -7, +65, -79, -111, +97, -39, +153), one anchor
+  each. A real per-map flag would appear at the **same offset across many anchors**. This is neighbouring
+  unrelated data, not a compat flag.
+
+**3. Does the compat state appear in the A/B/A/B mode toggle?** 🪦 Not findably.
+559,710 toggle hits. H1 (per-map byte array, values pure 0x00/0x01): 89 candidates, **0 contiguous runs**
+— but ⚠ this is a WEAK negative: a Gunfight compat array is mostly **zeros**, and the scan range started
+at 256, so `0`/`1` were excluded by construction. H2 (bitmask): 9,183 candidates but all noise — values
+march by fixed strides (1024, 131072 = offsets/handles walking memory) and the `=> -1` pairs are
+"invalidated on mode change", which trivially passes a popcount filter. Zero toggle hits fell within
+±256 bytes of any map-hash anchor.
+
+**4. Can we edit the custom-game SAVE to craft gametype+map?** 🪦 NO — saves are not local files.
+`Documents\Call Of Duty Black Ops Cold War\player\991879081\` holds only campaign/zombies/loadout/settings
+`.cgp` files. The 20 custom-game slots are **server-side/cloud**, so there is no local blob to edit.
+
+▶ **Conclusion: consistent with the ROOT CAUSE finding.** The compat/mode state is Lua-VM-internal. It is
+not a hash list, not adjacent to map records, not a scannable C flag array, and not in a local save. Every
+C-side structure reachable by value-scanning has now been tested and excluded by measurement.
+
+## 💡 UNTRIED PATH — stop fighting the compat gate; host a combination the game ALREADY allows
+
+The gate exists to stop **Gunfight + Miami**. But `TDM + Miami` is a **legal, stock combination**: the
+session descriptor is consistent, so **joiners connect and load correctly** — which is precisely what the
+carry cannot do (it desyncs connected clients and crashes them). So invert the problem:
+
+> Host **TDM on the target map** (legal, joinable, zero glitch/memory/LUI), and use **server-side GSC** to
+> make it PLAY like Gunfight.
+
+Why this is credible on this project's own established facts:
+- `gunfight_mod` is **server-side GSC only** (`level.ontimelimit`, `level.zones`, `level.gettimelimit`) and
+  the host **is** the P2P server → **joiners inherit gameplay with nothing installed** (already established).
+- The project already overrides gametype behaviour at runtime, and **4v4 team size already works**.
+- Nothing about the descriptor is faked, so no joiner crash, no cosmetic staleness, no anti-cheat surface
+  beyond the injection already in use.
+
+⚠ Honest cost: it means reimplementing Gunfight's ruleset on top of another gametype — round flow,
+no-respawn-within-round, fixed rotating loadouts, round win/loss. That is real GSC work, not a one-liner,
+and the result is "Gunfight-like", not literally the shipped gametype. But it is the only remaining path
+that needs **no glitch, no memory writes, and no LUI access**, and it delivers the actual goal: friends
+joining and playing the target map.
