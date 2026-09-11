@@ -1623,3 +1623,19 @@ Toolchain (README-pinned, verified against `cheatengine.lpi`):
   --build-mode="Release 64-Bit" cheatengine.lpi` → `Cheat Engine\bin\cheatengine-x86_64.exe`.
 - **Defender** flags CE as `HackTool:Win32/CheatEngine` (quarantined `bin\standalonephase1.dat` on clone).
   Narrow exclusion added: `C:\bocw\cheat-engine` only. Restore quarantined tracked files with `git checkout -- .`.
+
+### Build result + attach gate (2026-09-11 01:45)
+- ✅ `cheatengine-x86_64.exe` built: 16.9 MB, 419,873 lines / 52 s, **0 errors** (224 cosmetic warnings).
+  Master compiled cleanly against Lazarus 2.2.2 — no fallback to tag 7.5 needed.
+- ✅ **Attach gate cleared by klaze:** throwaway `991879081` confirmed as the active account; game parked in a
+  Custom Games lobby, Gunfight selected, mode/map screen (Miami showing its incompatibility triangle).
+- ⚠ Debugger attach is the most detectable action taken so far (above scanner + injector). Accepted on the
+  throwaway box under the Lua-VM-path decision.
+
+### CE watchpoint protocol (first run)
+1. Attach → 4-byte exact scan for `1192113032` (mp_miami hash) → take the **green** `BlackOpsColdWar.exe+off`
+   hit (module-static anchor; absolute addr moves with ASLR, the offset doesn't).
+2. Right-click → *Find out what accesses this address* → Windows debugger.
+3. Spring the compat check: hover Miami on/off under Gunfight, switch map and back.
+4. Collect: (a) the accessing-instruction list, (b) the module+offset of the anchor, (c) for the top hit,
+   *More information* (CE's "pointer needed is probably …" = struct base) and the disassembler view around it.
