@@ -1639,3 +1639,49 @@ Toolchain (README-pinned, verified against `cheatengine.lpi`):
 3. Spring the compat check: hover Miami on/off under Gunfight, switch map and back.
 4. Collect: (a) the accessing-instruction list, (b) the module+offset of the anchor, (c) for the top hit,
    *More information* (CE's "pointer needed is probably …" = struct base) and the disassembler view around it.
+
+## 🔑🔑 PRIORITY AVENUE (research 2026-09-11) — `switchmap_load` from IN-MATCH is the untested joiner-safe map change
+
+Deep-read of the source dump separated two map-change paths that had been blurred together. This is the
+single most promising un-tried route, and it fits klaze's pinned requirement (real Gunfight, any map,
+match/state level, no glitch, injectable host-side, joiners need nothing).
+
+### The two paths are NOT the same call
+| Path | Sequence | Client behaviour | Status |
+|---|---|---|---|
+| **Carry** (`func_set_map`, 48 menu maps; `test_mapswitch` A4) | `map(m)` · wait · `switchmap_switch()` | **desyncs & CRASHES connected clients** (klaze measured) | tested, dead for joiners |
+| **`switchmap_load`** (`func_set_gametype`/`func_set_mapgametype`; unused in CW menu tree) | `switchmap_load(m, gametype)` · wait_network_frame · `switchmap_switch()` | **coordinated two-phase preload→switch — the path stock uses in-match, clients FOLLOW** | **UNTESTED for joiners** |
+
+- `map()` is the abrupt engine level-swap → clients desync. `switchmap_load()`/`switchmap_preload()` is the
+  **client-coordinated** loader: campaign side-missions (`callbacks_shared.gsc:2227`,
+  `cp_common/load.gsc:412`) and zombies survival (`zm_utility_zsurvival.gsc:153`) use it **in-match** and
+  co-op/survival clients follow it without crashing. That is exactly the joiner-follow behaviour we need.
+- Builtins confirmed in the CW binary (`funcs_cw.csv`): `switchmap_preload` +3b7c6e0, `switchmap_load`
+  +3b7c710 (args 1/2 — gametype optional), `switchmap_switch` +3b7c780.
+
+### Why B2 does NOT close this
+B2 (`test_lobbymap_live`) crashed calling `switchmap_load("mp_zoo_rm","gunfight")` — **but from the
+FRONTEND VM**, which is exactly where stock never calls it. The B2 note itself: *"the route is not dead,
+it is mis-aimed… every stock caller runs in-match."* The correctly-aimed version — **in-match server VM,
+which is where gunfight_mod already runs** — has never been tried.
+
+### The experiment (buildable now, no CE / no glitch / no LUI)
+Inject an in-match payload (or extend gunfight_mod) that, once, on command, calls:
+```gsc
+switchmap_load( target_map, level.gametype );   // level.gametype carries the LIVE Gunfight code
+util::wait_network_frame( 1 );
+switchmap_switch();
+```
+with **a friend connected**, and observe: (a) does the CW build honour the coordinated in-match load,
+(b) does the connected friend **follow** onto the new map instead of crashing (the whole question).
+- If yes → real Gunfight on any map, match/state level, joiner-safe, host-injection only. Requirement met.
+- gunfight_mod's zones_guard/timelimit_fix already cover the gameplay-side overtime crash on off-Gunfight maps.
+
+### ⚠ Guards carried from test_mapswitch (load-bearing)
+- **read_only default 1** on first pass. **Once-only** (dvar-gated) + attempt cap — a bad target retries
+  every round otherwise.
+- **`mapexists()` LIES** (B5: returns TRUE for any name, even invented) → **only target maps already
+  proven loadable by a successful carry.** A bad name tears down the session with no error.
+- Start the joiner test on a **known-good compatible map first** (does switchmap even keep the friend
+  connected on a SAFE map?), only then try an incompatible target. Isolates "switchmap desyncs joiners"
+  from "the map itself is the problem".
