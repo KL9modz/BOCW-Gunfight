@@ -33,6 +33,7 @@
 #using scripts\core_common\system_shared;
 #using scripts\core_common\util_shared;
 #using scripts\core_common\music_shared;
+#using scripts\core_common\struct;
 #using scripts\mp_common\gametypes\gunfight;
 
 #namespace gunfight_mod;
@@ -70,6 +71,12 @@ function private default_config()
                               // because mod_apply() reruns on every on_start_gametype. Under a carry
                               // it is needed at ANY value, including ones the menu offers.
         #timer_minutes:  1,   // 1 minute = 60s. gettimelimit() returns MINUTES; range [0, 1440]
+
+        // SPAWN GUARD (game-systems sec 16b) - NEW, UNTESTED, default OFF. Fixes combined-arms/
+        // large-variant OOB/odd spawns. Enable, then TEST SOLO first before any joiner.
+        // Fails safe: <2 gathered points => does nothing, stock spawns stand.
+        #spawn_guard: 0,
+        #spawn_diag:  1,
 
         // ── TEAM SIZE ── ✅ VERIFIED IN-GAME 2026-09-08 (test L6, run 2) ────────
         // 4v4 filled with bots and SURVIVED the round boundary - the boundary that
@@ -123,6 +130,7 @@ function private __init__()
 {
     level.gfmod = default_config();
     callback::on_start_gametype( &mod_apply );
+    callback::on_spawned( &mod_spawn_place );
 }
 
 // Runs each time the gametype starts (per round in round-based Gunfight, via map
@@ -191,6 +199,9 @@ function private mod_apply()
     // every map.
     if ( cfg.presentation )
         mod_presentation_fixups();
+
+    if ( cfg.spawn_guard )
+        mod_spawn_build();
 }
 
 // ── The load-bearing timer fix ───────────────────────────────────────────────
@@ -264,4 +275,183 @@ function private mod_norespawns_hud()
     waitframe( 1 );
     clientfield::set_world_uimodel( "hudItems.team1.noRespawnsLeft", 1 );
     clientfield::set_world_uimodel( "hudItems.team2.noRespawnsLeft", 1 );
+}
+
+// ── #spawn_guard (game-systems sec 16b): fix combined-arms/large-variant OOB / odd spawns ──
+// The bug: some maps' scripts leave the LARGE-format (10v10/12v12 Combined-Arms) spawn/bounds
+// config active for Gunfight (Gunfight is in none of their mode lists), so the mp_tdm_spawn_
+// <team>_start points Gunfight uses are positioned for the big layout -> players spawn spread
+// out / in staging / out of bounds. This is the spawn analog of zones_guard: it takes placement
+// out of the map's hands by repositioning each player onto a CENTRAL, real spawn struct for
+// their team. Only ever uses EXISTING spawn structs, so every destination is a designer-placed,
+// mesh-valid point. Fails safe (< 2 gathered points => no-op, stock spawns stand).
+//
+// ⚠ UNTESTED. Spawn logic can't be validated statically. TEST SOLO first (watch where you spawn).
+
+function private mod_spawn_build()
+{
+    pts = mod_gather_spawns();
+
+    if ( !isdefined( pts ) || pts.size < 2 )
+    {
+        level.gfmod_spawn = undefined;
+        if ( level.gfmod.spawn_diag )
+            mod_gf_emit( 61, isdefined( pts ) ? pts.size : 0 );   // inert: too few points
+        return;
+    }
+
+    center = mod_centroid( pts );
+    central = mod_nearest_k( pts, center, 12 );   // the most central real spawn structs
+
+    // Split the central cluster into two sides by X so the teams are separated but close.
+    xmed = mod_median_x( central );
+    team1 = [];
+    team2 = [];
+    foreach ( p in central )
+    {
+        if ( p.origin[ 0 ] <= xmed )
+            team1[ team1.size ] = p;
+        else
+            team2[ team2.size ] = p;
+    }
+    if ( team1.size == 0 )
+        team1 = central;
+    if ( team2.size == 0 )
+        team2 = central;
+
+    level.gfmod_spawn = { #team1:team1, #team2:team2 };
+
+    if ( level.gfmod.spawn_diag )
+        mod_gf_emit( 60, pts.size );   // armed, N spawn points gathered
+}
+
+// Fires on every spawn (registered once in __init__). No-op unless the flag is on and anchors
+// were built this round. Repositions the player onto a central spawn for their team.
+function private mod_spawn_place()
+{
+    if ( !isdefined( level.gfmod ) || !level.gfmod.spawn_guard )
+        return;
+
+    if ( !isdefined( level.gfmod_spawn ) )
+        return;
+
+    if ( !isplayer( self ) || !isdefined( self.team ) )
+        return;
+
+    if ( self.team == #"axis" )
+        list = level.gfmod_spawn.team2;
+    else
+        list = level.gfmod_spawn.team1;
+
+    if ( !isdefined( list ) || list.size == 0 )
+        return;
+
+    pt = list[ randomint( list.size ) ];
+
+    if ( !isdefined( pt ) || !isdefined( pt.origin ) )
+        return;
+
+    self setorigin( pt.origin );
+
+    if ( isdefined( pt.angles ) )
+        self setplayerangles( pt.angles );
+}
+
+// Broad candidate set: FFA/DM spawns spread across the whole playable area (best central
+// coverage); TDM starts are the two end clusters. Gather whatever the map exposes.
+function private mod_gather_spawns()
+{
+    names = array( "mp_dm_spawn", "mp_tdm_spawn", "mp_tdm_spawn_allies_start", "mp_tdm_spawn_axis_start", "mp_tdm_spawn_team1_start", "mp_tdm_spawn_team2_start" );
+    pts = [];
+
+    foreach ( n in names )
+    {
+        arr = struct::get_array( n, "targetname" );
+
+        if ( isdefined( arr ) )
+        {
+            foreach ( s in arr )
+            {
+                if ( isdefined( s ) && isdefined( s.origin ) )
+                    pts[ pts.size ] = s;
+            }
+        }
+    }
+
+    return pts;
+}
+
+function private mod_centroid( pts )
+{
+    sum = ( 0, 0, 0 );
+
+    foreach ( p in pts )
+        sum += p.origin;
+
+    return sum / pts.size;
+}
+
+function private mod_nearest_k( pts, center, k )
+{
+    scored = [];
+
+    foreach ( p in pts )
+        scored[ scored.size ] = { #pt:p, #d:mod_dist2d_sq( p.origin, center ) };
+
+    for ( i = 0; i < scored.size; i++ )
+    {
+        for ( j = i + 1; j < scored.size; j++ )
+        {
+            if ( scored[ j ].d < scored[ i ].d )
+            {
+                tmp = scored[ i ];
+                scored[ i ] = scored[ j ];
+                scored[ j ] = tmp;
+            }
+        }
+    }
+
+    out = [];
+    n = ( scored.size < k ) ? scored.size : k;
+
+    for ( i = 0; i < n; i++ )
+        out[ out.size ] = scored[ i ].pt;
+
+    return out;
+}
+
+function private mod_median_x( pts )
+{
+    xs = [];
+
+    foreach ( p in pts )
+        xs[ xs.size ] = p.origin[ 0 ];
+
+    for ( i = 0; i < xs.size; i++ )
+    {
+        for ( j = i + 1; j < xs.size; j++ )
+        {
+            if ( xs[ j ] < xs[ i ] )
+            {
+                t = xs[ i ];
+                xs[ i ] = xs[ j ];
+                xs[ j ] = t;
+            }
+        }
+    }
+
+    return xs[ int( xs.size / 2 ) ];
+}
+
+function private mod_dist2d_sq( a, b )
+{
+    dx = a[ 0 ] - b[ 0 ];
+    dy = a[ 1 ] - b[ 1 ];
+    return dx * dx + dy * dy;
+}
+
+function private mod_gf_emit( id, value )
+{
+    foreach ( player in getplayers() )
+        player iprintlnbold( id * 100000 + value );
 }
