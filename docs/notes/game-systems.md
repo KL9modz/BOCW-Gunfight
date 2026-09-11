@@ -302,3 +302,41 @@ Gunfight is round-based on the `gametypes/gametype` base (§1). The flow per rou
 4. **Loadout-rotation cadence:** `gunfightroundsperloadout` setting controls how often weapons rotate (§11).
 ⚠ Same guard as always: override in `mod_apply` (per-round self-heal), and only drive stock clientfields/
 uimodels toward joiners (§2). Round/score state is server-authoritative, so joiners get the modded flow free.
+
+## 15. Weapon / attachment / loadout-struct internals (authoring custom loadouts)
+A Gunfight loadout is a struct. Fields (from the bundle + `function_44244433`/`function_d98e2783`):
+
+| Field | Meaning |
+|---|---|
+| `primary` / `secondary` | weapon ref (e.g. `#"<weapon>"`) |
+| `primaryattachments` / `secondaryattachments` | array of attachment refs (`#reddot`, `#suppressed2`, `#extclip2`, …) |
+| `primarygrenade` / `secondarygrenade` | equipment/grenade refs (lethal/tactical) |
+| `talents` | array of perk/talent refs (`#talent_flakjacket`, …) — applied by `givetalents` |
+| `bonuscards` / `bonuscard` | wildcards |
+| `killstreak` / `killstreaks` | scorestreaks |
+| `var_26b5c8ef` / `var_4c0d0c4b` | OPTIONAL blueprint index for primary/secondary (default 0). If `> -1` it resolves a blueprint variant via `function_f62a996b`; if absent/`-1` it builds raw from attachments |
+
+### Apply path (`function_44244433`, per player each round)
+`givetalents(loadout.talents, …)` → `function_d98e2783(loadout,"primary")` → `giveweapon`+`givestartammo`+
+`switchtoweapon` (fallback `getweapon(#"bare_hands")`) → same for secondary → grenades. So a loadout needs
+at minimum a `primary`; everything else is optional.
+
+### The build primitive (script-buildable — no bundle needed)
+- **`getweapon( weaponref, attachmentsArray )`** — the one call that turns a ref + attachment-hash array into
+  a weapon object. `function_8fdeea14(loadoutattachments)` resolves the ref array to hashes; `#"dw"` in it
+  means dual-wield (`weaponref + "_dw"`). Then `self giveweapon( weapon, undefined, … )`.
+- `getitemindexfromref` resolves a ref → item index (used for pre-spawn HUD, `function_1f551f49`).
+
+### ▶ Two ways to author custom Gunfight loadouts (both server-side → joiner-safe)
+1. **Script-built structs (no data authoring):** in a `gametype_init`/`mod_apply` hook, set
+   `game.var_96a8ff4a` to an array of loadout structs you construct in code
+   (`{ #primary: <ref>, #primaryattachments: [...], #secondary: <ref>, #talents: [...], #primarygrenade: <ref> }`),
+   mirroring the fields above. Overrides the rotation entirely. Use `getweapon(ref, attachments)` semantics.
+   ⚠ `onstartgametype` clears `level.givecustomloadout` unless `disablecustomcac == 1` — set that or re-install
+   the hook after onstartgametype (mod_apply timing works).
+2. **Bundle (data):** author a scriptbundle shaped like `mp_gunfight_loadout_default` (`defaultloadouts: [ … ]`),
+   and point `gunfightloadoutlist` at it via the bundle-index gametype setting (§11). The shipped `_melee` /
+   `_snipers` / `_blueprints` bundles are ready-made examples/targets.
+
+Since `setloadout`/`giveweapon` are server-side and applied per player, **joiners get the custom loadouts
+with nothing installed** — this is a clean, high-value mod feature squarely inside the joiner-safe envelope.
