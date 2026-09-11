@@ -1326,3 +1326,29 @@ not a map write. If pursuing memory: the target is the **runtime mode/playlist c
 and sets com_maxclients** — NOT presence.mapid. Best tool to locate it: a **Cheat Engine watchpoint on the
 compat check** — select an incompatible map, catch the code that reads the "is this map allowed for this
 mode" set, and follow it to the config struct. That is a far better use of CE than hunting presence.mapid.
+
+## 🔬 RESEARCH cont'd — compat set located: it's LUI uimodeldatastruct #hash_109ccf57a41ffd82
+
+Followed the chain to the end:
+- `arena_playlist_game_modes_maps` (datasourcelist) → `uimodeldatastruct #hash_109ccf57a41ffd82`
+  (core_frontend.csv:67980) — one of **262** hash-named frontend UI-model structs.
+- Dump exposes the model NAMES (hashes) + datasource wiring, but NOT contents or logic: **no decompiled
+  Lua**; `luielems/` holds only in-match HUD elems (timers, fail/success screens), not the frontend picker;
+  `ui/` empty; no shipped map↔mode compat table anywhere. The data is populated at runtime from downloaded
+  online-playlist data. → definitive LUI/Lua wall, now precisely placed at a named model.
+
+### The one NEW, actionable lead
+Every prior UI-model probe (P8–P10) failed because it used INVENTED model names. We now have the **real
+hash of the map-mode-playlist model: `#hash_109ccf57a41ffd82`** (and 261 other real frontend model hashes).
+A `getuimodel` probe with a REAL hash — from a VM we control — is a genuinely new experiment: can we
+resolve/read (maybe write) the compat/playlist model, i.e. the exact thing the glitch changes?
+⚠ Caveats: it likely lives under a frontend/menu root (not `lobby_root`, whose 3 children we mapped), it's
+online-fed so may be read-only from GSC, and MP frontend models were mostly inert in P8–P10. A lead, not a
+promise.
+
+### Where that leaves the options
+1. GSC/CSC probe `getuimodel` for `#hash_109ccf57a41ffd82` (+ find its root) — targeted, builds on this research.
+2. Cheat Engine **watchpoint on the compat check** when selecting an incompatible map → the live model struct
+   in the Lua VM (the authoritative layer).
+3. Replicate the glitch's actual mechanism = matchmaking import (Gunfight search + carry) — the legit path,
+   but manual/unreliable.
