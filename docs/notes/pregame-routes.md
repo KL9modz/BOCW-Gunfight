@@ -1173,21 +1173,56 @@ incompatible map via the Atian carry (`sv_mapname`). The only thing broken is th
   joiner-join has no launch step to crash.
 
 ### ▶ THE UNRUN EXPERIMENT (fresh session — crash lost the addresses anyway)
-1. Host: Gunfight custom lobby on a COMPATIBLE map (e.g. Zoo). Consistent: master = presence = Zoo.
+1. Host: Gunfight custom lobby on a COMPATIBLE map (e.g. Nuketown '84). Consistent: master = presence = Nuketown.
 2. Attach gfscan. **Find the map-id reflections** by picker-change scan (known fast procedure):
-   note Zoo's int, change picker to KGB → `changed`, back to Zoo → `changed`, 2–3 cycles → the handful
+   note Nuketown's int, change picker to KGB → `changed`, back to Nuketown → `changed`, 2–3 cycles → the handful
    of addresses tracking the picked map. (This is the [8..42] set we already know how to isolate.)
 3. Set the picker back to the compatible map. **Atian carry → target incompatible map (Miami).** Now
-   host is IN Miami; `sv_mapname` = Miami; presence.mapid still = Zoo (stale) — the exact crash setup.
+   host is IN Miami; `sv_mapname` = Miami; presence.mapid still = Nuketown (stale) — the exact crash setup.
 4. **Write the target index into the map-id reflections** (exclude heap/Lua-suspect `0x19f…`/`0x1fb…`;
    write module-space + clearly-non-Lua candidates, one at a time if needed). Keep playlist = Gunfight.
 5. **JOINER TEST** (the actual measurement, never done): friends-list invite → does the joiner now
-   load Miami (matching the host) and PLAY, instead of loading Zoo and crashing?
+   load Miami (matching the host) and PLAY, instead of loading Nuketown and crashing?
 
 ### Honest caveat (what would refute it)
 `presence.mapid` is fed FROM the Lua master, so the engine MIGHT re-sync it before the joiner reads it
 (the module statics DID re-sync during active picker writes). In the carry scenario the picker/master is
 QUIESCENT (carry never touched it), so re-sync pressure is lower — but only the joiner test resolves it.
 - Joiner loads Miami & plays → **functional map goal MET for joiners**, no Lua RE needed. Biggest result.
-- Joiner still loads Zoo / crashes → presence re-syncs from the master; THEN the honest floor is Lua-VM
+- Joiner still loads Nuketown / crashes → presence re-syncs from the master; THEN the honest floor is Lua-VM
   RE or hooking the Lua→presence feed. Not before this test says so.
+
+## 🎯 mpmaps enum LOCATED; scan missed presence.mapid on a range technicality — 2026-09-10
+
+Value-scanned the live process for the map field across 6 committed Gunfight maps
+(icbm/kgb/nuke/gs/showroom/amsterdam), 16-byte gfscan.dat records = [addr8][val4][pad4],
+post-processed with perl. Found the selection is stored REDUNDANTLY in several encodings
+(clusters of identical per-map value-vectors), plus many coincidental per-map UI fields.
+
+**Located `enum mpmaps`** — `bocw-source-main/ddl/mp_custom_game.ddl:8563`. TWO versions in the dump:
+- `enum mpmaps` (43 maps, 0x0..0x2a): game_show=0, nuketown6=14, sm_amsterdam=15, kgb=19.
+- `enum hash_f63c30a3cf473b7` (28-map subset, no wz_): game_show=0, nuketown6=8, sm_amsterdam=9, kgb=11.
+- **game_show = 0 in BOTH** (first member across patches) → a stable anchor: presence.mapid==0 on Game Show.
+
+**Neither dump version matches the running build** (fingerprint search for (kgb,nuke,gs,ams) =
+(19,14,0,15) or (11,8,0,9) → 0 hits). The build uses a THIRD ordering. And only 2 gs=0
+selection-encodings were captured at all — one out of enum range (icbm=60 > 42), one lone
+(0x1ef33ad0a70: icbm=4,kgb=22,nuke=27,gs=0,show=5,ams=8) that doesn't fit the dump's relative
+structure. So presence.mapid was **not reliably captured**.
+
+### Root cause of the miss: find range [8..42] excludes low map indices
+mpmaps starts at 0 and Gunfight maps cluster LOW (game_show=0, and in the subset nuke=8/ams=9/kgb=11).
+The initial `find` used [8..42] to dodge the zero-flood — but that also drops presence.mapid whenever
+the HOME map (first snapshot) has an index < 8. The home map wasn't mid-range, so presence.mapid was
+never recorded, and every later filter operated on a set that didn't contain it.
+
+### ▶ Corrected scan (in progress): mid-index home + game_show=0 anchor
+1. Commit **KGB** (index ~19–22, safely in [8..42]) as home. `find [8..42]` → captures presence.mapid.
+   `cp gfscan.dat r_kgb.dat`.
+2. Commit **Game Show**. `changed` (presence.mapid 22→0 survives) → `cp gfscan.dat r_gs.dat`.
+3. Offline: **addresses with r_gs value == 0** (0 on Game Show) AND r_kgb value ∈[8..42]. game_show=0 is
+   rare + specific → strong isolation in TWO maps, no 6-map grind.
+4. Commit a 3rd map to disambiguate any ties, then that address IS presence.mapid — write-test + joiner.
+
+Method is sound and reusable; the miss was a home-map/range choice. Enum now in hand to read the build's
+true indices straight off the isolated field.
