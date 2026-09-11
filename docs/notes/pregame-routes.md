@@ -1352,3 +1352,25 @@ promise.
    in the Lua VM (the authoritative layer).
 3. Replicate the glitch's actual mechanism = matchmaking import (Gunfight search + carry) — the legit path,
    but manual/unreliable.
+
+## P11 RESULT — compat model NOT reachable from the server-frontend VM (2026-09-10)
+
+Injected test_uicompat (function_5f72e972 + getuimodel on the REAL hash #hash_109ccf57a41ffd82,
+server-frontend VM via load_shared.gsc). Read: **71=10** (frontend sampled 10×, probe ran), **72=2**:
+- bit1 lobby_root resolves ✓ (UI-model API works here)
+- bit3 fake name does NOT resolve ✓ (discrimination valid → negatives trustworthy)
+- bit0 `function_5f72e972(#"hash_109ccf57a41ffd82")` → **undefined** (not a named root here)
+- bit2 not under lobby_root either
+
+▶ The compat/playlist model is **not reachable from the server-frontend VM** — the only frontend-running
+VM our injector reaches. Consistent with it being a **client** LUI menu model (the picker is client UI):
+it lives in the CLIENT frontend VM, which `frontend-link-set.md` established we cannot inject. So the
+getuimodel route is blocked by the same client-frontend-injection wall, not by a wrong name (the name was
+real and discrimination confirmed).
+
+### Where this leaves it
+GSC from any injectable VM can't reach the compat model. **Cheat Engine remains the tool that can** —
+it reads the client's Lua-VM memory directly, indifferent to VM/script boundaries. A CE watchpoint on the
+compat check (select an incompatible map → catch the read of the "is this map allowed for this mode" set)
+lands straight in the client model struct that GSC can't address. That is the honest next step for the
+memory route.
