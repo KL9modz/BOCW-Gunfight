@@ -265,3 +265,40 @@ Any `gametypesettings` value a **frontend-VM** payload writes can be baked into 
 team size, timer, and (per §11) the loadout-bundle index / other Gunfight settings. So a "modded Gunfight
 preset" (4v4, 60s, snipers, …) is bakeable **once** per hosting account with zero per-session injection —
 the strongest low-exposure delivery the project has. Bounded to `gametypesettings` fields only.
+
+## 14. Scoring / round-flow internals
+Gunfight is round-based on the `gametypes/gametype` base (§1). The flow per round and how a match ends:
+
+### Round decision (Gunfight callbacks, all `level.*`-overridable)
+- **`ondeadevent(team)`** — a team fully eliminated → the OTHER team wins the round:
+  `winningteam = (losingteam == game.attackers) ? game.defenders : game.attackers`, awarded via
+  `globallogic::function_a3e3bd39(winningteam, 6)`. Latched by `level.var_c7cce1ff = 1` so it fires once/round.
+- **`ononeleftevent(team)`** — last-man-standing event.
+- **`ontimelimit()`** — round hit the timer → `overtime()` (capturable zone) on the FIRST expiry, else
+  `function_c4915ac()` = **decide by total team health** (allies vs axis sum of `player.health`). The mod's
+  timelimit_fix routes here (skips the crashing overtime on off-Gunfight maps).
+- **`onendround()`** — post-round: updates scores; advances the loadout rotation every
+  `gunfightroundsperloadout` rounds (`game.var_b6beb735++` wrap → `gametype::on_round_switch()`).
+
+### Match-end / limits (globallogic)
+- Match ends when `util::hitroundlimit()` OR `util::hitroundwinlimit()` (globallogic.gsc:1987).
+- Defaults: `registerroundlimit(0,10)`, `registerroundwinlimit(0,10)`, `registerroundswitch(0,9)`. Both
+  limits are **gametype settings**: `roundlimit = clamp(getgametypesetting(#"roundlimit"), min, max)` — so
+  `setgametypesetting(#"roundlimit"/#"roundwinlimit", N)` changes them. `level.scoreroundwinbased` flags
+  whether score is round-win-based.
+
+### Scoring API (globallogic_score.gsc)
+`giveplayerscore(event, player, …)`, `giveteamscore(event, team)`, `giveteamscoreforobjective(team, score)`,
+`setpointstowin(points)`/`givepointstowin(points)`, `updatecustomgamewinner(outcome)`, resets
+(`resetteamscores`/`resetplayerscores`/`resetallscores`), plus the score-chain/momentum subsystem.
+
+### ▶ Mod-expansion implications (all server-side → joiner-safe)
+1. **Tune the match length trivially:** `setgametypesetting(#"roundlimit", N)` / `#"roundwinlimit"` → "first
+   to N". Mod-writable like maxplayers/timer, and **bakeable into a save** (§13, they are gametypesettings).
+2. **Custom round rules:** override `level.ondeadevent` / `level.onendround` / `level.ononeleftevent`
+   (the mod already overrides `level.ontimelimit`/`gettimelimit`) — e.g., different win awards, sudden-death,
+   swap the health tiebreak for round-time or kills.
+3. **Custom scoring:** `giveteamscore`/`setpointstowin` for bespoke score rules.
+4. **Loadout-rotation cadence:** `gunfightroundsperloadout` setting controls how often weapons rotate (§11).
+⚠ Same guard as always: override in `mod_apply` (per-round self-heal), and only drive stock clientfields/
+uimodels toward joiners (§2). Round/score state is server-authoritative, so joiners get the modded flow free.
