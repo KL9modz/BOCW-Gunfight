@@ -1394,3 +1394,79 @@ Direct answers that resolve the joiner question:
   (1) Cheat Engine on the client Lua-VM state (memory), or (2) automate the glitch's actual input sequence
   (aligned with klaze's premise "if a basic lobby glitch can do it, we can programmatically"). Need the
   glitch's steps to evaluate (2).
+
+## 🎯🎯🎯 THE GLITCH'S ACTUAL INPUT SEQUENCE — found via YouTube tutorial (2026-09-11)
+
+Source: "COD COLD WAR GLITCHES HOW TO GET GUNFIGHT & FIRETEAM DIRTY BOMB MAPS IN CUSTOM GAMES" —
+FacelessOne, youtu.be/uzXXE7v_PBU (2021, 4.3K views). Description has three menu-only tutorials, no
+mods/code. Pinned comment confirms the description text is the authoritative version.
+
+### "Text Tutorial" (general Gunfight-map-unlock variant — the one we want)
+```
+1.  Join a friend in custom games            (P1 hosts Custom Games, P2 joins)
+2.  Player 2 open Bots And Players
+3.  Player 1 Leave Custom Games              (HOST leaves; P2 left in the lobby shell)
+4.  Player 2 open Bots and Players again
+5.  Player 1 start searching for a Gunfight match     (P1 queues ONLINE public matchmaking)
+6.  Once found a match, host leave alone     (P1 loads into a REAL public Gunfight match, stays)
+7.  Player 2 exit bots and players and leave lobby    (P2 backs fully out to main menu)
+8.  Player 1 join player 2                   (P1, mid live match, "Join Player" targets P2)
+9.  Player 1 press custom games (it will kick you out, keep going into custom games until it keeps you in)
+10. Player 1 press social and leave party
+11. Player 2 join player 1
+12. Player 1 leave party
+NOW PLAYER 2 CAN EDIT THEIR MODE AND START THE GAME
+```
+
+Two other variants in the same description ("Easy Text Tutorial 1", "Fireteam Text Tutorial") are
+structurally identical — join/leave/search/rejoin dance — confirming this is a GENERAL session-carry
+bug, not a Gunfight-specific menu option. (Fireteam variant's steps skip 9-11 in the numbering,
+apparently a typo in the original — the pattern otherwise matches Text Tutorial exactly.)
+
+⚠ A viewer comment on the video: "It won't let my player to access anything because it's not party
+leader" — reported failure mode, consistent with `menu-map.md`'s "the glitch is unreliable, only needs
+to work once."
+
+### Mechanism analysis (why this works, mapped onto this project's established facts)
+This is a **stale-session-object reuse across a racing menu-state teardown**, not a hidden menu option
+(consistent with desktop-session.md 0.2: no designed "import online playlist" feature exists — this is
+an unintended bug in the teardown, not a feature).
+
+- Steps 5-6 put P1 into a **real online matchmaking session**. Online Gunfight playlists carry the FULL
+  map-compatibility set + correct `com_maxclients` for that playlist (unlike the private-match UI's
+  restricted default mode object) — this is EXACTLY the "mode/playlist reconfiguration" state identified
+  in the prior research session as living in LUI `uimodeldatastruct #hash_109ccf57a41ffd82`.
+- Step 8 (P1 "join player 2" while still mid-match) fires a join-transition BEFORE the online session
+  object is torn down.
+- Step 9's explicit "**it will kick you out, keep going until it keeps you in**" is the tell: this is a
+  RACE. Custom Games init is competing with two in-flight teardowns (leaving the online match, the
+  join-player-2 transition). On some attempt, Custom Games' UI accepts the client WITHOUT the mode/
+  session object having been reset to the private-match-restricted default — so the Custom Games lobby
+  that results is still holding the online-derived mode object, which carries the online playlist's full
+  map-compatibility + correct com_maxclients into a private lobby.
+- Steps 10-12 clean up the leftover platform/social party state (a different layer than the in-game
+  lobby — P1 stays the in-game host throughout).
+- **"NOW PLAYER 2 CAN EDIT THEIR MODE"** is the payoff tell: the resulting lobby's mode-settings screen
+  now reflects the carried-over online mode object, which is unrestricted.
+
+This CONFIRMS the map/mode carry glitch menu-map.md described the effects of, and gives the missing
+piece: the INPUT SEQUENCE, not a UI model name or memory address. It requires **zero mods, zero
+injection, zero code** — pure menu navigation across two accounts.
+
+### Why this reframes the whole approach
+The "keep pressing custom games until it keeps you in" retry step is exactly the kind of thing a script
+automates far better than a human: instant, reliable retries against a race window a person can only hit
+by luck. **If this technique still reproduces, "do it programmatically" may mean input automation
+(simulated menu navigation with a fast retry loop on step 9), not memory modding, Lua-VM RE, or Cheat
+Engine at all** — a dramatically lower-risk path than everything pursued since the pivot to "the Lua-VM
+path": no injector-adjacent tooling beyond what's already accepted, no anti-cheat surface beyond normal
+menu input, and it's the same class of technique the project already accepts (menu automation, no memory
+writes).
+
+### ⚠ Open tension with project ground rules — NOT yet resolved, flagged for klaze
+Steps 5-6 require P1 to actually **search AND CONNECT to a real public online match** and sit in it
+(not just touch the matchmaking menu). This project's stated ground rule (memory: "private matches only
+... no public lobbies, no matchmaking evasion") appears to cover exactly this. No mod is active during
+that window and P1 leaves normally — but it IS deliberately entering a public lobby, which the rule
+states as a blanket line, not a harm-based one. Recorded here as an open decision point, not resolved
+unilaterally; see conversation for klaze's call before this is attempted.
