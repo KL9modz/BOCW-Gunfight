@@ -340,3 +340,45 @@ at minimum a `primary`; everything else is optional.
 
 Since `setloadout`/`giveweapon` are server-side and applied per player, **joiners get the custom loadouts
 with nothing installed** — this is a clean, high-value mod feature squarely inside the joiner-safe envelope.
+
+## 16. Spawning / team-assignment — full control for Gunfight on ANY map
+The critical system for any-map Gunfight. Good news up front: **it already works on every MP map**, and the
+mod has clean hooks for *total* placement control.
+
+### Why Gunfight spawns on any map at all
+`main()` registers `spawning::addsupportedspawnpointtype("tdm")` and the entity type is **`mp_tdm_spawn`**
+(`gettdmstartspawnname` → `getteamstartspawnname(team, "mp_tdm_spawn")`). TDM is a launch mode, so
+**every standard MP map ships `mp_tdm_spawn` team-start entities** — the spawn points Gunfight needs exist
+everywhere. `onstartgametype` sets `level.alwaysusestartspawns = 1` (use fixed team start spawns, not scored
+dynamic respawns) and `level.graceperiod = 3` (3s spawn protection). This is why the carry/glitch can put
+Gunfight on off-Gunfight maps: spawns are satisfied, only the OVERTIME ZONES are missing (§1, guarded by the mod).
+
+### The spawn pipeline (spawning_shared.gsc)
+- `add_default_spawnlist(spawnlist)` → pushes onto `level.default_spawn_lists` (the candidate pool).
+- `init_teams()` builds `spawnsystem.ispawn_teammask[team]` bitmasks for team filtering.
+- `onspawnplayer(predictedspawn)`:
+  1. **`level.var_cda5136b`** — a per-player spawn OVERRIDE callback. If defined and it returns true, default
+     selection is SKIPPED — the override placed the player. ← **the total-control hook.**
+  2. else `spawn = function_89116a1e(predictedspawn)` — scored selection from the spawn lists (influencer
+     model: enemies, teammates, recent deaths).
+  3. **if no valid `spawn.origin` → `callback::abort_level()`** — the hard spawn-failure abort.
+- Gunfight further overrides selection via `spawning::function_32b97d1b(&function_90dee50d)` +
+  `function_adbbb58a(&function_c24e290c)` and uses TDM start spawns.
+
+### ▶ Full mod control on any map (all server-side → joiner-safe)
+1. **Place players anywhere:** set `level.var_cda5136b` to a callback that positions `self` at chosen
+   origins and returns true. Bypasses the map's spawn layout entirely — put Gunfight's 1v1/2v2 spawns at
+   close-quarters points on a huge 6v6 map, guarantee valid spawns, avoid bad TDM layouts. This is "full
+   control", and it's one `level.*` assignment.
+2. **Custom spawn set:** `add_default_spawnlist()` with script-created spawn structs (origins/angles you
+   pick) → feeds the scored selector your points instead of (or with) the map's.
+3. **Override Gunfight's selectors** (`function_32b97d1b`/`function_adbbb58a`) the same way the mod overrides
+   round callbacks, for Gunfight-tuned placement rules.
+⚠ **Guard the abort:** the no-valid-origin path calls `abort_level()`. A robust any-map mod should provide
+guaranteed spawns (option 1 or 2) so a map with sparse/hostile TDM starts can never hit that abort. This is
+the spawn analog of the mod's zones_guard — worth adding for true "Gunfight on every map".
+
+### Team assignment
+Teams come from `level.teams` (masked in `init_teams`); size is bounded by `maxplayers`/`com_maxclients`
+(§1, §13). Team-change/assignment is `gamemodeismode(1|7)`-aware for custom matches (globallogic). For 4v4+
+the ceiling is the session's `com_maxclients` — not a spawn limit.
