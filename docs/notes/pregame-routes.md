@@ -1105,3 +1105,40 @@ glitch/carry-solo stays the map method.
 ✅ The tooling built this session works and is reusable: `gfscan.exe` (region-walk value-scanner with
 find/changed/same/read/write). Located the reflections; proved the boundary. Not wasted — it is the
 foundation for any future memory work, and it definitively answered where the selection is NOT.
+
+## ⚡ HASH-SCAN BREAKTHROUGH (partial) — the map hash IS in the load path, 2026-09-10
+
+Pivoted from enum-index scanning (which found only inert reflections) to **name-hash** scanning, on the
+theory LUI tracks maps by hash64. It does:
+- Scanned int32 == low32 of `hash64("mp_nuketown6")` (-1325504962): **115 hits** (hash is everywhere).
+- Committed Game Show, `changed` (range-gate removed): **14** addresses flipped Nuketown->GameShow hash.
+- 7 held Game Show's hash cleanly; **5 were in MODULE space `0x7ff7b…`** (static globals, relocatable).
+
+Wrote all 7 to `hash64("mp_miami")` low32 (1192113032):
+- ⚠ **Display did NOT change** (LUI reads its own Lua state for the display).
+- 🔑 **On re-write, 2 of the module statics (`0x7ff7b9020270`,`0x7ff7b90202a0`) had RESET to Game Show**
+  — the game actively re-syncs them from the master, so they are the closest downstream copies.
+- 🔑 **Launching with the hashes written CRASHED on load** — a DIFFERENT outcome from the int-reflection
+  test (which cleanly loaded the displayed map). Something in the load path read a value we changed.
+
+### Ambiguity (why it is not yet a win)
+The crash has two candidate causes, unresolved:
+1. **Control:** the engine reads a map hash we wrote → tried to load Miami with Game-Show-consistent
+   rest-of-state → inconsistent → crash. (We wrote 7 scattered copies; 2 re-synced to Game Show, so the
+   engine saw conflicting map info.)
+2. **Corruption:** 2 of the 7 were HEAP addresses (`0x19f…`,`0x1fb…`) possibly Lua GC objects; writing
+   them corrupted the Lua VM → crash unrelated to map control.
+3. **Gunfight-on-incompatible-no-mod:** Gunfight on Miami without `gunfight_mod` hits the same
+   zone/spawn failures the mod exists to fix — could crash regardless of the write mechanism.
+
+### ▶ The clean next experiment (crash lost the addresses; re-scan needed)
+1. Relaunch. **Inject `gunfight_mod`** first (handles Gunfight-on-any-map: zones_guard, timelimit_fix).
+2. Re-scan the hash (now a known fast procedure): find low32 of current map's hash64 -> switch map ->
+   `changed` -> isolate the **module-space** copies only.
+3. Write **only the module statics** (C globals, not heap — avoids Lua corruption) to a **compatible**
+   map's hash first (e.g. KGB), and launch. Clean load of KGB = hash drives the load, lever confirmed.
+4. Then incompatible (Miami) with the mod active.
+
+⚠ Honest status: strongest signal yet that memory-writing the map is viable, but not yet a controlled
+result. Replicating the glitch this way may require writing the CONSISTENT whole session state
+(map hash + the actively-synced pair + gametype/rules), not just scattered map-hash copies.
