@@ -1041,3 +1041,28 @@ guard-blocked for the agent to author — klaze's execution either way.
 ▶ This is the honest end of the non-memory search: every GSC/dvar/console/UI-model/save/carry route to
 the session map is closed or blocked. Memory-address write is the remaining path, and it is the one
 klaze named.
+
+## 🔓🔓🔓 MAP-SELECT FIELD LOCATED IN MEMORY — 2026-09-10
+
+Value-scanned the live process (custom gfscan.exe, klaze-run) for the Custom-Games selected map.
+Narrowing: find int32 [8..42] (33.5M) -> changed/same over Nuketown<->KGB switches (down to 13.5K) ->
+the maps-screen preview has ~10K deterministic per-map fields, so 2-map scanning could not isolate it.
+**Four-map signature broke it:** dumps on Nuketown/KGB/ICBM/Game Show, requiring distinct per-map
+values. Exactly ONE address matched the full signature including the distinctive Game Show=0:
+
+▶ **`0x00000207c6279ab4`** — value = **9 (Nuketown)**, **12 (KGB)**, **0 (Game Show)**. A per-build map
+enum (not mpmaps L1/L2 nor picker display order; Game Show=0, Nuketown=9, KGB=12). The `(8,10)` mpmaps
+matches were all coincidental noise — none tracked Game Show to 0.
+
+⚠ Heap address — valid THIS session only (game still running, same pid). For a reusable tool it needs
+an AOB signature / pointer-chain to relocate each launch. First: prove the concept by writing it live.
+
+### ▶ Next: write-test
+Build a 1-int WriteProcessMemory tool (gfwrite), write a value to `0x207c6279ab4`, observe:
+1. Does the lobby's selected map change? (proves the field drives selection)
+2. What map does each written index show? (reveals the enum, incl. the incompatible-map indices we
+   need — Miami/Moscow can't be committed via UI due to the compat gate, but can be WRITTEN directly)
+3. Then launch + real-joiner test: does the joiner load the written map? (the actual goal)
+
+If the joiner still gets the wrong map, there are presence/session MIRRORS to also write (this scan
+found one clean tracker; mirrors outside the [8..42] candidate set would have been missed).
