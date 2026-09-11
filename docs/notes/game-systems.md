@@ -139,3 +139,28 @@ timer_minutes, team_size_override/team_size (clamped to `com_maxclients`). Groun
 register new ones with vanilla joiners present (§2 CONSTRAINT — can crash them); (b) team size ≤
 `com_maxclients/2`; (c) any map target must be a verified-loadable name; (d) keep it in `mod_apply` so it
 self-heals each round; (e) one payload at a time (shared `clientids_shared` replace target).
+
+## 10. The complete injection surface (server + client VMs) — definitive
+Synthesis of P6a/P6c/P7/P11 + frontend-link-set.md. This bounds EVERYTHING the mod can do and settles the
+compat-model question from both sides.
+
+| VM | Injectable? | How | What lives there |
+|---|---|---|---|
+| **Server, all-VM** | ✅ | `load_shared.gsc` hook, replace `clientids_shared.gsc` | runs in frontend AND match (server side) |
+| **Server, MP-match** | ✅ | `bb.gsc` hook, replace `clientids_shared.gsc` | the match; **gunfight_mod + the switchmap test live here** |
+| **Client, MP-match** | ✅ | `load_shared.csc` hook, replace `radiation_debug.csc` | HOST's client during a match; UI-model API works, `lobby_root` resolves (P6c) but holds none of the frontend children |
+| **Client, FRONTEND** | 🪦 **NO** | 3 replace targets tried, all fail/crash (frontend-link-set) | **the map picker + the compat `uimodeldatastruct #hash_109ccf57a41ffd82`** |
+
+▶ **The compat/allowed-map model lives ONLY in the client frontend VM, which is the one VM nothing can
+inject into.** Confirmed from BOTH directions: server-frontend VM can't resolve it (P11), client-frontend
+VM can't be injected at all (frontend-link-set). So the picker gate is **definitively injection-unreachable**
+— CE (client memory) or the `switchmap_load` bypass are the only routes. Not a gap in coverage; a proven wall.
+
+### What this means for mod features (host vs joiner reach)
+- **Server GSC (match):** the mod's home. Governs gameplay for everyone (host is the P2P server).
+- **Client CSC (match):** injectable, but only on the **HOST's** client. A CSC mod feature (custom client HUD,
+  input handling, client VFX) runs for the host only — **joiners run stock CSC**, so client-side mod features
+  do NOT reach joiners. Joiners get server effects + stock-clientfield/uimodel updates only (§2 constraint).
+- **Client frontend:** unreachable — no menu/picker modding by injection, ever.
+▶ Rule of thumb: a mod feature reaches JOINERS iff it is (server GSC gameplay) OR (a value pushed on a
+  clientfield/uimodel the STOCK client already handles). Everything else is host-only or impossible.
