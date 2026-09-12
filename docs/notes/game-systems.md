@@ -478,3 +478,27 @@ as host). End = no risk. Migrate = the mod is lost mid-match on incompatible map
   vanilla host resume a broken state.
 Recorded as an open reliability item — not a blocker, but the kind of thing that would surface as a
 mysterious mid-match crash if a modded host drops on an off-Gunfight map.
+
+## 19. Bot system (testing + bot-filled play)
+Full bot-AI framework under `scripts/core_common/bots/` (action, difficulty, insertion, orders, position,
+stance, traversals, weapons). Practical surface for the project:
+- **Add:** `addtestclient( name, clanabbrev )` (`bot.gsc:100`) — spawns a test client (bot) into the match.
+  This is the primitive gunfight_mod already uses to fill teams (bounded by `com_maxclients`, §1).
+- **Difficulty is a GAMETYPE SETTING:** `bot_difficulty::assign` reads `getgametypesetting(#"bot_difficulty_
+  vs_bots")` (and per-team variants) → per-bot `self.bot.difficulty`. So difficulty is **mod-tunable via
+  `setgametypesetting` and save-bakeable** (§13) like team size / timer — no special API needed.
+- **Bots need navmesh, which every standard MP map ships** (bots play TDM on all of them). So **bot-filled
+  Gunfight should function on any standard MP map** — the same universality that makes `mp_tdm_spawn` work
+  (§16). Bots path, fight, and get eliminated (Gunfight wins by elimination), so a bot-filled test match is
+  a valid stand-in for humans on any map.
+- **Bots are player entities:** `isplayer(bot)` is true and they fire `callback::on_spawned`, so
+  **#spawn_guard (§16b) repositions bots too** — they spawn at the central cluster like humans (good; keeps
+  bot-filled tests on the intended area). Their post-spawn pathing still uses the map's navmesh.
+
+### Practical notes
+- Testing workflow: team-size override (§1) + `addtestclient` fill + `setgametypesetting(#"bot_difficulty_
+  vs_bots", N)` gives a controllable bot-filled Gunfight for validating any-map behaviour before humans —
+  which is the project's stated "bots before humans" order.
+- ⚠ On the combined-arms/large-variant maps (§16b), bots roam the BIG navmesh even with #spawn_guard placing
+  their spawns centrally — so bot behaviour there is a secondary read on whether the map's active config is
+  the large one (bots wandering far = large layout active).
