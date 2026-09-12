@@ -30,7 +30,7 @@ manual/automated glitch (ruled out by requirement).
 | `pregame-routes.md` | the full map-hunt log: P1–P11, memory scans, the glitch tutorial + mechanism, the switchmap PRIORITY AVENUE, the requirement pin |
 | `game-systems.md` | **how the game works / mod-expansion reference** (20 sections): Gunfight anatomy; clientfield sync (+joiner-reach correction); builtins; events; injection surface (10); persistence/save (13); scoring/round-flow (14); loadout struct/perks/content refs (15,17,20); spawning + the combined-arms spawn bug + #spawn_guard (16,16b); CSC match VM (12); host-migration (18); bots (19); expansion roadmap (9) |
 | `lobby-setters.md` | **the one live map route**: call `LobbySetMap`/`LobbySetGameType` directly, skipping the compat gate rather than beating it. Why it is not in the closure table, the two ways it could still fail, and `tools/lobby-set.py` |
-| `desktop-session.md` | ▶ **the runbook** — everything open, ordered by what it costs, stages 0–7. Rewritten 2026-09-12 against the measured state: stage 4 is the save-based hosting workflow (P5's follow-through, mostly needs no injector), stage 6 lists what is closed so it is not redone |
+| `desktop-session.md` | ▶ **the runbook** — everything open, ordered by what it costs, stages 0–7. Rewritten 2026-09-12 against the measured state: stage 3 is the save-based hosting workflow (P5's follow-through, mostly needs no injector), stage 6 lists what is closed so it is not redone |
 | `switchmap-test-protocol.md` | staged run sheet for the switchmap test payload (🪦 avenue closed) |
 | `atian-menu-source.md` | the carry menu internals; the two map-change paths |
 | `cw-builtins.md` | the engine builtins with addresses (isvalidgametype, switchmap_*, sessionmode*, etc.) |

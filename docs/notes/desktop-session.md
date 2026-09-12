@@ -17,6 +17,10 @@ payload's config is compiled in, so **changing a switch means recompile → rein
 game.** A launch is the unit of cost here, not a match: within one launch you can play as many
 matches as you like (F7, or the menu's Restart).
 
+🔓 **P5 loosened that constraint and the order now reflects it.** A saved custom game carries the
+modded settings with **nothing injected**, so the work that used to cost a launch each is now mostly
+free — which is why stage 3 is the save and the menu moved to 4.
+
 So the sheet is ordered by what a step costs:
 
 | Stage | Cost | Contains |
@@ -24,16 +28,18 @@ So the sheet is ordered by what a step costs:
 | **0** | nothing — answer from memory | 6 questions, **3 already answered** — read those before planning |
 | **1** | Windows, no game | the compile gate |
 | **2** | game, **no injection** | L0, and **the one live map route (2.3)** |
-| **3** | 1 launch | the menu — `gunfight_menu`, walk + every control. ⚠ its Spawns and Match pages have never been drawn |
-| **4** | **mostly none** | the save-based hosting workflow — P5's follow-through. Injection is now a one-time config step, not a match-night dependency |
+| **3** | **mostly none** | the save-based hosting workflow — P5's follow-through. Injection is now a one-time config step, not a match-night dependency |
+| **4** | 1 launch | the menu — `gunfight_menu`. It compiles, injects and draws; the Match page and the spawn_guard fix are what is untested |
 | **5** | 1 launch each | what is left: C10, B9, standalone spawn_guard |
 | **6** | 🪦 nothing | measured closed. Listed so it is not redone |
 | **7** | people | a human 4v4 — the largest gap between CLOSED and DONE |
 
-⚠ **Stage 4 is cheap and it is the most valuable thing here**, which is unusual enough to say twice.
-Most of it needs no injector at all, because the save already carries the mod.
-⚠ **Stage 3's menu and stage 4's save are two different workflows**, not two steps of one. The menu is
-live in-match control; the save is configuration that survives a relaunch with nothing running.
+⚠ **Stage 3 is cheap and it is the most valuable thing here**, which is why it comes before the menu.
+Most of it needs no injector at all, because the save already carries the mod — so if the evening ends
+early, it is the stage that leaves you with something shippable.
+⚠ **Stage 3's save and stage 4's menu are two different workflows**, not two steps of one. The save is
+configuration that survives a relaunch with nothing running; the menu is live in-match control that
+does not survive anything.
 
 ---
 
@@ -43,7 +49,7 @@ These are free. **0.1–0.3 are answered**; 0.4–0.6 are still open.
 
 | # | Question | Why it matters | Answer |
 |---|---|---|---|
-| 0.1 | **After a `gunfight_mod` match, back in the lobby, does the rules-menu timer row read 60 or 40?** | The mod writes `timelimit = 60` in every match. **60** = the in-match write flows back into the lobby's copy, so *Save Custom Game* captures modded settings **today, with no new code** — and P5 becomes the whole answer to pregame control. **40** = the match's copy is discarded on return, and P5 needs P2 first | 🪦 **40 — REVERTED.** Measured 2026-09-09 with gunfight_mod live (60s rounds confirmed in-match). The match-time write is DISCARDED on return to the lobby, so a save cannot capture modded settings today. **P5 needed P2 first** — and 🔓 **P2 then worked and P5 CLOSED**: the *pregame* write serialises into a save even though the in-match one does not, which is why this row's verdict stopped mattering. Stage 4. ⚠ Also checked: still NO Max Players row, even though the mod writes `maxplayers` every round — so that write does not surface a row either |
+| 0.1 | **After a `gunfight_mod` match, back in the lobby, does the rules-menu timer row read 60 or 40?** | The mod writes `timelimit = 60` in every match. **60** = the in-match write flows back into the lobby's copy, so *Save Custom Game* captures modded settings **today, with no new code** — and P5 becomes the whole answer to pregame control. **40** = the match's copy is discarded on return, and P5 needs P2 first | 🪦 **40 — REVERTED.** Measured 2026-09-09 with gunfight_mod live (60s rounds confirmed in-match). The match-time write is DISCARDED on return to the lobby, so a save cannot capture modded settings today. **P5 needed P2 first** — and 🔓 **P2 then worked and P5 CLOSED**: the *pregame* write serialises into a save even though the in-match one does not, which is why this row's verdict stopped mattering. Stage 3. ⚠ Also checked: still NO Max Players row, even though the mod writes `maxplayers` every round — so that write does not surface a row either |
 | 0.2 | **Is "save an online playlist's mode into Custom Games" a real menu option?** | If it is, the game ships the designed version of what the glitch does by accident. Worth knowing whether it copies rules only, or the map list too | 🪦 **NO** — klaze walked it 2026-09-09: you can only edit game settings for the modes already selectable in private match. No import path from online playlists exists |
 | 0.3 | **Save dialog: how many characters for name and description, and how many save slots?** | The dump predicts **64** and **128**. Matching caps confirm `mp_custom_game.ddl` is your build's format, for free | ✅ **20 SLOTS.** Caps not measured exactly — klaze: *"seems large"*, consistent with the predicted 64/128. ⚠ The slot count is NOT in the DDL: that file holds **69 schema versions**, not 69 slots, so slots are a UI/engine constant. Root confirms `string(64) gamename` + `string(128) gamedescription` |
 | 0.4 | **In a 3v3 Gunfight lobby, can you add bots before starting — and does it refuse the 4th on a side?** | This is P2's best readout. If the lobby has no bot control outside Nuketown, P2 is judged only by probe 60 and the rules row | `______` |
@@ -79,15 +85,15 @@ M1 result: `______`
 
 Nothing here writes memory, nothing here is exposure beyond playing the game.
 
-### 2.1 · 🪦 P5 is CLOSED — its follow-through moved to stage 4
+### 2.1 · 🪦 P5 is CLOSED — its follow-through is stage 3
 
 A saved custom game **carries `maxplayers = 8` through a quit, a relaunch and zero injection**
 (2026-09-10, verified clean). This subsection used to be the open test; it is now a result, and
-everything it would have led to is **stage 4**.
+everything it would have led to is **stage 3**.
 
 ▶ The one thing to do here: **load the existing 4v4 save on a clean launch and confirm it still
 works** before building anything on top of it. Thirty seconds, and it is the precondition for all of
-stage 4. Result: `______`
+stage 3. Result: `______`
 
 ### 2.2 · L0 — Allow In-Game Team Change, the spectator version
 
@@ -154,7 +160,102 @@ even a `gamemodes` string is likely one input to it, not the master. Result: `__
 
 ---
 
-## Stage 3 — one launch: `gunfight_menu`
+## Stage 3 — the save-based hosting workflow ← **the highest-value open work**
+
+🔓 **P5 closed on 2026-09-10 and changed what this project is.** A saved custom game carried
+`maxplayers = 8` through a **quit, a relaunch and zero injection** — verified clean (the payload went
+to a dead pid, no cwpatch, stock `discord_game_sdk.dll`). `maxplayers` has **no rules-menu row at
+all**, so a save holding 8 cannot have been made by hand. It survived two game restarts.
+
+▶ **So injection is a configuration step performed once, not a match-night dependency.** Everything
+below is the follow-through nobody has run.
+
+⚠ **Order within this stage: 3.1, 3.4 and 3.5 need NO injection at all** — load the save you already
+have and observe. Do those before you open a terminal. **3.2 and 3.3 each need one injected launch**
+to *author* a new save, so they belong with stage 4's launch budget, not before it.
+
+### 3.1 · Does a HUMAN join a save-configured lobby and play? 👤
+
+P5 was verified with **bots**. The team screen accepted 4 a side and the save restored it; a human
+fourth has never joined a save-configured lobby.
+
+Load the 4v4 save on a clean launch, inject nothing, have your friend join, fill to 4v4 with people
+and bots, play a full match.
+
+| Check | Result |
+|---|---|
+| the 4th seat accepts a human | `______` |
+| the round boundary keeps 4v4 | `______` |
+| spawns are in bounds for everyone (⚠ this is `#spawn_guard`'s whole reason) | `______` |
+| the friend's client is stable end to end — **no crash** | `______` |
+
+▶ If this passes, **the team-size goal is DONE**, not merely closed: real players, no injection, on a
+stock client. That is the sentence the project has been unable to write since 2026-09-08.
+
+### 3.2 · How far does the save go? 5v5, 6v6
+
+L8 killed the *in-match* route to a bigger budget: `maxplayers = 10` landed and `com_maxclients`
+stayed at 8. **The save is a different question** — P1 measured that `com_maxclients` is derived at
+match start from the store the save serialises, so a save authored at 10 has never been tried.
+`uint:7` allows 127; the field is nowhere near its ceiling.
+
+✅ **The field width is already checked, and it is why this is worth trying.** `maxplayers` is
+`uint:7`, so 10 and 12 are structurally representable — unlike `timelimit`, which is `fixed<8,2>` and
+saturates at 63.75s. ▶ **Check the DDL before authoring any large value**; a narrow field saturates
+silently rather than refusing.
+
+One injected launch per value. Author the save with `write_maxplayers = 1` at **10**, then relaunch
+clean and load it.
+
+| Value | Seats it actually gives | `com_maxclients` in-match | Result |
+|---|---|---|---|
+| 10 | `______` | `______` | `______` |
+| 12 | `______` | `______` | `______` |
+
+⚠ **Raise one step at a time.** If 10 works, 12 is a separate launch — not a bolder guess.
+
+### 3.3 · What ELSE fits in one save?
+
+`mp_custom_game.ddl`'s `gametypesettings` member is the match-time blob **byte for byte** — 0x65b30
+bits, 993 members. In principle *every* gametype setting is serialisable, which would make one save
+the entire mod.
+
+Author one save with several pregame writes on at once and check each in the loaded lobby:
+
+| Setting | Why it is worth carrying | Carried? |
+|---|---|---|
+| `maxplayers` = 8 | ✅ already proven | ✅ |
+| `timelimit` = **45** or **55** | ⚠ P3's timer save was **correctly voided** — 60 is published, so it proved only that saving works. ⚠⚠ And **do NOT author 90**: the field is `fixed<8,2>`, ceiling **63.75s**, so 90 saturates and proves nothing. 45 and 55 are not on the published list (0/20/30/40/50/60) *and* sit under the ceiling — unforgeable the way 8 was | `______` |
+| `gunfightloadoutindex` = 1 / 3 | snipers-only or melee-only Gunfight, no menu row (B6). ⚠ latched behind `game.var_96a8ff4a`, so it must land before `onstartgametype` | `______` |
+| `gunfightspyplane` = 3 | the value the menu row hides (B7) | `______` |
+
+▶ **Every setting that carries is one the hosting workflow stops needing an injector for.**
+
+### 3.4 · Durability — the thing that decides whether this is a workflow or a stunt
+
+| Question | Result |
+|---|---|
+| survives a **Battle.net patch**? | `______` |
+| survives a **settings reset** / "restore defaults"? | `______` |
+| does **re-saving from a stock client** preserve the modded value, or normalise it? | `______` |
+| where does the file live — did anything under `%USERPROFILE%\Documents\Call Of Duty Black Ops Cold War\player` change, or is it cloud? | `______` |
+
+⚠ The re-save question is the sharp one. If opening and re-saving normalises `maxplayers` back to a
+menu-legal value, every incidental edit is a landmine and the save must be treated as read-only.
+
+### 3.5 · Re-run the joiner-save observation properly
+
+klaze, 2026-09-10, casual: a joining account saw 4v4, still saw it after backing out, but **its own
+save came back 2v2**. Reading: the modded value rides the live session and does **not** serialise into
+a joiner's save — one injected setup per account that wants to *host*, joiners need nothing.
+
+That was an observation, not a controlled run, and it carries the whole "joiners need no toolchain"
+claim. Redo it with the steps written down: join → back out → save → relaunch → load. Result:
+`______`
+
+---
+
+## Stage 4 — one launch: `gunfight_menu`
 
 ```bash
 bash tools/inject.sh gunfight_menu     # after loading a private match once
@@ -180,7 +281,7 @@ controls. ⚠ **Match is still never-drawn**, and the Spawns page has a **new, u
 | 5 | Loadout → Snipers (B6) | ⚠ | **next** round is snipers-only. Needs two matches: the latch is `game.`-scoped | `______` |
 | 6 | Spy plane → Shared (B7) | ⚠ | next round; value 3 is the one the menu hides | `______` |
 | 7 | Players → someone → To Axis (C11) | ⚠ | they switch sides and spawn normally | `______` |
-| 8 | Spawns → guard ON + diag ON, on a map that **failed before** | ⚠ **fix untested** | see 3.1 below — read the diag probe first, not the spawns | `______` |
+| 8 | Spawns → guard ON + diag ON, on a map that **failed before** | ⚠ **fix untested** | see 4.1 below — read the diag probe first, not the spawns | `______` |
 | 9 | Match → round/win limit | ⚠ **never drawn** | the round counter obeys it. `-1` sentinels mean only an explicit pick asserts control | `______` |
 | 10 | Map → Zoo, method **carry** | ✅ host-side | loads exactly like the Atian menu did. ⚠ **SOLO ONLY** — see below | `______` |
 
@@ -195,7 +296,7 @@ in the lobby.** Save their time for 2.3b, 4.1 and stage 6.
 
 ⚠ **Test a lobby return after 3, 8 and 10.** That is the check that caught `scene_model_shared`.
 
-### 3.1 · spawn_guard — read the diagnostic before you judge the spawns
+### 4.1 · spawn_guard — read the diagnostic before you judge the spawns
 
 klaze tested it and it did **nothing** on the maps that "don't use tdm spawns". That was not the fix
 failing — it was `mod_gather_spawns` looking only for the DM/TDM targetnames, gathering fewer than two
@@ -213,97 +314,6 @@ most-referenced spawn targetnames in the dump, and what `mp_cartel` / `mp_slums_
 ⚠ **Armed is not fixed.** A 60 with a good N says the mechanism now sees spawn points; whether players
 land in bounds is the separate question, and it needs 4v4 on a map that previously threw people out.
 Record both. Result: `______`
-
----
-
-## Stage 4 — the save-based hosting workflow ← **the highest-value open work**
-
-🔓 **P5 closed on 2026-09-10 and changed what this project is.** A saved custom game carried
-`maxplayers = 8` through a **quit, a relaunch and zero injection** — verified clean (the payload went
-to a dead pid, no cwpatch, stock `discord_game_sdk.dll`). `maxplayers` has **no rules-menu row at
-all**, so a save holding 8 cannot have been made by hand. It survived two game restarts.
-
-▶ **So injection is a configuration step performed once, not a match-night dependency.** Everything
-below is the follow-through nobody has run, and most of it needs no toolchain.
-
-### 4.1 · Does a HUMAN join a save-configured lobby and play? 👤
-
-P5 was verified with **bots**. The team screen accepted 4 a side and the save restored it; a human
-fourth has never joined a save-configured lobby.
-
-Load the 4v4 save on a clean launch, inject nothing, have your friend join, fill to 4v4 with people
-and bots, play a full match.
-
-| Check | Result |
-|---|---|
-| the 4th seat accepts a human | `______` |
-| the round boundary keeps 4v4 | `______` |
-| spawns are in bounds for everyone (⚠ this is `#spawn_guard`'s whole reason) | `______` |
-| the friend's client is stable end to end — **no crash** | `______` |
-
-▶ If this passes, **the team-size goal is DONE**, not merely closed: real players, no injection, on a
-stock client. That is the sentence the project has been unable to write since 2026-09-08.
-
-### 4.2 · How far does the save go? 5v5, 6v6
-
-L8 killed the *in-match* route to a bigger budget: `maxplayers = 10` landed and `com_maxclients`
-stayed at 8. **The save is a different question** — P1 measured that `com_maxclients` is derived at
-match start from the store the save serialises, so a save authored at 10 has never been tried.
-`uint:7` allows 127; the field is nowhere near its ceiling.
-
-✅ **The field width is already checked, and it is why this is worth trying.** `maxplayers` is
-`uint:7`, so 10 and 12 are structurally representable — unlike `timelimit`, which is `fixed<8,2>` and
-saturates at 63.75s. ▶ **Check the DDL before authoring any large value**; a narrow field saturates
-silently rather than refusing.
-
-One injected launch per value. Author the save with `write_maxplayers = 1` at **10**, then relaunch
-clean and load it.
-
-| Value | Seats it actually gives | `com_maxclients` in-match | Result |
-|---|---|---|---|
-| 10 | `______` | `______` | `______` |
-| 12 | `______` | `______` | `______` |
-
-⚠ **Raise one step at a time.** If 10 works, 12 is a separate launch — not a bolder guess.
-
-### 4.3 · What ELSE fits in one save?
-
-`mp_custom_game.ddl`'s `gametypesettings` member is the match-time blob **byte for byte** — 0x65b30
-bits, 993 members. In principle *every* gametype setting is serialisable, which would make one save
-the entire mod.
-
-Author one save with several pregame writes on at once and check each in the loaded lobby:
-
-| Setting | Why it is worth carrying | Carried? |
-|---|---|---|
-| `maxplayers` = 8 | ✅ already proven | ✅ |
-| `timelimit` = **45** or **55** | ⚠ P3's timer save was **correctly voided** — 60 is published, so it proved only that saving works. ⚠⚠ And **do NOT author 90**: the field is `fixed<8,2>`, ceiling **63.75s**, so 90 saturates and proves nothing. 45 and 55 are not on the published list (0/20/30/40/50/60) *and* sit under the ceiling — unforgeable the way 8 was | `______` |
-| `gunfightloadoutindex` = 1 / 3 | snipers-only or melee-only Gunfight, no menu row (B6). ⚠ latched behind `game.var_96a8ff4a`, so it must land before `onstartgametype` | `______` |
-| `gunfightspyplane` = 3 | the value the menu row hides (B7) | `______` |
-
-▶ **Every setting that carries is one the hosting workflow stops needing an injector for.**
-
-### 4.4 · Durability — the thing that decides whether this is a workflow or a stunt
-
-| Question | Result |
-|---|---|
-| survives a **Battle.net patch**? | `______` |
-| survives a **settings reset** / "restore defaults"? | `______` |
-| does **re-saving from a stock client** preserve the modded value, or normalise it? | `______` |
-| where does the file live — did anything under `%USERPROFILE%\Documents\Call Of Duty Black Ops Cold War\player` change, or is it cloud? | `______` |
-
-⚠ The re-save question is the sharp one. If opening and re-saving normalises `maxplayers` back to a
-menu-legal value, every incidental edit is a landmine and the save must be treated as read-only.
-
-### 4.5 · Re-run the joiner-save observation properly
-
-klaze, 2026-09-10, casual: a joining account saw 4v4, still saw it after backing out, but **its own
-save came back 2v2**. Reading: the modded value rides the live session and does **not** serialise into
-a joiner's save — one injected setup per account that wants to *host*, joiners need nothing.
-
-That was an observation, not a controlled run, and it carries the whole "joiners need no toolchain"
-claim. Redo it with the steps written down: join → back out → save → relaunch → load. Result:
-`______`
 
 ---
 
@@ -337,7 +347,7 @@ open:
 `fixed<8,2>` reading is structurally true either way — 63.75 *is* the field ceiling — but that does not
 prove it is the ceiling we hit at 90.
 
-⚠ **B6 and B7 have moved.** They ride stage 3's menu (rows 5 and 6) or stage 4.3's save. Do not build
+⚠ **B6 and B7 have moved.** They ride stage 4's menu (rows 5 and 6) or stage 3.3's save. Do not build
 standalone payloads for them.
 
 ---
@@ -349,13 +359,13 @@ measurement. They are listed so the work is not redone, not because anything rem
 
 | Was | Now | Where |
 |---|---|---|
-| **Stage 4, `test_frontend` read-only** — does GSC run in the lobby? | ✅ **P1 CONFIRMED.** It runs, and the store it reads **is** the pending lobby config | `pregame-routes.md` |
-| **Stage 5.1, the pregame `maxplayers` write** | ✅ **P2 WORKS** — 4v4 configured from the lobby, before anyone is seated | `pregame-routes.md` |
-| **Stage 5.2, the pregame `timelimit` write** | ✅ **P3** — the rules menu *shows* the write. ⚠ But 60 is a published value; author **90** if you want it to prove anything (4.3) | `pregame-routes.md` |
-| **probe 62, `adddebugcommand`** | 🪦 **NULLED. Probe 62 = 4.** The console is not reachable from GSC in CW retail. D10, `crack-cmds.py` and the whole DLL-command route go with it | `pregame-routes.md` |
-| **B1 / `switchmap_load` for the map** | 🪦 **inert in MP** in-match (two iterations), and it **crashes the game** from the frontend. The menu's SESSION row is a dead option | `pregame-routes.md` |
-| **A4, the script-driven carry with the `endon` fix** | 🪦 **moot.** The carry itself is measured to **crash connected clients**, so fixing its wrapper fixes the wrong thing. Host-side solo only | `pregame-routes.md` |
-| **The map compat set** | 🪦 client-LUI `uimodeldatastruct #hash_109ccf57a41ffd82`, online-fed, unreachable from every injectable VM (P8–P11). Cheat Engine would reach it; **TAC will not let CE run** | `RESEARCH-INDEX.md` |
+| the old **Stage 4** — `test_frontend` read-only — does GSC run in the lobby? | ✅ **P1 CONFIRMED.** It runs, and the store it reads **is** the pending lobby config | `pregame-routes.md` |
+| the old **Stage 5.1** — the pregame `maxplayers` write | ✅ **P2 WORKS** — 4v4 configured from the lobby, before anyone is seated | `pregame-routes.md` |
+| the old **Stage 5.2** — the pregame `timelimit` write | ✅ **P3** — the rules menu *shows* the write. ⚠ But 60 is a published value, so it proved only that saving works. **45 or 55** is what proves anything — 90 saturates at the field's 63.75s ceiling (3.3) | `pregame-routes.md` |
+| the old **probe 62** — `adddebugcommand` | 🪦 **NULLED. Probe 62 = 4.** The console is not reachable from GSC in CW retail. D10, `crack-cmds.py` and the whole DLL-command route go with it | `pregame-routes.md` |
+| the old **Stage 6** — B1 / `switchmap_load` for the map | 🪦 **inert in MP** in-match (two iterations), and it **crashes the game** from the frontend. The menu's SESSION row is a dead option | `pregame-routes.md` |
+| the old **Stage 6** — A4, the script-driven carry with the `endon` fix | 🪦 **moot.** The carry itself is measured to **crash connected clients**, so fixing its wrapper fixes the wrong thing. Host-side solo only | `pregame-routes.md` |
+| the map **compat set** | 🪦 client-LUI `uimodeldatastruct #hash_109ccf57a41ffd82`, online-fed, unreachable from every injectable VM (P8–P11). Cheat Engine would reach it; **TAC will not let CE run** | `RESEARCH-INDEX.md` |
 
 ▶ **The one map route that survives all of that is stage 2.3** — `LobbySetMap` / `LobbySetGameType`,
 which skips the compat set instead of fighting it. [`lobby-setters.md`](lobby-setters.md).
@@ -369,7 +379,7 @@ Three tests need a second person, and one of them is the whole game:
 | # | Test | Why it needs a person |
 |---|---|---|
 | **2.3b step 5** | a friend joins a `lobby-set.py` lobby | the carry **crashes connected clients**. Looking right on the host is the state the carry already reaches |
-| **4.1** | a human plays 4v4 from the save | the team-size goal is verified with **bots**. `maxplayers` is a gametype setting the session's own restore reads, so it should transfer — but this project has walked back four claims that felt safer |
+| **3.1** | a human plays 4v4 from the save | the team-size goal is verified with **bots**. `maxplayers` is a gametype setting the session's own restore reads, so it should transfer — but this project has walked back four claims that felt safer |
 | **5 · C10** | a mid-match joiner lands on a team | the join path is the one route that does not care how the lobby was configured |
 
 **And watch the spawns whenever people are in.** With `maxplayers` at 8 a 4v4 no longer *exceeds* the
@@ -377,7 +387,7 @@ configured team size, so the out-of-bounds precondition should be gone — and `
 in both `gunfight_mod` and the menu as the belt-and-braces fix. Bot run 2 played clean, but bots
 tolerate a spawn a person would swear at. `src/test_spawnmode/` mode 2 stays built as the fallback.
 
-▶ **Do them in one sitting.** All three want the same friend on the same evening, and 4.1 is the one
+▶ **Do them in one sitting.** All three want the same friend on the same evening, and 3.1 is the one
 that turns CLOSED into DONE.
 
 ---
@@ -388,12 +398,12 @@ that turns CLOSED into DONE.
 |---|---|
 | **2.3b holds and a friend joins** | 🔓 **the map problem is closed** by the route nobody tried — real gametype, correct descriptor, no glitch, no second account |
 | 2.3b reverts on a screen change | the Lua master re-pushes the selection. Route closed **by measurement**, and the three options in [`RESEARCH-INDEX.md`](RESEARCH-INDEX.md) are all that is left |
-| **4.1 — a human plays 4v4 from the save, no injection** | 🔓🔓 **the team-size goal is DONE, not closed.** Real players, stock client, no toolchain on match night. This is the biggest single result still available |
-| 4.2 — a save authored at 10 actually seats 10 | **5v5**, by the one route L8 did not test. 12 is then its own launch, not a bolder guess |
-| 4.3 — `timelimit` at **90** survives the save | the timer stops needing an injector too. ⚠ 60 proves nothing; it is a published menu value |
-| 4.4 — re-saving from a stock client normalises the value | the save is **read-only in practice**, and every incidental rules edit is a landmine. Worth knowing before a match night, not after |
+| **3.1 — a human plays 4v4 from the save, no injection** | 🔓🔓 **the team-size goal is DONE, not closed.** Real players, stock client, no toolchain on match night. This is the biggest single result still available |
+| 3.2 — a save authored at 10 actually seats 10 | **5v5**, by the one route L8 did not test. 12 is then its own launch, not a bolder guess |
+| 3.3 — `timelimit` at **45/55** survives the save | the timer stops needing an injector too. ⚠ 60 proves nothing; it is a published menu value |
+| 3.4 — re-saving from a stock client normalises the value | the save is **read-only in practice**, and every incidental rules edit is a landmine. Worth knowing before a match night, not after |
 | 2.2 (L0) = spectator joins a full team | **4v4 with zero code**, by a different door than `maxplayers` |
-| 3 · row 8 — the Spawns page draws and spawns hold at 4v4 | the out-of-bounds bug is fixed in the shipping artifact, not just in theory |
+| 4 · row 8 — probe 60 arms with N > 0 and spawns hold at 4v4 | the out-of-bounds bug is fixed in the shipping artifact, not just in theory |
 | 5 · C10 — a late joiner lands on a team | the strongest team-size route, and it does not care how the lobby was configured |
 | **5.1 clock starts 0:33 (H2)** | 🪦 `setgametypesetting()` **is** bounded by the menu's published option list — a retraction of a load-bearing claim, and every "the menu cap says nothing" conclusion goes back in doubt |
 | 5 · B9 re-run disagrees with the four-frame result | unattended operation reopens. That one finding is what decides whether an agent can put fresh code in the game without klaze present |
