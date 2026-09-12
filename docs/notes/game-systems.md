@@ -444,3 +444,37 @@ nothing installed**. Gunfight loadouts are weapons+grenades+talents(+optional st
 separate field-upgrade/gadget key in the Gunfight loadout struct — perks come through talents. `game_mode_
 suffix` matters: pass the base talent ref and let the engine add the suffix (givetalents already does), don't
 pre-suffix.
+
+## 18. Host migration — reliability of a modded host (partly engine-decided)
+MP ships full host-migration infrastructure (`hostmigration_shared.gsc`: `hostmigrationwait`,
+`waittillhostmigrationdone/starts`, `pausetimer`/`resumetimer`, `hostmigrationtimerthink`), and many
+gametypes call `hostmigration::waittillhostmigrationdone()` — so a migrating match PAUSES (countdown) and
+RESUMES on a new host rather than ending. During migration gadgets are disabled
+(`val::set(#"hostmigration","disablegadgets",1)`) then reset. The gametype-setup-on-migration hook,
+`codecallback_migration_setupgametype` → `simple_hostmigration::migration_setupgametype()`, is an **empty
+stub** in this build — migration does not re-run gametype_init from script; the migrated level state carries
+over.
+
+### ⚠ What this means for a MODDED host (the reliability risk)
+`gunfight_mod` is host-injected — it lives in the ORIGINAL host's process only, and its effect is a set of
+`level.*` function-pointer reassignments (`level.ontimelimit = &mod_ontimelimit`, etc.) that point into the
+mod's script. If the modded host leaves and the match migrates to a **joiner (vanilla, no mod)**:
+- those pointers reference functions the new host's process does not have, and gametype_init is not re-run
+  from script → the modded fixes (zones_guard, timelimit_fix, spawn_guard, team-size, timer) are **lost**,
+  and on an off-Gunfight map the new vanilla host would hit the very overtime-zones crash the mod prevents.
+- So the modded experience holds only while the ORIGINAL modded host is host.
+
+### The mitigating unknown — VERIFY empirically (cheap)
+Standard COD behaviour is that **private/custom matches END when the host leaves** (the host is the
+authority; migration is a public-matchmaking feature). The scripts here neither confirm nor deny that for
+this build — the migrate-vs-end decision is engine/session-policy, not in these scripts. IF private matches
+end on host-leave, this whole risk is moot.
+▶ **One-minute test:** host a private Gunfight match with a friend joined, have the HOST quit; observe
+whether the friend's match ENDS (returns to lobby/menu) or MIGRATES (pauses then continues with the friend
+as host). End = no risk. Migrate = the mod is lost mid-match on incompatible maps.
+- If it migrates: options are (a) accept that the host must stay, (b) look for a private-match
+  `disablehostmigration` dvar/setting, or (c) have the mod detect migration-begin (the
+  `hostmigration`/`waittillhostmigrationstarts` hooks) and cleanly end the round/match rather than let a
+  vanilla host resume a broken state.
+Recorded as an open reliability item — not a blocker, but the kind of thing that would surface as a
+mysterious mid-match crash if a modded host drops on an off-Gunfight map.
