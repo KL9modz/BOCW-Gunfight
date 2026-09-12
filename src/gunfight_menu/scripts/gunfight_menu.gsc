@@ -146,6 +146,12 @@ function private cfg_roundwinlimit()  { return getdvarint( #"gf_roundwinlimit", 
 function private cfg_roundlimit()     { return getdvarint( #"gf_roundlimit", -1 ); }
 function private cfg_rounds_loadout() { return getdvarint( #"gf_rounds_loadout", -1 ); }
 
+// Movement. bg_gravity is engine-consumed in MP (docs/notes/mp-dvars.md, verified
+// 2026-09-07; stock 800). Jump uses the setjumpheight BUILTIN - the jump_height DVAR
+// is a campaign/ZM dead end in MP - and -1 leaves the engine default untouched.
+function private cfg_gravity()  { return getdvarint( #"gf_gravity", 800 ); }
+function private cfg_jump()     { return getdvarint( #"gf_jump", -1 ); }
+
 // Never ask the session for more clients than it has slots for. com_maxclients is
 // read-only from script but READABLE - 10 in a 3v3 lobby, 8 in a normal one - so the
 // bound is measured live rather than assumed. Copied from gunfight_mod.
@@ -184,6 +190,9 @@ function private mod_is_gunfight()
 
 function private mod_apply()
 {
+    // Movement mods apply in EVERY gametype, so they run before the Gunfight gate.
+    mod_movement();
+
     if ( !mod_is_gunfight() )
     {
         mod_menu_restart_all();
@@ -259,6 +268,18 @@ function private mod_menu_restart_all()
 // path this fix exists to avoid (level.zones[0] on an undefined array), and the design
 // skips it regardless of this (docs/notes/gunfight-findings.md - "overtime is absent, and
 // that is correct").
+// bg_gravity: verified engine-consumed in MP. setjumpheight: a real builtin, distinct
+// from the dead jump_height dvar - UNTESTED here, so it only fires when the host picks
+// a value (sentinel -1 = leave the engine default). Both re-asserted each round so a
+// menu pick self-heals across the round boundary and a map switch.
+function private mod_movement()
+{
+    setdvar( #"bg_gravity", cfg_gravity() );
+
+    if ( cfg_jump() >= 0 )
+        setjumpheight( cfg_jump() );
+}
+
 function private mod_ontimelimit()
 {
     // One-shot. checktimelimit() re-invokes level.ontimelimit every 0.25s while the timer
@@ -378,6 +399,12 @@ function private mod_spawn_build()
 // were built this round. Repositions the player onto a central spawn for their team.
 function private mod_spawn_place()
 {
+    // Host player tools that need re-asserting each spawn (both reset on respawn).
+    if ( isdefined( self.gf_god ) && self.gf_god )
+        self enableinvulnerability();
+    if ( isdefined( self.gf_tp ) && self.gf_tp )
+        self setclientthirdperson( 1 );
+
     if ( !cfg_spawn_guard() )
         return;
 
@@ -1358,6 +1385,125 @@ function private build_tree()
     self menu_item( "match", "Loadout rotate 2", &act_rounds_loadout, 2, undefined, #"gf_rounds_loadout", 2 );
     self menu_item( "match", "Loadout rotate 3", &act_rounds_loadout, 3, undefined, #"gf_rounds_loadout", 3 );
 
+    // ── Movement — gravity (verified) + jump (untested builtin) ──────────────
+    self menu_add( "movement", "Movement", "start_menu", 1 );
+    self menu_item( "movement", "Gravity normal 800", &act_gravity, 800, undefined, #"gf_gravity", 800 );
+    self menu_item( "movement", "Gravity low 400", &act_gravity, 400, undefined, #"gf_gravity", 400 );
+    self menu_item( "movement", "Gravity moon 200", &act_gravity, 200, undefined, #"gf_gravity", 200 );
+    self menu_item( "movement", "Gravity floaty 100", &act_gravity, 100, undefined, #"gf_gravity", 100 );
+    self menu_item( "movement", "Gravity space 40", &act_gravity, 40, undefined, #"gf_gravity", 40 );
+    self menu_item( "movement", "Jump: leave stock", &act_jump, -1, undefined, #"gf_jump", -1 );
+    self menu_item( "movement", "Jump 40", &act_jump, 40, undefined, #"gf_jump", 40 );
+    self menu_item( "movement", "Jump 70", &act_jump, 70, undefined, #"gf_jump", 70 );
+    self menu_item( "movement", "Jump 120", &act_jump, 120, undefined, #"gf_jump", 120 );
+    self menu_item( "movement", "Jump 200", &act_jump, 200, undefined, #"gf_jump", 200 );
+
+    // ── Vehicles — drivable, Combined-Arms/12v12-layout maps only ────────────
+    self menu_add( "vehicles", "Vehicles", "start_menu", 1 );
+    self menu_item( "vehicles", "Spawn snowmobile", &veh_spawn, "vehicle_t9_mil_snowmobile" );
+    self menu_item( "vehicles", "Spawn light truck", &veh_spawn, "vehicle_t9_mil_ru_truck_light_player" );
+    self menu_item( "vehicles", "Spawn sedan", &veh_spawn, "vehicle_t9_civ_ru_sedan_80s_player" );
+    self menu_item( "vehicles", "Spawn care-package heli", &veh_spawn, "vehicle_t9_mil_helicopter_care_package" );
+    self menu_item( "vehicles", "Enter vehicle I am aiming at", &veh_enter );
+
+    // ── Player tools — host only ─────────────────────────────────────────────
+    self menu_add( "player", "Player", "start_menu", 1 );
+    self menu_item( "player", "Godmode", &act_godmode );
+    self menu_item( "player", "Third person", &act_thirdperson );
+    self menu_item( "player", "Give max ammo", &act_maxammo );
+    self menu_item( "player", "Drop weapon", &act_dropweapon );
+    self menu_item( "player", "Unlock all (best-effort)", &act_unlockall );
+
+    // ── Weapons — give a gun (real T9 names from the dump) ────────────────────
+    self menu_add( "weapons", "Weapons", "start_menu", 1 );
+    self menu_item( "weapons", "XM4 (AR)", &act_giveweapon, #"ar_standard_t9", "XM4" );
+    self menu_item( "weapons", "Krig 6 (AR)", &act_giveweapon, #"ar_accurate_t9", "Krig 6" );
+    self menu_item( "weapons", "AK-47 (AR)", &act_giveweapon, #"ar_damage_t9", "AK-47" );
+    self menu_item( "weapons", "MP5 (SMG)", &act_giveweapon, #"smg_standard_t9", "MP5" );
+    self menu_item( "weapons", "Milano (SMG)", &act_giveweapon, #"smg_handling_t9", "Milano" );
+    self menu_item( "weapons", "MAC-10 (SMG)", &act_giveweapon, #"smg_fastfire_t9", "MAC-10" );
+    self menu_item( "weapons", "M16 (Tactical Rifle)", &act_giveweapon, #"tr_powerburst_t9", "M16" );
+    self menu_item( "weapons", "Pelington (Sniper)", &act_giveweapon, #"sniper_standard_t9", "Pelington" );
+    self menu_item( "weapons", "LW3 Tundra (Sniper)", &act_giveweapon, #"sniper_quickscope_t9", "LW3 Tundra" );
+    self menu_item( "weapons", "M82 (Sniper)", &act_giveweapon, #"sniper_powersemi_t9", "M82" );
+    self menu_item( "weapons", "Stoner63 (LMG)", &act_giveweapon, #"lmg_light_t9", "Stoner63" );
+    self menu_item( "weapons", "Hauer 77 (Shotgun)", &act_giveweapon, #"shotgun_pump_t9", "Hauer 77" );
+    self menu_item( "weapons", "Gallo SA12 (Shotgun)", &act_giveweapon, #"shotgun_fullauto_t9", "Gallo SA12" );
+    self menu_item( "weapons", "Magnum (Pistol)", &act_giveweapon, #"pistol_revolver_t9", "Magnum" );
+    self menu_item( "weapons", "Diamatti (Pistol)", &act_giveweapon, #"pistol_burst_t9", "Diamatti" );
+
+    // ── Camo — applied to the current weapon, ownership ignored ───────────────
+    self menu_add( "camo", "Camo", "start_menu", 1 );
+    self menu_item( "camo", "Gold", &act_camo, 61 );
+    self menu_item( "camo", "Diamond", &act_camo, 62 );
+    self menu_item( "camo", "DM Ultra", &act_camo, 63 );
+    self menu_item( "camo", "Gold (Zombies)", &act_camo, 64 );
+    self menu_item( "camo", "Diamond (Zombies)", &act_camo, 65 );
+    self menu_item( "camo", "Dark Aether", &act_camo, 66 );
+    self menu_item( "camo", "Pack-a-Punch 1", &act_camo, 67 );
+    self menu_item( "camo", "Pack-a-Punch 2", &act_camo, 68 );
+    self menu_item( "camo", "Pack-a-Punch 3", &act_camo, 69 );
+    self menu_add( "camo_byid", "Camo by ID (0-149)", "camo", 1 );
+    for ( ci = 0; ci < 150; ci++ )
+        self menu_item( "camo_byid", "Camo " + ci, &act_camo, ci );
+
+    // ── Operator (skin) ───────────────────────────────────────────────────────
+    self menu_add( "operator", "Operator", "start_menu", 1 );
+    self menu_item( "operator", "Invisible", &act_skin, 0 );
+    self menu_item( "operator", "Adler", &act_skin, 1 );
+    self menu_item( "operator", "Portnova", &act_skin, 2 );
+    self menu_item( "operator", "Garcia", &act_skin, 3 );
+    self menu_item( "operator", "Baker", &act_skin, 4 );
+    self menu_item( "operator", "Sims", &act_skin, 5 );
+    self menu_item( "operator", "Hunter", &act_skin, 6 );
+    self menu_item( "operator", "Vargas", &act_skin, 7 );
+    self menu_item( "operator", "Stone", &act_skin, 8 );
+    self menu_item( "operator", "Song", &act_skin, 9 );
+    self menu_item( "operator", "Powers", &act_skin, 10 );
+    self menu_item( "operator", "Baker (2)", &act_skin, 11 );
+    self menu_item( "operator", "Zeyna", &act_skin, 12 );
+    self menu_item( "operator", "Wolf", &act_skin, 13 );
+    self menu_item( "operator", "Beck", &act_skin, 14 );
+    self menu_item( "operator", "Knight", &act_skin, 15 );
+    self menu_item( "operator", "Antonov", &act_skin, 16 );
+    self menu_item( "operator", "Park", &act_skin, 17 );
+    self menu_item( "operator", "Stitch", &act_skin, 18 );
+    self menu_item( "operator", "Bulldozer", &act_skin, 19 );
+    self menu_item( "operator", "CDL 1", &act_skin, 20 );
+    self menu_item( "operator", "CDL 2", &act_skin, 21 );
+    self menu_item( "operator", "Woods", &act_skin, 22 );
+    self menu_item( "operator", "Rivas", &act_skin, 23 );
+    self menu_item( "operator", "Naga", &act_skin, 24 );
+    self menu_item( "operator", "Maxis", &act_skin, 25 );
+    self menu_item( "operator", "John Doe", &act_skin, 26 );
+    self menu_item( "operator", "Jane Doe", &act_skin, 27 );
+    self menu_item( "operator", "Base (M)", &act_skin, 28 );
+    self menu_item( "operator", "Base (F)", &act_skin, 29 );
+    self menu_item( "operator", "Wraith", &act_skin, 30 );
+    self menu_item( "operator", "Baker (3)", &act_skin, 31 );
+    self menu_item( "operator", "Park (2)", &act_skin, 32 );
+    self menu_item( "operator", "Price", &act_skin, 33 );
+    self menu_item( "operator", "John McClane", &act_skin, 34 );
+    self menu_item( "operator", "Rambo", &act_skin, 35 );
+    self menu_item( "operator", "Weaver", &act_skin, 36 );
+    self menu_item( "operator", "Jackal", &act_skin, 37 );
+    self menu_item( "operator", "Salah", &act_skin, 38 );
+    self menu_item( "operator", "Kitsune", &act_skin, 39 );
+    self menu_item( "operator", "Stryker", &act_skin, 40 );
+    self menu_item( "operator", "Arthur Kingsley", &act_skin, 41 );
+    self menu_item( "operator", "Hudson", &act_skin, 42 );
+    self menu_item( "operator", "Mason", &act_skin, 43 );
+    self menu_item( "operator", "Scream", &act_skin, 44 );
+    self menu_item( "operator", "Fuze", &act_skin, 45 );
+    self menu_item( "operator", "Zombie (F)", &act_skin, 46 );
+    self menu_item( "operator", "Zombie (M)", &act_skin, 47 );
+    self menu_item( "operator", "Lazar", &act_skin, 48 );
+
+    // ── Outfit — by id (per-operator outfits) ─────────────────────────────────
+    self menu_add( "outfit", "Outfit", "start_menu", 1 );
+    for ( oi = 0; oi < 24; oi++ )
+        self menu_item( "outfit", "Outfit " + oi, &act_outfit, oi );
+
     // ── Map ──────────────────────────────────────────────────────────────────
     // Every label is "<in-game display name>  [<map name>]". Names audited 2026-09-12
     // against the dump's map table (36 mp_* maptableentry assets, no 37th), the CoD
@@ -1457,6 +1603,17 @@ function private build_tree()
     self menu_item( "gametype", "Search & Destroy", &act_gametype, "sd" );
     self menu_item( "gametype", "Kill Confirmed", &act_gametype, "conf" );
     self menu_item( "gametype", "Control", &act_gametype, "control" );
+    self menu_item( "gametype", "Capture the Flag", &act_gametype, "ctf" );
+    self menu_item( "gametype", "Demolition", &act_gametype, "dem" );
+    self menu_item( "gametype", "Infected", &act_gametype, "infect" );
+    self menu_item( "gametype", "Gun Game", &act_gametype, "gun" );
+    self menu_item( "gametype", "Prop Hunt", &act_gametype, "prop" );
+    self menu_item( "gametype", "Sticks and Stones", &act_gametype, "sas" );
+    self menu_item( "gametype", "One in the Chamber", &act_gametype, "oic" );
+    self menu_item( "gametype", "Dropkick", &act_gametype, "dropkick" );
+    self menu_item( "gametype", "VIP Escort", &act_gametype, "vip" );
+    self menu_item( "gametype", "Team War", &act_gametype, "war" );
+    self menu_item( "gametype", "Cranked", &act_gametype, "cranked" );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1740,6 +1897,225 @@ function private act_rounds_loadout( item, value )
     self menu_say( "^2loadout rotates every " + value + " round(s) - next round" );
     return true;
 }
+
+// ── Movement ───────────────────────────────────────────────────────────────
+
+function private act_gravity( item, value )
+{
+    setdvar( #"gf_gravity", value );
+    setdvar( #"bg_gravity", value );
+    self menu_say( "^2gravity " + value + ( value == 800 ? " (normal)" : "" ) );
+    return true;
+}
+
+function private act_jump( item, value )
+{
+    setdvar( #"gf_jump", value );
+
+    if ( value >= 0 )
+    {
+        setjumpheight( value );
+        self menu_say( "^3jump height " + value + " - untested builtin, watch your jump" );
+    }
+    else
+    {
+        self menu_say( "^2jump left at engine default" );
+    }
+
+    return true;
+}
+
+// ── Vehicles ───────────────────────────────────────────────────────────────
+// Spawn a drivable vehicle ahead of the host. The mechanism is the shipped Atian
+// menu's (menu_funcs.gsc func_spawn_vehicle): spawnvehicle + makeusable, with physics
+// and helicopter handling. ⚠ Vehicle ASSETS only exist on maps that ship them - the
+// Combined-Arms / 12v12-layout maps - so isassetloaded() gates it and says so on a
+// Gunfight map instead of failing. ⚠ Whole feature UNTESTED in this project.
+
+function private veh_spawn( item, type )
+{
+    if ( !isassetloaded( "vehicle", type ) )
+    {
+        self menu_say( "^1no vehicle assets on this map - try a 12v12-layout map" );
+        return true;
+    }
+
+    ang = self getplayerangles();
+    flat = ( 0, ang[ 1 ], 0 );                                   // level, keep the yaw
+    spot = self.origin + vectorscale( anglestoforward( flat ), 250 ) + ( 0, 0, 25 );
+
+    veh = spawnvehicle( type, spot, flat );
+
+    if ( !isdefined( veh ) )
+    {
+        self menu_say( "^1spawn failed" );
+        return true;
+    }
+
+    veh makeusable();
+
+    if ( isdefined( veh.isphysicsvehicle ) && veh.isphysicsvehicle )
+        veh setbrake( 1 );
+
+    if ( isairborne( veh ) )
+        veh setrotorspeed( 1.0 );
+
+    self menu_say( "^2vehicle spawned ahead - walk into it and hold Use" );
+    return true;
+}
+
+function private veh_enter( item )
+{
+    eye = self geteye();
+    tr = bullettrace( eye, eye + vectorscale( anglestoforward( self getplayerangles() ), 400 ), 1, self );
+    ent = tr[ #"entity" ];
+
+    if ( isdefined( ent ) && isvehicle( ent ) )
+    {
+        ent usevehicle( self, 0 );
+        self menu_say( "^2entering" );
+    }
+    else
+    {
+        self menu_say( "^1look right at a vehicle first" );
+    }
+
+    return true;
+}
+
+// ── Player tools ─────────────────────────────────────────────────────────────
+// Host-only (self = the host). Godmode/third person are re-applied on spawn by
+// mod_spawn_place. Same builtins the Atian menu uses (menu_funcs.gsc).
+
+function private act_godmode( item )
+{
+    if ( !isdefined( self.gf_god ) )
+        self.gf_god = 0;
+    self.gf_god = !self.gf_god;
+    item.activated = self.gf_god;
+
+    if ( self.gf_god )
+    {
+        self enableinvulnerability();
+        self menu_say( "^2godmode ON" );
+    }
+    else
+    {
+        self disableinvulnerability();
+        self menu_say( "^2godmode OFF" );
+    }
+
+    return true;
+}
+
+function private act_thirdperson( item )
+{
+    if ( !isdefined( self.gf_tp ) )
+        self.gf_tp = 0;
+    self.gf_tp = !self.gf_tp;
+    item.activated = self.gf_tp;
+    self setclientthirdperson( self.gf_tp );
+    self menu_say( self.gf_tp ? "^2third person" : "^2first person" );
+    return true;
+}
+
+function private act_maxammo( item )
+{
+    w = self getcurrentweapon();
+    if ( isdefined( w ) )
+        self givemaxammo( w );
+    self menu_say( "^2max ammo" );
+    return true;
+}
+
+function private act_dropweapon( item )
+{
+    w = self getcurrentweapon();
+    if ( isdefined( w ) && self hasweapon( w ) )
+        self takeweapon( w );
+    self menu_say( "^2dropped" );
+    return true;
+}
+
+// ── Weapons ──────────────────────────────────────────────────────────────────
+// data1 is the weapon's hashed name (#"ar_standard_t9" etc. - real T9 names from the
+// dump), data2 the label. getweapon takes the hash, giveweapon + switch to it.
+
+function private act_giveweapon( item, whash, label )
+{
+    w = getweapon( whash );
+
+    if ( isdefined( w ) )
+    {
+        self giveweapon( w );
+        self switchtoweapon( w );
+        self menu_say( "^2gave " + label );
+    }
+    else
+    {
+        self menu_say( "^1weapon not found: " + label );
+    }
+
+    return true;
+}
+
+// ── Cosmetics — force-applied via builtins, so they work regardless of whether
+//    the item is actually unlocked/owned (that is the point of the menu). ──────
+
+function private act_camo( item, id )
+{
+    w = self getcurrentweapon();
+    if ( isdefined( w ) )
+        self setcamo( w, id );
+    self menu_say( "^2camo " + id + " on current weapon" );
+    return true;
+}
+
+// Clear the per-slot customization so an operator/outfit change looks clean. All
+// confirmed builtins; mirrors the Atian menu's func_skin/func_outfit.
+function private cos_clear()
+{
+    self function_ab96a9b5( "head", 0 );
+    self function_ab96a9b5( "headgear", 0 );
+    self function_ab96a9b5( "arms", 0 );
+    self function_ab96a9b5( "torso", 0 );
+    self function_ab96a9b5( "legs", 0 );
+    self function_ab96a9b5( "palette", 0 );
+    self function_ab96a9b5( "warpaint", 0 );
+    self function_ab96a9b5( "decal", 0 );
+}
+
+function private act_skin( item, id )
+{
+    self setspecialistindex( id );
+    self setcharacteroutfit( 0 );
+    self setcharacterwarpaintoutfit( 0 );
+    self cos_clear();
+    self menu_say( "^2operator " + id );
+    return true;
+}
+
+function private act_outfit( item, id )
+{
+    self setcharacteroutfit( id );
+    self setcharacterwarpaintoutfit( 0 );
+    self cos_clear();
+    self menu_say( "^2outfit " + id );
+    return true;
+}
+
+// loot_fakeall is the engine dvar cwpatch sets at launch to fake-unlock loot; it is
+// NOT in the dump, so a mid-match set is best-effort and mostly touches frontend menus.
+// The camo/operator/outfit pages already apply any item regardless of ownership, which
+// is the real in-match "use anything". Full unlock = cwpatch / CW_Soft_Unlock.dll
+// (docs/notes/unlock-dlls.md).
+function private act_unlockall( item )
+{
+    setdvar( #"loot_fakeall", 1 );
+    self menu_say( "^3loot_fakeall=1 - best-effort; cwpatch does the real unlock" );
+    return true;
+}
+
 
 // ── Map ──────────────────────────────────────────────────────────────────────
 
