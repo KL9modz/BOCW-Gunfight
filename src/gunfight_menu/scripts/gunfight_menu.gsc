@@ -336,12 +336,30 @@ function private mod_spawn_place()
 function private mod_gather_spawns()
 {
     names = [];
-    names[ 0 ] = "mp_dm_spawn";
-    names[ 1 ] = "mp_tdm_spawn";
-    names[ 2 ] = "mp_tdm_spawn_allies_start";
-    names[ 3 ] = "mp_tdm_spawn_axis_start";
-    names[ 4 ] = "mp_tdm_spawn_team1_start";
-    names[ 5 ] = "mp_tdm_spawn_team2_start";
+
+    // GENERIC map spawns - the most common targetname family in the source, and what the
+    // maps that "don't use tdm spawns" actually place: mp_cartel / mp_slums_rm /
+    // mp_village_rm / mp_miami_strike all move_spawn_point() these. This is the set the
+    // first pass was missing, so it gathered <2 and no-oped. The game's own
+    // function_d400d613 reads them with the same struct::get_array( name, "targetname" ).
+    names[ names.size ] = "mp_spawn_point";
+    names[ names.size ] = "mp_spawn_point_allies";
+    names[ names.size ] = "mp_spawn_point_axis";
+
+    // DM / FFA and TDM.
+    names[ names.size ] = "mp_dm_spawn";
+    names[ names.size ] = "mp_tdm_spawn";
+    names[ names.size ] = "mp_tdm_spawn_allies_start";
+    names[ names.size ] = "mp_tdm_spawn_axis_start";
+    names[ names.size ] = "mp_tdm_spawn_team1_start";
+    names[ names.size ] = "mp_tdm_spawn_team2_start";
+
+    // Combined Arms / Team War - the large-format layout that leaves you OOB in the first
+    // place. Gather them too; mod_nearest_k still extracts the central cluster from them,
+    // which is exactly what a small mode needs.
+    names[ names.size ] = "mp_twar_spawn";
+    names[ names.size ] = "mp_twar_spawn_allies_start";
+    names[ names.size ] = "mp_twar_spawn_axis_start";
 
     pts = [];
 
