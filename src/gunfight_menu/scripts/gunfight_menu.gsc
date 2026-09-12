@@ -34,7 +34,8 @@
 //     gf_timer_seconds  default 60
 //     gf_loadout        0 default / 1 snipers / 2 blueprints / 3 melee
 //     gf_spyplane       0 off / 1 on / 3 shared (the value the menu hides)
-//     gf_map_method     0 carry (map, the proven Atian call) / 1 session (switchmap_load)
+//     gf_map_method     1 session (switchmap_load - the lobby FOLLOWS, verified 2026-09-12, default)
+//                       0 carry   (map() - the Atian load-time override; lobby stays stale. fallback)
 //     gf_spawn_guard    0 off (default) / 1 on - reposition to central real spawns (untested)
 //     gf_spawn_diag     1 on (default) - emit 60=armed(N) / 61=inert via iprintlnbold
 //     gf_roundwinlimit  -1 leave stock (default) / N first-to-N rounds
@@ -54,17 +55,23 @@
 //
 // ── WHAT IS PROVEN AND WHAT IS NOT ───────────────────────────────────────────
 //     zones_guard / timelimit_fix / presentation / timer_override   ✅ in-game
-//     team size via maxplayers                                        ✅ L6, bots
+//     team size via maxplayers                                        ✅ L6 4v4; 6v6 filled 2026-09-12 (bots, 12-slot session)
 //     bot fill via bot::add_bot                                       ✅ C7
 //     map_restart()                                                   ✅ B4
-//     map carry via map() + switchmap_switch()                        ✅ the Atian carry
+//     map carry via map() + switchmap_switch()                        ✅ the Atian carry (load-time only)
 //     move a player via [[ level.autoassign ]]                        ⚠ C11 built, never run
 //     loadout set via gunfightloadoutindex                            ⚠ B6 never run
 //     spy plane value 3                                               ⚠ B7 never run
 //     #spawn_guard central real-spawn reposition                      ⚠ ported, untested - solo first
 //     match limits roundwinlimit/roundlimit/roundsperloadout          ✅ keys verified in source
 //     move/spectate guard level.autoassign / level.spectator          ✅ hardened
-//     map via switchmap_load( map, gametype )                         ⚠ B1 never run
+//     map via switchmap_load( map, gametype )                         ✅ 2026-09-12: the SESSION moves.
+//                                                                       lobby-route restart reloaded Zoo,
+//                                                                       com_maxclients read 12. Needs the
+//                                                                       string-header strip (tools/) or the
+//                                                                       map name reaches the engine garbled -
+//                                                                       which is why bbf94f9 called it inert.
+//                                                                       docs/notes/session-switch.md
 //
 // ⚠ ONE CONTRADICTION THIS FILE HAD TO ROUTE AROUND. A4 diagnosed its map-switch
 //   failure as `level endon( #"game_ended" )` killing the thread inside wait(1).
@@ -107,7 +114,7 @@ function private cfg_team_size()     { return getdvarint( #"gf_team_size", 4 ); 
 function private cfg_timer_seconds() { return getdvarint( #"gf_timer_seconds", 60 ); }
 function private cfg_loadout()       { return getdvarint( #"gf_loadout", 0 ); }
 function private cfg_spyplane()      { return getdvarint( #"gf_spyplane", 0 ); }
-function private cfg_map_method()    { return getdvarint( #"gf_map_method", 0 ); }
+function private cfg_map_method()    { return getdvarint( #"gf_map_method", 1 ); }
 function private cfg_menu_lines()    { return getdvarint( #"gf_menu_lines", 2 ); }
 
 // #spawn_guard (ported from gunfight_mod, adapted to dvars). Default OFF - test solo first.
@@ -903,6 +910,10 @@ function private build_tree()
     self menu_item( "teams", "3v3", &act_team_size, 3 );
     self menu_item( "teams", "4v4", &act_team_size, 4 );
     self menu_item( "teams", "5v5", &act_team_size, 5 );
+    // 6v6 = 12 clients = exactly the com_maxclients lobby_state read in a Gunfight session
+    // after a SESSION map switch (2026-09-12). clamp_team_size() bounds it at budget/2, so
+    // in an 8- or 10-slot lobby this item degrades to 4v4 / 5v5 and says so.
+    self menu_item( "teams", "6v6", &act_team_size, 6 );
     self menu_item( "teams", "Fill with bots", &act_fill_bots );
     self menu_item( "teams", "Remove all bots", &act_remove_bots );
 
@@ -951,7 +962,10 @@ function private build_tree()
 
     // ── Map ──────────────────────────────────────────────────────────────────
     self menu_add( "map", "Map", "start_menu", 1 );
-    self menu_item( "map", "Method: carry / session", &act_map_method );
+    // (ON) = SESSION, the default: the lobby follows the switch. Off = the old Atian
+    // load-time carry. Seeded from the dvar so the marker is right on first open.
+    it = self menu_item( "map", "Session switch (lobby follows)", &act_map_method );
+    it.activated = cfg_map_method();
     self menu_item( "map", "Zoo - verified", &act_map, "mp_zoo_rm" );
     self menu_add( "map_all", "All maps", "map", 1 );
 
@@ -1279,7 +1293,7 @@ function private act_map_method( item )
     method = cfg_map_method() ? 0 : 1;
     setdvar( #"gf_map_method", method );
     item.activated = method;
-    self menu_say( method ? "^3map method: SESSION (switchmap_load - B1, unverified)" : "^2map method: CARRY (map - verified)" );
+    self menu_say( method ? "^2map method: SESSION - lobby follows, restart via lobby or F7" : "^3map method: CARRY - load-time only, lobby stays stale, F7 ONLY" );
     return true;
 }
 
