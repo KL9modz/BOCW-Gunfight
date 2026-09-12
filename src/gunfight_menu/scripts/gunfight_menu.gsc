@@ -35,6 +35,11 @@
 //     gf_loadout        0 default / 1 snipers / 2 blueprints / 3 melee
 //     gf_spyplane       0 off / 1 on / 3 shared (the value the menu hides)
 //     gf_map_method     0 carry (map, the proven Atian call) / 1 session (switchmap_load)
+//     gf_spawn_guard    0 off (default) / 1 on - reposition to central real spawns (untested)
+//     gf_spawn_diag     1 on (default) - emit 60=armed(N) / 61=inert via iprintlnbold
+//     gf_roundwinlimit  -1 leave stock (default) / N first-to-N rounds
+//     gf_roundlimit     -1 leave stock (default) / N round cap
+//     gf_rounds_loadout -1 leave stock (default) / N rounds per loadout rotation
 //     gf_menu_lines     items per page, default 2 (what the Atian author chose for MP)
 //
 // Set once, they hold until the game is restarted - at which point the payload
@@ -56,6 +61,9 @@
 //     move a player via [[ level.autoassign ]]                        ⚠ C11 built, never run
 //     loadout set via gunfightloadoutindex                            ⚠ B6 never run
 //     spy plane value 3                                               ⚠ B7 never run
+//     #spawn_guard central real-spawn reposition                      ⚠ ported, untested - solo first
+//     match limits roundwinlimit/roundlimit/roundsperloadout          ✅ keys verified in source
+//     move/spectate guard level.autoassign / level.spectator          ✅ hardened
 //     map via switchmap_load( map, gametype )                         ⚠ B1 never run
 //
 // ⚠ ONE CONTRADICTION THIS FILE HAD TO ROUTE AROUND. A4 diagnosed its map-switch
@@ -72,6 +80,7 @@
 #using scripts\core_common\clientfield_shared;
 #using scripts\core_common\system_shared;
 #using scripts\core_common\util_shared;
+#using scripts\core_common\struct;
 #using scripts\core_common\music_shared;
 #using scripts\core_common\bots\bot;
 #using scripts\mp_common\gametypes\gunfight;
@@ -87,6 +96,7 @@ function private __init__()
 {
     callback::on_start_gametype( &mod_apply );
     callback::on_connect( &on_player_connect );
+    callback::on_spawned( &mod_spawn_place );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -99,6 +109,16 @@ function private cfg_loadout()       { return getdvarint( #"gf_loadout", 0 ); }
 function private cfg_spyplane()      { return getdvarint( #"gf_spyplane", 0 ); }
 function private cfg_map_method()    { return getdvarint( #"gf_map_method", 0 ); }
 function private cfg_menu_lines()    { return getdvarint( #"gf_menu_lines", 2 ); }
+
+// #spawn_guard (ported from gunfight_mod, adapted to dvars). Default OFF - test solo first.
+function private cfg_spawn_guard()   { return getdvarint( #"gf_spawn_guard", 0 ); }
+function private cfg_spawn_diag()    { return getdvarint( #"gf_spawn_diag", 1 ); }
+
+// Match-length knobs. Sentinel -1 = leave the lobby's value untouched (only an explicit
+// menu pick asserts control). Keys verified against gunfight.gsc / globallogic.gsc.
+function private cfg_roundwinlimit()  { return getdvarint( #"gf_roundwinlimit", -1 ); }
+function private cfg_roundlimit()     { return getdvarint( #"gf_roundlimit", -1 ); }
+function private cfg_rounds_loadout() { return getdvarint( #"gf_rounds_loadout", -1 ); }
 
 // Never ask the session for more clients than it has slots for. com_maxclients is
 // read-only from script but READABLE - 10 in a 3v3 lobby, 8 in a normal one - so the
@@ -155,7 +175,21 @@ function private mod_apply()
     setgametypesetting( #"gunfightloadoutindex", cfg_loadout() );
     setgametypesetting( #"gunfightspyplane", cfg_spyplane() );
 
+    // Match-length knobs - sentinel -1 leaves the lobby value alone. Re-applied every round
+    // like the timer/team so a menu pick self-heals across the round boundary and a carry.
+    if ( cfg_roundwinlimit() >= 0 )
+        setgametypesetting( #"roundwinlimit", cfg_roundwinlimit() );
+    if ( cfg_roundlimit() >= 0 )
+        setgametypesetting( #"roundlimit", cfg_roundlimit() );
+    if ( cfg_rounds_loadout() >= 0 )
+        setgametypesetting( #"gunfightroundsperloadout", cfg_rounds_loadout() );
+
     mod_presentation_fixups();
+
+    // #spawn_guard: rebuild the central-spawn anchors each round (level is torn down per
+    // round). No-op inside unless the flag is on; the on_spawned handler reads the result.
+    if ( cfg_spawn_guard() )
+        mod_spawn_build();
 
     // Belt and braces for the menu across round boundaries: the Atian Menu's own
     // loop survives rounds in klaze's hands (game_ended fires once, at match end -
@@ -218,6 +252,189 @@ function private mod_norespawns_hud()
     waitframe( 1 );
     clientfield::set_world_uimodel( "hudItems.team1.noRespawnsLeft", 1 );
     clientfield::set_world_uimodel( "hudItems.team2.noRespawnsLeft", 1 );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SPAWN GUARD — ported from gunfight_mod (game-systems sec 16b), dvar-driven here.
+// Fixes combined-arms/large-variant OOB / odd spawns by repositioning each player
+// onto a CENTRAL, real spawn struct for their team. Only ever uses EXISTING structs,
+// so every destination is designer-placed and mesh-valid. Fails safe (< 2 points =>
+// no-op, stock spawns stand). ⚠ UNTESTED — validate SOLO first (watch where you spawn).
+// ═════════════════════════════════════════════════════════════════════════════
+
+function private mod_spawn_build()
+{
+    pts = mod_gather_spawns();
+
+    if ( !isdefined( pts ) || pts.size < 2 )
+    {
+        level.gfmenu_spawn = undefined;
+        if ( cfg_spawn_diag() )
+            mod_gf_emit( 61, isdefined( pts ) ? pts.size : 0 );   // inert: too few points
+        return;
+    }
+
+    center = mod_centroid( pts );
+    central = mod_nearest_k( pts, center, 12 );   // the most central real spawn structs
+
+    // Split the central cluster into two sides by X so the teams are separated but close.
+    xmed = mod_median_x( central );
+    team1 = [];
+    team2 = [];
+    foreach ( p in central )
+    {
+        if ( p.origin[ 0 ] <= xmed )
+            team1[ team1.size ] = p;
+        else
+            team2[ team2.size ] = p;
+    }
+    if ( team1.size == 0 )
+        team1 = central;
+    if ( team2.size == 0 )
+        team2 = central;
+
+    level.gfmenu_spawn = { #team1:team1, #team2:team2 };
+
+    if ( cfg_spawn_diag() )
+        mod_gf_emit( 60, pts.size );   // armed, N spawn points gathered
+}
+
+// Fires on every spawn (registered in __init__). No-op unless the flag is on and anchors
+// were built this round. Repositions the player onto a central spawn for their team.
+function private mod_spawn_place()
+{
+    if ( !cfg_spawn_guard() )
+        return;
+
+    if ( !isdefined( level.gfmenu_spawn ) )
+        return;
+
+    if ( !isplayer( self ) || !isdefined( self.team ) )
+        return;
+
+    if ( self.team == #"axis" )
+        list = level.gfmenu_spawn.team2;
+    else
+        list = level.gfmenu_spawn.team1;
+
+    if ( !isdefined( list ) || list.size == 0 )
+        return;
+
+    pt = list[ randomint( list.size ) ];
+
+    if ( !isdefined( pt ) || !isdefined( pt.origin ) )
+        return;
+
+    self setorigin( pt.origin );
+
+    if ( isdefined( pt.angles ) )
+        self setplayerangles( pt.angles );
+}
+
+// []-construction, NOT bare array(): keys_init above documents why array() is a link-time
+// risk in this file (zero precedent in stock MP scripts). Same rule applies here.
+function private mod_gather_spawns()
+{
+    names = [];
+    names[ 0 ] = "mp_dm_spawn";
+    names[ 1 ] = "mp_tdm_spawn";
+    names[ 2 ] = "mp_tdm_spawn_allies_start";
+    names[ 3 ] = "mp_tdm_spawn_axis_start";
+    names[ 4 ] = "mp_tdm_spawn_team1_start";
+    names[ 5 ] = "mp_tdm_spawn_team2_start";
+
+    pts = [];
+
+    foreach ( n in names )
+    {
+        arr = struct::get_array( n, "targetname" );
+
+        if ( isdefined( arr ) )
+        {
+            foreach ( s in arr )
+            {
+                if ( isdefined( s ) && isdefined( s.origin ) )
+                    pts[ pts.size ] = s;
+            }
+        }
+    }
+
+    return pts;
+}
+
+function private mod_centroid( pts )
+{
+    sum = ( 0, 0, 0 );
+
+    foreach ( p in pts )
+        sum += p.origin;
+
+    return sum / pts.size;
+}
+
+function private mod_nearest_k( pts, center, k )
+{
+    scored = [];
+
+    foreach ( p in pts )
+        scored[ scored.size ] = { #pt:p, #d:mod_dist2d_sq( p.origin, center ) };
+
+    for ( i = 0; i < scored.size; i++ )
+    {
+        for ( j = i + 1; j < scored.size; j++ )
+        {
+            if ( scored[ j ].d < scored[ i ].d )
+            {
+                tmp = scored[ i ];
+                scored[ i ] = scored[ j ];
+                scored[ j ] = tmp;
+            }
+        }
+    }
+
+    out = [];
+    n = ( scored.size < k ) ? scored.size : k;
+
+    for ( i = 0; i < n; i++ )
+        out[ out.size ] = scored[ i ].pt;
+
+    return out;
+}
+
+function private mod_median_x( pts )
+{
+    xs = [];
+
+    foreach ( p in pts )
+        xs[ xs.size ] = p.origin[ 0 ];
+
+    for ( i = 0; i < xs.size; i++ )
+    {
+        for ( j = i + 1; j < xs.size; j++ )
+        {
+            if ( xs[ j ] < xs[ i ] )
+            {
+                t = xs[ i ];
+                xs[ i ] = xs[ j ];
+                xs[ j ] = t;
+            }
+        }
+    }
+
+    return xs[ int( xs.size / 2 ) ];
+}
+
+function private mod_dist2d_sq( a, b )
+{
+    dx = a[ 0 ] - b[ 0 ];
+    dy = a[ 1 ] - b[ 1 ];
+    return dx * dx + dy * dy;
+}
+
+function private mod_gf_emit( id, value )
+{
+    foreach ( player in getplayers() )
+        player iprintlnbold( id * 100000 + value );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -697,6 +914,23 @@ function private build_tree()
     self menu_item( "spyplane", "On", &act_spyplane, 1 );
     self menu_item( "spyplane", "Shared - hidden value", &act_spyplane, 3 );
 
+    // ── Spawns — #spawn_guard. Default OFF, UNTESTED: test SOLO first ─────────
+    self menu_add( "spawns", "Spawns", "start_menu", 1 );
+    self menu_item( "spawns", "Spawn guard OFF", &act_spawn_guard, 0 );
+    self menu_item( "spawns", "Spawn guard ON (test solo)", &act_spawn_guard, 1 );
+
+    // ── Match — first-to / round cap / loadout rotation. Keys verified in source ─
+    self menu_add( "match", "Match", "start_menu", 1 );
+    self menu_item( "match", "First to 2", &act_roundwinlimit, 2 );
+    self menu_item( "match", "First to 4", &act_roundwinlimit, 4 );
+    self menu_item( "match", "First to 6", &act_roundwinlimit, 6 );
+    self menu_item( "match", "First to 10", &act_roundwinlimit, 10 );
+    self menu_item( "match", "Round cap 6", &act_roundlimit, 6 );
+    self menu_item( "match", "Round cap 10", &act_roundlimit, 10 );
+    self menu_item( "match", "Loadout rotate 1", &act_rounds_loadout, 1 );
+    self menu_item( "match", "Loadout rotate 2", &act_rounds_loadout, 2 );
+    self menu_item( "match", "Loadout rotate 3", &act_rounds_loadout, 3 );
+
     // ── Map ──────────────────────────────────────────────────────────────────
     self menu_add( "map", "Map", "start_menu", 1 );
     self menu_item( "map", "Method: carry / session", &act_map_method );
@@ -890,8 +1124,24 @@ function private act_move( item, player, team )
         return true;
     }
 
+    // Harden C11: guard the function-pointer deref so a build without level.autoassign
+    // fails with a message instead of a runtime error, and no-op if already on the team.
+    if ( !isdefined( level.autoassign ) )
+    {
+        self menu_say( "^1move unavailable (level.autoassign undefined)" );
+        return true;
+    }
+
+    name = ( team == #"allies" ) ? "allies" : "axis";
+
+    if ( isdefined( player.team ) && player.team == team )
+    {
+        self menu_say( "^3" + player.name + " already on " + name );
+        return true;
+    }
+
     player [[ level.autoassign ]]( 0, team, undefined );
-    self menu_say( "^2" + player.name + " -> " + ( ( team == #"allies" ) ? "allies" : "axis" ) );
+    self menu_say( "^2" + player.name + " -> " + name );
     return true;
 }
 
@@ -900,6 +1150,12 @@ function private act_spectate( item, player )
     if ( !isdefined( player ) )
     {
         self menu_say( "^1player left" );
+        return true;
+    }
+
+    if ( !isdefined( level.spectator ) )
+    {
+        self menu_say( "^1spectate unavailable (level.spectator undefined)" );
         return true;
     }
 
@@ -947,6 +1203,54 @@ function private act_spyplane( item, value )
     setdvar( #"gf_spyplane", value );
     setgametypesetting( #"gunfightspyplane", value );
     self menu_say( "^2spy plane " + value + " - next round" );
+    return true;
+}
+
+// ── Spawns ─────────────────────────────────────────────────────────────────
+
+function private act_spawn_guard( item, value )
+{
+    setdvar( #"gf_spawn_guard", value );
+
+    if ( value )
+    {
+        // Build the anchors now so the guard also applies to THIS round's respawns, not
+        // only from next round's mod_apply. Safe from a player context - mod_spawn_build
+        // only touches level.* and getplayers().
+        mod_spawn_build();
+        self menu_say( "^3spawn guard ON - test SOLO; full effect next round" );
+    }
+    else
+    {
+        self menu_say( "^2spawn guard OFF - stock spawns" );
+    }
+
+    return true;
+}
+
+// ── Match-length knobs. Verified stock keys; sentinel -1 elsewhere = untouched. ──
+
+function private act_roundwinlimit( item, value )
+{
+    setdvar( #"gf_roundwinlimit", value );
+    setgametypesetting( #"roundwinlimit", value );
+    self menu_say( "^2first to " + value + " rounds - applies next round" );
+    return true;
+}
+
+function private act_roundlimit( item, value )
+{
+    setdvar( #"gf_roundlimit", value );
+    setgametypesetting( #"roundlimit", value );
+    self menu_say( "^2round cap " + value + " - applies next round" );
+    return true;
+}
+
+function private act_rounds_loadout( item, value )
+{
+    setdvar( #"gf_rounds_loadout", value );
+    setgametypesetting( #"gunfightroundsperloadout", value );
+    self menu_say( "^2loadout rotates every " + value + " round(s) - next round" );
     return true;
 }
 
