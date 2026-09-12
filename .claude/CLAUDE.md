@@ -9,11 +9,23 @@ and it **survived the round boundary** that had reverted every earlier attempt. 
 **bots**; a human 4v4 has not been played yet, and 5v5 is untried but no longer ruled out.
 The working recipe is [[menu-map]] → *PROCEDURE*. Read that before anything else here.
 ▶ **What the project is for now: [[roadmap]]** — **pregame lobby control is klaze's #1 priority for
-the whole project.** 🔓 **GSC runs in the pregame lobby** — "nothing runs there" was never measured
+the whole project.**
+🔓🔓 **THE LIVE MAP ROUTE: [[lobby-setters]].** The game sets its own pregame lobby map/mode with
+native functions `LobbySetMap( 0, map )` / `LobbySetGameType( 0, mode )` — the layer the menu writes
+and the glitch reconfigures. It **skips the compat gate** rather than beating it (which is why the
+LUI-wall closures don't apply). `tools/lobby-set.py` scans + calls them (scan-only by default; a
+git-recovered function-**prologue** sig cross-checks the call-site scan — [[lobby-setters]]).
+`CreateRemoteThread` is one API beyond gfscan/injectcw; **klaze ruled it acceptable on the test box,
+and a joiner tester is available** (2026-09-12). ▶ Judge it on joiners — the clause the carry fails.
+`src/lobby_state/` is the read-only GSC oracle that names the loaded map+gametype in-match (start the
+match FROM THE LOBBY). CE is closed by measurement; ⚠ in-match `switchmap_load` was recorded closed but
+is being **re-opened** by the string-header fix (`tools/strip-strhdr.ps1` — its map-name literal had
+been garbled), so treat that closure as under review ([[pregame-routes]], `src/lobby_state/`).
+🔓 **GSC runs in the pregame lobby** — "nothing runs there" was never measured
 and the dump retracts it ([[pregame-routes]]) — so `src/test_frontend/` (band P, read-only first) is
 the next thing to run: the first payload hooked at `load_shared.gsc`, which links in every VM. 🪦 D10
-(`acts dcfuncscw`) ran and returned zero rows; the DLL route is blocked, not dead. Then the in-match
-menu, then a Windows tool.
+(`acts dcfuncscw`) ran and returned zero rows; the console-command DLL route is blocked (the native
+call above needs no command table). Then the in-match menu, then a Windows tool.
 ⚠ **Goal B — the stale UI after a carry — has a testable cause:** the carry calls `map()`, which has
 **zero stock callers anywhere in the dump** and cannot pass a gametype. Three stock systems switch
 maps with `switchmap_load( map, gametype )` and the session stays correct.
@@ -581,16 +593,27 @@ The MP path is the undocumented one. **Validate it with a hello-world before wri
 None of this is needed for the mod. It is here because it shares the process and the anti-cheat
 surface, and because one piece of it is directly useful.
 
-- 🪦 **`acts cwdllgt gunfight mp_moscow` — DEAD TWICE OVER.** It needs ACTS's `acts-bocw.dll` as
-  `powrprof.dll`, which **crashes the game at startup** (3/3, identical offset — [[dll-proxy]]); and
-  the exports it calls, `ACTS_EXPORT_SetLobbyGameType` / `ACTS_EXPORT_SetLobbyMap`, **do not exist in
-  ACTS master** — `src/dll/bocw-dll/main.cpp` declares exactly one export, `CallNtPowerInformation`.
-  ⚠ Verify against **v3.3.0's binary**, not master: `dumpbin /exports acts-bocw.dll | findstr /i lobby`.
-- ▶ **Wanted: an auto-loading DLL that picks the Gunfight map from the lobby.** The machinery exists —
-  cwpatch already executes arbitrary console commands from the one slot that loads, and `map %s\n` is
-  in the blob it writes to. **The missing piece is which command**, and `acts dcfuncscw` +
-  `tools/crack-cmds.py` answers it before any C is written. Routes, costs and the two dead ends:
-  [[lobby-map-dll]].
+- 🔓🔓 **THE MAP LEAD: call the game's own lobby setters directly — [[lobby-setters]].**
+  `LobbySetGameType( 0, mode )` / `LobbySetMap( 0, map )` are native functions that set the pregame
+  lobby — the layer the menu writes and the glitch reconfigures — and they **skip the compat gate**
+  instead of fighting it. Reached by signature scan (no proxy, no export, no glitch, no CE, no console
+  command-table); `tools/lobby-set.py` does it, scan-only by default. Cross-validated across ate47's
+  active BO4 tool, his disabled CW port (`cw/cw_lobby_tool.cpp`), and the git-recovered v3.3.0 DLL
+  (`bocw-dll/systems/exported.cpp`, which gives a robust function-**prologue** sig + the
+  `(rcx=lobby 0, rdx=char* name)` convention). **Untested in-game; the decisive question is whether
+  `LobbySetMap` reconfigures the compat gate (real, joinable solve) or only sets a field** — the
+  picker's red-triangle test answers it with no second account, and `src/lobby_state/` names the
+  loaded map/gametype in-match. This is the strongest map route since the DLL work was shelved.
+- 🪦 **`acts cwdllgt gunfight mp_moscow` — the proxy DELIVERY is dead, but it targeted the RIGHT
+  functions.** It needs ACTS's `acts-bocw.dll` as `powrprof.dll`, which **crashes the game at startup**
+  (3/3, identical offset — [[dll-proxy]]). ✅ The "exports don't exist" second death was a
+  master-vs-3.3.0 artifact: they lived in `systems/exported.cpp`, removed 2026-09-05 — but that file is
+  where the robust **prologue signature** above comes from, so the functions are reachable a different
+  way. See [[lobby-setters]].
+- ▶ **Fallback — an auto-loading DLL that fires a console *command*.** cwpatch already executes console
+  commands from the one slot that loads (`map %s\n` is in the blob). The missing piece is *which
+  command*, blocked on `acts dcfuncscw` returning an empty table. **Deprioritised** below the native
+  call, which needs no command table: [[lobby-map-dll]].
 - **Starting the match once forced** — the cwpatch `discord_game_sdk.dll` binds **F4** to
   `lobbylaunchgame`, plus F6/F7 for `fast_restart` / `full_restart`. That is the missing half of the
   above, and it re-runs a match without leaving the lobby. Different DLL slot, so the two coexist.
