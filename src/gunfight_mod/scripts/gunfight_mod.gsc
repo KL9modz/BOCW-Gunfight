@@ -359,9 +359,49 @@ function private mod_spawn_place()
 
 // Broad candidate set: FFA/DM spawns spread across the whole playable area (best central
 // coverage); TDM starts are the two end clusters. Gather whatever the map exposes.
+//
+// ⚠ THE FIRST VERSION OF THIS LIST WAS THE BUG, not the mechanism. klaze tested spawn_guard and
+//   it did nothing on the maps that "don't use tdm spawns": the list held only the DM/TDM
+//   targetnames, so those maps gathered < 2 points and the guard FAILED SAFE - stock OOB spawns
+//   stood, and it looked like the fix not working. Ported from gunfight_menu.gsc (80e2d9f),
+//   which hit this first.
+//
+//   THE GENERIC FAMILY IS THE FIX: mp_spawn_point / _allies / _axis are the most-referenced
+//   spawn targetnames in the dump, and the maps that failed - mp_cartel, mp_slums_rm,
+//   mp_village_rm, mp_miami_strike - all move_spawn_point() exactly those. The game's own
+//   spawning::function_d400d613 reads them with the same struct::get_array( name, "targetname" )
+//   query used below, so they are reachable with no mechanism change; they were simply absent.
+//   mp_twar_spawn* (Combined Arms / Team War) is the large-format layout that causes the OOB
+//   spawns in the first place - gathered anyway, because mod_nearest_k extracts the central
+//   cluster from it, which is exactly what a small mode wants.
+//
+// ⚠ `array()` is kept here on purpose, against the sibling file's rule. gunfight_menu.gsc uses
+//   []-construction on a comment claiming "stock MP scripts contain ZERO bare array() calls".
+//   That claim is FALSE: mp_common has 52 bare multi-arg array() calls, and
+//   mp_common/gametypes/prop.gsc:165 is `array( "FLASH", "CLONE" )` - same VM, same bare form,
+//   same string literals as below. The form is precedented; do not "fix" it.
 function private mod_gather_spawns()
 {
-    names = array( "mp_dm_spawn", "mp_tdm_spawn", "mp_tdm_spawn_allies_start", "mp_tdm_spawn_axis_start", "mp_tdm_spawn_team1_start", "mp_tdm_spawn_team2_start" );
+    // THREE GROUPS, in this order:
+    //   mp_spawn_point[_allies|_axis]  the generic family - the fix
+    //   mp_dm_spawn / mp_tdm_spawn*    FFA and TDM - the original list
+    //   mp_twar_spawn*                 Combined Arms / Team War - the large layout
+    // ⚠ No comments inside the argument list: that syntax has no precedent in any file this
+    //   project has compiled and run, and a link failure here costs a game launch to discover.
+    names = array(
+        "mp_spawn_point",
+        "mp_spawn_point_allies",
+        "mp_spawn_point_axis",
+        "mp_dm_spawn",
+        "mp_tdm_spawn",
+        "mp_tdm_spawn_allies_start",
+        "mp_tdm_spawn_axis_start",
+        "mp_tdm_spawn_team1_start",
+        "mp_tdm_spawn_team2_start",
+        "mp_twar_spawn",
+        "mp_twar_spawn_allies_start",
+        "mp_twar_spawn_axis_start"
+    );
     pts = [];
 
     foreach ( n in names )

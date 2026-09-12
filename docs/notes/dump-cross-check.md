@@ -343,6 +343,37 @@ resolved, and hash what is left. §6's warning that the cracker "does not scale"
 name spaces; it does not apply when the candidate list is on disk.
 Both names are now in `tools/lobby-set.py`'s `--list-maps`, which its `--self-test` asserts.
 
+## 9 · ⚠ "Stock MP has ZERO bare `array()` calls" is FALSE
+
+`gunfight_menu.gsc`'s `keys_init` comment justifies its `[]`-construction rule with:
+
+> *stock MP scripts contain ZERO bare array() calls — every stock use is the array:: namespace*
+
+**Checked against the dump, and it does not hold.** Excluding the `array::` namespace:
+
+| Scope | bare `array()` calls |
+|---|---|
+| `scripts/mp_common/` + `scripts/mp/`, **multi-argument** | **52** |
+| all scripts, multi-argument | 767 |
+| all scripts, single-argument | 1,546 |
+
+🔓 **And the exact form is precedented in an MP gametype script.**
+`scripts/mp_common/gametypes/prop.gsc:165` is `array( "FLASH", "CLONE" )` — bare, multi-argument,
+string literals, same VM `gunfight_mod` links into. `draft.csc:453` does the same with five strings.
+
+▶ **What this changes:** `gunfight_mod.gsc`'s `mod_gather_spawns()` keeps `array( … )` rather than
+being "fixed" to the menu's idiom. The 12-name spawn targetname list was ported between the two files
+2026-09-12; **the names moved, the idiom did not**, and that was the right call on evidence rather
+than on the sibling file's assertion.
+
+⚠ **The menu's code is not wrong and was not changed.** `[]`-construction works and the file is
+under active edit elsewhere; only the *stated reason* is false. Corrected here, and again in a comment
+above `gunfight_mod`'s own call so nobody re-"fixes" it from the menu's rule.
+
+⚠ **This does not license `array()` everywhere.** What is measured is that the multi-arg bare form has
+stock MP precedent. The menu's underlying caution — prefer forms stock uses, because ACTS links
+against stock — is still the right instinct; it was the factual premise that was wrong.
+
 ## What changed in code
 
 | Project | Change |
