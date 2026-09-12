@@ -6,13 +6,22 @@ gametype (T9), for private/custom lobbies hosted from the owner's machine.
 **Status: ALL THREE GOALS CLOSED and confirmed in-game — map, timer, and team size.**
 4v4 verified 2026-09-08 (test L6 run 2): `setgametypesetting( #"maxplayers", 8 )`, filled with bots,
 and it **survived the round boundary** that had reverted every earlier attempt. ⚠ Verified with
-**bots**; a human 4v4 has not been played yet, and 5v5 is untried but no longer ruled out.
+**bots**; a human 4v4 has not been played yet.
+✅✅ **6v6 filled with bots 2026-09-12** — in a Gunfight session reading `com_maxclients = 12`, reached
+from inside a match by the **SESSION map switch** (`switchmap_load( map, gametype )` +
+`switchmap_switch()`; the lobby follows it and a lobby-route restart keeps the map), then
+`gunfight_menu` → `Teams → 6v6 → Fill with bots`. No glitch, no DLL, no second account. [[session-switch]]
+⚠ Bots again; a human 6v6 is the next body test. The switch only works once the ACTS string header is
+stripped from the payload (`tools/strip-strhdr.ps1`) — see the retraction in the banner below.
 The working recipe is [[menu-map]] → *PROCEDURE*. Read that before anything else here.
 🛑 **THIS FILE IS BEHIND THE MAP PROBLEM. [[RESEARCH-INDEX]] is authoritative for it.** The
 2026-09-10/11 desktop sessions ran P1–P11, the memory scans and the glitch analysis, and closed most
 of what the paragraphs below still describe as open: P1/P2/P3 are **confirmed**, `adddebugcommand` is
-**nulled**, the carry **crashes joiners**, in-match `switchmap_load` is **inert in MP**, and Cheat
-Engine is **blocked by TAC**. Read [[RESEARCH-INDEX]] before acting on any map or pregame claim here.
+**nulled**, the carry **crashes joiners**, and Cheat Engine is **blocked by TAC**. 🪦 It also recorded
+in-match `switchmap_load` as **inert in MP** — **RETRACTED 2026-09-12**: every run behind that verdict
+had its map-name literal garbled by the ACTS string header; with the header stripped the call moves
+the session (Zoo, `gunfight`, 12 slots, 6v6 filled — [[session-switch]]). Read [[RESEARCH-INDEX]]
+before acting on any map or pregame claim here.
 
 ▶ **What the project is for now: [[roadmap]]** — **pregame lobby control is klaze's #1 priority for
 the whole project.**
@@ -24,9 +33,11 @@ git-recovered function-**prologue** sig cross-checks the call-site scan — [[lo
 `CreateRemoteThread` is one API beyond gfscan/injectcw; **klaze ruled it acceptable on the test box,
 and a joiner tester is available** (2026-09-12). ▶ Judge it on joiners — the clause the carry fails.
 `src/lobby_state/` is the read-only GSC oracle that names the loaded map+gametype in-match (start the
-match FROM THE LOBBY). CE is closed by measurement; ⚠ in-match `switchmap_load` was recorded closed but
-is being **re-opened** by the string-header fix (`tools/strip-strhdr.ps1` — its map-name literal had
-been garbled), so treat that closure as under review ([[pregame-routes]], `src/lobby_state/`).
+match FROM THE LOBBY). CE is closed by measurement. ✅ **In-match `switchmap_load` WORKS** once the
+payload has been through `tools/strip-strhdr.ps1` (its map-name literal had been garbled by the ACTS
+string header): the lobby follows the switch, `com_maxclients` read 12 in a Gunfight session, and 6v6
+filled — measured with `src/lobby_state/`, [[session-switch]]. It is the working in-match map route
+today; the native lobby setters above remain the *pregame* route, untested.
 🔓 **GSC runs in the pregame lobby** — "nothing runs there" was never measured
 and the dump retracts it ([[pregame-routes]]) — so `src/test_frontend/` (band P, read-only first) is
 the next thing to run: the first payload hooked at `load_shared.gsc`, which links in every VM. 🪦 D10
