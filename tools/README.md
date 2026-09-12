@@ -9,7 +9,8 @@
 | `crack-cmds.py` | Offline — recovers console-command NAMES from `acts dcfuncscw`'s hashed `cfuncs_cw.csv`. Command-shaped vocabulary, tries masked *and* raw hash forms, and refuses to be read at all if none of five known-real controls resolve. The gate on `docs/notes/lobby-map-dll.md` |
 | `settings-xref.py` | Offline — classifies all 463 gametype settings script reads by whether a **menu row** exists for them. Establishes *hashed ⇒ hidden*: 0 of 236 hashed keys has a bundle. Regenerates `docs/notes/gametype-settings-map.md` |
 | `check-dump.py` | Offline — **stages 3–4 of `check-gsc.ps1` without ACTS or PowerShell.** Resolves every call against the dump AND ate47's engine table, which splits "no stock caller" from "does not exist" |
-| `inject.sh` | Inject **one** payload (`menu` or `mod`) on the known-safe hook/replace pair |
+| `strip-strhdr.ps1` | **Required after every `acts gscc`.** Removes the 3-byte string header ACTS emits, which the engine reads as "encrypted" and garbles — see *Payloads* below |
+| `inject.sh` | Inject **one** payload (`menu`, `mod`, or any `src/<name>/`) on the known-safe hook/replace pair |
 | `autoinject.sh` | Watch for the game and inject automatically, re-arming after each restart |
 | `cw-loader-shim/` | C shim for the `discord_game_sdk.dll` slot (see `docs/notes/unlock-dlls.md`) |
 
@@ -32,11 +33,23 @@ fresh machine. Two files go in that directory:
 ./tools/check-gsc.ps1 ./src/gunfight_mod/scripts/gunfight_mod.gsc
 
 # compile
-/c/bocw/ACTS/bin/acts.exe gscc src/gunfight_mod/scripts/gunfight_mod.gsc \
-    -g cw -p pc -o gunfight_mod
 mkdir -p /c/bocw/payloads
-cp gunfight_mod.gscc /c/bocw/payloads/
+/c/bocw/ACTS/bin/acts.exe gscc src/gunfight_mod/scripts/gunfight_mod.gsc \
+    -g cw -p pc -o /c/bocw/payloads/gunfight_mod
+
+# ⚠ STRIP THE STRING HEADERS — every build, no exceptions
+./tools/strip-strhdr.ps1 -In /c/bocw/payloads/gunfight_mod.gscc -Out /c/bocw/payloads/gunfight_mod.gscc
 ```
+
+⚠ **ACTS writes every string literal with a 3-byte ship-format "encrypted string" header
+(`8B <len+1> 00`) and leaves the text unencrypted.** The engine decides "encrypted" from the first
+byte, so it decrypts the plaintext into garbage: nothing you print renders, and — worse — every
+literal you pass to the engine (`switchmap_load( "mp_zoo_rm", … )`, spawn classnames, music states)
+arrives garbled. That is what made `switchmap_load` look inert (`bbf94f9`) and what made retail look
+"numbers only" (`hello_world`, 2026-09-07). `strip-strhdr.ps1` slides each string over its header in
+place — same offsets, same size, nothing else in the file moves — which is exactly how the working
+Atian payload stores its strings. Found 2026-09-11; `docs/notes/session-switch.md` has the in-game
+confirmation. **A `.gscc` that has not been through it is not a finished payload.**
 
 Source is [`../src/gunfight_mod/`](../src/gunfight_mod/). Its `default_config()` ships the
 configuration verified in-game on 2026-09-08 — all four switches on, `timer_minutes: 1` (= 60s).

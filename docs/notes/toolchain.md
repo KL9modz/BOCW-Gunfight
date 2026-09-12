@@ -5,9 +5,19 @@ Cold War is T9, GSC **VM 38** (retail PC). VM 37 is the alpha/`COD2020.exe` buil
 ## Compile
 
 ```powershell
-# run from ACTS\bin, or the tool may not find data\games\cw.json
-acts gscc myscript.gsc -g cw -p pc -o myscript
+acts gscc myscript.gsc -g cw -p pc -o myscript          # 3.3.0 finds cw.json from any cwd
+.\tools\strip-strhdr.ps1 -In myscript.gscc -Out myscript.gscc   # ⚠ REQUIRED, see below
 ```
+
+⚠ **`acts gscc` alone does not produce a working payload.** It stores every string literal as
+`8B <len+1> 00 <text> 00` — the ship-format *encrypted-string* header with unencrypted text. The
+engine tests the first byte, takes `0x8B` as "encrypted", and decrypts the plaintext into garbage.
+Symptoms, all seen on this project before the cause was found: printed literals render as nothing
+(the "numbers only" finding), and literals handed to the engine — a map name to `switchmap_load`, a
+classname to `struct::get_array` — silently miss. `tools/strip-strhdr.ps1` rewrites each string in
+place over its header (same offset, same file size; the string table is not touched), matching how
+the t7-compiler-built Atian payload stores strings. Verified in-game 2026-09-12: labelled text on
+screen, and `switchmap_load` working. `tools/README.md` → *Payloads*.
 
 **VERIFIED** — produces `myscript.gscc` with magic bytes `80 47 53 43 0D 0A 00 38`,
 which is exactly `cw::GSC_MAGIC` (`0x38000a0d43534780`) that the injector checks.
