@@ -113,9 +113,14 @@ Every closed route tried to make the picker *allow* Gunfight-on-Miami. This one 
 calls the two engine functions the picker calls. Full reasoning and both failure modes:
 [`lobby-setters.md`](lobby-setters.md).
 
-⚠ **One new API.** `gfscan` (OpenProcess + read/write) and `injectcw` (allocate + repoint) have both
-been tolerated all session. This adds `CreateRemoteThread`. Not evasion, not proven tolerated either —
-klaze's call, stated so it is a call and not an assumption.
+✅ **Exposure ruled acceptable — klaze, 2026-09-12.** `gfscan` (OpenProcess + read/write) and
+`injectcw` (allocate + repoint) have both been tolerated all session; this adds `CreateRemoteThread`,
+one API beyond either. Not evasion. ⚠ Accepting it does not make it known: if the game dies the moment
+the thread runs, that is the finding, and it costs a relaunch.
+
+▶ **Before 2.3a, get the strings right.** ACTS's own gametype list is Black Ops 4's and **does not
+contain `gunfight`**. The tool carries the dump's lists instead:
+`python tools\lobby-set.py --list-maps` (43; the screen shows 36) and `--list-gametypes` (27).
 
 **2.3a — scan only. Writes nothing.** Game running, sitting in the custom games lobby:
 
@@ -143,7 +148,8 @@ python tools\lobby-set.py --gametype gunfight --map mp_miami
 3. Start. Loading screen, then in-match — real Gunfight on Miami? `______`
 4. Scoreboard, pause menu, **and the friend list / activity** — do they name Miami? `______`
 5. 👤 **THE CRITERION — a friend on a vanilla install joins and plays.** The carry fails exactly here,
-   by crashing connected clients. `______`
+   by crashing connected clients. ✅ A tester is available (klaze, 2026-09-12), so do not stop at
+   "it looks right on my screen" — that is the state the carry reaches too. `______`
 6. Lobby return clean? `______`
 7. If the order looks wrong, try `--map` before `--gametype`. `______`
 

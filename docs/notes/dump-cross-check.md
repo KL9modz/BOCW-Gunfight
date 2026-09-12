@@ -310,7 +310,38 @@ Despite living under `tools/cw/`, **it is not a Cold War gametype inventory.** C
 [`dll-proxy.md`](dll-proxy.md)'s note that ACTS's hardcoded list omits `gunfight` while the CLI passes
 an arbitrary string through. Do not mine it for CW names.
 
+⚠ **AMENDED 2026-09-12 — that conclusion is right, and it is still how the route below got missed.** The finding above
+classifies the file by the *data* it contains and stops there. Nobody asked what the file **does**,
+and what it does is call `LobbySetGameType` and `LobbySetMap` in the live process — the two engine
+functions the custom-games picker calls, with no compatibility filter anywhere in the tool. That is
+the one live route to Gunfight-on-any-map, and it sat in a file this note had already opened.
+▶ [`lobby-setters.md`](lobby-setters.md). **The lesson generalises:** a file dismissed for its data may
+still be worth reading for its behaviour.
+
 ---
+
+## 8 · 🔓 The `mpmaps` enum is now FULLY RESOLVED — and guessing is not what did it
+
+`ddl/mp_custom_game.ddl`'s `enum mpmaps` is the custom-games map list (43 entries; the screen shows
+**36** — those 43 minus the 7 `wz_` Fireteam maps). Two of the 43 shipped as unresolved hashes.
+
+**Guessing failed.** `tools/crack-hash.py` with 30 map-shaped guesses on top of its built-in list:
+NOT FOUND in **14,922 candidates**, for each of them. Exactly the failure mode §6 documents.
+
+🔓 **Subtraction worked in one step.** The hashes name maps, maps are a *finite known set*, and the
+dump lists every shipped one in `tables/keyvaluepairs/`. Two maps appear there and **not** among the
+enum's resolved names — exactly two, for exactly two holes. Hashing them forward matched:
+
+| Hash | Name | Index |
+|---|---|---|
+| `hash_4f0163e68a9333ac` | **`mp_jungle_rm`** | 0x17 |
+| `hash_2a5c9d82575f9045` | **`mp_russianbase_rm`** | 0xb |
+
+▶ **The method, worth more than the two names:** when an unresolved hash is known to be drawn from a
+finite set you can enumerate, **do not guess — subtract.** Take the set, remove everything already
+resolved, and hash what is left. §6's warning that the cracker "does not scale" is about open-ended
+name spaces; it does not apply when the candidate list is on disk.
+Both names are now in `tools/lobby-set.py`'s `--list-maps`, which its `--self-test` asserts.
 
 ## What changed in code
 

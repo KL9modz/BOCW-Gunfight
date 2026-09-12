@@ -75,6 +75,57 @@ import struct
 import sys
 from ctypes import wintypes
 
+
+# ---------------------------------------------------------------- names
+#
+# ⚠ DO NOT use ACTS's lists. cw_lobby_tool.cpp's gametypes[] table is Black
+#   Ops 4's - it has `bounty` (Heist) and the BO4 specialists, and it does NOT
+#   CONTAIN `gunfight` AT ALL. docs/notes/dump-cross-check.md section 7.
+#
+# These come from ate47/bocw-source instead:
+#   maps      ddl/mp_custom_game.ddl's `enum mpmaps`, all 43 entries.
+#   gametypes scripts/mp_common/gametypes/*.gsc, infrastructure files removed.
+#
+# 🔓 The enum shipped two of its 43 entries as unresolved hashes, and both are
+#    now named - not by guessing (14,922 candidates missed each) but by
+#    SUBTRACTION: the maps present in tables/keyvaluepairs/ but absent from the
+#    enum's resolved names were exactly two, and hashing them forward matched
+#    on the nose. hash_4f0163e68a9333ac = mp_jungle_rm,
+#    hash_2a5c9d82575f9045 = mp_russianbase_rm.
+
+# The custom-games map screen shows 36 = these 43 minus the 7 wz_ ones.
+MAPS_CORE = [
+    "mp_amerika", "mp_apocalypse", "mp_black_sea", "mp_cartel", "mp_cliffhanger",
+    "mp_dune", "mp_echelon", "mp_firebase", "mp_kgb", "mp_mall", "mp_miami",
+    "mp_miami_strike", "mp_moscow", "mp_nuketown6", "mp_satellite", "mp_tank",
+    "mp_tundra",
+]
+# BO1/BO2 remasters - the "_rm" suffix is the giveaway.
+MAPS_REMASTER = [
+    "mp_drivein_rm", "mp_express_rm", "mp_hijacked_rm", "mp_jungle_rm",
+    "mp_paintball_rm", "mp_raid_rm", "mp_russianbase_rm", "mp_slums_rm",
+    "mp_village_rm", "mp_zoo_rm",
+]
+# The small maps - what Gunfight and Face Off normally run on.
+MAPS_SMALL = [
+    "mp_sm_amsterdam", "mp_sm_berlin_tunnel", "mp_sm_central", "mp_sm_deptstore",
+    "mp_sm_finance", "mp_sm_game_show", "mp_sm_gas_station", "mp_sm_market",
+    "mp_sm_vault",
+]
+# Fireteam. In the enum but NOT on the custom-games map screen.
+MAPS_FIRETEAM = [
+    "wz_duga", "wz_forest", "wz_golova", "wz_russia", "wz_sanatorium",
+    "wz_ski_slopes", "wz_zoo",
+]
+MAPS = MAPS_CORE + MAPS_REMASTER + MAPS_SMALL + MAPS_FIRETEAM
+
+GAMETYPES = [
+    "gunfight", "gunfight_3v3",   # both confirmed as #"..." strings in the dump
+    "clean", "conf", "control", "cranked", "ctf", "dem", "dm", "dom", "dropkick",
+    "fireteam", "gun", "infect", "koth", "oic", "os", "osdm", "ostdm", "prop",
+    "sas", "scream", "sd", "spy", "tdm", "vip", "war",
+]
+
 # ---------------------------------------------------------------- signatures
 
 # ate47, src/core/acts/tools/cw/cw_lobby_tool.cpp:192 and :208.
@@ -359,6 +410,41 @@ def find_setter(proc: Proc, base: int, size: int, sig: str, label: str) -> tuple
     return best, targets
 
 
+
+def inspect_target(proc: Proc, target: int, base: int, size: int) -> bool:
+    """Print the target's first bytes and say whether it looks like a function.
+
+    A signature returns the first thing that matches, not the thing you wanted.
+    If the resolved address is mid-instruction or outside the module, calling it
+    is a crash. This does not prove correctness - only a disassembler would -
+    but it catches the obvious wrong answers before a remote thread runs.
+    """
+    ok = True
+    if not (base <= target < base + size):
+        print(f"    ⚠ target is OUTSIDE the main module - almost certainly wrong")
+        ok = False
+
+    raw = proc.read(target, 16)
+    if not raw:
+        print("    ⚠ target is not readable")
+        return False
+
+    print("    bytes      " + " ".join(f"{b:02x}" for b in raw))
+
+    # Common MSVC x64 prologue openings. Not exhaustive, and a miss here is a
+    # nudge to look rather than a verdict.
+    prologues = (
+        b"\x48\x89", b"\x48\x83", b"\x48\x8b", b"\x4c\x8b", b"\x40\x53",
+        b"\x40\x55", b"\x40\x56", b"\x40\x57", b"\x48\x81", b"\x44\x88",
+        b"\x89\x4c", b"\x48\x89\x5c",
+    )
+    if raw[:2] in prologues or raw[:1] in (b"\x53", b"\x55", b"\x56", b"\x57", b"\xe9"):
+        print("    shape      looks like a function entry")
+    else:
+        print("    shape      ⚠ does not open like a typical function - look before calling")
+        ok = False
+    return ok
+
 # ---------------------------------------------------------------- the call
 
 # sub rsp,0x28 | xor rcx,rcx | mov rdx,<str> | mov rax,<fn> | call rax | add rsp,0x28 | ret
@@ -471,6 +557,16 @@ def self_test() -> int:
     check("mov rcx,imm32 for a non-zero lobby",
           build_stub(0x1000, 0x2000, 1)[4:11] == b"\x48\xC7\xC1\x01\x00\x00\x00")
 
+    print("name lists")
+    check("43 maps - the full mpmaps enum", len(MAPS) == 43)
+    check("36 on the custom-games screen", len(MAPS) - len(MAPS_FIRETEAM) == 36)
+    check("7 Fireteam maps", len(MAPS_FIRETEAM) == 7)
+    check("no duplicates", len(set(MAPS)) == len(MAPS))
+    check("the two cracked names are present",
+          "mp_jungle_rm" in MAPS and "mp_russianbase_rm" in MAPS)
+    check("gunfight is in the gametype list (ACTS's own list is not)",
+          "gunfight" in GAMETYPES and "gunfight_3v3" in GAMETYPES)
+
     print()
     if fails:
         print(f"{len(fails)} FAILED: " + ", ".join(fails))
@@ -501,6 +597,14 @@ def main() -> int:
     ap.add_argument("--func-gametype", help="skip the scan, use this absolute address")
     ap.add_argument("--func-map", help="skip the scan, use this absolute address")
     ap.add_argument(
+        "--list-maps", action="store_true",
+        help="print the 43 Cold War map names and exit",
+    )
+    ap.add_argument(
+        "--list-gametypes", action="store_true",
+        help="print the Cold War gametype names and exit",
+    )
+    ap.add_argument(
         "--self-test", action="store_true",
         help="check the signature matcher and the stub bytes; touches no process",
     )
@@ -508,6 +612,24 @@ def main() -> int:
 
     if args.self_test:
         return self_test()
+
+    if args.list_maps:
+        for label, group in (
+            ("core 6v6", MAPS_CORE), ("remasters", MAPS_REMASTER),
+            ("small (Gunfight / Face Off)", MAPS_SMALL),
+            ("Fireteam - NOT on the custom-games map screen", MAPS_FIRETEAM),
+        ):
+            print(f"\n{label}")
+            for n in group:
+                print("  " + n)
+        print(f"\n{len(MAPS)} maps. The screen shows {len(MAPS) - len(MAPS_FIRETEAM)}.")
+        return 0
+
+    if args.list_gametypes:
+        for n in GAMETYPES:
+            print("  " + n)
+        print(f"\n{len(GAMETYPES)} gametypes. ⚠ ACTS's own list omits gunfight entirely.")
+        return 0
 
     if sys.platform != "win32":
         _die("Windows only - this opens the game process.")
@@ -540,6 +662,12 @@ def main() -> int:
 
         print("\nself-check")
         happy = True
+        if fn_gt is not None:
+            print("  LobbySetGameType target")
+            happy &= inspect_target(proc, fn_gt, base, size)
+        if fn_map is not None:
+            print("  LobbySetMap target")
+            happy &= inspect_target(proc, fn_map, base, size)
         if fn_gt is None or fn_map is None:
             print("  FAIL  a signature did not resolve on this build")
             happy = False
@@ -563,6 +691,13 @@ def main() -> int:
         if not happy and not args.force:
             print("\nREFUSING to call - self-check unhappy. Pass --force to override.")
             return 2
+
+        if args.gametype and args.gametype not in GAMETYPES:
+            print(f"\n  note: \"{args.gametype}\" is not in the dump's gametype list "
+                  "(--list-gametypes). Passing it anyway.")
+        if args.map and args.map not in MAPS:
+            print(f"\n  note: \"{args.map}\" is not in the dump's map list "
+                  "(--list-maps). Passing it anyway.")
 
         print("\ncalling")
         # Gametype first: in the stock UI picking a mode is what filters the map

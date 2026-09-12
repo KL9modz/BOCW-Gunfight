@@ -62,6 +62,14 @@ it rather than closing a question.
 - ⚠ **Joiners' exposure is UNKNOWN.** Injected GSC runs host-side and TAC's documented detections are
   local (hooks, debuggers, overlays), so joiners are *expected* to be unexposed. Nobody outside
   Activision can verify server-side telemetry. **Tell participants; it's their accounts.**
+- ✅ **`CreateRemoteThread` is ACCEPTED on the test box — klaze, 2026-09-12.** `gfscan`
+  (`OpenProcess` + read/write) and `injectcw` (allocate + repoint a pool entry) have both been
+  tolerated by TAC all session; `tools/lobby-set.py` needs one API beyond either, to call the game's
+  own `LobbySetMap` / `LobbySetGameType`. Raised as an unknown rather than a safe bet, and ruled
+  acceptable. ⚠ Still not evasion work: nothing is hidden, nothing is spoofed. [[lobby-setters]]
+- ✅ **A joiner is available to test with — klaze, 2026-09-12.** This matters because the map problem's
+  pass/fail clause *is* the joiner: the Atian carry looks right on the host and **crashes connected
+  clients**. A route that only looks correct locally has not been tested.
 
 ## Anti-cheat reality
 

@@ -69,6 +69,33 @@ python tools\lobby-set.py --self-test                      # touches no process
 
 No C++ toolchain, no DLL, no GSC, no glitch input.
 
+### The names it takes — ⚠ not ACTS's
+
+`cw_lobby_tool.cpp`'s `gametypes[]` table is Black Ops 4's, and **it does not contain `gunfight` at
+all** ([`dump-cross-check.md`](dump-cross-check.md) §7). `lobby-set.py` carries lists built from the
+dump instead — `ddl/mp_custom_game.ddl`'s `enum mpmaps` for maps, `scripts/mp_common/gametypes/*.gsc`
+for modes — and its `--self-test` asserts their shape:
+
+```
+python tools\lobby-set.py --list-maps         # 43; the screen shows 36 (the 7 wz_ ones are not on it)
+python tools\lobby-set.py --list-gametypes    # 27, gunfight and gunfight_3v3 among them
+```
+
+🔓 The enum shipped **two** of its 43 entries as unresolved hashes, and both are now named:
+`hash_4f0163e68a9333ac` = **`mp_jungle_rm`**, `hash_2a5c9d82575f9045` = **`mp_russianbase_rm`**.
+Not by guessing — 14,922 candidates missed each — but by **subtraction** against the shipped map files.
+Method note: [`dump-cross-check.md`](dump-cross-check.md) §8.
+
+### What it checks before it calls anything
+
+- every call site matching one pattern must resolve to the **same** target
+- both targets must lie **inside the main module**
+- their **first 16 bytes are printed**, and flagged if they do not open like a function entry
+- the two must sit **close together** — in BO4 they are `0x10` apart, adjacent in one table
+
+None of that proves correctness; only a disassembler would. It catches the obvious wrong answers
+before a remote thread runs on one, which is the difference between a finding and a relaunch.
+
 ---
 
 ## ⚠ Two reasons this may fail — both from this project's own measurements
@@ -96,9 +123,12 @@ measurement rather than a theory.
 does not flag it. `injectcw` is the same class: it allocates and repoints a pool entry, and never
 creates a thread. **`lobby-set.py` needs `CreateRemoteThread`, which neither of those uses.**
 
-⚠ Stated plainly because this project's rule is that exposure is klaze's call, not ours: this is one
-API beyond anything run here so far. It is not evasion — nothing is hidden or spoofed — but it is not
-identical to the two tools already proven tolerated either. **Unknown, not safe, not condemned.**
+⚠ Raised as an unknown rather than a safe bet, because exposure is klaze's call and not ours. It is
+not evasion — nothing is hidden or spoofed — but it is not identical to the two tools already proven
+tolerated either.
+✅ **RULED ACCEPTABLE on the test box — klaze, 2026-09-12.** Recorded in `.claude/CLAUDE.md`'s ground
+rules. The unknown does not go away because it was accepted: if the game dies the moment the thread
+runs, that is the finding, and it is a cheap one.
 
 ---
 
@@ -118,6 +148,8 @@ without glitch steps"* — this route, **if it holds**, satisfies every clause t
 ▶ **Judge it on joiners.** The carry's failure was never cosmetic — it crashes connected clients. If a
 friend on a vanilla install joins a `lobby-set.py` lobby and plays Gunfight on Miami, the map problem
 is closed by the route nobody tried.
+✅ **A tester is available — klaze, 2026-09-12.** So the decisive run is reachable in one sitting, and
+there is no reason to settle for "it looks right on my screen".
 
 ## Where it sits among what is left
 
