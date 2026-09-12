@@ -11,6 +11,7 @@
 | `settings-xref.py` | Offline — classifies all 463 gametype settings script reads by whether a **menu row** exists for them. Establishes *hashed ⇒ hidden*: 0 of 236 hashed keys has a bundle. Regenerates `docs/notes/gametype-settings-map.md` |
 | `check-dump.py` | Offline — **stages 3–4 of `check-gsc.ps1` without ACTS or PowerShell.** Resolves every call against the dump AND ate47's engine table, which splits "no stock caller" from "does not exist" |
 | `strip-strhdr.ps1` | **Required after every `acts gscc`.** Removes the 3-byte string header ACTS emits, which the engine reads as "encrypted" and garbles — see *Payloads* below |
+| `ensure-cwpatch.ps1` | Keeps cwpatch in the `discord_game_sdk.dll` slot. One-shot check/restore, `-Watch` resident guard, `-Install` registers the guard as a logon task. Never copies a file that fails the recorded SHA-256 — see *cwpatch* below |
 | `inject.sh` | Inject **one** payload (`menu`, `mod`, or any `src/<name>/`) on the known-safe hook/replace pair |
 | `autoinject.sh` | Watch for the game and inject automatically, re-arming after each restart |
 | `cw-loader-shim/` | C shim for the `discord_game_sdk.dll` slot (see `docs/notes/unlock-dlls.md`) |
@@ -104,6 +105,17 @@ mid-session, check it first.
 ✅ **Restoring takes seconds now** — see *Irreplaceable binaries* below for the command. The second
 occurrence was fixed from the backup with a matching hash before it cost anything; the first cost the
 file outright.
+
+✅ **And it can be automatic.** `ensure-cwpatch.ps1 -Install` registers a hidden logon task that
+watches the slot and puts cwpatch back within seconds of Battle.net overwriting it (deferring until
+the game exits if it is running, since the DLL is read once at launch). `ensure-cwpatch.ps1` with no
+switch is the one-shot pre-launch check. Both verify the backup's full SHA-256 before copying
+anything, and log to `C:\bocw\ensure-cwpatch.log`. ⚠ It cannot know whether a game update moved
+cwpatch's offsets — that still needs the in-game F4/F6/F7 check.
+
+Since the SESSION map switch (`docs/notes/session-switch.md`) the map no longer depends on F7: a
+lobby-route restart keeps a session-switched map. F7 remains the fastest way to relink a fresh
+injection without a lobby trip.
 
 ⚠ **An update may also change `BlackOpsColdWar.exe`.** It is encrypted at rest, so no static check can
 confirm cwpatch's offsets still fit the new build. **If F4–F7 are dead with the correct 13,824-byte
