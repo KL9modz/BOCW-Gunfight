@@ -502,3 +502,27 @@ stance, traversals, weapons). Practical surface for the project:
 - ⚠ On the combined-arms/large-variant maps (§16b), bots roam the BIG navmesh even with #spawn_guard placing
   their spawns centrally — so bot behaviour there is a secondary read on whether the map's active config is
   the large one (bots wandering far = large layout active).
+
+## 20. Loadout content refs — where to get real weapon/attachment names (§15/§17 in practice)
+Loadout structs reference content by **gunsmith-item refs** with a leading `#`, e.g. `primary:
+"#sniper_quickscope_t9"`, `secondary: "#bare_hands"`, `attachment: "#scope3x"` / `"#quickdraw2"`,
+`talent: "#talent_flakjacket"`. These are a layer ABOVE the raw weapon tables — the item layer the loadout
+system resolves.
+
+**The catalog you actually want = the shipped Gunfight loadout bundles.** They are guaranteed-valid, working
+ref sets, and they cover the styles you'd build:
+`scriptbundle/default/mp_gunfight_loadout_default.json` (AR/standard), `…_snipers.json`, `…_melee.json`,
+`…_blueprints.json`. To author a custom loadout, **lift `primary`/`secondary`/`attachment`/`talent` refs
+straight from these bundles** — no need to decode the raw tables. Mix weapons from one and attachments from
+another; every ref there is known-good.
+
+**Raw tables (for reference, not needed for authoring):** `gamedata/weapons/mp/mp_attributestable.csv`
+(2412 rows of weapon attributes/stats), `gamedata/weapons/common/attachmenttable.csv` (228 attachment
+definitions). These are the stat layer; the `#`-prefixed loadout-item refs above are what a loadout uses.
+
+### ▶ Practical custom-loadout recipe (ties §11/§15/§17/§20 together)
+1. Pick refs from a shipped bundle (or mix bundles). 2. Build loadout structs in script with the §15 fields
+   (`primary`, `primaryattachments: [ {#attachment:"#..."}, … ]`, `secondary`, grenades, `talents:
+   [{#talent:"#..."}]`). 3. Set `game.var_96a8ff4a` to your array (mind the `disablecustomcac` clear, §11).
+   4. `function_44244433` + `givetalents` apply it server-side → joiners get it free. OR skip script entirely
+   and just point the bundle-index setting at `…_snipers`/`…_melee` for an instant themed Gunfight (§11).
