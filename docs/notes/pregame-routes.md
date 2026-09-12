@@ -1707,3 +1707,33 @@ Ran the priority test (src/test_switchmap, in-match server VM via bb.gsc). Two i
   exactly ONE live path left: **Cheat Engine on the client-LUI pregame compat/selection state** (CE built,
   attach-gate cleared, watchpoint pending). That is the pregame-lobby layer klaze pointed at, and it is the
   only remaining route not closed by measurement.
+
+## 🪦 CHEAT ENGINE BLOCKED BY TAC — the watchpoint route is closed (2026-09-11)
+
+klaze: "the game won't open if I have CE running, and the game closes when I open CE." TAC (Treyarch's
+user-mode anti-cheat) detects Cheat Engine's signature and refuses to coexist — the game exits the moment
+CE is present. This is the standard, deliberate CE-vs-anticheat conflict, not a config issue.
+
+Contrast: **gfscan (our custom OpenProcess + RPM/WPM tool) has worked all session** — no signature, not a
+debugger, so TAC doesn't flag it. The capability CE was for — **watchpoints ("find what accesses this
+address")** — needs hardware-breakpoint / debugger-level access, which TAC's anti-debug also detects. So a
+custom watchpoint tool would hit the same wall, not just CE.
+
+▶ **Consequence:** the "trace the compat-check code and patch it" plan is **blocked by anti-cheat.** Value-
+scanning (gfscan, undetected) is already exhausted — only downstream reflections; the master is Lua-managed.
+So the memory route to the pregame compat/selection state is effectively closed with the available tooling.
+
+### What's actually left for the map problem
+1. **CE stealth via DBVM** (Dark Byte's hypervisor) — the one way to hide CE from user-mode TAC. Kernel/
+   hypervisor level: needs test-signing/secure-boot changes, can BSOD, and TAC may still catch it. Big,
+   risky undertaking. Throwaway-box-only if attempted.
+2. **Automate the glitch's INPUT sequence** — we have the exact steps (FacelessOne tutorial, pregame-routes).
+   Input automation (simulated menu navigation with a fast retry loop on the racy step 9) touches no memory
+   and is not a debugger → sidesteps TAC entirely. Reproduces the PROPER, vanilla-joinable lobby klaze
+   confirmed ("they play it just fine"). It IS the glitch, though — done programmatically, not by hand.
+3. **Accept the compat gate is unbeatable with these tools** — deliver the mod (host-side any-map via carry
+   + spawn_guard + features); joiners via the manual glitch when wanted.
+
+▶ Decision point for klaze: CE is out. The lowest-risk path to the ACTUAL goal (joiner-safe any-map) is now
+  #2, glitch input-automation — which is "programmatic" (klaze's original premise) even though it's the
+  glitch mechanism klaze wanted to avoid doing manually. Needs klaze's call on whether automating it counts.
