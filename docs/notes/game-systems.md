@@ -420,3 +420,27 @@ directly answers klaze's any-map control goal.
 **To pin the exact cause per map (optional):** read the problem map's `.gsc` mode-branch (like
 `mp_cartel.gsc`), find what its gametype list gates, and confirm whether Gunfight's `get_game_type()` value
 is absent — but the fix above does not require this.
+
+## 17. Perk / talent / gadget model (completes loadout authoring with §15)
+How Gunfight applies the non-weapon half of a loadout, via `givetalents(talents, extra1, extra2)`:
+- `self cleartalents(); self clearperks();` — wipe first.
+- optional two extra talents from the flags (hashed refs) get appended.
+- for each entry: `self addtalent( talent.talent + level.game_mode_suffix )` — the loadout's `talents` array
+  is `[ { #talent: <talentref> }, … ]` (e.g. `#talent_flakjacket`); `level.game_mode_suffix` selects the
+  mode-specific talent variant.
+- then `perks = self getloadoutperks( 0 )` → `self setperk( perk )` for each — **perks are engine-derived
+  from the loadout**, not hand-listed; talents are what the loadout specifies.
+- `perks::monitorgpsjammer()` threads a perk monitor.
+
+**API is thin (mostly builtins):** `addtalent` / `cleartalents` / `clearperks` / `setperk` / `getloadoutperks`
+/ `getitemindexfromref`. The script's job is to supply the refs; the engine resolves and applies them.
+
+### ▶ For custom loadouts (extends §15)
+A full custom loadout struct is: weapons (`primary`/`secondary` + `*attachments`, §15) + grenades
+(`primarygrenade`/`secondarygrenade`) + **`talents: [ { #talent: <ref> }, … ]`** (perks). Build it in script,
+set `game.var_96a8ff4a`, and `function_44244433` applies weapons+grenades while `givetalents` applies the
+talents/perks — all server-side, so **joiners get the full loadout (weapons, attachments, perks) with
+nothing installed**. Gunfight loadouts are weapons+grenades+talents(+optional streak/bonuscard); there is no
+separate field-upgrade/gadget key in the Gunfight loadout struct — perks come through talents. `game_mode_
+suffix` matters: pass the base talent ref and let the engine add the suffix (givetalents already does), don't
+pre-suffix.
