@@ -153,6 +153,7 @@ case "$NAME" in
     test_latejoin)     echo "  20xxxxx = allies*100 + axis. 2000404 is 4v4" ;;
     test_sessionswitch) echo "  read_only=1 FIRST: 40 must not be 99999. Live: read 41 before judging presence" ;;
     gunfight_menu)     echo "  RMB+V opens. RMB up / LMB down / R select / V back. Settings persist as gf_* dvars" ;;
+    lobby_state)       echo "  start the match FROM THE LOBBY, not F7. LS1-LS3 name the map the lobby believes in" ;;
     test_frontend)     echo "  inject at the MAIN MENU. match -> lobby -> set up 3v3 -> match. Read 50 FIRST: 0 = frontend half never ran" ;;
     *)    echo "  test a LOBBY RETURN afterwards if this payload writes anything" ;;
 esac
