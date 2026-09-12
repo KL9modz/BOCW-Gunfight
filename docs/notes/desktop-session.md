@@ -164,9 +164,9 @@ bash tools/inject.sh gunfight_menu     # after loading a private match once
 
 **M2 — read-only walk. Select nothing that writes.** RMB+V opens; RMB up / LMB down / R select /
 V back. Walk every page: Teams · Players · Round · Loadout · Spy plane · **Spawns** · **Match** ·
-Map · All maps. ⚠ **Spawns and Match are new in `3e11a6c` and have never been drawn** — the `#spawn_guard`
-port and the round/win-limit knobs. If the menu draws and navigates, the engine translation is right
-and every later result is about the controls.
+Map · All maps. ✅ **The menu compiles, injects and draws** — `80e2d9f` reports klaze toggling the
+Spawns page in-game, so M1 and the walk are effectively passed and every later result is about the
+controls. ⚠ **Match is still never-drawn**, and the Spawns page has a **new, untested fix** (below).
 ⚠ If only one item shows per page, or lines overwrite, set `gf_menu_lines`. Result: `______`
 
 **M3 — controls, cheapest and most-proven first.** All in the same launch.
@@ -180,7 +180,7 @@ and every later result is about the controls.
 | 5 | Loadout → Snipers (B6) | ⚠ | **next** round is snipers-only. Needs two matches: the latch is `game.`-scoped | `______` |
 | 6 | Spy plane → Shared (B7) | ⚠ | next round; value 3 is the one the menu hides | `______` |
 | 7 | Players → someone → To Axis (C11) | ⚠ | they switch sides and spawn normally | `______` |
-| 8 | Spawns → guard ON, then play a round at 4v4 | ⚠ **never drawn** | nobody spawns out of bounds. Builds anchors immediately, so it applies the same round | `______` |
+| 8 | Spawns → guard ON + diag ON, on a map that **failed before** | ⚠ **fix untested** | see 3.1 below — read the diag probe first, not the spawns | `______` |
 | 9 | Match → round/win limit | ⚠ **never drawn** | the round counter obeys it. `-1` sentinels mean only an explicit pick asserts control | `______` |
 | 10 | Map → Zoo, method **carry** | ✅ host-side | loads exactly like the Atian menu did. ⚠ **SOLO ONLY** — see below | `______` |
 
@@ -194,6 +194,25 @@ still the working host-side any-map path and it is still worth exercising — bu
 in the lobby.** Save their time for 2.3b, 4.1 and stage 6.
 
 ⚠ **Test a lobby return after 3, 8 and 10.** That is the check that caught `scene_model_shared`.
+
+### 3.1 · spawn_guard — read the diagnostic before you judge the spawns
+
+klaze tested it and it did **nothing** on the maps that "don't use tdm spawns". That was not the fix
+failing — it was `mod_gather_spawns` looking only for the DM/TDM targetnames, gathering fewer than two
+points, and **failing safe**. `80e2d9f` expands the list to the generic `mp_spawn_point` family (the
+most-referenced spawn targetnames in the dump, and what `mp_cartel` / `mp_slums_rm` / `mp_village_rm` /
+`mp_miami_strike` actually place) plus the `mp_twar_spawn` Combined Arms layout.
+
+▶ **So the readout is the diag, not your eyes.** Turn `cfg_spawn_diag` on with the guard:
+
+| Probe | Means | Result |
+|---|---|---|
+| **60xxxxx** | **armed**, with N points gathered. On the maps that failed before, N must now be **> 0** | `______` |
+| **61xxxxx** | **still inert** — it gathered fewer than 2 and no-op'd again. The targetname list is still missing this map's family, and the map name is the finding | `______` |
+
+⚠ **Armed is not fixed.** A 60 with a good N says the mechanism now sees spawn points; whether players
+land in bounds is the separate question, and it needs 4v4 on a map that previously threw people out.
+Record both. Result: `______`
 
 ---
 
@@ -294,7 +313,7 @@ claim. Redo it with the steps written down: join → back out → save → relau
 |---|---|---|---|
 | **C10** 👤 | late joiners land on a **team**, not spectator — `src/test_latejoin/` | A chain of nine ANDs with **no cap check** once `level.forceautoassign` or `level.var_a3e209ba` is broken. Needed a joiner, and one is now available. This is the route that does not care what the lobby was configured for | `______` |
 | **B9** | inject under a live payload, guard dvar cleared | Its conclusion — that unattended operation is closed off — rests on **four sampled frames** across one round. It is the finding that decides whether an agent can ever put fresh code in the game without klaze present, and it deserves better than four frames | `______` |
-| **spawn_guard, standalone** | `gunfight_mod`'s copy, if the menu's Spawns page fails to draw | The menu port is new and untested; the `gunfight_mod` build is the fallback path to the same fix | `______` |
+| **spawn_guard in `gunfight_mod`** | the no-menu build's copy of the same guard | ⚠ **It still has the OLD list.** `gunfight_mod.gsc:364` is `array( "mp_dm_spawn", "mp_tdm_spawn", …_start )` — no `mp_spawn_point` family, no `mp_twar_spawn`. `80e2d9f` fixed the menu only, so this copy still gathers <2 and fails safe on exactly the maps that were broken. **Port the fix before testing it**, or the result is meaningless. ⚠ Port the *names*, not the idiom: the menu uses `names[ names.size ]` for a documented link-time reason, `gunfight_mod` uses `array()` and works | `______` |
 | **H1 vs H2** ⚠ | write `timelimit = 30` from the lobby and read the **starting clock** | See below. One launch, and **H2 would retract a standing project claim** | `______` |
 
 ### 5.1 · The `timelimit` test that decides whether the menu bounds `setgametypesetting()`
