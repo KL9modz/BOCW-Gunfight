@@ -113,7 +113,7 @@ function private maybe_switch()
 
     m = getrootmapname( cfg.target_map );
     switchmap_load( m, level.gametype );          // level.gametype carries the LIVE Gunfight code
-    util::wait_network_frame( 1 );
+    level waittilltimeout( 25, #"switchmap_preload_finished" );  // wait for the LOAD to finish before committing
     switchmap_switch();
 
     emit( 92, 1 );                                // only if the VM somehow survives the switch

@@ -1685,3 +1685,25 @@ with **a friend connected**, and observe: (a) does the CW build honour the coord
 - Start the joiner test on a **known-good compatible map first** (does switchmap even keep the friend
   connected on a SAFE map?), only then try an incompatible target. Isolates "switchmap desyncs joiners"
   from "the map itself is the problem".
+
+## 🪦 SWITCHMAP AVENUE CLOSED BY MEASUREMENT — in-match switchmap is inert in MP (2026-09-11)
+
+Ran the priority test (src/test_switchmap, in-match server VM via bb.gsc). Two iterations, both measured:
+- **Iteration 1** — `switchmap_load(getrootmapname("mp_kgb"), level.gametype)` → `util::wait_network_frame(1)`
+  → `switchmap_switch()`. Fired cleanly (90 countdown seen, gf_sw_done latched), **host did NOT crash**
+  (already better than B2's frontend crash), but the map **stayed on the start map (Game Show)**. klaze:
+  at the fire moment the screen did "nothing" — no reload even attempted.
+- **Iteration 2** — replaced the 1-frame wait with the zombies pattern:
+  `switchmap_load(...)` → `level waittilltimeout(25, #"switchmap_preload_finished")` → `switchmap_switch()`.
+  Relaunched clean, re-injected, F7. **Still nothing** — no map change, no reload, no crash.
+
+▶ **Conclusion:** in-match `switchmap_load` is a campaign/zombies capability the **MP session does not act
+  on** — the builtins are callable and safe (no crash) but inert for a mid-match MP map change. The
+  `#"switchmap_preload_finished"` notify evidently never fires in MP, so the load never stages. This is
+  consistent with the whole map problem living in the **pregame LUI selection**, not a mid-match server op.
+  klaze's read is now measured: **"the map needs to happen before the match."**
+
+▶ **Map-avenue status after this:** the PRIORITY AVENUE (switchmap) is **closed**. The map problem now has
+  exactly ONE live path left: **Cheat Engine on the client-LUI pregame compat/selection state** (CE built,
+  attach-gate cleared, watchpoint pending). That is the pregame-lobby layer klaze pointed at, and it is the
+  only remaining route not closed by measurement.
