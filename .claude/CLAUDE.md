@@ -8,6 +8,12 @@ gametype (T9), for private/custom lobbies hosted from the owner's machine.
 and it **survived the round boundary** that had reverted every earlier attempt. ⚠ Verified with
 **bots**; a human 4v4 has not been played yet, and 5v5 is untried but no longer ruled out.
 The working recipe is [[menu-map]] → *PROCEDURE*. Read that before anything else here.
+🛑 **THIS FILE IS BEHIND THE MAP PROBLEM. [[RESEARCH-INDEX]] is authoritative for it.** The
+2026-09-10/11 desktop sessions ran P1–P11, the memory scans and the glitch analysis, and closed most
+of what the paragraphs below still describe as open: P1/P2/P3 are **confirmed**, `adddebugcommand` is
+**nulled**, the carry **crashes joiners**, in-match `switchmap_load` is **inert in MP**, and Cheat
+Engine is **blocked by TAC**. Read [[RESEARCH-INDEX]] before acting on any map or pregame claim here.
+
 ▶ **What the project is for now: [[roadmap]]** — **pregame lobby control is klaze's #1 priority for
 the whole project.**
 🔓🔓 **THE LIVE MAP ROUTE: [[lobby-setters]].** The game sets its own pregame lobby map/mode with
@@ -59,6 +65,14 @@ it rather than closing a question.
 - ⚠ **Joiners' exposure is UNKNOWN.** Injected GSC runs host-side and TAC's documented detections are
   local (hooks, debuggers, overlays), so joiners are *expected* to be unexposed. Nobody outside
   Activision can verify server-side telemetry. **Tell participants; it's their accounts.**
+- ✅ **`CreateRemoteThread` is ACCEPTED on the test box — klaze, 2026-09-12.** `gfscan`
+  (`OpenProcess` + read/write) and `injectcw` (allocate + repoint a pool entry) have both been
+  tolerated by TAC all session; `tools/lobby-set.py` needs one API beyond either, to call the game's
+  own `LobbySetMap` / `LobbySetGameType`. Raised as an unknown rather than a safe bet, and ruled
+  acceptable. ⚠ Still not evasion work: nothing is hidden, nothing is spoofed. [[lobby-setters]]
+- ✅ **A joiner is available to test with — klaze, 2026-09-12.** This matters because the map problem's
+  pass/fail clause *is* the joiner: the Atian carry looks right on the host and **crashes connected
+  clients**. A route that only looks correct locally has not been tested.
 
 ## Anti-cheat reality
 

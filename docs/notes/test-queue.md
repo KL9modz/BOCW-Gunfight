@@ -1122,10 +1122,12 @@ chose 2 for MP and it is a dvar here for exactly this reason. Result: `______`
 | 5 | Loadout → Snipers | ⚠ B6 | **next round** is snipers-only |
 | 6 | Spy plane → Shared | ⚠ B7 | next round |
 | 7 | Players → someone → To Axis | ⚠ C11 | they switch sides and spawn normally |
-| 8 | Map → Zoo (method: carry) | ✅ the Atian carry | loads Zoo exactly like the Atian menu did |
-| 9 | Map → Method toggle → session → Zoo | ⚠ B1 | **scoreboard / friend list / activity say Zoo?** |
+| 8 | Spawns → guard ON, play a round at 4v4 | ⚠ **page never drawn** | nobody spawns out of bounds; anchors build immediately so it applies the same round |
+| 9 | Match → round / win limit | ⚠ **page never drawn** | the round counter obeys it; `-1` sentinels mean only an explicit pick asserts control |
+| 10 | Map → Zoo (method: carry) | ✅ host-side | loads Zoo exactly like the Atian menu did. ⚠⚠ **SOLO ONLY — the carry crashes connected clients** (measured 2026-09-10) |
+| 🪦 | ~~Map → method **session** → Zoo~~ | 🪦 **DO NOT RUN** | `switchmap_load` measured **inert in MP** (2026-09-11, two iterations). The SESSION row is a dead menu option; its removal was blocked by a safety classifier |
 
-⚠ **Test a lobby return after 3, 8 and 9.** ⚠ Settings are dvars — they persist until the game is
+⚠ **Test a lobby return after 3, 8 and 10.** ⚠ Settings are dvars — they persist until the game is
 restarted, including across matches. `gf_team_size`, `gf_timer_seconds`, `gf_loadout`, `gf_spyplane`,
 `gf_map_method`, `gf_menu_lines`.
 Results: `______`
