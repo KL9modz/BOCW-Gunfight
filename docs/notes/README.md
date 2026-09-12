@@ -15,6 +15,12 @@ These are **not** auto-loaded. Open the one you need.
   the way the glitch does — diagnosed as the carry using `map()` (zero stock callers, no gametype)
   where stock uses `switchmap_load( map, gametype )`. Carries the four ❓ that shape the plan.
 
+- [lobby-setters](lobby-setters.md) — ▶▶ **the one live route to Gunfight-on-any-map.** Every closed
+  route tried to make the picker allow the pair; this one skips the picker and calls the two engine
+  functions it calls — `LobbySetMap` / `LobbySetGameType`, which ACTS names with BO4 addresses 0x10
+  apart and ships a **disabled, two-bug** Cold War port of. `tools/lobby-set.py` finishes it.
+  Carries both honest failure modes and the joiner criterion that decides it.
+
 - [pregame-routes](pregame-routes.md) — **GSC runs in the pregame lobby, and the lobby keeps a live
   gametype-setting store script can read.** Retracts "nothing runs there" from the dump (`frontend.gsc:46`
   sets the pregame state; eleven `is_frontend_map()` guards; `frontend.csc:2918` reads `maxsquadplayers`

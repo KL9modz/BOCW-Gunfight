@@ -6,12 +6,17 @@ Navigational map of the notes. Start here.
 Real **Gunfight** gametype on **any map**, at the **lobby/match/state level**, **no glitch steps**, with
 **friends able to join and play** (vanilla, nothing installed). Private matches only, throwaway box.
 
-## Current state of the map problem — TWO live paths, everything else closed by measurement
-1. ▶ **`switchmap_load` in-match** (TOP, untested, buildable) — coordinated map change stock uses in-match;
-   may be joiner-safe where the carry is not. **Spec'd + compiles:** `src/test_switchmap/`, protocol in
-   `switchmap-test-protocol.md`. Needs klaze's inject go. → `pregame-routes.md` "PRIORITY AVENUE".
-2. ▶ **Cheat Engine on the client-LUI compat state** (built, attach-gate cleared, watchpoint pending) — the
-   picker gate is the client-frontend `uimodeldatastruct #hash_109ccf57a41ffd82`, injection-unreachable.
+## Current state of the map problem — ONE live path; the two below it closed on 2026-09-11
+0. ▶▶ **`LobbySetMap` / `LobbySetGameType`** (NEW 2026-09-12, untested, tool written) — **the layer the
+   whole hunt skipped.** Every closed route attacks the *compat set* (make the picker allow the pair);
+   this one skips the picker and calls the two engine functions the picker itself calls. ACTS names both
+   with BO4 addresses **0x10 apart**, and ate47's Cold War port **ships disabled with two bugs**;
+   `tools/lobby-set.py` is it finished, scan-only by default. ⚠ Two honest risks, both from our own
+   measurements: the Lua master may re-push the selection, and `CreateRemoteThread` is one API beyond
+   gfscan and `injectcw`. → `lobby-setters.md`
+1. 🪦 ~~**`switchmap_load` in-match**~~ — **CLOSED 2026-09-11**: in-match switchmap is inert in MP.
+2. 🪦 ~~**Cheat Engine on the client-LUI compat state**~~ — **CLOSED 2026-09-11**: TAC will not let CE
+   run at all, and a custom watchpoint tool hits the same anti-debug wall.
 
 ### Closed by measurement (don't reopen without new evidence) — see `game-systems.md §4/§8/§10`
 carry (crashes joiners) · GSC/UI-model from any injectable VM (P1–P11) · client-frontend VM (uninjectable) ·
@@ -24,7 +29,8 @@ manual/automated glitch (ruled out by requirement).
 |---|---|
 | `pregame-routes.md` | the full map-hunt log: P1–P11, memory scans, the glitch tutorial + mechanism, the switchmap PRIORITY AVENUE, the requirement pin |
 | `game-systems.md` | **how the game works / mod-expansion reference** (20 sections): Gunfight anatomy; clientfield sync (+joiner-reach correction); builtins; events; injection surface (10); persistence/save (13); scoring/round-flow (14); loadout struct/perks/content refs (15,17,20); spawning + the combined-arms spawn bug + #spawn_guard (16,16b); CSC match VM (12); host-migration (18); bots (19); expansion roadmap (9) |
-| `switchmap-test-protocol.md` | staged run sheet for the switchmap test payload |
+| `lobby-setters.md` | **the one live map route**: call `LobbySetMap`/`LobbySetGameType` directly, skipping the compat gate rather than beating it. Why it is not in the closure table, the two ways it could still fail, and `tools/lobby-set.py` |
+| `switchmap-test-protocol.md` | staged run sheet for the switchmap test payload (🪦 avenue closed) |
 | `atian-menu-source.md` | the carry menu internals; the two map-change paths |
 | `cw-builtins.md` | the engine builtins with addresses (isvalidgametype, switchmap_*, sessionmode*, etc.) |
 

@@ -8,6 +8,21 @@ gametype (T9), for private/custom lobbies hosted from the owner's machine.
 and it **survived the round boundary** that had reverted every earlier attempt. ⚠ Verified with
 **bots**; a human 4v4 has not been played yet, and 5v5 is untried but no longer ruled out.
 The working recipe is [[menu-map]] → *PROCEDURE*. Read that before anything else here.
+🛑 **THIS FILE IS BEHIND THE MAP PROBLEM. [[RESEARCH-INDEX]] is authoritative for it.** The
+2026-09-10/11 desktop sessions ran P1–P11, the memory scans and the glitch analysis, and closed most
+of what the paragraphs below still describe as open: P1/P2/P3 are **confirmed**, `adddebugcommand` is
+**nulled**, the carry **crashes joiners**, in-match `switchmap_load` is **inert in MP**, and Cheat
+Engine is **blocked by TAC**. Read [[RESEARCH-INDEX]] before acting on any map or pregame claim here.
+
+🔑 **The one live map route, found 2026-09-12: [[lobby-setters]].** Every closed route tried to make
+the picker *allow* Gunfight-on-Miami; the compat set is the client-LUI `uimodeldatastruct
+#hash_109ccf57a41ffd82` and that wall is measured. This one skips the picker and calls what the picker
+calls — `LobbySetMap` / `LobbySetGameType`, named by ACTS with BO4 addresses **0x10 apart**, whose
+Cold War port ate47 wrote and **ships disabled with two bugs**. `tools/lobby-set.py` finishes it,
+scan-only by default. ⚠ Two honest risks: the Lua master may re-push the selection, and
+`CreateRemoteThread` is **one API beyond** gfscan and `injectcw`. ▶ **Judge it on joiners** — that is
+the clause the carry fails.
+
 ▶ **What the project is for now: [[roadmap]]** — **pregame lobby control is klaze's #1 priority for
 the whole project.** 🔓 **GSC runs in the pregame lobby** — "nothing runs there" was never measured
 and the dump retracts it ([[pregame-routes]]) — so `src/test_frontend/` (band P, read-only first) is

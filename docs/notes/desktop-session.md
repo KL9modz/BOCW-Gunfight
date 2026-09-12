@@ -4,6 +4,12 @@
 [`test-queue.md`](test-queue.md) with its decision table; this sheet is what to do when you sit down,
 in what order, and why that order. Fill in the Result slots — a filled slot is the finding.
 
+🛑 **Stages 4–6 are STALE.** They were written before the 2026-09-10/11 desktop sessions, which ran
+P1–P11 and closed most of what they describe: P1/P2/P3 confirmed, `adddebugcommand` nulled, the carry
+measured to crash joiners, in-match `switchmap_load` inert, Cheat Engine blocked by TAC.
+[`RESEARCH-INDEX.md`](RESEARCH-INDEX.md) is authoritative. **2.3 below is the one live map route** and
+is the first thing worth doing.
+
 ## The constraint that sets the order: **one payload per game LAUNCH**
 
 B9 measured that injecting a second payload over a live one breaks the link outright. And every
@@ -17,7 +23,7 @@ So the sheet is ordered by what a step costs:
 |---|---|---|
 | **0** | nothing — answer from memory | 6 questions, and one of them may close route P5 outright |
 | **1** | Windows, no game | the compile gate for two payloads |
-| **2** | game, **no injection** | the lobby walk, saved games, L0 |
+| **2** | game, **no injection** | the lobby walk, saved games, L0, **and the one live map route (2.3)** |
 | **3** | 1 launch | the menu — `gunfight_menu`, walk + every control |
 | **4** | 1 launch | the pregame probe, read-only (+ the console test, free) |
 | **5** | 1 launch each | the pregame writes, one switch at a time |
@@ -100,6 +106,54 @@ opens the pause menu and picks a team**. `menuteam()` has no cap check in script
 
 ⚠ Casters are dead for this — no pause menu. A plain spectator is an ordinary player.
 Full decision table: [`test-queue.md`](test-queue.md) L0. Result: `______`
+
+### 2.3 · `LobbySetMap` / `LobbySetGameType` ← **the one live map route.** No injection, no glitch
+
+Every closed route tried to make the picker *allow* Gunfight-on-Miami. This one skips the picker and
+calls the two engine functions the picker calls. Full reasoning and both failure modes:
+[`lobby-setters.md`](lobby-setters.md).
+
+⚠ **One new API.** `gfscan` (OpenProcess + read/write) and `injectcw` (allocate + repoint) have both
+been tolerated all session. This adds `CreateRemoteThread`. Not evasion, not proven tolerated either —
+klaze's call, stated so it is a call and not an assumption.
+
+**2.3a — scan only. Writes nothing.** Game running, sitting in the custom games lobby:
+
+```
+python tools\lobby-set.py
+```
+
+| Reading | Means | Result |
+|---|---|---|
+| both resolve, **one target each** | ate47's signatures still match this build | `______` |
+| the two are **≤0x1000 apart** | 🔓 the BO4 relationship holds — there they are `0x10` apart, adjacent in one table. Strong confirmation these are the right pair | `______` |
+| `targets NONE` | the pattern is stale for this build. The route needs new signatures; nothing else about it changes | `______` |
+| >1 target for one pattern | too loose here. Record every address printed before considering `--force` | `______` |
+
+**2.3b — set the pair.** Only after a clean 2.3a. In the custom games lobby:
+
+```
+python tools\lobby-set.py --gametype gunfight --map mp_miami
+```
+
+1. Lobby rows read **Gunfight** and **Miami**? `______`
+2. ⚠ **Leave the screen and come back.** Does it hold? `______`
+   This is the decisive one. Holding = the C lobby owns the selection. Reverting = the Lua master
+   re-pushes, and the route joins the closure table **with a measurement instead of a theory**.
+3. Start. Loading screen, then in-match — real Gunfight on Miami? `______`
+4. Scoreboard, pause menu, **and the friend list / activity** — do they name Miami? `______`
+5. 👤 **THE CRITERION — a friend on a vanilla install joins and plays.** The carry fails exactly here,
+   by crashing connected clients. `______`
+6. Lobby return clean? `______`
+7. If the order looks wrong, try `--map` before `--gametype`. `______`
+
+⚠ A crash means the scan found the wrong function. Nothing persists — relaunch, and keep the addresses
+2.3a printed so the signature gets fixed rather than re-guessed.
+
+**2.3c — free, 30 seconds, unrelated to the above.** `acts dpcw x 113` prints the MAPTABLEENTRY pool
+header. **Item size ~0x1A0** = BO4-shaped, no per-map `gamemodes` string; **~0xa8** = BO6-shaped, the
+field exists. ⚠ Demoted deliberately — the compat set is *proven* to be the online-fed LUI model, so
+even a `gamemodes` string is likely one input to it, not the master. Result: `______`
 
 ---
 
@@ -232,6 +286,8 @@ Result: `______`
 
 | If this comes back | Then |
 |---|---|
+| **2.3b holds and a friend joins** | 🔓 **the map problem is closed** by the route nobody tried — real gametype, correct descriptor, no glitch, no second account |
+| 2.3b reverts on a screen change | the Lua master re-pushes the selection. Route closed **by measurement**, and the three options in [`RESEARCH-INDEX.md`](RESEARCH-INDEX.md) are all that is left |
 | 0.1 = **60** | P5 is the pregame answer, and it needs **no code at all**. Stages 4–5 become confirmation rather than the plan |
 | stage 2.2 (L0) = spectator joins a full team | **4v4 with zero code**, by a different door than `maxplayers` |
 | probe 62 = **2 or 3** | the console is scriptable. The DLL route, D10, and `crack-cmds.py` all become unnecessary |

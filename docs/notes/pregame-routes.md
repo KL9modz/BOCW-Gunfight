@@ -1737,3 +1737,39 @@ So the memory route to the pregame compat/selection state is effectively closed 
 ▶ Decision point for klaze: CE is out. The lowest-risk path to the ACTUAL goal (joiner-safe any-map) is now
   #2, glitch input-automation — which is "programmatic" (klaze's original premise) even though it's the
   glitch mechanism klaze wanted to avoid doing manually. Needs klaze's call on whether automating it counts.
+
+---
+
+## 🔑🔑🔑 NEW LAYER — `LobbySetMap` / `LobbySetGameType`, the call the picker makes (2026-09-12)
+
+Found by reading ACTS's source rather than the game's. **It is not in the closure table above**, and
+the reason is a distinction none of P1–P11 drew:
+
+> Every closed route attacks the **compat set** — *make the picker allow Miami with Gunfight selected.*
+> This one skips the picker and calls **what the picker calls.**
+
+`LobbySetGameType( LobbyType, const char* )` and `LobbySetMap( LobbyType, const char* )`, named with
+BO4 addresses **0x10 apart** in `atian-cod-tools/src/core/acts/tools/bo4/lobby_tool.cpp:455`,`:473`;
+`LobbyType 0 = LOBBY_TYPE_PRIVATE`. ate47 wrote a Cold War port — `tools/cw/cw_lobby_tool.cpp`, every
+map and every mode in its dropdowns, **no compatibility filter anywhere in it** — and it ships with
+its `ADD_TOOL_NUI` commented out and two bugs (an absolute scan result put through an `operator[]`
+that adds the module base again; and an `E8 rel32` that is never decoded, so the "function" is the
+call site). `tools/lobby-set.py` is that tool finished, scan-only by default.
+
+⚠ [`dump-cross-check.md`](dump-cross-check.md) §7 already examined that file, correctly concluded its
+`gametypes[]` table is BO4's, and wrote *"Do not mine it for CW names."* True about the table — and
+why nobody read what the tool **does**.
+
+⚠ **Two ways this still fails, both from our own measurements.** (a) *"All C ints are downstream
+reflections of the Lua master"* — if the frontend re-pushes its selection on the next refresh, the
+write is transient. The counter: what was proven Lua-authoritative is the **allowed set** and the
+picker's display state; the **selection** has to reach C, because that is what gets advertised and
+launched, and `LobbySetMap` is the entry point Lua writes it through rather than a reflection of it.
+One run settles it — set the pair, leave the screen, come back. (b) `CreateRemoteThread` is **one API
+beyond** gfscan (OpenProcess + RPM/WPM) and `injectcw` (allocate + repoint), both of which TAC has
+tolerated all session. Not evasion; not proven tolerated either.
+
+▶ **Judge it on joiners**, the clause the carry fails by crashing them. Full write-up, the risk
+analysis and the run sheet: [`lobby-setters.md`](lobby-setters.md).
+▶ **Run the scan before choosing between DBVM, glitch-automation, or accepting the gate.** It costs
+one command and changes which of those three is even necessary.
