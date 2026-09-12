@@ -62,7 +62,7 @@ As of this commit the menu defaults to the SESSION method and labels it as verif
 
 ## Next
 
-1. **Does the budget track the map?** Session-switch to Mansion (`mp_sm_central`, 2v2) and read LS7.
+1. **Does the budget track the map?** Session-switch to Mansion (`mp_sm_market`, 2v2 — ⚠ not `mp_sm_central`, which is ICBM; names audited in `docs/reference/bocw-maps.md`) and read LS7.
    8 there and 12 again on Zoo = the map sets the budget, and the 6v6 maps are where 6v6 lives.
 2. **Joiners.** Everything above is host-side. A second account joining the switched lobby is the
    test that matters for hosting.

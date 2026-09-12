@@ -41,7 +41,15 @@
 //     gf_roundwinlimit  -1 leave stock (default) / N first-to-N rounds
 //     gf_roundlimit     -1 leave stock (default) / N round cap
 //     gf_rounds_loadout -1 leave stock (default) / N rounds per loadout rotation
-//     gf_menu_lines     items per page, default 2 (what the Atian author chose for MP)
+//     gf_menu_lines     visible item rows in the panel window, default 7 (was 2)
+//     gf_menu_region    0 lower-left feed (default) / 1 center screen - which text
+//                       region holds the PANEL; toasts go to the other one. Flip it
+//                       in-game if one region clips the panel on this build.
+//     gf_feed_lines     how many lines the lower-left feed shows at once, default 14.
+//                       This is the stock dvar com_gameMsgWindow1LineCount (ships at
+//                       ~4-5) - the feed capped the panel until we raised it. Host-
+//                       local, so joiners are unaffected. Lower it if the feed spills
+//                       into other HUD; 0 leaves the stock value alone.
 //
 // Set once, they hold until the game is restarted - at which point the payload
 // has to be re-injected anyway.
@@ -62,7 +70,12 @@
 //     move a player via [[ level.autoassign ]]                        ⚠ C11 built, never run
 //     loadout set via gunfightloadoutindex                            ⚠ B6 never run
 //     spy plane value 3                                               ⚠ B7 never run
-//     #spawn_guard central real-spawn reposition                      ⚠ ported, untested - solo first
+//     #spawn_guard central real-spawn reposition                      ⚠ NEVER ACTUALLY RAN before 2026-09-12:
+//                                                                       its targetnames were garbled by the ACTS
+//                                                                       string header, so it gathered 0 and no-op'd
+//                                                                       (probe 61). First real test is still ahead.
+//     gametype switch via switchmap_load( map, gametype )             ⚠ built 2026-09-12, untested. mod_apply is
+//                                                                       gated on gunfight/gunfight_3v3 for it
 //     match limits roundwinlimit/roundlimit/roundsperloadout          ✅ keys verified in source
 //     move/spectate guard level.autoassign / level.spectator          ✅ hardened
 //     map via switchmap_load( map, gametype )                         ✅ 2026-09-12: the SESSION moves.
@@ -90,7 +103,11 @@
 #using scripts\core_common\struct;
 #using scripts\core_common\music_shared;
 #using scripts\core_common\bots\bot;
-#using scripts\mp_common\gametypes\gunfight;
+// globallogic, NOT gunfight: the menu links into TDM/etc. for the gametype switch, and
+// gunfight.gsc is ABSENT from a non-Gunfight match's link set - a gunfight:: import there
+// is a fatal link error ("error loading match", 2026-09-12). globallogic loads in every
+// MP match, and it carries the round-end the health decision needs. See mod_ontimelimit.
+#using scripts\mp_common\gametypes\globallogic;
 
 #namespace gunfight_menu;
 
@@ -115,7 +132,9 @@ function private cfg_timer_seconds() { return getdvarint( #"gf_timer_seconds", 6
 function private cfg_loadout()       { return getdvarint( #"gf_loadout", 0 ); }
 function private cfg_spyplane()      { return getdvarint( #"gf_spyplane", 0 ); }
 function private cfg_map_method()    { return getdvarint( #"gf_map_method", 1 ); }
-function private cfg_menu_lines()    { return getdvarint( #"gf_menu_lines", 2 ); }
+function private cfg_menu_lines()    { return getdvarint( #"gf_menu_lines", 3 ); }
+function private cfg_menu_region()   { return getdvarint( #"gf_menu_region", 0 ); }
+function private cfg_feed_lines()    { return getdvarint( #"gf_feed_lines", 14 ); }
 
 // #spawn_guard (ported from gunfight_mod, adapted to dvars). Default OFF - test solo first.
 function private cfg_spawn_guard()   { return getdvarint( #"gf_spawn_guard", 0 ); }
@@ -153,8 +172,24 @@ function private clamp_team_size( per_side )
 // THE MOD — gunfight_mod's verified fixes, applied every on_start_gametype
 // ═════════════════════════════════════════════════════════════════════════════
 
+// The menu can now switch GAMETYPE, so it gets linked into TDM/DM/etc. matches too.
+// Everything below the gate is Gunfight's and would wreck another mode: ontimelimit
+// becomes the health decision, gettimelimit clamps the match to the Gunfight timer,
+// the HUD latch says "no respawns left". Only the menu itself runs everywhere.
+function private mod_is_gunfight()
+{
+    gt = tolower( getdvarstring( #"g_gametype", "" ) );
+    return gt == "gunfight" || gt == "gunfight_3v3";
+}
+
 function private mod_apply()
 {
+    if ( !mod_is_gunfight() )
+    {
+        mod_menu_restart_all();
+        return;
+    }
+
     // ✅ Necessary, not defensive: level.zones is assigned only on setupzones()'s
     // success path (gunfight.gsc:907) and stays undefined for the whole match on
     // every custom-lobby map, stock ones included.
@@ -198,10 +233,15 @@ function private mod_apply()
     if ( cfg_spawn_guard() )
         mod_spawn_build();
 
-    // Belt and braces for the menu across round boundaries: the Atian Menu's own
-    // loop survives rounds in klaze's hands (game_ended fires once, at match end -
-    // globallogic.gsc:2374), but level is rebuilt per round and this costs nothing.
-    // menu_think endons on gfmenu_restart, so an old loop dies before a new one runs.
+    mod_menu_restart_all();
+}
+
+// Belt and braces for the menu across round boundaries: the Atian Menu's own
+// loop survives rounds in klaze's hands (game_ended fires once, at match end -
+// globallogic.gsc:2374), but level is rebuilt per round and this costs nothing.
+// menu_think endons on gfmenu_restart, so an old loop dies before a new one runs.
+function private mod_menu_restart_all()
+{
     foreach ( player in getplayers() )
     {
         if ( player ishost() && isdefined( player.gfmenu ) )
@@ -211,21 +251,37 @@ function private mod_apply()
     }
 }
 
+// The health decision, reached WITHOUT importing gunfight.gsc. mod_apply installs this
+// only in a Gunfight match, but the menu now also links into TDM for the gametype switch,
+// where a gunfight:: import is a fatal link error. globallogic::function_a3e3bd39 is
+// exactly what gunfight::endround threaded (score + round::set_winner + end_round), and
+// globallogic loads in every MP match. Overtime is dropped on purpose: it is the crashing
+// path this fix exists to avoid (level.zones[0] on an undefined array), and the design
+// skips it regardless of this (docs/notes/gunfight-findings.md - "overtime is absent, and
+// that is correct").
 function private mod_ontimelimit()
 {
-    if ( level.var_31f5f23 !== 1 )
-    {
-        level.var_31f5f23 = 1;
+    // One-shot. checktimelimit() re-invokes level.ontimelimit every 0.25s while the timer
+    // reads expired; gunfight's re-entrancy latch lived in gunfight::endround, which we no
+    // longer call, so own it here. level is rebuilt per round, so this resets each round.
+    if ( isdefined( level.gfmenu_round_ended ) && level.gfmenu_round_ended )
+        return;
+    level.gfmenu_round_ended = 1;
 
-        if ( isdefined( level.zones ) && level.zones.size > 0
-             && isdefined( level.zones[ 0 ] ) && isdefined( level.zones[ 0 ].gameobject ) )
-        {
-            thread gunfight::overtime();
-            return;
-        }
-    }
+    allies_health = 0;
+    foreach ( p in getplayers( #"allies" ) )
+        allies_health += p.health;
 
-    gunfight::function_c4915ac();
+    axis_health = 0;
+    foreach ( p in getplayers( #"axis" ) )
+        axis_health += p.health;
+
+    if ( allies_health > axis_health )
+        globallogic::function_a3e3bd39( #"allies", 1 );
+    else if ( axis_health > allies_health )
+        globallogic::function_a3e3bd39( #"axis", 1 );
+    else
+        thread globallogic::end_round( 2 );
 }
 
 function private mod_gettimelimit()
@@ -282,15 +338,25 @@ function private mod_spawn_build()
     }
 
     center = mod_centroid( pts );
-    central = mod_nearest_k( pts, center, 12 );   // the most central real spawn structs
 
-    // Split the central cluster into two sides by X so the teams are separated but close.
-    xmed = mod_median_x( central );
+    // Enough central points that each side gets one PER PLAYER with a few spare -
+    // at 6v6 the old fixed 12 left ~6 a side and the random pick below then doubled
+    // players up on the same struct.
+    k = cfg_team_size() * 2 + 4;
+    if ( k < 12 )
+        k = 12;
+    central = mod_nearest_k( pts, center, k );   // the most central real spawn structs
+
+    // Split the central cluster into two sides along whichever axis the cluster is
+    // longer on, so the teams are separated but close. Always-X put both teams in one
+    // pile on maps whose central corridor runs north-south.
+    ax = mod_spread_axis( central );
+    med = mod_median_axis( central, ax );
     team1 = [];
     team2 = [];
     foreach ( p in central )
     {
-        if ( p.origin[ 0 ] <= xmed )
+        if ( mod_coord( p, ax ) <= med )
             team1[ team1.size ] = p;
         else
             team2[ team2.size ] = p;
@@ -300,7 +366,9 @@ function private mod_spawn_build()
     if ( team2.size == 0 )
         team2 = central;
 
-    level.gfmenu_spawn = { #team1:team1, #team2:team2 };
+    // Shuffled once per round; mod_spawn_place hands them out in order so no two
+    // players of a side land on the same struct (a telefrag at worst, a pile at best).
+    level.gfmenu_spawn = { #team1:mod_shuffle( team1 ), #team2:mod_shuffle( team2 ), #next1:0, #next2:0 };
 
     if ( cfg_spawn_diag() )
         mod_gf_emit( 60, pts.size );   // armed, N spawn points gathered
@@ -319,15 +387,27 @@ function private mod_spawn_place()
     if ( !isplayer( self ) || !isdefined( self.team ) )
         return;
 
+    // Round-robin through the side's shuffled list: distinct struct per player.
     if ( self.team == #"axis" )
+    {
         list = level.gfmenu_spawn.team2;
+        idx = level.gfmenu_spawn.next2;
+        level.gfmenu_spawn.next2 = idx + 1;
+        side = "team2";
+    }
     else
+    {
         list = level.gfmenu_spawn.team1;
+        idx = level.gfmenu_spawn.next1;
+        level.gfmenu_spawn.next1 = idx + 1;
+        side = "team1";
+    }
 
     if ( !isdefined( list ) || list.size == 0 )
         return;
 
-    pt = list[ randomint( list.size ) ];
+    slot = idx % list.size;
+    pt = list[ slot ];
 
     if ( !isdefined( pt ) || !isdefined( pt.origin ) )
         return;
@@ -336,11 +416,75 @@ function private mod_spawn_place()
 
     if ( isdefined( pt.angles ) )
         self setplayerangles( pt.angles );
+
+    // Per-player receipt, so "odd spawn" reports can say whether the guard placed them.
+    if ( cfg_spawn_diag() )
+        self iprintln( "spawn guard: " + side + " anchor " + slot + "/" + list.size );
+}
+
+// Fisher-Yates on a copy.
+function private mod_shuffle( arr )
+{
+    out = [];
+    foreach ( p in arr )
+        out[ out.size ] = p;
+
+    for ( i = out.size - 1; i > 0; i-- )
+    {
+        j = randomint( i + 1 );
+        t = out[ i ];
+        out[ i ] = out[ j ];
+        out[ j ] = t;
+    }
+
+    return out;
+}
+
+// 0 = X, 1 = Y: whichever the cluster spans more of.
+function private mod_spread_axis( pts )
+{
+    minx = pts[ 0 ].origin[ 0 ]; maxx = minx;
+    miny = pts[ 0 ].origin[ 1 ]; maxy = miny;
+
+    foreach ( p in pts )
+    {
+        if ( p.origin[ 0 ] < minx ) minx = p.origin[ 0 ];
+        if ( p.origin[ 0 ] > maxx ) maxx = p.origin[ 0 ];
+        if ( p.origin[ 1 ] < miny ) miny = p.origin[ 1 ];
+        if ( p.origin[ 1 ] > maxy ) maxy = p.origin[ 1 ];
+    }
+
+    return ( ( maxy - miny ) > ( maxx - minx ) ) ? 1 : 0;
 }
 
 // []-construction, NOT bare array(): keys_init above documents why array() is a link-time
 // risk in this file (zero precedent in stock MP scripts). Same rule applies here.
 function private mod_gather_spawns()
+{
+    pts = [];
+
+    foreach ( n in mod_spawn_families() )
+    {
+        arr = struct::get_array( n, "targetname" );
+
+        if ( isdefined( arr ) )
+        {
+            foreach ( s in arr )
+            {
+                if ( isdefined( s ) && isdefined( s.origin ) )
+                    pts[ pts.size ] = s;
+            }
+        }
+    }
+
+    return pts;
+}
+
+// ⚠ These are string literals handed to the engine. Every build before 2026-09-12 shipped
+// them with the ACTS string header the engine reads as "encrypted" (tools/strip-strhdr.ps1),
+// so get_array matched NOTHING and the guard no-op'd with probe 61 every time - which is
+// what sent the desktop hunting for a "missing family". The families were never the miss.
+function private mod_spawn_families()
 {
     names = [];
 
@@ -368,23 +512,44 @@ function private mod_gather_spawns()
     names[ names.size ] = "mp_twar_spawn_allies_start";
     names[ names.size ] = "mp_twar_spawn_axis_start";
 
-    pts = [];
+    return names;
+}
 
-    foreach ( n in names )
+// Spawns -> "Spawn report": what this map actually places, and what the guard built from
+// it. Three lines a page so it can be read. Zero counts are skipped.
+function private spawn_report()
+{
+    self endon( #"disconnect" );
+
+    n = 0;
+    foreach ( name in mod_spawn_families() )
     {
-        arr = struct::get_array( n, "targetname" );
+        arr = struct::get_array( name, "targetname" );
 
-        if ( isdefined( arr ) )
-        {
-            foreach ( s in arr )
-            {
-                if ( isdefined( s ) && isdefined( s.origin ) )
-                    pts[ pts.size ] = s;
-            }
-        }
+        if ( !isdefined( arr ) || arr.size == 0 )
+            continue;
+
+        self iprintln( name + " = " + arr.size );
+        n++;
+
+        if ( n % 3 == 0 )
+            wait( 4 );
     }
 
-    return pts;
+    if ( n == 0 )
+        self iprintln( "^1no spawn structs found by any known targetname" );
+
+    if ( isdefined( level.gfmenu_spawn ) )
+    {
+        c1 = mod_centroid( level.gfmenu_spawn.team1 );
+        c2 = mod_centroid( level.gfmenu_spawn.team2 );
+        sep = int( sqrt( mod_dist2d_sq( c1, c2 ) ) );
+        self iprintln( "guard armed: " + level.gfmenu_spawn.team1.size + " + " + level.gfmenu_spawn.team2.size + " anchors, sides " + sep + " apart" );
+    }
+    else
+    {
+        self iprintln( "guard not armed this round (" + ( cfg_spawn_guard() ? "too few points" : "switched off" ) + ")" );
+    }
 }
 
 function private mod_centroid( pts )
@@ -426,12 +591,22 @@ function private mod_nearest_k( pts, center, k )
     return out;
 }
 
-function private mod_median_x( pts )
+// Vector components by CONSTANT index only - a variable index into a vector has no
+// stock precedent, and this file does not gamble links.
+function private mod_coord( p, ax )
+{
+    if ( ax == 1 )
+        return p.origin[ 1 ];
+
+    return p.origin[ 0 ];
+}
+
+function private mod_median_axis( pts, ax )
 {
     xs = [];
 
     foreach ( p in pts )
-        xs[ xs.size ] = p.origin[ 0 ];
+        xs[ xs.size ] = mod_coord( p, ax );
 
     for ( i = 0; i < xs.size; i++ )
     {
@@ -485,6 +660,94 @@ function private on_player_connect()
     self build_tree();
 
     self thread menu_think();
+    self thread cmd_poll();
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// COMMAND POLLER — lets the Windows control app (tools/gf-control) drive actions
+// ═════════════════════════════════════════════════════════════════════════════
+// The app writes CONFIG dvars (gf_team_size, gf_timer_seconds, ...) which mod_apply
+// already re-reads every round - those need nothing here. ACTIONS (map/gametype
+// switch, bots, restart) are one-shots, so the app stages them as gf_cmd_* dvars and
+// raises gf_cmd_go; this poller runs the operation host-side and clears the flag.
+// Runs on the host player (started in on_player_connect), endon disconnect so it
+// survives the round boundary (game_ended is match-end, not per round).
+function private cmd_poll()
+{
+    self endon( #"disconnect" );
+
+    for ( ;; )
+    {
+        if ( getdvarint( #"gf_cmd_go", 0 ) == 1 )
+        {
+            setdvar( #"gf_cmd_go", 0 );   // clear FIRST so a slow action cannot re-fire
+            self cmd_dispatch();
+        }
+
+        wait( 0.25 );
+    }
+}
+
+// One command per gf_cmd_go pulse. Bots/restart take priority; otherwise a map and/or
+// gametype present means a SESSION switch (the app's proper path - the map() carry
+// cannot carry a gametype). Each trigger is cleared as it is consumed.
+function private cmd_dispatch()
+{
+    if ( getdvarint( #"gf_cmd_fillbots", 0 ) )
+    {
+        setdvar( #"gf_cmd_fillbots", 0 );
+        self thread fill_bots();
+        return;
+    }
+
+    if ( getdvarint( #"gf_cmd_removebots", 0 ) )
+    {
+        setdvar( #"gf_cmd_removebots", 0 );
+        bot::remove_bots( #"allies" );
+        bot::remove_bots( #"axis" );
+        self menu_say( "^2app: bots removed" );
+        return;
+    }
+
+    if ( getdvarint( #"gf_cmd_restart", 0 ) )
+    {
+        setdvar( #"gf_cmd_restart", 0 );
+        self menu_say( "^3app: restarting..." );
+        map_restart();
+        return;
+    }
+
+    map = tolower( getdvarstring( #"gf_cmd_map", "" ) );
+    gt  = tolower( getdvarstring( #"gf_cmd_gametype", "" ) );
+
+    if ( map == "" && gt == "" )
+    {
+        return;
+    }
+
+    setdvar( #"gf_cmd_map", "" );
+    setdvar( #"gf_cmd_gametype", "" );
+
+    if ( map == "" )
+    {
+        map = tolower( getdvarstring( #"sv_mapname", "" ) );
+    }
+
+    if ( gt == "" )
+    {
+        gt = tolower( getdvarstring( #"g_gametype", "" ) );
+    }
+
+    // Same guard the in-game gametype action uses: refuse a name the engine rejects
+    // rather than hand switchmap_load a bad gametype and find out live.
+    if ( !isvalidgametype( gt ) )
+    {
+        self menu_say( "^1app: engine rejects gametype " + gt );
+        return;
+    }
+
+    self menu_say( "^3app: switching to " + map + " / " + gt + "..." );
+    self thread do_session_switch( map, gt );
 }
 
 function private menu_restart()
@@ -508,15 +771,53 @@ function private menu_init( title )
     self menu_add( "start_menu", title, "" );
 }
 
-function private menu_draw( txt )
+// BOCW gives a host-only SERVER script exactly two text regions, and no more: the
+// lower-left notification feed (iprintln) and the center of the screen (iprintlnbold).
+// Both take ^N colors and both FADE, which is why menu_think repaints. The live PANEL
+// goes to one region; transient confirmations ("toasts") go to the OTHER, so a
+// confirmation never scribbles across the panel. gf_menu_region flips which is which -
+// the two regions cap visible line counts differently and only an in-game look tells
+// you which one shows the whole panel cleanly on a given build.
+// The lower-left feed shows only com_gameMsgWindow1LineCount lines at once (~4-5
+// stock), which clipped the panel to its last few rows. Raising it grows the feed on
+// the HOST's own client only - it is a com_ display dvar the local HUD reads, not a
+// replicated gametype setting, so joiners keep their stock feed. Re-applied on every
+// repaint because it costs nothing and self-heals if anything resets it. 0 = leave
+// the stock value untouched.
+function private menu_feed_height()
 {
-    self iprintln( txt );
+    n = cfg_feed_lines();
+
+    if ( n <= 0 )
+        return;
+
+    // iprintln might feed a different window index than the cfg's #1; set them all.
+    setdvar( #"com_gameMsgWindow0LineCount", n );
+    setdvar( #"com_gameMsgWindow1LineCount", n );
+    setdvar( #"com_gameMsgWindow2LineCount", n );
+    setdvar( #"com_gameMsgWindow3LineCount", n );
 }
 
-function private menu_say( txt )
+function private menu_paint( txt )
 {
-    self iprintlnbold( txt );
+    if ( cfg_menu_region() == 1 )
+        self iprintlnbold( txt );
+    else
+        self iprintln( txt );
 }
+
+function private menu_toast( txt )
+{
+    if ( cfg_menu_region() == 1 )
+        self iprintln( txt );
+    else
+        self iprintlnbold( txt );
+}
+
+// The names the rest of the file already calls. menu_draw = the panel region,
+// menu_say = the toast (opposite) region.
+function private menu_draw( txt ) { self menu_paint( txt ); }
+function private menu_say( txt )  { self menu_toast( txt ); }
 
 // A page. create_switch = 1 also adds an item in the parent that opens it.
 // enter_func, if given, runs with (menu) every time the page is entered - the
@@ -544,7 +845,7 @@ function private menu_add( id, name, parent_id, create_switch = 0, enter_func = 
 
 // An item. action is called as  self [[ action ]]( item, data1, data2 ).
 // Return false from an action to close the menu; anything else keeps it open.
-function private menu_item( menu_id, name, action, data1 = undefined, data2 = undefined )
+function private menu_item( menu_id, name, action, data1 = undefined, data2 = undefined, group = undefined, gval = undefined )
 {
     if ( !isdefined( self.gfmenu.menus[ menu_id ] ) )
     {
@@ -557,7 +858,9 @@ function private menu_item( menu_id, name, action, data1 = undefined, data2 = un
         #action: action,
         #activated: 0,
         #data1: data1,
-        #data2: data2
+        #data2: data2,
+        #group: group,   // dvar this choice writes (for the live "current" marker)
+        #gval: gval       // the value this choice represents
     };
 
     // Bind the &array param to a struct FIELD the way the Atian source does
@@ -632,6 +935,10 @@ function private menu_think()
 
     lines = cfg_menu_lines();
 
+    // Panel is 1 header + <lines> item rows. Prime the region with that many blanks
+    // so the first real paint lands as a stable block. Kept small on purpose: the
+    // lower-left feed only shows a handful of lines and the dvar that sizes it
+    // (com_gameMsgWindow1LineCount) is latched at HUD build, not honored mid-match.
     for ( i = 0; i < lines + 1; i++ )
     {
         self menu_draw( "" );
@@ -655,6 +962,7 @@ function private menu_think()
             if ( self key_pressed( #"open_menu", 1 ) )
             {
                 m.current = "start_menu";
+                self menu_toast( "^7RMB^8 up  ^7LMB^8 down  ^7R^8 select  ^7V^8 back" );
                 render = 1;
             }
             else
@@ -737,7 +1045,7 @@ function private menu_think()
 
             if ( nts > ts )
             {
-                ts = nts + 5000;
+                ts = nts + 2000;
                 render = 1;
             }
             else
@@ -756,6 +1064,17 @@ function private menu_think()
     }
 }
 
+// The panel. Fixed height every frame (1 header + <lines> rows + 3 footer) so a
+// repaint lands as one stable block instead of a jittering pile. The item list is a
+// WINDOW that scrolls with the cursor - 28 maps read as one smooth list, not 14 pages
+// of two. Header carries the breadcrumb + position; footer carries live match state
+// and the key legend, so the host always sees what is actually set.
+// The panel, compact so it survives the ~4-line feed. Exactly 1 header + <lines>
+// item rows every frame (default lines=3, cursor centered as prev/here/next). The
+// header does double duty: on the ROOT page it is the full state readout klaze
+// wanted to keep; on a sub-page it is page name + position + a short state tail, so
+// one line still says both "where am I" and "what is set". The divider/state/legend
+// footer of the tall version is gone - it pushed the list off the top of the feed.
 function private menu_render( lines )
 {
     menu = self menu_current();
@@ -763,45 +1082,123 @@ function private menu_render( lines )
     if ( !isdefined( menu ) )
     {
         for ( i = 0; i < lines + 1; i++ )
-        {
             self menu_draw( "" );
-        }
-
         return;
     }
 
-    if ( menu.items.size == 0 )
+    n = menu.items.size;
+
+    start = 0;
+    if ( n > lines )
     {
-        self menu_draw( "^1---- " + menu.name + " (empty) ----" );
-        index_end = 1;
+        start = menu.cursor - int( lines / 2 );
+        if ( start < 0 )
+            start = 0;
+        if ( start > n - lines )
+            start = n - lines;
+    }
+    end = int( min( start + lines, n ) );
+
+    pos = ( n == 0 ) ? "-/-" : ( "" + ( menu.cursor + 1 ) + "/" + n );
+
+    // Root header = the full state readout klaze wanted kept; sub-page header =
+    // page name + position + short state tail. The position counter is the scroll
+    // indicator (no caret/arrow glyphs - they do not render reliably in this font).
+    if ( menu.id == "start_menu" )
+        self menu_draw( self menu_state_line() );
+    else
+        self menu_draw( "^5" + menu.name + " ^7" + pos + "  ^8> ^7" + self menu_state_compact() );
+
+    if ( n == 0 )
+    {
+        self menu_draw( "     ^8(empty)" );
+        for ( i = 1; i < lines; i++ )
+            self menu_draw( "" );
     }
     else
     {
-        page = int( menu.cursor / lines );
-        maxpage = int( ( menu.items.size - 1 ) / lines ) + 1;
-        self menu_draw( "^1---- " + menu.name + " (" + ( page + 1 ) + "/" + maxpage + ") ----" );
-
-        index_start = lines * page;
-        index_end = int( min( lines * ( page + 1 ), menu.items.size ) );
-
-        for ( i = index_start; i < index_end; i++ )
-        {
-            it = menu.items[ i ];
-            prefix = ( menu.cursor == i ) ? "^2-> ^1" : "^1- ";
-            suffix = it.activated ? "^0 (ON)" : "";
-            self menu_draw( prefix + it.name + suffix );
-        }
-    }
-
-    end_space = lines - ( index_end % lines );
-
-    if ( end_space != lines )
-    {
-        for ( i = 0; i < end_space; i++ )
-        {
+        for ( i = start; i < end; i++ )
+            self menu_draw( self menu_item_line( menu, i ) );
+        for ( i = end - start; i < lines; i++ )
             self menu_draw( "" );
-        }
     }
+}
+
+// One rendered row. Cursor row is bright with a > caret; other rows dim. A choice
+// that matches its live dvar gets a ^2* and trailing <; a sub-page gets a ^5> ; an
+// .activated toggle shows [ON].
+function private menu_item_line( menu, i )
+{
+    it = menu.items[ i ];
+    cur = ( menu.cursor == i );
+
+    // menu_switch stores the target page id in data1, so data1 naming a real page
+    // means this row opens a submenu.
+    submenu = isdefined( it.data1 ) && isdefined( self.gfmenu.menus[ it.data1 ] );
+
+    active = 0;
+    if ( isdefined( it.group ) && isdefined( it.gval ) )
+        active = ( getdvarint( it.group, -2147483647 ) == it.gval );
+    else if ( menu.id == "gametype" && isdefined( it.data1 ) )
+        active = ( tolower( getdvarstring( #"g_gametype", "" ) ) == it.data1 );
+
+    mark = "  ";
+    if ( active )
+        mark = "^2*";
+    else if ( submenu )
+        mark = "^5>";
+
+    body = it.name;
+    if ( it.activated )
+        body += " ^2[ON]";
+    if ( active )
+        body += " ^2<";
+
+    if ( cur )
+        return "^2> " + mark + " ^7" + body;
+
+    return "   " + mark + " ^8" + body;
+}
+
+// Short state tail for sub-page headers: team size, timer, gametype - the three
+// most-changed settings, kept short so the header never wraps.
+function private menu_state_compact()
+{
+    ts = cfg_team_size();
+    return ts + "v" + ts + " " + cfg_timer_seconds() + "s " + getdvarstring( #"g_gametype", "?" );
+}
+
+// Start > Map > 6v6 maps  - walk parent_id up to the root.
+function private menu_breadcrumb( menu )
+{
+    trail = menu.name;
+    p = menu.parent_id;
+
+    for ( guard = 0; guard < 12 && p != ""; guard++ )
+    {
+        par = self.gfmenu.menus[ p ];
+        if ( !isdefined( par ) )
+            break;
+        trail = par.name + " ^5> ^3" + trail;
+        p = par.parent_id;
+    }
+
+    return trail;
+}
+
+// The always-on state readout: team size, timer, current map+gametype, seated
+// players against the client budget, and the map method. Everything the host would
+// otherwise have to trigger something to find out.
+function private menu_state_line()
+{
+    ts = cfg_team_size();
+    seated = getplayers( #"allies" ).size + getplayers( #"axis" ).size;
+    budget = getdvarint( #"com_maxclients", 0 );
+    map = getdvarstring( #"sv_mapname", "?" );
+    gt = getdvarstring( #"g_gametype", "?" );
+    meth = cfg_map_method() ? "SESSION" : "carry";
+
+    return "^7" + ts + "v" + ts + " ^8| ^7" + cfg_timer_seconds() + "s ^8| ^7" + map + " ^8| ^7" + gt + " ^8| ^7" + seated + "/" + budget + " ^8| ^7" + meth;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -906,14 +1303,14 @@ function private build_tree()
 {
     // ── Teams ────────────────────────────────────────────────────────────────
     self menu_add( "teams", "Teams", "start_menu", 1 );
-    self menu_item( "teams", "2v2", &act_team_size, 2 );
-    self menu_item( "teams", "3v3", &act_team_size, 3 );
-    self menu_item( "teams", "4v4", &act_team_size, 4 );
-    self menu_item( "teams", "5v5", &act_team_size, 5 );
+    self menu_item( "teams", "2v2", &act_team_size, 2, undefined, #"gf_team_size", 2 );
+    self menu_item( "teams", "3v3", &act_team_size, 3, undefined, #"gf_team_size", 3 );
+    self menu_item( "teams", "4v4", &act_team_size, 4, undefined, #"gf_team_size", 4 );
+    self menu_item( "teams", "5v5", &act_team_size, 5, undefined, #"gf_team_size", 5 );
     // 6v6 = 12 clients = exactly the com_maxclients lobby_state read in a Gunfight session
     // after a SESSION map switch (2026-09-12). clamp_team_size() bounds it at budget/2, so
     // in an 8- or 10-slot lobby this item degrades to 4v4 / 5v5 and says so.
-    self menu_item( "teams", "6v6", &act_team_size, 6 );
+    self menu_item( "teams", "6v6", &act_team_size, 6, undefined, #"gf_team_size", 6 );
     self menu_item( "teams", "Fill with bots", &act_fill_bots );
     self menu_item( "teams", "Remove all bots", &act_remove_bots );
 
@@ -922,92 +1319,144 @@ function private build_tree()
 
     // ── Round ────────────────────────────────────────────────────────────────
     self menu_add( "round", "Round", "start_menu", 1 );
-    self menu_item( "round", "Timer 20s", &act_timer, 20 );
-    self menu_item( "round", "Timer 30s", &act_timer, 30 );
-    self menu_item( "round", "Timer 40s", &act_timer, 40 );
-    self menu_item( "round", "Timer 60s", &act_timer, 60 );
-    self menu_item( "round", "Timer 90s", &act_timer, 90 );
-    self menu_item( "round", "Timer 120s", &act_timer, 120 );
+    self menu_item( "round", "Timer 20s", &act_timer, 20, undefined, #"gf_timer_seconds", 20 );
+    self menu_item( "round", "Timer 30s", &act_timer, 30, undefined, #"gf_timer_seconds", 30 );
+    self menu_item( "round", "Timer 40s", &act_timer, 40, undefined, #"gf_timer_seconds", 40 );
+    self menu_item( "round", "Timer 60s", &act_timer, 60, undefined, #"gf_timer_seconds", 60 );
+    self menu_item( "round", "Timer 90s", &act_timer, 90, undefined, #"gf_timer_seconds", 90 );
+    self menu_item( "round", "Timer 120s", &act_timer, 120, undefined, #"gf_timer_seconds", 120 );
     self menu_item( "round", "Restart match", &act_restart );
 
     // ── Loadout set — B6, never run ──────────────────────────────────────────
     self menu_add( "loadout", "Loadout", "start_menu", 1 );
-    self menu_item( "loadout", "Default", &act_loadout, 0 );
-    self menu_item( "loadout", "Snipers", &act_loadout, 1 );
-    self menu_item( "loadout", "Blueprints", &act_loadout, 2 );
-    self menu_item( "loadout", "Melee", &act_loadout, 3 );
+    self menu_item( "loadout", "Default", &act_loadout, 0, undefined, #"gf_loadout", 0 );
+    self menu_item( "loadout", "Snipers", &act_loadout, 1, undefined, #"gf_loadout", 1 );
+    self menu_item( "loadout", "Blueprints", &act_loadout, 2, undefined, #"gf_loadout", 2 );
+    self menu_item( "loadout", "Melee", &act_loadout, 3, undefined, #"gf_loadout", 3 );
 
     // ── Spy plane — value 3 is the one the rules menu hides. B7, never run ───
     self menu_add( "spyplane", "Spy plane", "start_menu", 1 );
-    self menu_item( "spyplane", "Off", &act_spyplane, 0 );
-    self menu_item( "spyplane", "On", &act_spyplane, 1 );
-    self menu_item( "spyplane", "Shared - hidden value", &act_spyplane, 3 );
+    self menu_item( "spyplane", "Off", &act_spyplane, 0, undefined, #"gf_spyplane", 0 );
+    self menu_item( "spyplane", "On", &act_spyplane, 1, undefined, #"gf_spyplane", 1 );
+    self menu_item( "spyplane", "Shared - hidden value", &act_spyplane, 3, undefined, #"gf_spyplane", 3 );
 
     // ── Spawns — #spawn_guard. Default OFF, UNTESTED: test SOLO first ─────────
     self menu_add( "spawns", "Spawns", "start_menu", 1 );
-    self menu_item( "spawns", "Spawn guard OFF", &act_spawn_guard, 0 );
-    self menu_item( "spawns", "Spawn guard ON (test solo)", &act_spawn_guard, 1 );
+    self menu_item( "spawns", "Spawn guard OFF", &act_spawn_guard, 0, undefined, #"gf_spawn_guard", 0 );
+    self menu_item( "spawns", "Spawn guard ON (test solo)", &act_spawn_guard, 1, undefined, #"gf_spawn_guard", 1 );
+    self menu_item( "spawns", "Spawn report", &act_spawn_report );
 
     // ── Match — first-to / round cap / loadout rotation. Keys verified in source ─
     self menu_add( "match", "Match", "start_menu", 1 );
-    self menu_item( "match", "First to 2", &act_roundwinlimit, 2 );
-    self menu_item( "match", "First to 4", &act_roundwinlimit, 4 );
-    self menu_item( "match", "First to 6", &act_roundwinlimit, 6 );
-    self menu_item( "match", "First to 10", &act_roundwinlimit, 10 );
-    self menu_item( "match", "Round cap 6", &act_roundlimit, 6 );
-    self menu_item( "match", "Round cap 10", &act_roundlimit, 10 );
-    self menu_item( "match", "Loadout rotate 1", &act_rounds_loadout, 1 );
-    self menu_item( "match", "Loadout rotate 2", &act_rounds_loadout, 2 );
-    self menu_item( "match", "Loadout rotate 3", &act_rounds_loadout, 3 );
+    self menu_item( "match", "First to 2", &act_roundwinlimit, 2, undefined, #"gf_roundwinlimit", 2 );
+    self menu_item( "match", "First to 4", &act_roundwinlimit, 4, undefined, #"gf_roundwinlimit", 4 );
+    self menu_item( "match", "First to 6", &act_roundwinlimit, 6, undefined, #"gf_roundwinlimit", 6 );
+    self menu_item( "match", "First to 10", &act_roundwinlimit, 10, undefined, #"gf_roundwinlimit", 10 );
+    self menu_item( "match", "Round cap 6", &act_roundlimit, 6, undefined, #"gf_roundlimit", 6 );
+    self menu_item( "match", "Round cap 10", &act_roundlimit, 10, undefined, #"gf_roundlimit", 10 );
+    self menu_item( "match", "Loadout rotate 1", &act_rounds_loadout, 1, undefined, #"gf_rounds_loadout", 1 );
+    self menu_item( "match", "Loadout rotate 2", &act_rounds_loadout, 2, undefined, #"gf_rounds_loadout", 2 );
+    self menu_item( "match", "Loadout rotate 3", &act_rounds_loadout, 3, undefined, #"gf_rounds_loadout", 3 );
 
     // ── Map ──────────────────────────────────────────────────────────────────
+    // Every label is "<in-game display name>  [<map name>]". Names audited 2026-09-12
+    // against the dump's map table (36 mp_* maptableentry assets, no 37th), the CoD
+    // wiki's per-map `console` field, and per-map asset fingerprints; the table with
+    // the provenance is docs/reference/bocw-maps.md. The labels this file carried
+    // before were guesses and several were wrong (mp_dune is Collateral, not Rush;
+    // mp_village_rm is Standoff; mp_cliffhanger is Yamantau; mp_kgb is Checkmate).
     self menu_add( "map", "Map", "start_menu", 1 );
     // (ON) = SESSION, the default: the lobby follows the switch. Off = the old Atian
     // load-time carry. Seeded from the dvar so the marker is right on first open.
     it = self menu_item( "map", "Session switch (lobby follows)", &act_map_method );
     it.activated = cfg_map_method();
-    self menu_item( "map", "Zoo - verified", &act_map, "mp_zoo_rm" );
-    self menu_add( "map_all", "All maps", "map", 1 );
+    self menu_item( "map", "Zoo - verified  [mp_zoo_rm]", &act_map, "mp_zoo_rm" );
+    self menu_add( "map_6v6", "6v6 maps", "map", 1 );
+    self menu_add( "map_gf", "Gunfight maps", "map", 1 );
+    self menu_add( "map_large", "12v12 layouts - TDM 10v10", "map", 1 );
+    self menu_add( "map_ft", "Fireteam maps - untested", "map", 1 );
 
-    // docs/reference/atian-menu-maps.txt. ⚠ Not a safety list: Hijacked broke the
-    // session once for a reason nobody has established, and mapexists() cannot
-    // guard it (returns 1 for everything - B5).
-    self menu_item( "map_all", "Amerika", &act_map, "mp_amerika" );
-    self menu_item( "map_all", "Apocalypse", &act_map, "mp_apocalypse" );
-    self menu_item( "map_all", "Armada", &act_map, "mp_black_sea" );
-    self menu_item( "map_all", "Cartel", &act_map, "mp_cartel" );
-    self menu_item( "map_all", "Checkmate", &act_map, "mp_clhanger" );
-    self menu_item( "map_all", "Drive-In", &act_map, "mp_drivein_rm" );
-    self menu_item( "map_all", "Rush", &act_map, "mp_dune" );
-    self menu_item( "map_all", "Echelon", &act_map, "mp_echelon" );
-    self menu_item( "map_all", "Express", &act_map, "mp_express_rm" );
-    self menu_item( "map_all", "Firebase Z", &act_map, "mp_firebase" );
-    self menu_item( "map_all", "^3! Hijacked", &act_map, "mp_hijacked_rm" );
-    self menu_item( "map_all", "Jungle", &act_map, "mp_jungle_rm" );
-    self menu_item( "map_all", "KGB", &act_map, "mp_kgb" );
-    self menu_item( "map_all", "Mall", &act_map, "mp_mall" );
-    self menu_item( "map_all", "Miami", &act_map, "mp_miami" );
-    self menu_item( "map_all", "Miami Strike", &act_map, "mp_miami_strike" );
-    self menu_item( "map_all", "Moscow", &act_map, "mp_moscow" );
-    self menu_item( "map_all", "Nuketown", &act_map, "mp_nuketown6" );
-    self menu_item( "map_all", "Paintball", &act_map, "mp_paintball_rm" );
-    self menu_item( "map_all", "Raid", &act_map, "mp_raid_rm" );
-    self menu_item( "map_all", "WMD", &act_map, "mp_russianbase_rm" );
-    self menu_item( "map_all", "Satellite", &act_map, "mp_satellite" );
-    self menu_item( "map_all", "Slums", &act_map, "mp_slums_rm" );
-    self menu_item( "map_all", "Amsterdam", &act_map, "mp_sm_amsterdam" );
-    self menu_item( "map_all", "U-Bahn", &act_map, "mp_sm_berlin_tunnel" );
-    self menu_item( "map_all", "Mansion", &act_map, "mp_sm_central" );
-    self menu_item( "map_all", "Dept Store", &act_map, "mp_sm_deptstore" );
-    self menu_item( "map_all", "Diesel", &act_map, "mp_sm_finance" );
-    self menu_item( "map_all", "Game Show", &act_map, "mp_sm_game_show" );
-    self menu_item( "map_all", "Gas Station", &act_map, "mp_sm_gas_station" );
-    self menu_item( "map_all", "Market", &act_map, "mp_sm_market" );
-    self menu_item( "map_all", "Vault", &act_map, "mp_sm_vault" );
-    self menu_item( "map_all", "Garrison", &act_map, "mp_tank" );
-    self menu_item( "map_all", "Crossroads", &act_map, "mp_tundra" );
-    self menu_item( "map_all", "Village", &act_map, "mp_village_rm" );
-    self menu_item( "map_all", "Zoo", &act_map, "mp_zoo_rm" );
+    // 6v6 maps. The three large maps are ONE file each whose script picks the 12v12 or
+    // the Strike boundary from the g_gametype string at level_init (bocw-maps.md):
+    // under gunfight, mp_black_sea and mp_dune come up as their STRIKE layouts and
+    // mp_tundra comes up as the FULL 12v12 map ("gunfight" is not in Crossroads' 6v6
+    // token list). The labels say which layout the switch will actually produce.
+    self menu_item( "map_6v6", "Amerika  [mp_amerika]", &act_map, "mp_amerika" );
+    self menu_item( "map_6v6", "Apocalypse  [mp_apocalypse]", &act_map, "mp_apocalypse" );
+    self menu_item( "map_6v6", "Armada Strike  [mp_black_sea]", &act_map, "mp_black_sea" );
+    self menu_item( "map_6v6", "Cartel  [mp_cartel]", &act_map, "mp_cartel" );
+    self menu_item( "map_6v6", "Checkmate  [mp_kgb]", &act_map, "mp_kgb" );
+    self menu_item( "map_6v6", "Collateral Strike  [mp_dune]", &act_map, "mp_dune" );
+    self menu_item( "map_6v6", "Crossroads - full 12v12 layout  [mp_tundra]", &act_map, "mp_tundra" );
+    self menu_item( "map_6v6", "Deprogram  [mp_firebase]", &act_map, "mp_firebase" );
+    self menu_item( "map_6v6", "Diesel  [mp_sm_gas_station]", &act_map, "mp_sm_gas_station" );
+    self menu_item( "map_6v6", "Drive-In  [mp_drivein_rm]", &act_map, "mp_drivein_rm" );
+    self menu_item( "map_6v6", "Echelon  [mp_echelon]", &act_map, "mp_echelon" );
+    self menu_item( "map_6v6", "Express  [mp_express_rm]", &act_map, "mp_express_rm" );
+    self menu_item( "map_6v6", "Garrison  [mp_tank]", &act_map, "mp_tank" );
+    self menu_item( "map_6v6", "Hijacked  [mp_hijacked_rm]", &act_map, "mp_hijacked_rm" );
+    self menu_item( "map_6v6", "Jungle  [mp_jungle_rm]", &act_map, "mp_jungle_rm" );
+    self menu_item( "map_6v6", "Miami  [mp_miami]", &act_map, "mp_miami" );
+    self menu_item( "map_6v6", "Miami Strike  [mp_miami_strike]", &act_map, "mp_miami_strike" );
+    self menu_item( "map_6v6", "Moscow  [mp_moscow]", &act_map, "mp_moscow" );
+    self menu_item( "map_6v6", "Nuketown '84  [mp_nuketown6]", &act_map, "mp_nuketown6" );
+    self menu_item( "map_6v6", "Raid  [mp_raid_rm]", &act_map, "mp_raid_rm" );
+    self menu_item( "map_6v6", "Rush  [mp_paintball_rm]", &act_map, "mp_paintball_rm" );
+    self menu_item( "map_6v6", "Satellite  [mp_satellite]", &act_map, "mp_satellite" );
+    self menu_item( "map_6v6", "Slums  [mp_slums_rm]", &act_map, "mp_slums_rm" );
+    self menu_item( "map_6v6", "Standoff  [mp_village_rm]", &act_map, "mp_village_rm" );
+    self menu_item( "map_6v6", "The Pines  [mp_mall]", &act_map, "mp_mall" );
+    self menu_item( "map_6v6", "WMD  [mp_russianbase_rm]", &act_map, "mp_russianbase_rm" );
+    self menu_item( "map_6v6", "Yamantau  [mp_cliffhanger]", &act_map, "mp_cliffhanger" );
+    self menu_item( "map_6v6", "Zoo  [mp_zoo_rm]", &act_map, "mp_zoo_rm" );
+
+    // Gunfight / Face Off maps, plus the two the stock Gunfight rotation borrows.
+    self menu_item( "map_gf", "Amsterdam  [mp_sm_amsterdam]", &act_map, "mp_sm_amsterdam" );
+    self menu_item( "map_gf", "Diesel  [mp_sm_gas_station]", &act_map, "mp_sm_gas_station" );
+    self menu_item( "map_gf", "Game Show  [mp_sm_game_show]", &act_map, "mp_sm_game_show" );
+    self menu_item( "map_gf", "Gluboko  [mp_sm_vault]", &act_map, "mp_sm_vault" );
+    self menu_item( "map_gf", "ICBM  [mp_sm_central]", &act_map, "mp_sm_central" );
+    self menu_item( "map_gf", "KGB  [mp_sm_finance]", &act_map, "mp_sm_finance" );
+    self menu_item( "map_gf", "Mansion  [mp_sm_market]", &act_map, "mp_sm_market" );
+    self menu_item( "map_gf", "Nuketown '84  [mp_nuketown6]", &act_map, "mp_nuketown6" );
+    self menu_item( "map_gf", "Showroom  [mp_sm_deptstore]", &act_map, "mp_sm_deptstore" );
+    self menu_item( "map_gf", "U-Bahn  [mp_sm_berlin_tunnel]", &act_map, "mp_sm_berlin_tunnel" );
+
+    // The full 12v12 layouts of the large maps. Same files as above; the map scripts
+    // open the 12v12 boundary only when g_gametype is a 10v10/12v12 string, so these
+    // switch the SESSION to map + "tdm10v10" (gametypetableentry teamdeathmatch_10v10
+    // exists in the dump). Not Gunfight, and not yet run: the *10v10 strings have only
+    // been seen inside matchmade playlists. Crossroads' full layout is what gunfight
+    // already gets (above); it is here so all three read the same way.
+    self menu_item( "map_large", "Armada 12v12 - TDM 10v10  [mp_black_sea]", &act_map_gt, "mp_black_sea", "tdm10v10" );
+    self menu_item( "map_large", "Collateral 12v12 - TDM 10v10  [mp_dune]", &act_map_gt, "mp_dune", "tdm10v10" );
+    self menu_item( "map_large", "Crossroads 12v12 - TDM 10v10  [mp_tundra]", &act_map_gt, "mp_tundra", "tdm10v10" );
+
+    // Fireteam / Multi-team maps (40-player, dedicated-server modes). The wz_* scripts
+    // link core_common only and fireteam.gsc registers tdm spawn points, so a 6v6 mode
+    // is not ruled out by the script layer - but nobody has loaded one this way.
+    self menu_item( "map_ft", "Alpine  [wz_ski_slopes]", &act_map, "wz_ski_slopes" );
+    self menu_item( "map_ft", "Duga  [wz_duga]", &act_map, "wz_duga" );
+    self menu_item( "map_ft", "Golova  [wz_golova]", &act_map, "wz_golova" );
+    self menu_item( "map_ft", "Ruka  [wz_forest]", &act_map, "wz_forest" );
+    self menu_item( "map_ft", "Sanatorium  [wz_sanatorium]", &act_map, "wz_sanatorium" );
+
+    // ── Gametype — the SESSION switch with the gametype swapped and the map kept ─
+    // The Atian source's dead func_set_gametype(), wired in. Strings are the gametype
+    // SCRIPT names (scripts/mp_common/gametypes/<name>.gsc). Workflow this enables:
+    // create the lobby under TDM (any map is selectable there, 12 slots), start, then
+    // switch to gunfight here; the map and the session stay. The Gunfight fixes in
+    // mod_apply are gated on the gametype, so the menu is safe to link into TDM.
+    self menu_add( "gametype", "Gametype", "start_menu", 1 );
+    self menu_item( "gametype", "Gunfight", &act_gametype, "gunfight" );
+    self menu_item( "gametype", "Gunfight 3v3", &act_gametype, "gunfight_3v3" );
+    self menu_item( "gametype", "TDM", &act_gametype, "tdm" );
+    self menu_item( "gametype", "Free-for-all", &act_gametype, "dm" );
+    self menu_item( "gametype", "Domination", &act_gametype, "dom" );
+    self menu_item( "gametype", "Hardpoint", &act_gametype, "koth" );
+    self menu_item( "gametype", "Search & Destroy", &act_gametype, "sd" );
+    self menu_item( "gametype", "Kill Confirmed", &act_gametype, "conf" );
+    self menu_item( "gametype", "Control", &act_gametype, "control" );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1240,6 +1689,12 @@ function private act_spyplane( item, value )
 
 // ── Spawns ─────────────────────────────────────────────────────────────────
 
+function private act_spawn_report( item )
+{
+    self thread spawn_report();
+    return true;
+}
+
 function private act_spawn_guard( item, value )
 {
     setdvar( #"gf_spawn_guard", value );
@@ -1316,21 +1771,66 @@ function private act_map( item, map_name )
     return false;
 }
 
+// Map AND gametype in one SESSION switch - the "12v12 layouts" entries, whose map
+// scripts only open the large boundary for a 10v10/12v12 gametype string. Always the
+// session route: the map() carry cannot carry a gametype at all (roadmap Goal B).
+function private act_map_gt( item, map_name, gametype )
+{
+    self menu_say( "^3loading " + map_name + " as " + gametype + "..." );
+    self thread do_session_switch( map_name, gametype );
+    return false;
+}
+
 function private do_map_switch( map_name )
 {
     if ( cfg_map_method() == 0 )
     {
-        // The proven carry - the Atian Menu's func_set_map, call for call.
+        // The legacy carry - the Atian Menu's func_set_map, call for call. Load-time
+        // only: the lobby keeps its old map and a lobby-route restart discards it.
         map( map_name );
         wait( 1 );
         switchmap_switch();
         return;
     }
 
-    // B1's candidate: what stock's own transitions call, with the gametype, and
-    // with the wait Zombies uses rather than the one network frame the menu uses.
-    gametype = tolower( getdvarstring( #"g_gametype" ) );
+    // Keep the current gametype, change the map.
+    do_session_switch( map_name, tolower( getdvarstring( #"g_gametype" ) ) );
+}
+
+// ✅ VERIFIED 2026-09-12 (docs/notes/session-switch.md): what stock's own transitions
+// call. The SESSION moves - lobby, scoreboard and slot budget follow - which the map()
+// carry never did. Runs on the PLAYER with no endons (see the header). The wait is
+// the one Zombies uses rather than the single network frame the Atian menu uses.
+function private do_session_switch( map_name, gametype )
+{
     switchmap_load( map_name, gametype );
     level waittilltimeout( 25, #"switchmap_preload_finished" );
     switchmap_switch();
+}
+
+// ── Gametype ─────────────────────────────────────────────────────────────────
+
+function private act_gametype( item, gt )
+{
+    current = tolower( getdvarstring( #"g_gametype", "" ) );
+
+    if ( current == gt )
+    {
+        self menu_say( "^3already " + gt );
+        return true;
+    }
+
+    // Real engine builtin, no stock caller (cw-builtins.md sec 2); lobby_probe linked
+    // and ran with it. Refusing here beats handing switchmap_load a name the engine
+    // does not know and finding out what that does to a live session.
+    if ( !isvalidgametype( gt ) )
+    {
+        self menu_say( "^1engine rejects gametype " + gt );
+        return true;
+    }
+
+    map_name = tolower( getdvarstring( #"sv_mapname", "" ) );
+    self menu_say( "^3switching to " + gt + " on " + map_name + "..." );
+    self thread do_session_switch( map_name, gt );
+    return false;
 }

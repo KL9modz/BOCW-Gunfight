@@ -3,8 +3,10 @@
 bocw-source/
 bocw-source-main/
 t9-src/
-reference/
+/reference/
 ACTS/
+# (anchored: an unanchored `reference/` also swallowed docs/reference/, which holds
+#  tracked audit tables such as bocw-maps.md - noticed 2026-09-12)
 *.tar.gz
 
 # Compiler / injector build output

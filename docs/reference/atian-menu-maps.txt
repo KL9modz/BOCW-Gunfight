@@ -1,0 +1,64 @@
+mp_amerika
+mp_apocalypse
+mp_black_sea
+mp_cartel
+mp_clhanger
+mp_drivein_rm
+mp_dune
+mp_echelon
+mp_express_rm
+mp_firebase
+mp_hijacked_rm
+mp_jungle_rm
+mp_kgb
+mp_mall
+mp_miami
+mp_miami_strike
+mp_moscow
+mp_nuketown6
+mp_paintball_rm
+mp_raid_rm
+mp_russianbase_rm
+mp_satellite
+mp_slums_rm
+mp_sm_amsterdam
+mp_sm_berlin_tunnel
+mp_sm_central
+mp_sm_deptstore
+mp_sm_finance
+mp_sm_game_show
+mp_sm_gas_station
+mp_sm_market
+mp_sm_vault
+mp_tank
+mp_tundra
+mp_village_rm
+mp_zoo_rm
+
+# ── PROVENANCE ───────────────────────────────────────────────────────────────
+# Extracted 2026-09-08 by decompiling the SHIPPED payload, not by walking a menu:
+#   acts gscd payloads/BlackOpsColdWar_atianmenu_pc.gscc -g cw -p pc -o menu-decomp
+#   (BlackOpsColdWar_atianmenu_pc.gscc, 66,320 B, tag latest_build)
+#
+# All 36 are registered UNCONDITIONALLY under a single is_multiplayer() check,
+# with no per-map filter. The menu displays ~19 at a time; that is paging, not a
+# curated set.
+#
+# ⚠⚠ THIS IS NOT A SAFE-MAP WHITELIST. mp_hijacked_rm is in this list and it
+#    BROKE THE SESSION on 2026-09-08 - torn-down map, no load, glitched state, no
+#    error. Carrying to it through the menu would do the same thing; it is the
+#    same func_set_map call either way.
+#
+# ⚠ mp_clhanger is spelled that way in the menu. The dump has mp_cliffhanger
+#   (scripts/mp/mp_cliffhanger.gsc). ✅ SETTLED 2026-09-12: the menu's spelling is a
+#   typo. `mp_clhanger` has ZERO hits anywhere in the dump; `mp_cliffhanger` has 552,
+#   including literal (unhashed) strings inside compiled scripts
+#   (cin_mp_cliffhanger_intro_cia, zmintel_list_mp_cliffhanger_document_drops) and the
+#   maptableentry asset. The map is Yamantau. That Atian entry cannot load.
+#
+# ▶ Display names for every entry, with provenance: docs/reference/bocw-maps.md.
+#   Note also that `mp_common` (registered by ate47's source, not in this list) is the
+#   shared asset bundle, not a map.
+#
+# ▶ A map is SAFE when it has been loaded successfully, and not before. No list
+#   available to this project - dump, mapexists(), or menu - predicts it.

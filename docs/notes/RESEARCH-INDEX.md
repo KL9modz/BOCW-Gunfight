@@ -34,6 +34,7 @@ manual/automated glitch (ruled out by requirement).
 | `switchmap-test-protocol.md` | staged run sheet for the switchmap test payload (🪦 avenue closed) |
 | `atian-menu-source.md` | the carry menu internals; the two map-change paths |
 | `cw-builtins.md` | the engine builtins with addresses (isvalidgametype, switchmap_*, sessionmode*, etc.) |
+| `../reference/bocw-maps.md` | **every loadable MP map, display name ↔ map name, audited 2026-09-12** (dump map table + wiki `console` field + asset fingerprints). The Strike/12v12 split is a *gametype-string* branch inside one map file, not a second map; Nuketown Holiday/Halloween are two unresolved dvars. The menu's labels were regenerated from it |
 
 ## The glitch (for reference; ruled out as a method but documents the target state)
 FacelessOne tutorial (youtu.be/uzXXE7v_PBU): a two-account menu race that carries an online playlist's
