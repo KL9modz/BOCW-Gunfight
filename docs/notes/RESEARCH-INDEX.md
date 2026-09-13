@@ -43,6 +43,7 @@ manual/automated glitch (ruled out by requirement).
 | `cw-builtins.md` | the engine builtins with addresses (isvalidgametype, switchmap_*, sessionmode*, etc.) |
 | `../reference/bocw-maps.md` | **every loadable MP map, display name ↔ map name, audited 2026-09-12** (dump map table + wiki `console` field + asset fingerprints). The Strike/12v12 split is a *gametype-string* branch inside one map file, not a second map; Nuketown Holiday/Halloween are two unresolved dvars. The menu's labels were regenerated from it |
 | `../reference/bocw-weapons.md` | **every MP loadout weapon name (64) with display names + confidence, 2026-09-13** (gun-levels CSV ∩ custom-games DDL enum). Menu Weapons page is generated from it. ⚠ No rock/gulag/throwable weapon exists in T9 — the Gulag rock is an IW8 (MW/Warzone) asset; 19 hashed enum ids brute-forced, no hit |
+| `lui-events.md` | **a 4th display channel, seen in-game 2026-09-13:** `luinotifyevent( #"<stock event>", n, ... )` makes the client's shipped LUI draw its widget — the Pause's TIMEOUT overlay is `esports_game_paused`, the countdown is `create_prematch_timer`. Stock widgets + stock (hashed) strings, numbers free; ~40 named events catalogued |
 
 ## The glitch (for reference; ruled out as a method but documents the target state)
 GlitchHunterz's tutorial (youtu.be/Wxctp-7rrEs, the founder; FacelessOne's youtu.be/uzXXE7v_PBU re-posts

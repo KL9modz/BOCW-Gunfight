@@ -13,8 +13,12 @@ stripped; the 01:12 build is kept as `gunfight_menu.pre-hint-0112.gscc`). Defaul
   `BlackOpsColdWar.exe`) has no `newclienthudelem`, `newdebughudelem`, `settext`, or hudelem `setshader`.
   Stock `scripts/core_common/hud_util_shared.gsc`'s font/bar builders (`function_665f547d`,
   `function_7a0dd8a9`, …) are `Type: dev` and call `newdebughudelem` — compiled out of retail.
-- So a server script has exactly three text channels: the feed (`iprintln`), the centre line
-  (`iprintlnbold`), and a **hint string on a trigger the player stands in**.
+- So a server script has exactly three **free-text** channels: the feed (`iprintln`), the centre line
+  (`iprintlnbold`), and a **hint string on a trigger the player stands in**. There is a fourth channel
+  for *widgets*, measured live 2026-09-13 (bocw-06 / klaze): `luinotifyevent` on a stock event makes
+  the client's shipped LUI draw its own widget — `esports_game_paused` put the TIMEOUT overlay up —
+  but those take string hashes and numbers, not free text (a countdown via `create_prematch_timer`,
+  yes; a menu row, no). Catalogue and call shapes: [[lui-events]].
 - The open menus confirm it (read from source, [[ecosystem-survey]]): SoCanKam's PS4/PC menu
   (`socankam/ColdWarGSCMenu` `initmenu.gsc`) has two styles — *Default* = `spawn("trigger_radius", …)` +
   `triggerignoreteam` + `setvisibletoplayer(player)` + `sethintstring(<title + 15 items + page/keys>)`;

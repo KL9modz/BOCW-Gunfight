@@ -89,6 +89,11 @@ These are **not** auto-loaded. Open the one you need.
 - [pipeline-toolchain-survey](pipeline-toolchain-survey.md) — the six commonly-cited tool/mod repos,
   checked in-session. Which help the compile→inject pipeline (two do), which are dead or closed, and
   where the MP hook point (`mp_common/bb.gsc`) and the injector load model came from.
+- [mode-remnants](mode-remnants.md) — **what a session switch moves and what it leaves** (measured
+  2026-09-13): Switch NOW changes the mode fully in-match, the lobby's own game options stay on the old
+  mode, and a launch from that lobby is a hybrid. The custom-classes half of the hybrid is one gate
+  (`disableCustomCAC`, `gunfight.gsc:102-109`) that `mod_apply` now asserts in the one slot where it
+  works; the rest is a census (Display → Settings census). Also the `gf_switch_wait` knob for the 25 s delay.
 - [hint-panel](hint-panel.md) — **the menu drawn by the use-prompt widget** (`gf_menu_region 4`, built
   2026-09-13, never run): one `sethintstring` on a trigger linked to the host — the layout every "full
   HUD" Cold War GSC menu really uses, since T9 retail has no hudelem builtins. No fade, no ~4-line cap.

@@ -49,6 +49,15 @@
 //                       which stock fills from the settings BEFORE this callback - so
 //                       mod_periods() writes the live var as well as the settings.
 //     gf_loadout        0 default / 1 snipers / 2 blueprints / 3 melee
+//     gf_customcac      0 (default) = real Gunfight: fixed loadouts, class selection off. 1 = the
+//                       rules-menu "Custom Classes" row (disable_cac.json) on purpose. ⚠ Why this
+//                       exists: gametype settings SURVIVE a session switch (LS6), so a Gunfight
+//                       reached from TDM runs on TDM's settings blob, and gunfight.gsc:102-109 runs
+//                       a CUSTOM-CLASSES branch whenever disableCustomCAC != 1 - "Gunfight header,
+//                       MODE: Team Deathmatch, custom classes" (klaze's screenshot, 2026-09-13).
+//                       Asserted at every Gunfight match start (mod_apply) and primed before a
+//                       switch (mode_profile_prime). The rest of the blob is measured, not guessed:
+//                       Display -> Settings census. docs/notes/mode-remnants.md
 //     gf_camo           camo forced onto every loadout-pool weapon, every player, every spawn.
 //                       -2 random each round (DEFAULT: one roll per weapon, shared by everyone)
 //                       -3 random per player-spawn / -1 stock (the pool's own look - bare,
@@ -89,6 +98,15 @@
 //     gf_rounds_loadout -1 leave stock (default) / N = rotate loadout AND switch sides
 //                       every N rounds (stock couples both; mod_apply sets the live level
 //                       var + the switchsides gate so the menu pick actually takes)
+//     gf_switch_sides   1 (default) = the mod OWNS the side swap: the gametype bundle's
+//                       switchsides gate is forced on and the generic roundswitch path is
+//                       silenced (level.roundswitch = 0), so only Gunfight's own coupled
+//                       path flips game.switchedsides - once per rotation. 0 = stock: the
+//                       bundle flag as shipped and BOTH paths live. ⚠ Why: two stock paths
+//                       reach gametype::on_round_switch at one round end (gunfight.gsc:397
+//                       then display_transition.gsc:523); two flips = no visible swap while
+//                       the loadout still rotates - klaze's "rotates the loadouts but does
+//                       not switch sides" (2026-09-13). docs/notes/mode-remnants.md
 //     gf_menu_lines     visible item rows in the panel window, default 7 (was 2)
 //     gf_menu_region    0 lower-left feed (default) / 1 center screen / 2 SPLIT status-left
 //                       menu-centre / 3 SPLIT menu-left status-centre / 4 HINT panel. ⚠ The
@@ -333,6 +351,7 @@ function private cfg_timer_label()   { secs = cfg_timer_seconds(); return secs >
 function private cfg_prematch()      { return getdvarint( #"gf_prematch", 15 ); }
 function private cfg_preround()      { return getdvarint( #"gf_preround", 7 ); }
 function private cfg_loadout()       { return getdvarint( #"gf_loadout", 0 ); }
+function private cfg_customcac()     { return getdvarint( #"gf_customcac", 0 ); }
 // Loadout-pool camo (docs/notes/loadout-camo.md). -2 (default) = random each round, one roll
 // per weapon that everyone shares. -3 = rolls per player-spawn. -1 = stock, the pool's own look.
 // >= 0 = force that camo index on every pool weapon at every spawn. The random modes draw from
@@ -343,6 +362,8 @@ function private cfg_camo_pool()     { return getdvarint( #"gf_camo_pool", 0 ); 
 function private cfg_camo_split()    { return getdvarint( #"gf_camo_split", 1 ); }
 function private cfg_spyplane()      { return getdvarint( #"gf_spyplane", 0 ); }
 function private cfg_map_method()    { return getdvarint( #"gf_map_method", 1 ); }
+function private cfg_switch_wait()   { return getdvarint( #"gf_switch_wait", 25 ); }
+function private cfg_autoswitch()    { return getdvarint( #"gf_autoswitch", 0 ); }
 function private cfg_menu_lines()    { return getdvarint( #"gf_menu_lines", 3 ); }
 function private cfg_menu_region()   { return getdvarint( #"gf_menu_region", 0 ); }
 function private cfg_menu_hspan()    { return getdvarint( #"gf_menu_hspan", 4 ); }
@@ -369,6 +390,7 @@ function private cfg_zone_radius()   { return getdvarint( #"gf_zone_radius", 128
 function private cfg_roundwinlimit()  { return getdvarint( #"gf_roundwinlimit", -1 ); }
 function private cfg_roundlimit()     { return getdvarint( #"gf_roundlimit", -1 ); }
 function private cfg_rounds_loadout() { return getdvarint( #"gf_rounds_loadout", -1 ); }
+function private cfg_switch_sides()   { return getdvarint( #"gf_switch_sides", 1 ); }
 
 // Movement. bg_gravity is engine-consumed in MP (docs/notes/mp-dvars.md, verified
 // 2026-09-07; stock 800). Jump uses the setjumpheight BUILTIN - the jump_height DVAR
@@ -434,11 +456,14 @@ function private dvars_register()
     dvar_reg( #"gf_prematch", 15 );
     dvar_reg( #"gf_preround", 7 );
     dvar_reg( #"gf_loadout", 0 );
+    dvar_reg( #"gf_customcac", 0 );
     dvar_reg( #"gf_camo", -2 );
     dvar_reg( #"gf_camo_pool", 0 );
     dvar_reg( #"gf_camo_split", 1 );
     dvar_reg( #"gf_spyplane", 0 );
     dvar_reg( #"gf_map_method", 1 );
+    dvar_reg( #"gf_switch_wait", 25 );
+    dvar_reg( #"gf_autoswitch", 0 );
     dvar_reg( #"gf_menu_lines", 3 );
     dvar_reg( #"gf_menu_region", 0 );
     dvar_reg( #"gf_feed_lines", 14 );
@@ -456,6 +481,7 @@ function private dvars_register()
     dvar_reg( #"gf_roundwinlimit", -1 );
     dvar_reg( #"gf_roundlimit", -1 );
     dvar_reg( #"gf_rounds_loadout", -1 );
+    dvar_reg( #"gf_switch_sides", 1 );
     dvar_reg( #"gf_gravity", 800 );
     dvar_reg( #"gf_jump", -1 );
     dvar_reg( #"gf_jump_boost", 0 );
@@ -558,6 +584,10 @@ function private mod_apply()
     // Pre-match / pre-round countdowns - every mode too, for the same reason as the two above.
     mod_periods();
 
+    // Auto-switch to Gunfight: if enabled and this match is NOT Gunfight, do the one proven
+    // in-match session switch on the host, once, after he has spawned. Runs before the gate.
+    mod_autoswitch();
+
     if ( !mod_is_gunfight() )
     {
         mod_menu_restart_all();
@@ -605,6 +635,29 @@ function private mod_apply()
     // so this is belt-and-braces against the CARRY, which re-initialises settings.
     setgametypesetting( #"maxplayers", clamp_team_size( cfg_team_size() ) * 2 );
 
+    // ── Mode remnants after a session switch ─────────────────────────────────
+    // Gametype settings SURVIVE switchmap_load (LS6, docs/notes/session-switch.md), so a
+    // Gunfight reached from TDM runs on TDM's settings blob. The remnant that shows first is
+    // disableCustomCAC: gunfight.gsc:102-109 runs a CUSTOM-CLASSES branch whenever it is not 1
+    // (class selection on, perks on, level.givecustomloadout = undefined - no fixed loadouts).
+    // The real Gunfight mode's blob has it at 1; TDM's does not - hence "Gunfight header, MODE:
+    // Team Deathmatch, custom classes" (klaze's screenshot, 2026-09-13). Fixable HERE because
+    // this callback runs AFTER globallogic copied the settings into level vars
+    // (function_b9b7618, globallogic.gsc:5159-5160) and BEFORE gunfight's onstartgametype
+    // reads those vars (:5536-5537) - so both the setting and the level var are written.
+    // ⚠ ONLY disablecustomcac is asserted. gunfight.gsc:102 keys the whole fixed-loadout
+    // path off THIS one setting (== 1 -> givecustomloadout stays &givecustomloadout, the
+    // table main() built at :80-89 -> fixed loadouts; != 1 -> custom classes), so this is
+    // the sufficient and documented fix. disableClassSelection is deliberately NOT forced:
+    // its real-Gunfight value is inferred, not read, and forcing 1 when the blob wants 0
+    // changes the spawn path (globallogic_ui.gsc:305) - a "stuck spawn" risk, not a crash,
+    // flagged in review 2026-09-13. Let gunfight's own onstartgametype derive it, and read
+    // the true value with Display -> Settings census before ever asserting it.
+    // gf_customcac 1 = the rules-menu "Custom Classes" row (disable_cac.json), on purpose.
+    dcc = cfg_customcac() ? 0 : 1;
+    setgametypesetting( #"disablecustomcac", dcc );
+    level.disablecustomcac = dcc;
+
     // Loadout set and spy plane - written each match from the dvars (mod_apply is once
     // per match). Harmless when unchanged. The loadout LATCH (game.var_96a8ff4a) is
     // cleared only by the menu action, once, so a change takes effect without re-randomising.
@@ -631,6 +684,29 @@ function private mod_apply()
         level.gunfightroundsperloadout = cfg_rounds_loadout();
         if ( isdefined( level.var_d1455682 ) )
             level.var_d1455682.switchsides = 1;
+    }
+
+    // ── Side switch: own it ──────────────────────────────────────────────────
+    // Two stock paths reach gametype::on_round_switch (gametype.gsc:70-84), which flips
+    // game.switchedsides ONLY if the gametype bundle's switchsides flag is set (the bundle
+    // comes from a builtin; its contents are not in the dump):
+    //   A. gunfight.gsc:388-398 - every gunfightroundsperloadout rounds, coupled with the
+    //      loadout rotation, from onendround (called at globallogic.gsc:2598);
+    //   B. display_transition.gsc:507-527 checkroundswitch() - every level.roundswitch
+    //      rounds (the generic `roundswitch` gametype setting, util.gsc:735-740), reached
+    //      from display_round_end (globallogic.gsc:2605) - AFTER A, same round end.
+    // Both firing on one boundary flips the flag twice = no visible swap while the loadout
+    // still rotates; which boundaries collide depends on the blob's roundswitch (TDM's in a
+    // hybrid launch), so it looks random - klaze's "rotates the loadouts but does not
+    // switch sides, not sure if it's map based" (2026-09-13). So: force the gate on and
+    // silence B (level.roundswitch is the level var checkroundswitch reads; it was copied
+    // from the setting at init and nothing rewrites it), leaving only Gunfight's own coupled
+    // path - one flip per rotation. gf_switch_sides 0 puts stock back for comparison.
+    if ( cfg_switch_sides() )
+    {
+        if ( isdefined( level.var_d1455682 ) )
+            level.var_d1455682.switchsides = 1;
+        level.roundswitch = 0;
     }
 
     // With a zone, stock onstartgametype() runs past :121 and does its own presentation
@@ -2801,8 +2877,11 @@ function private menu_render_split( lines, list_center )
 // ═════════════════════════════════════════════════════════════════════════════
 // Why a trigger: T9 retail has no hudelem builtins (funcs_cw.csv lists none, and the stock
 // hud_util_shared.gsc builders are dev-only newdebughudelem), so a server script has
-// exactly three ways to put text on a client: the feed, the centre line, and a hint
+// exactly three ways to put FREE TEXT on a client: the feed, the centre line, and a hint
 // string on a trigger the player is standing in, drawn by the stock use-prompt widget.
+// (luinotifyevent is a fourth channel for stock WIDGETS - measured 2026-09-13, the TIMEOUT
+// overlay via #"esports_game_paused" - but it takes hashes and numbers, not a menu row;
+// docs/notes/lui-events.md.)
 // The third is what the "full HUD" Cold War GSC menus actually use (SoCanKam's PS4/PC
 // menu, Lucy-Base - docs/notes/ecosystem-survey.md), and it has none of the feed's
 // problems: no fade, no ~4-line cap, no scrolling pile; one call replaces the panel.
@@ -3492,6 +3571,10 @@ function private build_tree()
     self menu_item( "loadout", "Snipers", &act_loadout, 1, undefined, #"gf_loadout", 1 );
     self menu_item( "loadout", "Blueprints", &act_loadout, 2, undefined, #"gf_loadout", 2 );
     self menu_item( "loadout", "Melee", &act_loadout, 3, undefined, #"gf_loadout", 3 );
+    // The custom-classes gate. OFF = real Gunfight (fixed loadouts). It is what a switch
+    // from another mode leaves ON by accident (the settings blob carries), see mod_apply.
+    self menu_item( "loadout", "Custom classes OFF - Gunfight loadouts", &act_customcac, 0, undefined, #"gf_customcac", 0 );
+    self menu_item( "loadout", "Custom classes ON", &act_customcac, 1, undefined, #"gf_customcac", 1 );
 
     // ── Loadout-pool camo — every pool weapon, every player, every spawn. A pick repaints
     //    everyone NOW as well (Gunfight has no respawn, so "next spawn" is next round).
@@ -3562,6 +3645,9 @@ function private build_tree()
     self menu_item( "display", "Centre width 5", &act_menu_hspan, 5, undefined, #"gf_menu_hspan", 5 );
     // Full state readout to the feed (more than the pane can hold at once).
     self menu_item( "display", "Show match info", &act_match_info );
+    // The settings blob, key=value, to the feed - run once in a real Gunfight and once after
+    // a switch from TDM; the diff is the mode-remnant list (docs/notes/mode-remnants.md).
+    self menu_item( "display", "Settings census to feed", &act_settings_census );
     // Caster diagnosis: prints button/render probe lines while the host is a CoD Caster.
     self menu_item( "display", "Caster input probe ON", &act_caster_probe, 1, undefined, #"gf_caster_probe", 1 );
     self menu_item( "display", "Caster input probe OFF", &act_caster_probe, 0, undefined, #"gf_caster_probe", 0 );
@@ -3591,6 +3677,10 @@ function private build_tree()
     self menu_item( "match", "Loadout+sides every 1", &act_rounds_loadout, 1, undefined, #"gf_rounds_loadout", 1 );
     self menu_item( "match", "Loadout+sides every 2", &act_rounds_loadout, 2, undefined, #"gf_rounds_loadout", 2 );
     self menu_item( "match", "Loadout+sides every 3", &act_rounds_loadout, 3, undefined, #"gf_rounds_loadout", 3 );
+    // Who flips the sides: the mod (bundle gate forced on, generic roundswitch path silenced -
+    // one flip per rotation) or stock (both paths live; two flips on one boundary cancel).
+    self menu_item( "match", "Side switch: mod-owned, one flip", &act_switch_sides, 1, undefined, #"gf_switch_sides", 1 );
+    self menu_item( "match", "Side switch: stock paths", &act_switch_sides, 0, undefined, #"gf_switch_sides", 0 );
 
     // ── Movement — a hub of sub-pages (the window is ~3 rows): gravity (verified),
     // jump (builtin, untested) + jump BOOST (setvelocity, stock's shape), speed
@@ -3859,6 +3949,14 @@ function private build_tree()
     // Only "Switch NOW" honours it; a stage is the session route by definition.
     it = self menu_item( "map", "Session switch (lobby follows)", &act_map_method );
     it.activated = cfg_map_method();
+    // How long "Switch NOW" waits for #"switchmap_preload_finished" before committing.
+    // 25 = stock ZM's cap and the measured-working form, but only the FIRST switch of a
+    // session gets the notify - later ones sit the whole 25s (klaze, 2026-09-13: "works,
+    // long delay"). "none" is stock CAMPAIGN's immediate form: one network frame, then
+    // switch (cp_common/load.gsc:412-414). Untested in MP - flip it and look.
+    self menu_item( "map", "Switch wait: 25s - proven", &act_switch_wait, 25, undefined, #"gf_switch_wait", 25 );
+    self menu_item( "map", "Switch wait: 5s", &act_switch_wait, 5, undefined, #"gf_switch_wait", 5 );
+    self menu_item( "map", "Switch wait: none - cp form, untested", &act_switch_wait, 0, undefined, #"gf_switch_wait", 0 );
     // (Zoo lives in the 6v6 folder like every other map - the old root "Zoo - verified"
     // shortcut was removed 2026-09-13 at klaze's request.)
     self menu_add( "map_6v6", "6v6 maps", "map", 1 );
@@ -3938,6 +4036,10 @@ function private build_tree()
     // switch to gunfight here; the map and the session stay. The Gunfight fixes in
     // mod_apply are gated on the gametype, so the menu is safe to link into TDM.
     self menu_add( "gametype", "Gametype", "start_menu", 1 );
+    // Auto-switch to Gunfight on match start when this match is not Gunfight (mod_autoswitch).
+    // ON survives to the next match; set it, restart, and injecting lands you in Gunfight.
+    self menu_item( "gametype", "Auto-Gunfight on inject: ON", &act_autoswitch, 1, undefined, #"gf_autoswitch", 1 );
+    self menu_item( "gametype", "Auto-Gunfight on inject: OFF", &act_autoswitch, 0, undefined, #"gf_autoswitch", 0 );
     self menu_item( "gametype", "Gunfight", &act_gametype, "gunfight" );
     self menu_item( "gametype", "Gunfight 3v3", &act_gametype, "gunfight_3v3" );
     self menu_item( "gametype", "TDM", &act_gametype, "tdm" );
@@ -4801,6 +4903,18 @@ function private act_loadout( item, index )
     return true;
 }
 
+// The gate is read once, at match start (gunfight.gsc:102 in onstartgametype), so a live
+// toggle only writes the setting for the NEXT match or switch - mod_apply / mode_profile_prime
+// assert it from the dvar at both.
+function private act_customcac( item, value )
+{
+    setdvar( #"gf_customcac", value );
+    dcc = value ? 0 : 1;
+    setgametypesetting( #"disablecustomcac", dcc );
+    self menu_say( value ? "^2custom classes ON - next match / switch" : "^2custom classes OFF - Gunfight loadouts next match / switch" );
+    return true;
+}
+
 // ── Loadout-pool camo ────────────────────────────────────────────────────────
 
 function private act_poolcamo( item, value )
@@ -4907,6 +5021,55 @@ function private act_match_info( item )
     return true;
 }
 
+// ── Settings census ──────────────────────────────────────────────────────────
+// The rest of the mode-remnant question is answered by measurement, not by the dump: the
+// per-mode default blobs live in the LUI presets, which the dump does not carry (the DDL
+// only declares the fields). This prints the settings that shape a Gunfight match, key=value,
+// to the host's feed in batches the feed can show. Run it ONCE in a Gunfight launched from
+// the lobby with Gunfight selected (the real blob) and ONCE after a TDM -> Gunfight switch;
+// the diff is the remnant list, and docs/notes/mode-remnants.md is where it goes. Every key
+// below is a declared field of ddl/mp_gametype_settings.ddl; values print raw (bools 0/1,
+// fixed-point as the engine returns it, "undef" for a key this build does not know).
+function private act_settings_census( item )
+{
+    self thread settings_census();
+    return true;
+}
+
+function private census_v( v )
+{
+    return isdefined( v ) ? ( "" + v ) : "undef";
+}
+
+function private settings_census()
+{
+    self endon( #"disconnect" );
+    level endon( #"game_ended" );
+
+    rows = [];
+    rows[ rows.size ] = "timelimit=" + census_v( getgametypesetting( #"timelimit" ) ) + " scorelimit=" + census_v( getgametypesetting( #"scorelimit" ) ) + " roundlimit=" + census_v( getgametypesetting( #"roundlimit" ) ) + " roundwinlimit=" + census_v( getgametypesetting( #"roundwinlimit" ) );
+    rows[ rows.size ] = "cumulative=" + census_v( getgametypesetting( #"cumulativeroundscores" ) ) + " roundswitch=" + census_v( getgametypesetting( #"roundswitch" ) ) + " scoreperkill=" + census_v( getgametypesetting( #"teamscoreperkill" ) );
+    rows[ rows.size ] = "forcerespawn=" + census_v( getgametypesetting( #"playerforcerespawn" ) ) + " queuedrespawn=" + census_v( getgametypesetting( #"playerqueuedrespawn" ) ) + " respawndelay=" + census_v( getgametypesetting( #"playerrespawndelay" ) ) + " numlives=" + census_v( getgametypesetting( #"playernumlives" ) );
+    rows[ rows.size ] = "maxplayers=" + census_v( getgametypesetting( #"maxplayers" ) ) + " teamcount=" + census_v( getgametypesetting( #"teamcount" ) ) + " hardcore=" + census_v( getgametypesetting( #"hardcoremode" ) ) + " spectate=" + census_v( getgametypesetting( #"spectatetype" ) );
+    rows[ rows.size ] = "customcac_off=" + census_v( getgametypesetting( #"disablecustomcac" ) ) + " classsel_off=" + census_v( getgametypesetting( #"disableclassselection" ) ) + " perks=" + census_v( getgametypesetting( #"perksenabled" ) ) + " attach_off=" + census_v( getgametypesetting( #"disableattachments" ) );
+    rows[ rows.size ] = "weapondrop_off=" + census_v( getgametypesetting( #"disableweapondrop" ) ) + " loadoutstreaks=" + census_v( getgametypesetting( #"loadoutkillstreaksenabled" ) ) + " teamchange=" + census_v( getgametypesetting( #"allowingameteamchange" ) );
+    rows[ rows.size ] = "gf_rounds_per_loadout=" + census_v( getgametypesetting( #"gunfightroundsperloadout" ) ) + " gf_spyplane=" + census_v( getgametypesetting( #"gunfightspyplane" ) ) + " gf_loadoutindex=" + census_v( getgametypesetting( #"gunfightloadoutindex" ) );
+    rows[ rows.size ] = "capturetime=" + census_v( getgametypesetting( #"capturetime" ) ) + " extratime=" + census_v( getgametypesetting( #"extratime" ) ) + " prematch=" + census_v( getgametypesetting( #"prematchperiod" ) ) + " preround=" + census_v( getgametypesetting( #"preroundperiod" ) );
+    // The side-switch state: the bundle gate, the live generic-path cadence, the flag itself.
+    rows[ rows.size ] = "bundle=" + ( isdefined( level.var_d1455682 ) ? "yes" : "NO" ) + " switchsides_gate=" + census_v( isdefined( level.var_d1455682 ) ? level.var_d1455682.switchsides : undefined ) + " level_roundswitch=" + census_v( level.roundswitch ) + " switchedsides=" + census_v( game.switchedsides ) + " roundsplayed=" + census_v( game.roundsplayed );
+    rows[ rows.size ] = "g_gametype=" + getdvarstring( #"g_gametype", "?" ) + " map=" + getdvarstring( #"sv_mapname", "?" ) + " gf_customcac=" + cfg_customcac() + " gf_switch_sides=" + cfg_switch_sides();
+
+    self menu_say( "^3settings census: " + rows.size + " lines, 3 every 3s - screenshot each batch" );
+
+    for ( i = 0; i < rows.size; i++ )
+    {
+        self iprintln( "^7" + rows[ i ] );
+
+        if ( ( i % 3 ) == 2 )
+            wait 3;
+    }
+}
+
 function private act_menu_hspan( item, value )
 {
     setdvar( #"gf_menu_hspan", value );
@@ -5003,6 +5166,30 @@ function private act_rounds_loadout( item, value )
     if ( isdefined( level.var_d1455682 ) )
         level.var_d1455682.switchsides = 1;
     self menu_say( "^2loadout + sides switch every " + value + " round(s)" );
+    return true;
+}
+
+// Live: the gate and the generic path are level state read at each round end, so this
+// takes effect at the next boundary of THIS match. Stock (0) restores the bundle's own
+// flag only in the sense of leaving it - a flag already forced on this match stays on;
+// the generic path is re-armed from the setting.
+function private act_switch_sides( item, value )
+{
+    setdvar( #"gf_switch_sides", value );
+
+    if ( value )
+    {
+        if ( isdefined( level.var_d1455682 ) )
+            level.var_d1455682.switchsides = 1;
+        level.roundswitch = 0;
+        self menu_say( "^2sides: mod-owned - one flip per loadout rotation" );
+    }
+    else
+    {
+        level.roundswitch = getgametypesetting( #"roundswitch" );
+        self menu_say( "^2sides: stock paths - roundswitch=" + census_v( level.roundswitch ) );
+    }
+
     return true;
 }
 
@@ -5367,6 +5554,13 @@ function private act_unlockall( item )
 // gametype can be staged too. ⚠ Inferred from the map result - same builtin, same two
 // arguments - not measured on its own yet.
 
+function private act_switch_wait( item, secs )
+{
+    setdvar( #"gf_switch_wait", secs );
+    self menu_say( secs > 0 ? ( "^2switch waits up to " + secs + "s for the load notify" ) : "^2switch commits after one network frame - cp form" );
+    return true;
+}
+
 function private act_map_method( item )
 {
     method = cfg_map_method() ? 0 : 1;
@@ -5377,15 +5571,15 @@ function private act_map_method( item )
 }
 
 // A map pick: the current gametype rides along.
+// A pick of the CURRENT map is allowed on purpose (klaze, 2026-09-13): it is a forced
+// reload through the same session route - Stage / Switch NOW confirm it, so nothing
+// happens on the first press.
 function private act_map( item, map_name )
 {
     current = tolower( getdvarstring( #"sv_mapname" ) );
 
     if ( current == map_name )
-    {
-        self menu_say( "^3already on " + map_name );
-        return true;
-    }
+        self menu_say( "^3" + map_name + " is the current map - this will RELOAD it" );
 
     return self map_pick_open( map_name, tolower( getdvarstring( #"g_gametype" ) ), item.name );
 }
@@ -5444,10 +5638,46 @@ function private stage_mark( map_name, gametype )
 // loop like the switch so a slow load cannot stall menu_think; no endons for the same
 // reason as do_session_switch. Marked AFTER the call so the state line never claims a
 // stage the engine has not seen.
+// A deliberate pick of a NON-Gunfight gametype means the host wants that mode - so disarm
+// auto-Gunfight, or the next match would immediately switch back. Gunfight picks leave it
+// armed. Called on the host, where self.gfmenu exists (menu action); the autoswitch path
+// only ever passes "gunfight" here, so the menu_say branch never runs off a bare host.
+function private autoswitch_disarm_for( gametype )
+{
+    if ( !cfg_autoswitch() )
+        return;
+
+    if ( gametype == "gunfight" || gametype == "gunfight_3v3" )
+        return;
+
+    setdvar( #"gf_autoswitch", 0 );
+    self menu_say( "^3auto-Gunfight off - you picked " + gametype );
+}
+
 function private do_session_stage( map_name, gametype )
 {
+    self autoswitch_disarm_for( gametype );
+    mode_profile_prime( gametype );
     switchmap_load( map_name, gametype );
     stage_mark( map_name, gametype );
+}
+
+// What the session switch does NOT move: the settings blob. switchmap_load moves the
+// session's map and gametype (the lobby's summary header follows), but the mode config the
+// lobby launched with - MODE line, rules, compat set - stays, and its settings survive into
+// the next match (LS6). So a Gunfight reached from TDM is "Gunfight on TDM's settings".
+// This writes the settings the target mode cannot run without, BEFORE the load, so they
+// travel with the session (Stage: into the lobby's next launch; NOW: into the new match).
+// mod_apply asserts the same at match start, which covers a lobby launch that rebuilds
+// the blob. Only the Gunfight-critical key is known; everything else in the blob is
+// measured by the census (Display -> Settings census) before it gets baked in here.
+function private mode_profile_prime( gametype )
+{
+    if ( gametype != "gunfight" && gametype != "gunfight_3v3" )
+        return;
+
+    dcc = cfg_customcac() ? 0 : 1;
+    setgametypesetting( #"disablecustomcac", dcc );
 }
 
 function private do_map_switch( map_name, gametype )
@@ -5469,36 +5699,149 @@ function private do_map_switch( map_name, gametype )
 
 // ✅ The SESSION move stock's own transitions use - lobby, scoreboard and slot budget
 // follow, which the map() carry never did. Runs on the PLAYER with no endons (see header).
-// ⚠ FIXED 2026-09-13 (klaze: "switching to gunfight sometimes half-loads the previous
-// mode"). Root cause: the old sequence called switchmap_LOAD then waited on the notify
-// #"switchmap_preload_finished" - but that notify is fired by switchmap_PRELOAD, not by
-// switchmap_load (cp_common/load.gsc:375-376 arms a flag off it via util::delay). So the
-// wait never caught a real "ready" signal; it dead-timed up to 25s and committed the switch
-// at an arbitrary moment relative to the load, sometimes with the new gametype only
-// half-applied. Fix: PRELOAD (which does fire the notify when the new map+gametype is fully
-// ready), wait for that notify, settle a network frame, THEN switch - so we commit only
-// after complete initialization. This is stock's deliberate-transition ordering.
+//
+// The sequence is stock's ZM one VERBATIM - zm_common/zm_utility_zsurvival.gsc:153-155:
+// switchmap_load, wait (≤25s) for #"switchmap_preload_finished", switchmap_switch - and it
+// is the sequence klaze measured working on 2026-09-12 (the session moved, the lobby
+// followed, com_maxclients read 12).
+//
+// ⚠ REVERTED 2026-09-13. For a few hours today this called switchmap_PRELOAD instead, on
+// the theory that only preload fires the notify; klaze reported "Switch NOW seems unstable"
+// on that build, and the theory does not survive the dump: Treyarch waits on the notify
+// right after switchmap_LOAD (zsurvival above), while switchmap_preload's only callers are
+// the campaign's BACKGROUND preload - armed at a checkpoint long before the transition,
+// with a cancel_preload path (cp_common/load.gsc:373-376, :388-406) - and the side-mission
+// countdown (callbacks_shared.gsc:2227-2231). Nothing in MP preloads. Measured on the old
+// build: only the FIRST switch of a session gets the notify, later ones sit the full 25s.
+// The half-load report that motivated the change is still open; if it recurs, the next
+// stock form to try is the campaign's IMMEDIATE one - switchmap_load, util::wait_network_frame(1),
+// switchmap_switch (cp_common/load.gsc:412-414), which never waits on the notify at all.
+// ── Auto-switch to Gunfight on a non-Gunfight match ──────────────────────────
+// "Make Gunfight the gametype when we inject" (klaze, 2026-09-13). Inject in a TDM lobby,
+// restart to link, and this fires the SAME session switch the menu's "Switch NOW" does -
+// switchmap_load( current map, "gunfight" ) - so the match becomes real Gunfight without
+// touching the menu. Opt-in (gf_autoswitch, default 0) so it changes nothing until asked
+// and cannot confound anything else; set it to 1 from the control app (or the Gametype
+// page) BEFORE the match restart and it takes on the first linked match. Once we trust it
+// the default can flip to 1. ⚠ Built 2026-09-13, never run.
+//   - Fires ONCE (game.gf_autoswitch_done - game. survives a round boundary, unlike level.,
+//     so a round-based mode cannot re-fire a second concurrent switch during the wait);
+//     re-armed from act_autoswitch. Post-switch the match is Gunfight, so mod_is_gunfight()
+//     short-circuits before the guard even matters - no reload loop.
+//   - A DELIBERATE non-Gunfight pick disarms it (autoswitch_disarm_for in do_session_*),
+//     so choosing TDM from the menu does not bounce you straight back to Gunfight.
+//   - Fires only AFTER the pre-match countdown (level.inprematchperiod), the mid-match state
+//     klaze's manual NOW switches were measured in - not during the frozen countdown.
+//   - Needs a host ENTITY, not a live one, so it still fires when klaze hosts as CoD Caster
+//     or spectator (ishost(), no isalive requirement).
+//   - Keeps the CURRENT map (a big TDM map under Gunfight leans on the spawn guard; pick a
+//     Gunfight map from the menu after if you want one). The ~25s switch delay applies
+//     (gf_switch_wait); the host loads the original mode first, then gets moved.
+function private mod_autoswitch()
+{
+    if ( !cfg_autoswitch() || mod_is_gunfight() )
+        return;
+
+    if ( is_true( game.gf_autoswitch_done ) )
+        return;
+
+    game.gf_autoswitch_done = 1;
+    level thread mod_autoswitch_do();
+}
+
+function private mod_autoswitch_do()
+{
+    level endon( #"game_ended" );
+
+    // The host ENTITY - not necessarily alive: klaze may host as CoD Caster / spectator, and
+    // the switch only needs a player to thread on. Bounded wait (~600 frames, ~30s at a 20Hz
+    // server) for it to connect; a match always has a host, so this resolves near instantly.
+    host = undefined;
+    for ( i = 0; i < 600 && !isdefined( host ); i++ )
+    {
+        players = getplayers();
+        for ( j = 0; j < players.size; j++ )
+        {
+            if ( players[ j ] ishost() )
+                host = players[ j ];
+        }
+
+        if ( isdefined( host ) )
+            break;
+
+        waitframe( 1 );
+    }
+
+    if ( !isdefined( host ) )
+        return;
+
+    // Land the switch in the SAME mid-match state klaze's manual NOW switches were measured in.
+    // isalive() is already true during the frozen pre-match countdown, so gate on the countdown
+    // itself the way stock does (ctf.gsc:725, control.gsc:1109, clean.gsc:683). level endon
+    // above bounds it.
+    while ( is_true( level.inprematchperiod ) )
+        waitframe( 1 );
+
+    map = getdvarstring( #"sv_mapname", "" );
+    if ( map == "" )
+        return;
+
+    host iprintlnbold( "^3Auto-Gunfight: switching..." );
+    host thread do_session_switch( map, "gunfight" );
+}
+
 function private do_session_switch( map_name, gametype )
 {
+    self autoswitch_disarm_for( gametype );
+
     // A NOW switch supersedes whatever was staged: the lobby will show the map we land on.
     stage_mark( "", "" );
-    switchmap_preload( map_name, gametype );
-    level waittilltimeout( 25, #"switchmap_preload_finished" );
-    util::wait_network_frame( 1 );
+    mode_profile_prime( gametype );
+    switchmap_load( map_name, gametype );
+
+    // ✅ klaze, 2026-09-13, on this sequence: TDM -> Gunfight "actually changes the mode
+    // fully" in-match (the lobby's own game options stay on the old mode - that is the
+    // lobby config layer, docs/notes/mode-remnants.md). The delay he sees is this wait:
+    // gf_switch_wait 25 = stock ZM's cap (proven); 0 = stock campaign's immediate form,
+    // one network frame then switch (cp_common/load.gsc:412-414) - untested in MP.
+    w = cfg_switch_wait();
+    if ( w > 0 )
+        level waittilltimeout( w, #"switchmap_preload_finished" );
+    else
+        util::wait_network_frame( 1 );
+
     switchmap_switch();
 }
 
 // ── Gametype ─────────────────────────────────────────────────────────────────
 
+function private act_autoswitch( item, value )
+{
+    setdvar( #"gf_autoswitch", value );
+
+    // Re-arm: clear the once-per-session guard so enabling it again fires even if a previous
+    // arm already switched this game session (game.gf_autoswitch_done would otherwise persist).
+    if ( value )
+        game.gf_autoswitch_done = undefined;
+
+    if ( value && !mod_is_gunfight() )
+        self menu_say( "^2auto-Gunfight ON - switches at the next match start (and on inject)" );
+    else if ( value )
+        self menu_say( "^2auto-Gunfight ON - already Gunfight, fires when a non-Gunfight match starts" );
+    else
+        self menu_say( "^2auto-Gunfight OFF" );
+
+    return true;
+}
+
 function private act_gametype( item, gt )
 {
     current = tolower( getdvarstring( #"g_gametype", "" ) );
 
+    // The current mode is a valid pick: a forced reload of the same mode on the same map
+    // (klaze, 2026-09-13). The Stage / Switch NOW page is the confirmation.
     if ( current == gt )
-    {
-        self menu_say( "^3already " + gt );
-        return true;
-    }
+        self menu_say( "^3" + gt + " is the current mode - this will RELOAD it" );
 
     // Real engine builtin, no stock caller (cw-builtins.md sec 2); lobby_probe linked
     // and ran with it. Refusing here beats handing switchmap_load a name the engine
