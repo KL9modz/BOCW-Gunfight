@@ -1125,11 +1125,12 @@ chose 2 for MP and it is a dvar here for exactly this reason. Result: `______`
 | 8 | Spawns → guard ON, play a round at 4v4 | ⚠ **page never drawn** | nobody spawns out of bounds; anchors build immediately so it applies the same round |
 | 9 | Match → round / win limit | ⚠ **page never drawn** | the round counter obeys it; `-1` sentinels mean only an explicit pick asserts control |
 | 10 | Map → Zoo (method: carry) | ✅ host-side | loads Zoo exactly like the Atian menu did. ⚠⚠ **SOLO ONLY — the carry crashes connected clients** (measured 2026-09-10) |
+| 11 | Loadout → Pool camo (**random is ON by default** — the first spawn already shows a mastery/PaP camo per weapon), then → Gold | ⚠ **never run** (built 2026-09-12) | the gun in hand turns gold **this round**, the secondary too; next round both spawn gold with no pick; a bot's gun is gold in the killcam. Full 9-step sheet in [`loadout-camo.md`](loadout-camo.md) §6 — a miss on the spawn frame is a *timing* result, the same builtin is the Atian Camo page |
 | 🪦 | ~~Map → method **session** → Zoo~~ | 🪦 **DO NOT RUN** | `switchmap_load` measured **inert in MP** (2026-09-11, two iterations). The SESSION row is a dead menu option; its removal was blocked by a safety classifier |
 
 ⚠ **Test a lobby return after 3, 8 and 10.** ⚠ Settings are dvars — they persist until the game is
-restarted, including across matches. `gf_team_size`, `gf_timer_seconds`, `gf_loadout`, `gf_spyplane`,
-`gf_map_method`, `gf_menu_lines`.
+restarted, including across matches. `gf_team_size`, `gf_timer_seconds`, `gf_loadout`, `gf_camo`,
+`gf_camo_pool`, `gf_spyplane`, `gf_map_method`, `gf_menu_lines`.
 Results: `______`
 
 ---

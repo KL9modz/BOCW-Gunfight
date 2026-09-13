@@ -85,6 +85,10 @@ joiners inherit via clientfields (§2).
   stock uses; `spawn("trigger_box")` — 1). So the mod could spawn a trigger at map centre + a
   `script_model` zone entity + `gameobjects::create_use_object` and set `level.zones` itself — giving
   **real Gunfight overtime on any map**, not just the current guard-and-skip. Bigger than the current mod.
+  ▶ **Built 2026-09-12, the other way round** — no own gameobject: spawn the two entities *before* stock
+  `setupzones()` looks (the `on_start_gametype` callbacks fire first, `globallogic.gsc:5536-5537`) and
+  stock builds the zone, overtime, HUD and capture itself. Anchored on Domination's `flag_primary` `_b`.
+  `gf_zone`, default off, untested — `overtime-zone.md`.
 - **No-zone tiebreak is already sane.** The path the mod reaches via timelimit_fix, `function_c4915ac()`,
   breaks a tied round by **total remaining team health** (sum `player.health` allies vs axis). So the
   simple guard path is functional and fair; zone-synthesis is a fidelity upgrade, not a correctness fix.
@@ -124,6 +128,8 @@ timer_minutes, team_size_override/team_size (clamped to `com_maxclients`). Groun
    map-derived centre + a `script_model` zone + `gameobjects::create_use_object`, and set `level.zones`
    yourself (§6). Gives faithful Gunfight overtime (capturable flag) on off-Gunfight maps. Medium effort;
    the stock `setupzones()` (gunfight.gsc:827) is the exact template.
+   ▶ **Done differently (2026-09-12):** feed stock `setupzones()` instead of replacing it —
+   `overtime-zone.md`. Untested; `Overtime zone → Zone census` is the read-only first step.
 2. **Custom loadout rotation (`#loadout_override`).** Gunfight pulls the round weapon set from scriptbundle
    `gunfightloadoutlist`→`mp_gunfight_loadout_default` into `game.var_96a8ff4a` (gunfight.gsc:80-88). The
    mod can override `level.givecustomloadout` / `setloadout` to inject a chosen weapon rotation. Low-med.
@@ -280,6 +286,95 @@ Gunfight is round-based on the `gametypes/gametype` base (§1). The flow per rou
 - **`onendround()`** — post-round: updates scores; advances the loadout rotation every
   `gunfightroundsperloadout` rounds (`game.var_b6beb735++` wrap → `gametype::on_round_switch()`).
 
+### 14b. ⚠ Callback cadence: `on_start_gametype` is once per MATCH — and two mod bugs it caused (fixed 2026-09-12)
+`callback::callback(#"on_start_gametype")` fires from **`globallogic callback_startgametype`** — the
+**match-start** path (once per map load), **not** per round. The per-round hooks are `onendround` /
+`onstartround` and the engine's spawn callback. `gunfight_menu`'s `mod_apply` is on `on_start_gametype`,
+so it runs **once per match**. That is fine for set-once-and-persist settings (timer override, team size,
+gametype settings) but it silently broke two features that must change per round — both reported in-game
+by klaze and fixed:
+
+- **Loadout rotation + side switch did nothing.** Both live in `gunfight.gsc onendround` inside one check
+  on **`level.gunfightroundsperloadout`**, and `main()` (`gametype_init`) copies that level var from the
+  gametypesetting **before** `on_start_gametype`. So `mod_apply` calling `setgametypesetting(#"gunfightroundsperloadout")`
+  was read too late — the level var kept its match-init value (0 in a private lobby → the block never
+  runs). Fix: `mod_apply`/`act_rounds_loadout` set **`level.gunfightroundsperloadout` directly**. Sides
+  have a **second gate**: `on_round_switch()` only toggles `game.switchedsides` when
+  `level.var_d1455682.switchsides` is set (the gametype bundle flag), so the mod forces that on too. The
+  loadout rotation and the side switch are **coupled** — one setting drives both (menu: "Loadout+sides
+  every N").
+- **Spawn-guard anchors never re-shuffled and never followed the side switch**, because `mod_spawn_build`
+  runs in `mod_apply` (once/match). Fix: the per-round refresh moved to **`mod_spawn_place`** (on
+  `on_spawned`, which fires at each round's start in a no-respawn mode) — reshuffle both sides + reset the
+  counters when `game.roundsplayed` advances, and pick each team's cluster from `game.switchedsides` so the
+  guard's sides track the scoreboard.
+
+▶ **General rule for this mod:** anything that must vary per round belongs in a per-round callback
+(`on_spawned`, or a round-end hook), or must write the live `level.*` var the per-round stock code reads —
+never rely on `mod_apply` re-running, because it does not.
+
+⚠ **The "once per match" premise above is contradicted by two measurements and by the stock code, and
+was never itself measured (2026-09-13 audit).** `src/mp_probe/` probe 6 (2026-09-07): *"reads 1 every
+round → `level` is rebuilt per round"* — the counter was written from `on_start_gametype`, so the callback
+fired every round. `test-queue.md` C7 run 1 (2026-09-08): *"`on_start_gametype` fires **per round**, so
+rounds 2+ threaded additional concurrent copies."* And the round transition IS a level load:
+`globallogic.gsc:2058` `map_restart( 1 )` (persistent `game.`), after which the engine raises
+`gametype_start` → `callback_startgametype()` → `callback( #"on_start_gametype" )` (:5536) again. The two
+bugs above have a different explanation that the fixes already cover: `main()` copies the setting into the
+level var on **every** load, before the callback, so the round in which the pick is made never sees it —
+writing the live level var (as the fix does) is right either way. The general rule stands as *belt and
+braces*; the premise does not. Do not build on "mod_apply runs once per match".
+
+### 14c. Pre-match / pre-round countdowns — one level var, read BEFORE `on_start_gametype` (2026-09-13)
+The custom-games rows "Pre-Match Timer" and "Pre-Round Timer" are the settings `prematchperiod`
+(bundle `prematch_period`: 5/10/15/30/45/60) and `preroundperiod` (bundle `preround_period`: 0–30, 0 =
+"Disabled"). Stock reads **both into the one variable `level.prematchperiod`** in `function_b9b7618()`:
+`:5072` `getgametypesetting( #"prematchperiod" )` on the match's first load (`!isdefined( game.gamestarted )`,
+`:5036`, then `game.gamestarted = 1` at `:5070`), `:5087` `getgametypesetting( #"preroundperiod" )` on every
+`map_restart( 1 )` round after (skipped in splitscreen, `:5085`). The `prematchperiodoverride` /
+`preroundperiodoverride` dvars beside them are inside `/# #/` — dev-only, absent from retail.
+
+**Order matters:** `callback_startgametype()` (`:5530`) runs `function_b9b7618()` (`:5532`) **before**
+`callback( #"on_start_gametype" )` (`:5536`), and the consumer runs **after** it: `thread startgame()`
+(`:5539`) → `prematchperiod()` (`:4809`) → `matchstarttimer( level.prematchperiod )` (`:4855/:4873/:4881`),
+whose argument also drives the HUD countdown (`luinotifyevent( #"create_prematch_timer", ... )`, `:1441`).
+So from `on_start_gametype`, `setgametypesetting()` alone misses the load it is made on (the value was
+already copied out), while assigning `level.prematchperiod` directly lands on this load's countdown.
+`gunfight_menu.gsc` `mod_periods()` does both, choosing pre-match vs pre-round by the same
+`isdefined( game.gamestarted )` test stock made — snapshotted in the postinit (`mod_postinit`), which runs
+at `run_post_systems` before `gametype_start`, i.e. before stock latches the flag. Defaults **15 s / 7 s**
+(`gf_prematch` / `gf_preround`; −1 = the lobby's row, restored from a once-per-match snapshot in `game.`).
+Other readers all run later and agree: the intro-cinematic gate (`namespace_66d6aa44` `:259`, reads the
+setting), the first-round forfeit clock (`function_67ed6c46` `:875`, reads the level var from inside
+`prematchperiod()`), Gunfight's late-join HUD sync (`gunfight.gsc:177`). Private matches skip the ranked
+±2 s jitter (`:5316`). ⚠ Built 2026-09-13, not yet run in-game.
+
+### 14d. Host tools the menu now has, and the stock mechanism each one rides (2026-09-13, none run yet)
+- **Pause** = stock's esports/CDL pause, `globallogic.gsc function_411eb759` (`:6123-6165`): `luinotifyevent(
+  #"esports_game_paused", 1, 1 )` (the GAME PAUSED banner), `globallogic_utils::pausetimer( 1 )`,
+  `util::function_1c8873f6( 1 )` (every non-spectator: `val::set` `freezecontrols` + `takedamage 0`, offhand
+  cancelled, killstreak weapon put away), `level.var_e80a117f = 1` (the flag `util::function_5355d311` /
+  `function_9d5c26a` wait on). Resume = `thread matchstarttimer( 5 ); wait 5;` then the reverse. Stock gates the
+  whole thing on the engine predicate `function_bfd92dc5()` (a 0-arg builtin, `funcs_cw.csv` exe+3be1c60 — the
+  CDL pause request) and `util::function_7f7a77ab()` (dvar `hash_5312b024b0f8fcd6`, default 1); the menu drives
+  the same sequence directly, minus the two telemetry builtins `function_e947a80a` / `function_d533e53d`.
+  `setpauseworld()` exists (exe+3c60770) but its only stock caller is a campaign scene unpause — not used.
+- **Freeze** (one player / everyone, no banner) = `val::set( #"gf_freeze", "freezecontrols_allowlook", 1 )` +
+  `takedamage 0` — the layered value system (`values_shared.gsc:27,61,63`), so it stacks with stock's own layers.
+- **Fly** = the shipped Atian Cold War `fly_mode`: `playerlinkto` a `script_origin`, move it each frame from
+  `getnormalizedmovement()` + view angles; Prop Hunt's `_prop_controls.gsc:1121/1210` is the stock precedent for
+  the same shape. `val::set( "disable_oob", 1 )` (registered in `core_common/oob.gsc:81`) keeps the OOB timer off.
+- **Jump boost** = `setvelocity( getvelocity() + (0,0,boost) )` at takeoff (`isonground` edge + `jumpbuttonpressed`
+  + `!ismantling`), the shape `mp-dvars.md` recommended; `bg_falldamageminheight/maxheight` (the pair cp/zm
+  oldschool raises, `cp_common/globallogic.gsc:184`) pushed out of reach when fall damage is switched off.
+  `setjumpheight` (exe+a03df20, no stock caller) stays on the Jump page as the untested alternative.
+- **Speed** = `setmovespeedscale()` per player, re-applied on `on_spawned` because `give_loadout` resets it
+  (`player_loadout.gsc:1883-1887`; spawn order `globallogic_spawn.gsc:637` loadout → `:758` callback). `g_speed`
+  has zero references in the dump and cannot be verified from script — not used.
+- **Broadcast** = `player iprintlnbold( msg )` per player (centre) / `iprintln` (feed). Presets + a `gf_cmd_say`
+  dvar channel for the bridge; "BLINKER CHECKPOINT" is re-sent every 3 s while paused because the centre print fades.
+- **Weapons**: all 64 MP loadout names — `docs/reference/bocw-weapons.md` (and why there is no gulag rock in T9).
+
 ### Match-end / limits (globallogic)
 - Match ends when `util::hitroundlimit()` OR `util::hitroundwinlimit()` (globallogic.gsc:1987).
 - Defaults: `registerroundlimit(0,10)`, `registerroundwinlimit(0,10)`, `registerroundswitch(0,9)`. Both
@@ -421,6 +516,42 @@ directly answers klaze's any-map control goal.
 `mp_cartel.gsc`), find what its gametype list gates, and confirm whether Gunfight's `get_game_type()` value
 is absent — but the fix above does not require this.
 
+### 16c. ✅ AUTO spawn guard — built 2026-09-12 (`gunfight_menu`, `gf_spawn_guard=2`, UNTESTED)
+
+The `#spawn_guard` above shipped, and it now has an **auto-detect** mode so it only acts on the maps
+that need it (klaze's ask: "auto detect and apply the correct guard per map"). Three points settle the
+design:
+
+- **What Gunfight spawns on.** `gunfight.gsc:77` `addsupportedspawnpointtype("tdm")` +
+  `:100 alwaysusestartspawns=1`, and the engine draws from **`mp_tdm_spawn_<team>_start`**
+  (`spawning.gsc gettdmstartspawnname`). Those markers exist on every MP map, which is *why* Gunfight
+  loads anywhere. The bug is only that on the combined-arms maps the map script leaves them in the
+  12v12 staging areas (§16b). No-respawns → only the **start** spawn matters, one placement per player
+  per round, at `on_spawned` — so the whole problem is "pick 2N good start positions."
+- **"Proper TDM/SD/DOM-located spawns" — the instinct is right, refined.** CW does ship per-mode spawn
+  families: `mp_dom_spawn_{allies,axis}_start`, `mp_sd_spawn_{attacker,defender}`, `mp_ctf_spawn_*`,
+  `mp_dm_spawn`, plus the generic `mp_spawn_point*` pool (Hardpoint/Control reuse the generic pool,
+  grouped by zone — `control.gsc function_d400d613`; there is **no** `mp_koth_spawn` family). On the
+  broken maps the DOM/S&D/generic spawns are laid out for the **6v6 footprint** — central, in-bounds —
+  while the TDM starts are 12v12. So the guard now gathers the objective families too and
+  `mod_nearest_k` pulls the central cluster from that combined pool — i.e. it borrows the dom/sd/generic
+  positions exactly where the TDM starts are wrong.
+- **Detecting which maps need it — determinable, no per-map data.** The dump ships no map metadata, but
+  script can read every spawn struct's `.origin`. `mod_spawn_needs_guard()` compares the TDM start
+  markers to the map's objective-spawn cluster: centroid + mean radius of the objective pool, vs the
+  **nearest** TDM start to that centroid. If even the closest start is farther than
+  `radius + gf_spawn_autospread` (default 2500u), the starts are the wrong layout → guard; otherwise
+  leave stock. A normal map always has a start near its objective cluster → reads "leave stock." The
+  detector **emits the raw numbers** (diag probes 62 obj-radius / 63 nearest-start / 64 decision) and
+  the Spawn report prints them, so the one soft constant calibrates on the first run.
+
+Modes: `gf_spawn_guard` **0** off (default) / **1** force every map / **2** auto. Still UNTESTED and
+default-off per house rule; validate SOLO, watch where you spawn, and read the Spawn report on
+Armada/Collateral/Crossroads (should read WRONG-LAYOUT) vs a normal map (should read ok) to set the trip
+point. ⚠ Not yet wired to `level.var_cda5136b` (the pre-spawn override, §16) — it repositions in
+`on_spawned` (a teleport just after spawn), which is simpler but a frame later; moving to the override
+is the upgrade if the teleport ever shows.
+
 ## 17. Perk / talent / gadget model (completes loadout authoring with §15)
 How Gunfight applies the non-weapon half of a loadout, via `givetalents(talents, extra1, extra2)`:
 - `self cleartalents(); self clearperks();` — wipe first.
@@ -484,9 +615,16 @@ Full bot-AI framework under `scripts/core_common/bots/` (action, difficulty, ins
 stance, traversals, weapons). Practical surface for the project:
 - **Add:** `addtestclient( name, clanabbrev )` (`bot.gsc:100`) — spawns a test client (bot) into the match.
   This is the primitive gunfight_mod already uses to fill teams (bounded by `com_maxclients`, §1).
-- **Difficulty is a GAMETYPE SETTING:** `bot_difficulty::assign` reads `getgametypesetting(#"bot_difficulty_
-  vs_bots")` (and per-team variants) → per-bot `self.bot.difficulty`. So difficulty is **mod-tunable via
-  `setgametypesetting` and save-bakeable** (§13) like team size / timer — no special API needed.
+- **Difficulty is a GAMETYPE SETTING — per team:** `bot_difficulty::assign` (`bot_difficulty.gsc:32`) reads
+  `getgametypesetting( #"bot_difficulty_" + team )` → **`bot_difficulty_allies` / `bot_difficulty_axis`**
+  (hash cracked exactly 2026-09-12; 0 recruit … 3 veteran, the custom-games "Bot Difficulty" row) →
+  per-bot `self.bot.difficulty`. ⚠ `bot_difficulty_vs_bots` is read **only** when the vs-bots mode flag
+  (`hash_c6a2e6c3e86125a`) is set (:61–65) — an earlier version of this line named it as *the* key.
+  So difficulty is **mod-tunable via `setgametypesetting` and save-bakeable** (§13) like team size /
+  timer. 🔓 And the value it installs is a plain struct every reader dereferences with a default, so a
+  **custom difficulty is a struct we build** — hit/headshot chance, aim delay, fire window, pacing,
+  movement permissions, past the stock ceiling. Built into `gunfight_menu` (Bots page), untested:
+  `bots.md`.
 - **Bots need navmesh, which every standard MP map ships** (bots play TDM on all of them). So **bot-filled
   Gunfight should function on any standard MP map** — the same universality that makes `mp_tdm_spawn` work
   (§16). Bots path, fight, and get eliminated (Gunfight wins by elimination), so a bot-filled test match is
@@ -497,8 +635,9 @@ stance, traversals, weapons). Practical surface for the project:
 
 ### Practical notes
 - Testing workflow: team-size override (§1) + `addtestclient` fill + `setgametypesetting(#"bot_difficulty_
-  vs_bots", N)` gives a controllable bot-filled Gunfight for validating any-map behaviour before humans —
-  which is the project's stated "bots before humans" order.
+  allies", N)` / `_axis` gives a controllable bot-filled Gunfight for validating any-map behaviour before
+  humans — which is the project's stated "bots before humans" order. The menu's **Bots** page is that
+  workflow as verbs (add one / remove one / even up for an odd human count / fill / difficulty / passive).
 - ⚠ On the combined-arms/large-variant maps (§16b), bots roam the BIG navmesh even with #spawn_guard placing
   their spawns centrally — so bot behaviour there is a secondary read on whether the map's active config is
   the large one (bots wandering far = large layout active).

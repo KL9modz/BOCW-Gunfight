@@ -18,6 +18,10 @@ that the pipeline is **two repos**, and one of them handed us the MP hook point 
 **Net:** the working pipeline is `atian-cod-tools` (compile/dump) **+** `t7-compiler-custom` `dev_csc_inj`
 (compile/inject). The other four are dead, closed, or reference — none add pipeline capability.
 
+▶ Extended 2026-09-13 by [[ecosystem-survey]]: the whole scene (19 repos, Discords, videos), the
+Aug-2026 *T9 Mod Manager* wave, ACTS 3.3.0's CW fastfile linker, and the PS4 injector's confirmation of
+the load model. The verdicts above still stand.
+
 ## The find: t7-compiler-custom documents the MP hook and the load model
 
 Two files in `AuroraDoesCode/t7-compiler-custom` @ `4de00c8` closed the residual load-path unknown.

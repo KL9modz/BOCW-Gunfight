@@ -203,25 +203,65 @@ exist on the MP side and the chain is wrong before anything is written.
 
 ### B2 · What the glitch actually does — ✅ **RESEARCHED 2026-09-09, and it is a PLAYLIST carry**
 
-klaze has only ever triggered it by accident, so this was researched rather than reported. ⚠ **Provenance
-is second-hand:** the primary write-up (a Se7enSins thread) and two YouTube tutorials were **blocked by
-this session's egress proxy**; what follows is reconstructed from three independent search summaries of
-those sources, which agree with each other. **Treat the step order as approximate and the mechanism as
-well-supported.** Anyone who can open the thread should replace this section with the verbatim steps.
+klaze has only ever triggered it by accident, so this was researched rather than reported. ✅ **Provenance
+is now first-hand (2026-09-13):** the two YouTube tutorials that an earlier session's egress proxy blocked
+are readable. The founder's own description — GlitchHunterz, *"Gunfight And Fireteam Maps Into Custom
+Games"*, `youtu.be/Wxctp-7rrEs` (*"Founder(s): @GlitchHunterz"*, *"THIS IS 1 OF 3 METHODS"*) — carries the
+steps as text; FacelessOne's `youtu.be/uzXXE7v_PBU` re-posts the same three texts word for word. The
+reconstructed table that stood here was right on the shape but **wrong on the tail of the Bots-and-Players
+variant** (it ended at step 7; the real sequence runs to 12) and missed the third variant. Mechanism
+analysis, step by step, lives in [[pregame-routes]] ("THE GLITCH'S ACTUAL INPUT SEQUENCE").
 
-**Two documented variants, both from January 2021, both needing TWO players:**
+**Three documented variants, all from early 2021, all needing TWO players. Verbatim from the founder's
+description (numbering gaps are in the original):**
 
-| | Variant A — Social/party | Variant B — Bots and Players |
-|---|---|---|
-| 1 | P2 joins a friend in Multiplayer | Join a friend in Custom Games |
-| 2 | P2 opens **Social** | P2 opens **Bots And Players** |
-| 3 | **P1 searches for a Gunfight match** | P1 leaves Custom Games |
-| 4 | once found, **the host leaves alone** | P2 opens **Bots and Players** again |
-| 5 | P2 exits Social → **Custom Games** | **P1 searches for a Gunfight match** |
-| 6 | P1 joins P2 | once found, **the host leaves alone** |
-| 7 | P2 tries to join P1 → *"failed to connect"* | P2 exits Bots and Players and leaves the lobby |
-| 8 | P1 joins P2 again | |
-| 9 | P2 leaves the party alone | |
+```
+Easy Text Tutorial 1:
+1. Player 2 join a friend in multiplayer
+2. Player 2 open social
+3. Player 1 start searching for a Gunfight match
+4. Once found a match, host leave alone
+5. Player 2 exit social
+6. Player 2 go to custom games
+7. Player 1 join player 2
+8. Player 2 join player 1 (failed to connect)
+9. Player 1 join player 2
+10. Player 2 leave party alone
+
+Text Tutorial:
+1. Join a friend in custom games
+2. Player 2 open Bots And Players
+3. Player 1 Leave Custom Games
+4. Player 2 open Bots and Players again
+5. Player 1 start searching for a Gunfight match
+6. Once found a match, host leave alone
+7. Player 2 exit bots and players and leave lobby
+8. Player 1 join player 2
+9. Player 1 press custom games (it will kick you out, keep going into custom games until it keeps you in)
+10. Player 1 press social and leave party
+11. Player 2 join player 1
+12. Player 1 leave party
+NOW PLAYER 2 CAN EDIT THEIR MODE AND START THE GAME
+
+Fireteam Text Tutorial:
+1. Player 2 Join a friend in multiplayer
+2. Player 2 press social
+3. Player 1 start searching for a Gunfight match
+4. Once found a match, host leave alone
+5. Player 2 exit social
+6. Player 2 start searching for fireteam (It will fail to find a match)
+7. Player 1 join player 2
+8. Player 1 press custom games (it will kick you out, keep going into custom games until it keeps you in)
+12. Player 1 press social and leave party
+13. Player 2 join player 1
+14. Player 1 leave party
+NOW PLAYER 2 CAN EDIT THEIR MODE AND START THE GAME
+```
+
+Three readings the verbatim text settles: **"host leave alone"** means P1 stays in the found public match
+(the carrier) while P2 stays out of it; the **"keep going into custom games until it keeps you in"** line
+is a race against the teardown, which is the step a script would win and a human hits by luck; and
+**"NOW PLAYER 2 CAN EDIT THEIR MODE"** is the payoff — the private lobby's mode object is the carried one.
 
 🔓 **The mechanism, and it explains the whole symptom.** A **matchmaking search loads the Gunfight
 playlist descriptor into the session.** Aborting at the "match found" moment leaves that descriptor

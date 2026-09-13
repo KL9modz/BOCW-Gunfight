@@ -55,6 +55,13 @@ These are **not** auto-loaded. Open the one you need.
   complete rules-menu surface. Carries the cheapest open lead in the project: a **Max Players** row
   publishing 1–12.
 
+- [bots](bots.md) — **bots: add / remove one, even-up for an odd human count, difficulty, and a CUSTOM
+  difficulty.** Difficulty is the per-team gametype setting `bot_difficulty_allies` / `_axis` (hash cracked
+  exactly), installed by `bot_difficulty::assign()` as a plain struct every reader dereferences with a
+  default — so a struct we build (hit/headshot chance, aim delay, fire window, pacing, permissions) is a
+  difficulty past the stock ceiling. Eight of the ten hashed field names cracked. Built into
+  `gunfight_menu` 2026-09-12 as the Bots page; untested, protocol inside.
+
 - [compile-status](compile-status.md) — stages 1–2 on the Windows gate. All five staged tests compile;
   with the cloud session's stages 3–4 and arity checks, every offline check is green. Carries the
   provenance caveats: relayed, and the ACTS version is unrecorded.
@@ -82,6 +89,16 @@ These are **not** auto-loaded. Open the one you need.
 - [pipeline-toolchain-survey](pipeline-toolchain-survey.md) — the six commonly-cited tool/mod repos,
   checked in-session. Which help the compile→inject pipeline (two do), which are dead or closed, and
   where the MP hook point (`mp_common/bb.gsc`) and the injector load model came from.
+- [hint-panel](hint-panel.md) — **the menu drawn by the use-prompt widget** (`gf_menu_region 4`, built
+  2026-09-13, never run): one `sethintstring` on a trigger linked to the host — the layout every "full
+  HUD" Cold War GSC menu really uses, since T9 retail has no hudelem builtins. No fade, no ~4-line cap.
+  Stock shapes it copies (ctf / laststand / vip), the seven-step test, and the joiner-visibility guard.
+- [ecosystem-survey](ecosystem-survey.md) — **the whole Cold War modding scene, swept 2026-09-13.**
+  Nobody else does open MP gametype/lobby work; the one new thing is the Zombies-only *T9 Mod Manager*
+  scene (Aug 2026, 1.4k-member Discord, encrypted `.cwm` packages, mods configured in the pregame
+  lobby); the client route is dead; ACTS 3.3.0 (= the pin) added a CW fastfile *linker* with no measured
+  load side; the PS4 injector proves the one-replace-target-per-launch model is structural. Hubs, dead
+  ends, and the reproducible method.
 
 - [mp-dvars](mp-dvars.md) — which dvars actually take effect in MP and which set cleanly and do
   nothing. `jump_height` is inert in MP; `bg_gravity` works, and why. Carries the do-not-use list of
@@ -108,6 +125,10 @@ These are **not** auto-loaded. Open the one you need.
   which makes the larger-team question a cheap live test rather than a blocked one.
 - [gunfight-findings](gunfight-findings.md) — the one hard map dependency (`gunfight_zone_center`),
   why it is almost certainly the round-timer bug, and why a *partial* zone setup is worse than none.
+- [loadout-camo](loadout-camo.md) — **the loadout pool is built bare; `setcamo( weapon, index )` repaints
+  a held weapon server-side.** The camo index table (61 Gold … 66 Dark Aether, 67–69 / 116–121
+  Pack-a-Punch, 1–121 mapped), the give path that drops the options, the Gun Game precedent, and the
+  menu's *Pool camo* page (`gf_camo`). Built 2026-09-12, never run; protocol inside.
 - [team-sizes](team-sizes.md) — where team size actually lives, what is overridable from GSC and
   what is a hard engine ceiling.
 

@@ -16,6 +16,14 @@ of a Lua master. Cheat Engine would have reached it; TAC will not let Cheat Engi
 
 > Don't make the picker allow the pair. Skip the picker and call what the picker calls.
 
+✅ **The same layer is reachable from in-match GSC, measured 2026-09-12:** `switchmap_load( map,
+gametype )` with **no** `switchmap_switch()` leaves the pair in the session, and the pregame lobby
+shows it selected when the match ends — klaze ended a match between the menu's two calls and read the
+lobby. It is now the menu's *Stage for lobby* verb ([`session-switch.md`](session-switch.md) → *Stage*).
+It needs a match running (`bb.gsc` hook), so it complements rather than replaces the native call
+below, which works from the lobby with no match — and it is one more reason to expect the selection
+to be C-side state that holds. ⚠ Joiners not yet tested on it either.
+
 ## The two functions
 
 ACTS names both, from its Black Ops 4 work, with addresses, in

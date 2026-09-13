@@ -11,8 +11,8 @@ gunfight_mod/     the real mod. ✅ ALL FOUR SWITCHES VERIFIED 2026-09-08 —
                   3v3 Gunfight on Zoo, 60s rounds, timed out cleanly, correct HUD
 gunfight_menu/    ⬅ THE HOSTING PAYLOAD. gunfight_mod's fixes + team size + an
                   in-match menu (Atian engine, rewritten in ACTS dialect): teams,
-                  bot fill, move players, timer, loadout set, spy plane, restart,
-                  map. Settings are dvars so they survive rounds AND matches.
+                  bot fill, move players, timer, loadout set, pool camo, spy plane,
+                  restart, map. Settings are dvars so they survive rounds AND matches.
                   One payload - B9 says nothing can be injected on top of it.
 
   ── staged tests. ONE PER MATCH. Each WRITES. Lobby return after each. ──

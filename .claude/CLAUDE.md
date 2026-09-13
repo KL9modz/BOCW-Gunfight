@@ -37,7 +37,11 @@ match FROM THE LOBBY). CE is closed by measurement. ✅ **In-match `switchmap_lo
 payload has been through `tools/strip-strhdr.ps1` (its map-name literal had been garbled by the ACTS
 string header): the lobby follows the switch, `com_maxclients` read 12 in a Gunfight session, and 6v6
 filled — measured with `src/lobby_state/`, [[session-switch]]. It is the working in-match map route
-today; the native lobby setters above remain the *pregame* route, untested.
+today; the native lobby setters above remain the *pregame* route, untested. ✅ **And the load half
+alone STAGES the lobby's next map** (klaze, 2026-09-12): `switchmap_load( map, gametype )` with no
+`switchmap_switch()`, end the match, and the pregame lobby has that map selected. The menu's map and
+gametype picks now offer both verbs — *Stage for lobby* / *Switch NOW* ([[session-switch]] → *Stage*).
+⚠ Joiners not yet tested on either.
 🔓 **GSC runs in the pregame lobby** — "nothing runs there" was never measured
 and the dump retracts it ([[pregame-routes]]) — so `src/test_frontend/` (band P, read-only first) is
 the next thing to run: the first payload hooked at `load_shared.gsc`, which links in every VM. 🪦 D10
@@ -418,6 +422,11 @@ behaviour, not a hope.
 **zero** bot or Gunfight references, and `bot::add_bot()` (`bot.gsc:98`) has no map gate and no cap
 check — `function_582e5d7c()` bounds bots at `com_maxclients`, not 3. **Predict C7 works on any
 Gunfight map and fills past 3 per side**, which makes solo testing of C8/C10 viable. [[lobby-settings]]
+🔓 **Bot difficulty is the per-team gametype setting `bot_difficulty_allies` / `_axis`** (hash cracked
+exactly; 0–3 = the custom-games row) and the value `bot_difficulty::assign()` installs is a **plain
+struct every reader dereferences with a default** — so a struct we build is a difficulty past the stock
+ceiling. `gunfight_menu` → **Bots**: add/remove one, even-up for an odd human count, difficulty,
+CUSTOM tuning, passive. ⚠ Built 2026-09-12, never run. [[bots]]
 
 ⚠ **`level.maxteamplayers` is a red herring** — `globallogic.gsc:240` sets it, but
 `function_d36b6597()` only consults it when `teamcount == 0` or `max_clients == teamcount`, i.e.
@@ -490,6 +499,13 @@ Never calling `overtime()` leaves `usingextratime` at 0 and `gettimelimit()` ret
 there is NOT a dependency. `function_c4915ac()` routes through the **same `endround()`** the OT capture
 path uses.
 
+🔓 **Skipping is the guard, not the ceiling — the real overtime is reachable.** `setupzones()` wants
+two entities, and the `on_start_gametype` callbacks run **before** `onstartgametype()`
+(`globallogic.gsc:5536-5537`), so a script that spawns a `gunfight_zone_center` inside a
+`gunfight_zone_trigger` gets stock overtime, HUD, VO and capture back on any map — anchored on
+Domination's `flag_primary` `_b`, the BO1 trick. Built behind `gf_zone` (default off), untested,
+with an `istouching` valve against the fatal half-zone: [[overtime-zone]].
+
 ### ✅ The fix needs NO re-entrancy guard — stock already has one
 `checktimelimit()` invokes `level.ontimelimit` on **every** iteration of the 0.25s
 `updategametypedvars()` loop while `timeleft <= 0`, so the reassigned handler fires repeatedly. That is
@@ -515,6 +531,9 @@ is merely untried, it belongs in a note's **Untried — not ruled out** list ins
 - **`com_maxclients` from script** — read-only, 7 refs, zero writes. Not the 6v6 lever either.
 - **`xensik/gsc-tool` for T9** — support is marked **WIP**. Not the toolchain.
 - **`ProjectDonetsk/T9` (Defcon)** — archived, unmaintained. Its named successor **`xifil/t9-mod` 404s**.
+- **The wider Cold War modding scene** — swept 2026-09-13: **no other open MP gametype/lobby project
+  exists**; the only new thing is the Zombies-only *T9 Mod Manager* scene (closed launcher, encrypted
+  packages); no living CW client. Don't re-survey without a new lead. [[ecosystem-survey]]
 - **`gunfight_3v3`** — ✅ **REAL, confirmed in the primary dump**: `player_record.gsc:589`
   `case #"gunfight_3v3":`. ⚠ A retraction of this was briefly written from the *alternate* dump, which
   leaves the name as an unresolved hash. **Absence in `shiversoftdev/t9-src` is evidence of nothing** —

@@ -182,7 +182,11 @@ which nulls `callbackstartgametype`, `callbackplayerconnect`, `callbackplayerdam
 - **No map-name checks.** Grepping gunfight.gsc/.csc for `mapname`, `g_gametype`,
   `getdvarstring`, `level.script` returns zero hits.
 
-## Fix sketch — UNVERIFIED, not yet written
+## Fix sketch — items 1-4 SHIPPED in gunfight_mod / gunfight_menu; the zone itself: [[overtime-zone]]
+
+> 2026-09-12: the guard-and-skip below is what ships. The **other** fix — give `setupzones()` the two
+> entities it wants so the real overtime runs — is built behind `gf_zone` (default off) and documented,
+> ordering proof and all, in `overtime-zone.md`. The DANGER section above is exactly what its valve guards.
 
 Cleanest without editing the map, all in an injected script:
 
