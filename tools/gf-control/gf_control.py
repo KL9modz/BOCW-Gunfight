@@ -749,7 +749,12 @@ class App:
         self.st_cwpatch.grid(row=1, column=0, sticky="w", pady=2)
         self.st_bridge = ttk.Label(grid, text="Bridge DLL: checking...")
         self.st_bridge.grid(row=2, column=0, sticky="w", pady=2)
-        ttk.Button(box, text="Refresh", command=self._refresh_status).pack(anchor="w", padx=12, pady=(0, 8))
+        sr = ttk.Frame(box)
+        sr.pack(anchor="w", padx=12, pady=(0, 8))
+        ttk.Button(sr, text="Refresh", command=self._refresh_status).pack(side="left")
+        # Battle.net writes the stock SDK back over cwpatch on updates/repairs - re-install it.
+        ttk.Button(sr, text="Install / reinstall cwpatch",
+                   command=self._install_cwpatch).pack(side="left", padx=6)
 
         box2 = ttk.LabelFrame(tab, text="Inject  (one payload per game launch)")
         box2.pack(fill="x", padx=12, pady=6)
@@ -934,6 +939,25 @@ class App:
                                    foreground="#a11")
         else:
             self.st_cwpatch.config(text="cwpatch: slot missing", foreground="#a11")
+
+    def _install_cwpatch(self):
+        # Put the bundled cwpatch back in the game's discord_game_sdk.dll slot. Use it on first
+        # setup AND whenever Battle.net has reverted it to the stock SDK (status shows NOT installed).
+        if gf_native is None:
+            self._say("native helpers unavailable"); return
+        if not os.path.exists(CWPATCH_SRC):
+            self._say("cwpatch source missing: " + CWPATCH_SRC); return
+        pid = gf_native.find_game_pid()
+        gd = gf_native.find_game_dir(pid or None)
+        if not gd:
+            self._say("game folder not found - can't install cwpatch"); return
+        msg = gf_native.install_cwpatch(CWPATCH_SRC, gd, game_running=bool(pid))
+        self._say("cwpatch: " + msg)
+        if pid and "already" not in msg:
+            self._say("  -> close the game, click again, then relaunch (cwpatch loads at start)")
+        elif "installed" in msg:
+            self._say("  -> relaunch the game so cwpatch loads")
+        self._refresh_status()
 
     def _bridge_loaded(self) -> bool:
         # A listening bridge == the DLL is loaded in the game == gf_bridge.dll is file-locked
