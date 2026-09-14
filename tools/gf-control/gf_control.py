@@ -33,16 +33,37 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-# Repo root (…/BOCW-Gunfight): tools/gf-control/gf_control.py -> up three.
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-GFBRIDGE = os.path.join(REPO, "tools", "gf-bridge")
-# The mod-menu injection, called directly (NOT via `bash inject.sh` - a windowless app resolves
-# `bash` to WSL's System32\bash.exe, which can't run the repo's Windows-path script). Mirrors
-# tools/inject.sh's gunfight_menu case: acts injectcw <payload> <hook> <replace>, from acts' dir.
-ACTS = os.path.normpath(os.path.join(REPO, "..", "ACTS", "bin", "acts.exe"))
-MENU_PAYLOAD = os.path.normpath(os.path.join(REPO, "..", "payloads", "gunfight_menu.gscc"))
+# ---- artifact resolution: the standalone .exe (PyInstaller) vs the dev tree ------------------
+# The runtime needs only PREBUILT artifacts (menu .gscc, gf_bridge.dll, cwpatch) + acts as the
+# injector - none of the dev toolchain (zig/Python). In a frozen build they sit beside the exe
+# (see gf-control.spec); in the dev tree they are the repo's usual siblings.
+FROZEN = getattr(sys, "frozen", False)
+if FROZEN:
+    BUNDLE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
+    GFBRIDGE = os.path.join(BUNDLE, "gf-bridge")
+    ACTS = os.path.join(BUNDLE, "acts", "acts.exe")
+    MENU_PAYLOAD = os.path.join(BUNDLE, "payloads", "gunfight_menu.gscc")
+    BRIDGE_DLL = os.path.join(GFBRIDGE, "gf_bridge.dll")
+    CWPATCH_SRC = os.path.join(BUNDLE, "vendor", "discord_game_sdk.CWPATCH-13824.dll")
+    ASSETS = os.path.join(BUNDLE, "assets")
+else:
+    REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    GFBRIDGE = os.path.join(REPO, "tools", "gf-bridge")
+    ACTS = os.path.normpath(os.path.join(REPO, "..", "ACTS", "bin", "acts.exe"))
+    MENU_PAYLOAD = os.path.normpath(os.path.join(REPO, "..", "payloads", "gunfight_menu.gscc"))
+    BRIDGE_DLL = os.path.join(GFBRIDGE, "gf_bridge.dll")
+    CWPATCH_SRC = os.path.normpath(os.path.join(REPO, "..", "vendor-backup",
+                                                "discord_game_sdk.CWPATCH-13824.dll"))
+    ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+# acts injectcw <payload> <hook> <replace> is the menu injection (NOT `bash inject.sh` - a
+# windowless app resolves `bash` to WSL's System32\bash.exe, which can't run the repo script).
 MENU_HOOK = r"scripts\mp_common\bb.gsc"
 MENU_REPLACE = r"scripts\core_common\clientids_shared.gsc"
+
+try:
+    import gf_native
+except Exception:
+    gf_native = None
 
 
 def _no_window() -> dict:
@@ -65,7 +86,7 @@ except Exception:  # backend import must never stop the GUI from opening in dry-
 # in-process gf_bridge.dll polls. This is the WORKING control path (T1 proved an in-process
 # `set` reaches GSC getdvarint; an external WriteProcessMemory never could). No game memory is
 # touched here - just shared memory - so this half runs unprivileged.
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "gf-bridge"))
+sys.path.insert(0, GFBRIDGE)      # dev: tools/gf-bridge ; frozen: BUNDLE/gf-bridge
 try:
     import bridge_channel
 except Exception:  # keep the GUI usable (display-only) if the transport is missing
@@ -469,8 +490,7 @@ class App:
 
         root.title("Gunfight Host Control" + ("  [LIVE]" if live else "  [DRY-RUN]"))
         try:                                    # window/taskbar icon (gunfight.us logo)
-            self._icon = tk.PhotoImage(
-                file=os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "logo.png"))
+            self._icon = tk.PhotoImage(file=os.path.join(ASSETS, "logo.png"))
             root.iconphoto(True, self._icon)
         except Exception:
             pass
@@ -742,14 +762,17 @@ class App:
         r = ttk.Frame(box2)
         r.pack(anchor="w", padx=12, pady=(2, 8))
         ttk.Label(r, text="or separately:").pack(side="left", padx=(0, 6))
-        ttk.Button(r, text="Inject mod menu", width=18,
+        ttk.Button(r, text="Inject mod menu", width=16,
                    command=self._inject_menu).pack(side="left", padx=4)
-        ttk.Button(r, text="Build + inject bridge", width=20,
+        ttk.Button(r, text="Inject bridge", width=14,
                    command=self._inject_bridge).pack(side="left", padx=4)
+        if not FROZEN:                       # dev-only: recompile the bridge with zig
+            ttk.Button(r, text="Build bridge (dev)", width=16,
+                       command=self._build_bridge_dev).pack(side="left", padx=4)
         ttk.Label(box2, foreground="#777", justify="left",
-                  text=("Load a private MATCH once before injecting the menu (puts bb.gsc in the pool).\n"
-                        "Menu = GSC payload: needs a match restart to link, and clobbers the last payload.\n"
-                        "Bridge = native DLL: active immediately, coexists with cwpatch. Both drive the game.")
+                  text=("cwpatch installs on first Set up all (loads at the next game launch).\n"
+                        "Load a private MATCH once before injecting the menu (puts bb.gsc in the pool).\n"
+                        "Menu = GSC payload (restart to link); bridge = prebuilt native DLL (immediate).")
                   ).pack(anchor="w", padx=12, pady=(0, 8))
         return tab
 
@@ -880,6 +903,8 @@ class App:
         self.root.after(5000, self._tick_status)      # light poll; probes are read-only
 
     def _refresh_status(self):
+        # Bridge = shared-memory probe; game + cwpatch = native ctypes (no subprocess, so no
+        # console flash and it works in the standalone build).
         if bridge_channel is not None:
             try:
                 listening, seq, _ = bridge_channel.probe()
@@ -888,39 +913,27 @@ class App:
                     foreground="#1a7f1a" if listening else "#a11")
             except Exception as e:
                 self.st_bridge.config(text=f"Bridge DLL: {e}", foreground="#a11")
-        threading.Thread(target=self._probe_game_async, daemon=True).start()
-
-    def _probe_game_async(self):
-        # Read-only: process id + the discord_game_sdk.dll module size (0x9000 == cwpatch build).
-        ps = ("$p=Get-Process BlackOpsColdWar -EA SilentlyContinue;"
-              "if($p){$m=$p.Modules|?{$_.ModuleName -ieq 'discord_game_sdk.dll'};"
-              "\"$($p.Id)|$(if($m){$m.ModuleMemorySize}else{0})\"}else{'0|0'}")
-        res = "0|0"
-        try:
-            r = subprocess.run(["pwsh", "-NoProfile", "-Command", ps],
-                               capture_output=True, text=True, timeout=15, **_no_window())
-            res = (r.stdout or "").strip() or "0|0"
-        except Exception:
-            pass
-        self.root.after(0, lambda: self._apply_game_status(res))
-
-    def _apply_game_status(self, res):
-        try:
-            pid_s, size_s = res.split("|")
-            pid, size = int(pid_s), int(size_s)
-        except Exception:
-            pid, size = 0, 0
+        if gf_native is None:
+            return
+        pid = gf_native.find_game_pid()
         self.st_game.config(text="Game: " + (f"running (pid {pid})" if pid else "not running"),
                             foreground="#1a7f1a" if pid else "#a11")
-        if not pid:
-            self.st_cwpatch.config(text="cwpatch: -", foreground="#777")
-        elif size == 0x9000:
-            self.st_cwpatch.config(text="cwpatch: loaded (0x9000)", foreground="#1a7f1a")
+        gd = gf_native.find_game_dir(pid or None)
+        slot = os.path.join(gd, "discord_game_sdk.dll") if gd else None
+        try:
+            size = os.path.getsize(slot) if slot and os.path.exists(slot) else 0
+        except OSError:
+            size = 0
+        if size == gf_native.CWPATCH_SIZE:
+            self.st_cwpatch.config(text="cwpatch: installed" + (" + loaded" if pid else " (loads next launch)"),
+                                   foreground="#1a7f1a")
+        elif not gd:
+            self.st_cwpatch.config(text="cwpatch: game folder not found", foreground="#777")
         elif size:
-            self.st_cwpatch.config(text=f"cwpatch: wrong build (0x{size:x}) - run ensure-cwpatch",
+            self.st_cwpatch.config(text="cwpatch: NOT installed - Set up all installs it",
                                    foreground="#a11")
         else:
-            self.st_cwpatch.config(text="cwpatch: NOT loaded", foreground="#a11")
+            self.st_cwpatch.config(text="cwpatch: slot missing", foreground="#a11")
 
     def _bridge_loaded(self) -> bool:
         # A listening bridge == the DLL is loaded in the game == gf_bridge.dll is file-locked
@@ -967,25 +980,45 @@ class App:
     def _setup_all(self):
         if not messagebox.askokcancel(
                 "Set up all",
-                "Build + inject the bridge DLL (if needed), then inject the mod menu?\n\n"
-                "Afterwards restart the match (Actions -> Restart match, or your F-key) to link the menu."):
+                "Install cwpatch (if needed), load the bridge, and inject the mod menu.\n\n"
+                "cwpatch is read at game start, so the first time you'll relaunch once.\n"
+                "After the menu injects, restart the match to link it."):
             return
-        menu = lambda: self._menu_inject_async(
-            then=lambda: self._say("set up complete - now restart the match to link the menu"))
+        if gf_native is None:
+            self._say("native helpers unavailable - can't set up"); return
+        pid = gf_native.find_game_pid()
+        gd = gf_native.find_game_dir(pid or None)
+
+        # 1. cwpatch must be in the slot BEFORE the game starts (it is loaded at launch).
+        if not os.path.exists(CWPATCH_SRC):
+            self._say("cwpatch source missing: " + CWPATCH_SRC)
+            self._say("  provide it (repo: vendor-backup\\ ; standalone: bundled), then Set up all")
+            return
+        if gd and gf_native.sha256(os.path.join(gd, "discord_game_sdk.dll")) != gf_native.CWPATCH_SHA256:
+            self._say("cwpatch: " + gf_native.install_cwpatch(CWPATCH_SRC, gd, game_running=bool(pid)))
+            self._say("  -> " + ("close the game, relaunch it, then Set up all again"
+                                 if pid else "now LAUNCH the game, then Set up all again"))
+            self._refresh_status(); return
+
+        # cwpatch is in the slot from here; the injections need the game running.
+        if not pid:
+            self._say("cwpatch is in place - LAUNCH the game, then Set up all")
+            self._refresh_status(); return
+
+        # 2. bridge - inject the PREBUILT gf_bridge.dll natively (no zig at runtime).
         if self._bridge_loaded():
-            # A bridge is already loaded: the DLL file is locked (can't rebuild) and a second
-            # inject would double-load it. Keep the running bridge; just (re)inject the menu.
-            self._say("bridge already loaded - keeping it; injecting menu only")
-            self._say("  (to load a NEW bridge build, relaunch the game first, then Set up all)")
-            menu()
-            return
-        self._shell_async(
-            ["zig", "cc", "-target", "x86_64-windows-gnu", "-shared", "-O2",
-             "-o", "gf_bridge.dll", "bridge.c"],
-            "build gf_bridge.dll", cwd=GFBRIDGE,
-            then=lambda: self._shell_async(
-                ["pwsh", "-NoProfile", "-File", "inject-dll.ps1", "-Dll", "gf_bridge.dll"],
-                "inject gf_bridge.dll", cwd=GFBRIDGE, then=menu))
+            self._say("bridge already loaded - keeping it")
+        elif os.path.exists(BRIDGE_DLL):
+            self._say(gf_native.inject_dll(pid, BRIDGE_DLL))
+        else:
+            self._say("gf_bridge.dll not found: " + BRIDGE_DLL)
+            if not FROZEN:
+                self._say("  dev: 'Build bridge (dev)' first, then Set up all")
+
+        # 3. menu - acts injectcw of the prebuilt payload.
+        self._menu_inject_async(
+            then=lambda: self._say("set up complete - restart the match to link the menu"))
+        self._refresh_status()
 
     def _menu_inject_async(self, then=None):
         self._shell_async([ACTS, "injectcw", MENU_PAYLOAD, MENU_HOOK, MENU_REPLACE],
@@ -1000,25 +1033,39 @@ class App:
         self._menu_inject_async()
 
     def _inject_bridge(self):
+        if gf_native is None:
+            self._say("native helpers unavailable"); return
+        pid = gf_native.find_game_pid()
+        if not pid:
+            messagebox.showinfo("Inject bridge", "Launch the game first."); return
         if self._bridge_loaded():
             messagebox.showinfo(
                 "Bridge already loaded",
-                "A bridge DLL is already loaded in the running game, so gf_bridge.dll is locked "
-                "and can't be rebuilt (and injecting again would double-load it).\n\n"
-                "To load a NEW build - e.g. after changing bridge.c or its buffer size - relaunch "
-                "the game first (a fresh launch has no bridge loaded), then click Set up all.")
+                "A bridge DLL is already loaded in the running game (re-injecting would double-load "
+                "it). To load a different build, relaunch the game first, then Set up all.")
             return
-        if not messagebox.askokcancel(
-                "Build + inject bridge",
-                "Build gf_bridge.dll (zig) and inject it into the running game?"):
+        if not os.path.exists(BRIDGE_DLL):
+            self._say("gf_bridge.dll not found: " + BRIDGE_DLL)
+            if not FROZEN:
+                self._say("  dev: 'Build bridge (dev)' first")
+            return
+        if not messagebox.askokcancel("Inject bridge",
+                "Inject the prebuilt gf_bridge.dll into the running game?"):
+            return
+        self._say(gf_native.inject_dll(pid, BRIDGE_DLL))
+        self._refresh_status()
+
+    def _build_bridge_dev(self):
+        # Dev-only: recompile gf_bridge.dll with zig after changing bridge.c. The DLL must be
+        # unloaded (relaunch the game first if the bridge is live).
+        if self._bridge_loaded():
+            messagebox.showinfo("Build bridge (dev)",
+                "The bridge is loaded, so gf_bridge.dll is file-locked. Relaunch the game first.")
             return
         self._shell_async(
             ["zig", "cc", "-target", "x86_64-windows-gnu", "-shared", "-O2",
              "-o", "gf_bridge.dll", "bridge.c"],
-            "build gf_bridge.dll", cwd=GFBRIDGE,
-            then=lambda: self._shell_async(
-                ["pwsh", "-NoProfile", "-File", "inject-dll.ps1", "-Dll", "gf_bridge.dll"],
-                "inject gf_bridge.dll", cwd=GFBRIDGE))
+            "build gf_bridge.dll (zig)", cwd=GFBRIDGE)
 
     def _write(self, settings: dict):
         self._say(f"trigger: {settings}")
@@ -1045,7 +1092,12 @@ class App:
 
 
 def main() -> int:
-    live = "--live" in sys.argv
+    # The standalone .exe is the deploy tool -> LIVE by default (pass --dry to preview).
+    # The dev script stays dry-run-safe unless --live.
+    if "--dry" in sys.argv:
+        live = False
+    else:
+        live = FROZEN or ("--live" in sys.argv)
     root = tk.Tk()
     App(root, live)
     root.mainloop()

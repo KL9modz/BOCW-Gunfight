@@ -30,6 +30,10 @@ ACTS/
 *.pdb
 *.vsix
 bin/
+
+# PyInstaller standalone build outputs (rebuild with tools/gf-control/gf-control.spec)
+tools/gf-control/build/
+tools/gf-control/dist/
 obj/
 
 # Local-only notes and anything account-shaped
