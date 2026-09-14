@@ -26,6 +26,8 @@ ACTS/
 *.gscc
 *.exe
 *.dll
+*.lib
+*.pdb
 *.vsix
 bin/
 obj/

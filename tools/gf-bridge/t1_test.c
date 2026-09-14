@@ -4,12 +4,21 @@
  * If yes, the whole bridge is trivial (just run `set gf_cmd_* ...` lines). If no, we need
  * the GSC-store setter the setdvar builtin uses.
  *
- * What it does: press F8 in-game -> runs `set gf_menu_lines 7` using cwpatch's EXACT
- * mechanism (overwrite the game's command-string blob, call the engine command executor,
- * restore). Then open the in-game menu: if the row count becomes 7, getdvarint read our
- * write -> console set reaches GSC. Run the test BOTH in the pregame lobby AND in an active
- * match (the match case is the one that matters - a remote-thread `set` wedged mid-match;
- * this runs in-process on our own thread, which is the thing we're testing).
+ * What it does: press F8 in-game -> runs `set gf_hint_lines 12` (F9 -> `set gf_hint_lines 6`)
+ * using cwpatch's EXACT mechanism (overwrite the game's command-string blob, call the engine
+ * command executor, restore). Then open the in-game menu (RMB+V) -> Display: the green `*`
+ * marker is ABSENT by default (gf_hint_lines is not registered until set - the menu's
+ * dvars_register pre-register was disabled 2026-09-13, dvar-pool-crash); if a "*" now
+ * appears on "Hint rows 12", getdvarint read our write -> console set reaches GSC. The marker is the
+ * right readout because menu_item_line() calls getdvarint(group) on EVERY paint (instant),
+ * and gf_hint_lines is consumed only by the never-run HINT layout (region 4) - no side
+ * effect in the default layout. (The first draft used `set gf_menu_lines 7`: that dvar is
+ * read ONCE per menu_think() start, i.e. only at the next round, and the lower-left feed
+ * caps at ~4 lines anyway, so a successful set would have LOOKED like "no change".)
+ * Run the test BOTH in the pregame lobby AND in an active match (the match case is the one
+ * that matters - a remote-thread `set` wedged mid-match; this runs in-process on our own
+ * thread, which is the thing we're testing). Two keys so the two presses are told apart:
+ * F9 in the lobby (marker on 6 once the match is up), then F8 in the match (marker on 12).
  *
  * Why this is safe-ish: it is the identical operation cwpatch performs for F4/F6/F7, which
  * return cleanly. If F8 instead hangs the game mid-match, THAT IS THE RESULT (it means even
@@ -71,7 +80,9 @@ static DWORD WINAPI poll_thread(LPVOID unused)
     (void)unused;
     for (;;) {
         if (GetAsyncKeyState(VK_F8) & 1)                    /* low bit = pressed since last poll */
-            run_console_command("set gf_menu_lines 7");
+            run_console_command("set gf_hint_lines 12");
+        if (GetAsyncKeyState(VK_F9) & 1)
+            run_console_command("set gf_hint_lines 6");
         Sleep(30);
     }
 }

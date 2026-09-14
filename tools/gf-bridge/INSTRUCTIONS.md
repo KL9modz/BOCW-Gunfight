@@ -30,22 +30,29 @@ pwsh ./inject-dll.ps1 -Dll (Resolve-Path ./gf_t1.dll)
 Expect `injected ... into pid ...`. (If it says LoadLibrary returned 0, it was already loaded or
 DllMain failed — see Troubleshooting.)
 
-**3. Run the test.** In a live Gunfight match, **press F8**, then open the menu (RMB+V) → Menu display.
-Look at **In-game rows**.
+**3. Run the test.** In a live Gunfight match, **press F8** (= `set gf_hint_lines 12`), then open the
+menu (RMB+V) → **Display** and look at the three **Hint rows 6 / 8 / 12** lines. The green **`*`**
+marks the value GSC currently reads. It is **absent** by default (the menu's dvar pre-register
+was disabled 2026-09-13, so `gf_hint_lines` does not exist until something sets it).
 
-- You can also just watch the compact menu: `gf_menu_lines` is the row count, so if it worked the
-  visible menu grows to **7 rows**.
+- Readout is instant: the `*` is computed by `getdvarint` on every repaint. (Don't count menu rows —
+  `gf_menu_lines` is only re-read at the next round and the feed caps at ~4 lines anyway; that was
+  the first draft's readout and it would have looked like "no change" even on success. Corrected
+  2026-09-13.) `gf_hint_lines` only matters in the never-run HINT layout, so nothing else changes.
 
 **4. Read the result:**
 
 | What you see | Meaning | Next |
 |---|---|---|
-| Rows become **7** | console `set` reaches GSC `getdvarint` | **Outcome A** → Part 2 |
-| **No change** | `set` doesn't reach the GSC store | **Outcome B** → tell the agent; they disassemble the `setdvar` builtin for the store setter |
+| `*` moves to **Hint rows 12** | console `set` reaches GSC `getdvarint` | **Outcome A** → Part 2 |
+| **no `*`** on any Hint row | `set` doesn't reach the GSC store | **Outcome B** → tell the agent; they disassemble the `setdvar` builtin for the store setter |
 | Game **hangs** after F8 | in-process `set` wedges mid-match from a worker thread | **Outcome C** → tell the agent; the executor moves to a main-thread hook. Relaunch. |
 
-**5. Also press F8 once in the pregame lobby.** If it works in the lobby but hangs in a match, that's
-Outcome C (main-thread hook needed). Tell the agent which of A/B/C you got, in lobby and in match.
+**5. Also test from the pregame lobby**, where the menu isn't up: press **F9** (= `set gf_hint_lines 6`)
+in the lobby, then start the match and open Display — `*` on **Hint rows 6** means the lobby `set`
+reached GSC; a hang in the lobby is Outcome C there. Then F8 in the match moves it to 12 (step 3).
+If it works in the lobby but hangs in a match, that's Outcome C (main-thread hook needed). Tell the
+agent which of A/B/C you got, in lobby and in match.
 
 ---
 
@@ -87,8 +94,9 @@ Actions/Config buttons at `bridge_channel.send(...)`. Then the Windows app drive
 - **`--cwpatch` rows not all "yes"** → cwpatch isn't the loaded DLL, or a game patch moved it. Let
   `ensure-cwpatch` restore the slot and relaunch; re-check. The test DLL reads cwpatch's resolved
   pointers, so it's inert without cwpatch.
-- **F8 does nothing, no beep** → DLL not loaded (re-run the injector; check its output) or F8 is
-  bound elsewhere — change `VK_F8` in `t1_test.c` to another key (e.g. `VK_F9` = `0x78`) and rebuild.
+- **F8/F9 does nothing, no beep** → DLL not loaded (re-run the injector; check its output) or the key
+  is bound elsewhere — change `VK_F8`/`VK_F9` in `t1_test.c` to other keys (e.g. `VK_F10` = `0x79`)
+  and rebuild.
 - **A short beep on F8** → the DLL loaded but couldn't resolve cwpatch (cwpatch not present, or not
   yet initialized — press F8 a few seconds after the match is fully up).
 - **`OpenProcess failed`** in the injector → run the shell elevated.

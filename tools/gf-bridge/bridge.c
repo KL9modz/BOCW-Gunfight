@@ -28,7 +28,8 @@
 #define RESTORE_LEN     48
 
 #define SHM_NAME  "gf_bridge"   /* session-local; app and game are the same user/session */
-#define SHM_SIZE  256
+#define SHM_SIZE  4096  /* holds a whole config apply (~50 `set` lines) in one message; each
+                         * individual command is still short (<48 B) and run one at a time */
 #define SHM_MAGIC 0x31424647u
 
 static void run_console_command(const char *cmd, size_t len)

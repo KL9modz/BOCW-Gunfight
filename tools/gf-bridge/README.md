@@ -30,17 +30,19 @@ zig cc -target x86_64-windows-gnu -shared -O2 -o gf_t1.dll t1_test.c
 Load `gf_t1.dll` into the running game (your usual DLL-load path, or chain it in
 `tools/cw-loader-shim`). cwpatch must be loaded (`ensure-cwpatch`), since the test reads
 cwpatch's already-resolved pointers. Then, **in a Gunfight match with the menu available**,
-press **F8** and open the in-game menu.
+press **F8** (`set gf_hint_lines 12`) and open the in-game menu → Display: the green `*` marks
+what GSC `getdvarint` reads. It is absent by default (`gf_hint_lines` is unregistered until set —
+the menu's pre-register was disabled). F9 sets 6, for the lobby press.
 
-- **Row count becomes 7** → console `set` reaches GSC. Go to Step 2, outcome A.
-- **Nothing changes** → `set` does not reach the GSC store. Step 2, outcome B (needs the
+- **`*` moves to Hint rows 12** → console `set` reaches GSC. Go to Step 2, outcome A.
+- **no `*` on any Hint row** → `set` does not reach the GSC store. Step 2, outcome B (needs the
   GSC-store setter; agent disassembles the `setdvar` builtin).
 - **Game hangs after F8** → in-process `set` is unsafe off the main thread mid-match. The
   mechanism still works, but `bridge.c`'s execute step must move to a main-thread hook
   (`docs/notes/in-context-bridge.md` → thread-safety). Record it and relaunch.
 
-Also press F8 **once in the pregame lobby** — if it works there but hangs in-match, that too
-points at the main-thread-hook requirement.
+Also press **F9 once in the pregame lobby** (marker on 6 once the match is up) — if it works
+there but hangs in-match, that too points at the main-thread-hook requirement.
 
 ## Step 2 — the bridge (after T1 = A)
 

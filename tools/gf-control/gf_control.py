@@ -1,35 +1,152 @@
-"""Gunfight Host Control - a Windows GUI that drives the in-match mod by writing its
-gf_* dvars, so the host can run the match from a real window on a second screen / RDP
-instead of the ~4-line in-game feed the game caps us to.
+"""Gunfight Host Control - a Windows GUI that drives the in-match mod through the in-process
+bridge, so the host can run the match from a real window on a second screen / RDP instead of
+the ~4-line in-game feed the game caps us to.
 
-HOW IT WORKS. The injected menu (src/gunfight_menu) re-reads its gf_* dvars every round
-in mod_apply(). So anything in the CONFIG tab below takes effect next round the moment
-the dvar is written - no new in-game code. ACTIONS (map/gametype stage or switch, fill
-bots, restart) are one-shots: they are written as gf_cmd_* trigger dvars + gf_cmd_go, and
-the menu payload's command-poller (cmd_poll / cmd_dispatch in gunfight_menu.gsc) runs
-them host-side and clears the triggers. gf_cmd_stage=1 turns a map/gametype switch into
-a STAGE: switchmap_load only, the lobby shows the map when the match ends.
+HOW IT WORKS. Every button composes console `set <dvar> <value>` lines and hands them to the
+gf-bridge transport (tools/gf-bridge/bridge_channel.py), which writes them into a named
+shared-memory block. The in-process gf_bridge.dll polls that block and runs each line via
+cwpatch's command executor - and an in-process `set` DOES reach the GSC dvar store the menu
+reads (proven in-game 2026-09-13, T1; an external WriteProcessMemory never could, which is
+why the old dvar-write backend is retired here). The injected menu (src/gunfight_menu)
+re-reads its gf_* dvars every round in mod_apply(), so a CONFIG change lands next round.
+ACTIONS (map/gametype stage or switch, fill bots, restart) are one-shots: gf_cmd_* trigger
+dvars + gf_cmd_go, which the menu's command-poller (cmd_poll / cmd_dispatch in
+gunfight_menu.gsc) runs host-side and clears. gf_cmd_stage=1 makes a map/gametype switch a
+STAGE: switchmap_load only, the lobby shows the map when the match ends.
 
-SAFETY. Dry-run by default: it shows every dvar it WOULD write and touches no memory.
-`--live` attaches to the game and writes for real - which needs the dvar-setter
-signature confirmed in-game first (see README; the exe is encrypted at rest). Per the
-project guard the agent writes this; klaze runs the live memory writes on the test box.
+SAFETY. The bridge transport touches NO game memory - just a shared-memory block - so it needs
+no elevation and nothing that can wedge the game. Dry-run by default: it shows the exact `set`
+lines it WOULD send and sends nothing. `--live` sends them for real; the gf_bridge.dll must be
+loaded in the game (build+inject it once per launch, tools/gf-bridge/README.md). If the DLL is
+not loaded, a sent command simply sits unread in the buffer.
 
     python gf_control.py            # dry-run, safe anywhere
-    python gf_control.py --live     # writes dvars (needs confirmed sig + the game up)
+    python gf_control.py --live     # sends over the bridge (needs gf_bridge.dll loaded)
 """
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
+import threading
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
+
+# Repo root (…/BOCW-Gunfight): tools/gf-control/gf_control.py -> up three.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+GFBRIDGE = os.path.join(REPO, "tools", "gf-bridge")
+# The mod-menu injection, called directly (NOT via `bash inject.sh` - a windowless app resolves
+# `bash` to WSL's System32\bash.exe, which can't run the repo's Windows-path script). Mirrors
+# tools/inject.sh's gunfight_menu case: acts injectcw <payload> <hook> <replace>, from acts' dir.
+ACTS = os.path.normpath(os.path.join(REPO, "..", "ACTS", "bin", "acts.exe"))
+MENU_PAYLOAD = os.path.normpath(os.path.join(REPO, "..", "payloads", "gunfight_menu.gscc"))
+MENU_HOOK = r"scripts\mp_common\bb.gsc"
+MENU_REPLACE = r"scripts\core_common\clientids_shared.gsc"
+
+
+def _no_window() -> dict:
+    """subprocess kwargs that hide the child's console window - otherwise every shell-out
+    from the windowless pythonw app flashes a terminal (e.g. the 3s status poll)."""
+    if sys.platform != "win32":
+        return {}
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 0  # SW_HIDE
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000), "startupinfo": si}
 
 try:
-    from dvar_backend import DvarBackend, BackendError
+    from dvar_backend import DvarBackend, BackendError  # noqa: F401 (BackendError reused below)
 except Exception:  # backend import must never stop the GUI from opening in dry-run
     DvarBackend = None
     BackendError = Exception
+
+# The bridge transport: writes console-command lines into the shared-memory block the
+# in-process gf_bridge.dll polls. This is the WORKING control path (T1 proved an in-process
+# `set` reaches GSC getdvarint; an external WriteProcessMemory never could). No game memory is
+# touched here - just shared memory - so this half runs unprivileged.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "gf-bridge"))
+try:
+    import bridge_channel
+except Exception:  # keep the GUI usable (display-only) if the transport is missing
+    bridge_channel = None
+
+
+class BridgeBackend:
+    """Drives the mod by sending `set <dvar> <value>` lines through the in-process bridge DLL
+    (gf_bridge.dll), which runs them via cwpatch's command executor. Presents the same small
+    interface the GUI expects of a backend: connect(), apply(settings), and a .log list it
+    drains. In dry-run it logs the exact lines and sends nothing."""
+
+    def __init__(self, dry_run: bool):
+        self.dry_run = dry_run
+        self.log: list[str] = []
+
+    def connect(self):
+        if bridge_channel is None:
+            raise BackendError("bridge_channel not found (tools/gf-bridge)")
+        listening, seq, _ = bridge_channel.probe()
+        self.log.append(f"bridge DLL is listening (seq={seq})" if listening
+                        else "bridge DLL NOT detected - load gf_bridge.dll in the game")
+
+    @staticmethod
+    def _lines(settings: dict) -> list[str]:
+        # gf_cmd_go, if present, must be set LAST so the GSC poller never fires on a half-set
+        # command. Dict order already puts it last, but enforce it rather than trust the caller.
+        items = [(k, v) for k, v in settings.items() if k != "gf_cmd_go"]
+        if "gf_cmd_go" in settings:
+            items.append(("gf_cmd_go", settings["gf_cmd_go"]))
+        return [f"set {k} {v}" for k, v in items]
+
+    def apply(self, settings: dict):
+        lines = self._lines(settings)
+        if self.dry_run:
+            self.log.append("[dry-run] would send:")
+            self.log.extend("  " + ln for ln in lines)
+            return
+        if bridge_channel is None:
+            self.log.append("no bridge transport - nothing sent")
+            return
+        # Never send an oversize block: bridge_channel would truncate it mid-line, and a torn
+        # `set` can set a dvar to a garbage value and hang the game. Refuse and say so instead.
+        cap = bridge_channel.SIZE - bridge_channel.HDR - 1
+        if len("\n".join(lines).encode("ascii", "replace")) > cap:
+            self.log.append(f"NOT sent: {len(lines)} commands exceed the bridge buffer "
+                            f"({cap} B) - apply fewer settings at once.")
+            return
+        seq, listening = bridge_channel.send(lines, quiet=True)
+        self.log.append(f"sent #{seq}" + ("" if listening
+                        else "  (gf_bridge.dll not detected - is it loaded?)"))
+        self.log.extend("  " + ln for ln in lines)
+
+
+class _Tip:
+    """A minimal hover tooltip: shows `text` in a small popup just below `widget`. Used to
+    carry the reference detail (stock values, -1 meanings) trimmed from the field labels."""
+
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tip = None
+        widget.bind("<Enter>", self._show)
+        widget.bind("<Leave>", self._hide)
+
+    def _show(self, _e):
+        if self.tip or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 14
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 2
+        self.tip = tk.Toplevel(self.widget)
+        self.tip.wm_overrideredirect(True)
+        self.tip.wm_geometry(f"+{x}+{y}")
+        tk.Label(self.tip, text=self.text, bg="#ffffe0", fg="#222", relief="solid",
+                 borderwidth=1, font=("Segoe UI", 8), justify="left", padx=6, pady=3).pack()
+
+    def _hide(self, _e):
+        if self.tip:
+            self.tip.destroy()
+            self.tip = None
+
 
 # ---- control schema: (dvar, label, kind, spec, default) ----------------------
 # kind: "choice" spec=[(label,value)...] | "int" spec=(min,max,step) | "toggle"
@@ -42,12 +159,14 @@ CONFIG = {
         ("gf_timer_seconds", "Round timer (s)", "int", (0, 1440, 10), 60),
         # Pre-match / pre-round countdowns (mod_periods in gunfight_menu.gsc). The stock rows
         # offer 5-60 / 0-30; -1 = the lobby's own row. A change lands on the NEXT countdown.
-        ("gf_prematch", "Pre-match countdown (s, -1 = lobby)", "int", (-1, 60, 1), 15),
-        ("gf_preround", "Pre-round countdown (s, -1 = lobby)", "int", (-1, 30, 1), 7),
+        ("gf_prematch", "Pre-match (s)", "int", (-1, 60, 1), 15),
+        ("gf_preround", "Pre-round (s)", "int", (-1, 30, 1), 7),
     ],
     "Loadout": [
         ("gf_loadout", "Loadout set", "choice",
          [("Default", 0), ("Snipers", 1), ("Blueprints", 2), ("Melee", 3)], 0),
+        ("gf_customcac", "Custom classes", "choice",
+         [("Off (Gunfight loadouts)", 0), ("On (player classes)", 1)], 0),
         # Camo forced onto every pool weapon at every spawn (docs/notes/loadout-camo.md).
         # Random each round is the default; other ids 1-121 via the in-game "by ID" page.
         ("gf_camo", "Pool camo", "choice",
@@ -66,55 +185,121 @@ CONFIG = {
          [("Off", 0), ("On", 1), ("Shared (hidden)", 3)], 0),
     ],
     "Match": [
-        ("gf_roundwinlimit", "First to N rounds (-1 = leave)", "int", (-1, 50, 1), -1),
-        ("gf_roundlimit", "Round cap (-1 = leave)", "int", (-1, 50, 1), -1),
-        ("gf_rounds_loadout", "Rounds per loadout (-1 = leave)", "int", (-1, 20, 1), -1),
+        ("gf_roundwinlimit", "First to N rounds", "int", (-1, 50, 1), -1),
+        ("gf_roundlimit", "Round cap", "int", (-1, 50, 1), -1),
+        ("gf_rounds_loadout", "Rounds / loadout", "int", (-1, 20, 1), -1),
+        ("gf_switch_sides", "Side switch", "choice",
+         [("Mod-owned (one flip)", 1), ("Stock paths", 0)], 1),
     ],
     "Bots": [
         # Per-team difficulty = the stock bot_difficulty_<team> gametype setting (docs/notes/bots.md).
         # -1 leaves the lobby's row alone; 4 = the CUSTOM struct built from the knobs below.
-        ("gf_bot_diff_allies", "Bot difficulty: allies", "choice",
+        ("gf_bot_diff_allies", "Difficulty: allies", "choice",
          [("Lobby's value", -1), ("Recruit", 0), ("Regular", 1), ("Hardened", 2),
           ("Veteran", 3), ("CUSTOM", 4)], -1),
-        ("gf_bot_diff_axis", "Bot difficulty: axis", "choice",
+        ("gf_bot_diff_axis", "Difficulty: axis", "choice",
          [("Lobby's value", -1), ("Recruit", 0), ("Regular", 1), ("Hardened", 2),
           ("Veteran", 3), ("CUSTOM", 4)], -1),
-        ("gf_bot_passive", "Bots passive (ignore everyone)", "toggle", None, 0),
-        # CUSTOM knobs. Stock recruit/regular/hardened/veteran values in the comments.
-        ("gf_bot_hit", "Custom: hit chance % (40/50/60/90)", "int", (0, 100, 5), 100),
-        ("gf_bot_head", "Custom: headshot chance % (0/3/10/20)", "int", (0, 100, 5), 50),
-        ("gf_bot_react", "Custom: aim delay ms (1400/1100/700/300)", "int", (0, 3000, 50), 100),
-        ("gf_bot_fire", "Custom: fire window ms (300/400/500/700)", "int", (100, 3000, 100), 1000),
-        ("gf_bot_hip", "Custom: hipfire accuracy % (50/50/60/70)", "int", (0, 100, 5), 100),
-        ("gf_bot_far", "Custom: long-range accuracy % (100/80/66/50)", "int", (0, 100, 5), 90),
-        ("gf_bot_semi", "Custom: semi-auto tap delay ms (800/600/400/150)", "int", (0, 2000, 50), 100),
-        ("gf_bot_burst", "Custom: burst delay ms (1200/900/700/250)", "int", (0, 2000, 50), 100),
-        ("gf_bot_moveshoot", "Custom: move while shooting", "toggle", None, 1),
-        ("gf_bot_fastaim", "Custom: look speed", "choice",
-         [("Slow (recruit)", 0), ("Fast (veteran)", 1), ("Max", 2)], 1),
-        ("gf_bot_sprint", "Custom: sprint", "toggle", None, 1),
-        ("gf_bot_melee", "Custom: melee", "toggle", None, 1),
-        ("gf_bot_prone", "Custom: prone", "toggle", None, 1),
-        ("gf_bot_slide", "Custom: slide", "toggle", None, 1),
-        ("gf_bot_crouch", "Custom: crouch", "toggle", None, 1),
+        ("gf_bot_passive", "Passive (ignore all)", "toggle", None, 0),
+    ],
+    # CUSTOM knobs (used when a team's difficulty = CUSTOM). Stock recruit/regular/hardened/
+    # veteran reference values live in TIPS below (hover the label). Rendered in two columns.
+    "Custom bot tuning": [
+        ("gf_bot_hit", "Hit chance %", "int", (0, 100, 5), 100),
+        ("gf_bot_head", "Headshot %", "int", (0, 100, 5), 50),
+        ("gf_bot_react", "Aim delay (ms)", "int", (0, 3000, 50), 100),
+        ("gf_bot_fire", "Fire window (ms)", "int", (100, 3000, 100), 1000),
+        ("gf_bot_hip", "Hipfire %", "int", (0, 100, 5), 100),
+        ("gf_bot_far", "Long-range %", "int", (0, 100, 5), 90),
+        ("gf_bot_semi", "Semi tap (ms)", "int", (0, 2000, 50), 100),
+        ("gf_bot_burst", "Burst delay (ms)", "int", (0, 2000, 50), 100),
+        ("gf_bot_moveshoot", "Move + shoot", "toggle", None, 1),
+        ("gf_bot_fastaim", "Look speed", "choice",
+         [("Slow", 0), ("Fast", 1), ("Max", 2)], 1),
+        ("gf_bot_sprint", "Sprint", "toggle", None, 1),
+        ("gf_bot_melee", "Melee", "toggle", None, 1),
+        ("gf_bot_prone", "Prone", "toggle", None, 1),
+        ("gf_bot_slide", "Slide", "toggle", None, 1),
+        ("gf_bot_crouch", "Crouch", "toggle", None, 1),
     ],
     "Movement": [
-        ("gf_gravity", "Gravity (bg_gravity, stock 800)", "int", (20, 1600, 20), 800),
-        ("gf_jump_boost", "Jump boost (u/s added at takeoff, 0 = off)", "int", (0, 3000, 50), 0),
+        ("gf_gravity", "Gravity", "int", (20, 1600, 20), 800),
+        ("gf_jump_boost", "Jump boost (u/s)", "int", (0, 3000, 50), 0),
         ("gf_speed", "Move speed %", "int", (25, 400, 25), 100),
-        ("gf_falldamage", "Fall damage (off = boosted jumps land clean)", "toggle", None, 1),
-        ("gf_jump", "Builtin jump height (-1 = engine default, untested)", "int", (-1, 1000, 10), -1),
+        ("gf_falldamage", "Fall damage", "toggle", None, 0),
+        ("gf_jump", "Jump height", "int", (-1, 1000, 10), -1),
     ],
-    "Spawns / Map method": [
-        ("gf_spawn_guard", "Spawn guard (untested)", "toggle", None, 0),
+    "Overtime zone": [
+        # gunfight_menu "Overtime zone" page (docs/notes/overtime-zone.md). Off = HP tiebreak.
+        ("gf_zone", "Overtime zone", "choice",
+         [("Off (HP tiebreak)", 0), ("On (next round)", 1)], 0),
+        ("gf_zone_overtime", "Overtime (s)", "choice", [("10", 10), ("20", 20), ("30", 30)], 20),
+        ("gf_zone_capture", "Capture (s)", "choice", [("3", 3), ("5", 5), ("10", 10)], 5),
+        ("gf_zone_radius", "Zone radius", "int", (32, 512, 16), 128),
+    ],
+    "Spawns": [
+        ("gf_spawn_guard", "Spawn guard", "choice",
+         [("Off", 0), ("Auto (bad maps)", 2), ("Force (every map)", 1)], 0),
+        ("gf_spawn_autospread", "Auto trip dist", "int", (0, 8000, 100), 2500),
+        ("gf_spawn_diag", "Spawn diagnostics", "choice", [("Off", 0), ("On", 1)], 1),
+    ],
+    "Session / Map": [
         ("gf_map_method", "Map switch method", "choice",
          [("Session (lobby follows)", 1), ("Carry (load-time)", 0)], 1),
+        ("gf_autoswitch", "Auto-Gunfight on inject", "choice", [("Off", 0), ("On", 1)], 0),
+        ("gf_switch_wait", "Switch wait (s)", "choice",
+         [("25 (proven)", 25), ("5", 5), ("0 (none)", 0)], 25),
     ],
-    "Menu display": [
-        ("gf_menu_lines", "In-game rows", "int", (2, 20, 1), 3),
+    "Display": [
+        ("gf_menu_lines", "In-game rows", "int", (2, 12, 1), 3),
+        # Only the two TESTED layouts. SPLIT (2/3) and HINT (4) are untested render paths that
+        # froze the game 2026-09-14 - re-add once verified in-game.
         ("gf_menu_region", "Panel region", "choice",
-         [("Lower-left feed", 0), ("Center", 1), ("Status left + menu centre", 2)], 0),
+         [("Lower-left feed", 0), ("Center", 1)], 0),
+        ("gf_feed_lines", "Feed lines", "int", (2, 12, 1), 14),
+        ("gf_caster_probe", "Caster input probe", "choice", [("Off", 0), ("On", 1)], 1),
     ],
+}
+
+# Hover text for labels whose reference detail was trimmed to keep the grid tight.
+TIPS = {
+    "gf_prematch": "Pre-match countdown (s). -1 = use the lobby's own row. Stock rows 5-60.",
+    "gf_preround": "Pre-round countdown (s). -1 = use the lobby's own row. Stock rows 0-30.",
+    "gf_roundwinlimit": "First team to N round wins ends the match. -1 = leave the lobby's value.",
+    "gf_roundlimit": "Hard cap on rounds played. -1 = leave the lobby's value.",
+    "gf_rounds_loadout": "Rounds before the loadout rotates. -1 = leave the lobby's value.",
+    "gf_gravity": "bg_gravity. Stock 800; lower = floatier.",
+    "gf_jump_boost": "Extra up-velocity (u/s) added at takeoff. 0 = off.",
+    "gf_falldamage": "Off pushes the fall-damage thresholds out of reach, so boosted jumps land clean.",
+    "gf_jump": "Builtin jump height. -1 = engine default (untested).",
+    "gf_spawn_guard": "Central-spawn guard (untested - test solo first).",
+    "gf_map_method": "Session = switchmap_load, the lobby follows. Carry = load-time override (UI stays stale).",
+    "gf_camo": "Camo forced on every pool weapon each spawn. Ids 1-121 via the in-game 'by ID' page.",
+    # Custom bot tuning - stock recruit / regular / hardened / veteran reference values:
+    "gf_bot_diff_allies": "Per-team difficulty. -1 leaves the lobby's row; CUSTOM uses the tuning knobs.",
+    "gf_bot_diff_axis": "Per-team difficulty. -1 leaves the lobby's row; CUSTOM uses the tuning knobs.",
+    "gf_bot_hit": "Hit chance %. Stock 40 / 50 / 60 / 90.",
+    "gf_bot_head": "Headshot chance %. Stock 0 / 3 / 10 / 20.",
+    "gf_bot_react": "Aim / reaction delay (ms). Stock 1400 / 1100 / 700 / 300.",
+    "gf_bot_fire": "Fire-window (ms). Stock 300 / 400 / 500 / 700.",
+    "gf_bot_hip": "Hipfire accuracy %. Stock 50 / 50 / 60 / 70.",
+    "gf_bot_far": "Long-range accuracy %. Stock 100 / 80 / 66 / 50.",
+    "gf_bot_semi": "Semi-auto tap delay (ms). Stock 800 / 600 / 400 / 150.",
+    "gf_bot_burst": "Burst delay (ms). Stock 1200 / 900 / 700 / 250.",
+    "gf_bot_fastaim": "Look / turn speed: Slow (recruit) / Fast (veteran) / Max.",
+    # Expanded feature set (matches the in-game menu pages):
+    "gf_switch_sides": "Mod-owned = one coupled flip per rotation. Stock = both engine paths (may double-flip).",
+    "gf_customcac": "Off = the mod's Gunfight loadouts. On = each player's own custom classes.",
+    "gf_zone": "Capture-zone overtime (needs gf_zone entities). Off = health tiebreak.",
+    "gf_zone_radius": "Capture-zone radius in units. Stock ~128.",
+    "gf_spawn_guard": "Off / Auto (guard only bad-layout maps) / Force (every map). Untested - test solo.",
+    "gf_spawn_autospread": "AUTO trips when the nearest start spawn is farther than obj-radius + this (units).",
+    "gf_spawn_diag": "Print spawn diagnostics to the feed.",
+    "gf_autoswitch": "On = auto-switch back to Gunfight when a non-GF gametype is injected.",
+    "gf_switch_wait": "Seconds held during a session switch. 25 proven; 0 = cp-style, untested.",
+    "gf_feed_lines": "Lower-left feed lines the menu primes (latched at HUD build, ~4-5 visible).",
+    "gf_menu_region": "Where the menu draws. HINT panel = the use-prompt widget; others use feed / centre.",
+    "gf_caster_probe": "Log a caster's button inputs to the feed (for wiring the caster keyset).",
 }
 
 # Audited names (docs/reference/bocw-maps.md). display -> (map, gametype-note)
@@ -142,127 +327,441 @@ MAPS_GF = [
 ]
 GAMETYPES = ["gunfight", "gunfight_3v3", "tdm", "dm", "dom", "koth", "sd", "conf", "control"]
 
+# Weapons for the give-weapon action, extracted from gunfight_menu.gsc wp_* pages.
+# (display, internal name); the app sends the internal name as gf_cmd_arg.
+WEAPONS = {
+    "Assault rifles": [
+        ("XM4", "ar_standard_t9"),
+        ("AK-47", "ar_damage_t9"),
+        ("Krig 6", "ar_accurate_t9"),
+        ("QBZ-83", "ar_fastfire_t9"),
+        ("FFAR 1", "ar_fasthandling_t9"),
+        ("Groza", "ar_mobility_t9"),
+        ("FARA 83", "ar_slowfire_t9"),
+        ("C58", "ar_slowhandling_t9"),
+        ("EM2", "ar_british_t9"),
+        ("Vargo 52 ?", "ar_season6_t9"),
+        ("Grav ?", "ar_soviet_t9"),
+    ],
+    "SMGs": [
+        ("MP5", "smg_standard_t9"),
+        ("Milano 821", "smg_handling_t9"),
+        ("AK-74u", "smg_heavy_t9"),
+        ("KSP 45", "smg_burst_t9"),
+        ("Bullfrog", "smg_capacity_t9"),
+        ("MAC-10", "smg_fastfire_t9"),
+        ("LC10", "smg_accurate_t9"),
+        ("PPSh-41", "smg_spray_t9"),
+        ("OTs 9 ?", "smg_cqb_t9"),
+        ("TEC-9 ?", "smg_semiauto_t9"),
+        ("LAPA ?", "smg_season6_t9"),
+        ("smg_flechette_t9 - unknown", "smg_flechette_t9"),
+    ],
+    "Tactical rifles": [
+        ("M16", "tr_powerburst_t9"),
+        ("AUG ?", "tr_longburst_t9"),
+        ("CARV.2", "tr_fastburst_t9"),
+        ("DMR 14", "tr_precisionsemi_t9"),
+        ("Type 63", "tr_damagesemi_t9"),
+    ],
+    "LMGs": [
+        ("Stoner 63", "lmg_light_t9"),
+        ("RPD", "lmg_slowfire_t9"),
+        ("M60", "lmg_fastfire_t9"),
+        ("MG 82", "lmg_accurate_t9"),
+    ],
+    "Snipers": [
+        ("Pelington 703", "sniper_standard_t9"),
+        ("LW3 Tundra", "sniper_quickscope_t9"),
+        ("M82", "sniper_powersemi_t9"),
+        ("ZRG 20mm ?", "sniper_cannon_t9"),
+        ("Swiss K31 ?", "sniper_accurate_t9"),
+    ],
+    "Shotguns": [
+        ("Hauer 77", "shotgun_pump_t9"),
+        ("Gallo SA12", "shotgun_fullauto_t9"),
+        ("Streetsweeper", "shotgun_semiauto_t9"),
+        (".410 Ironhide", "shotgun_leveraction_t9"),
+    ],
+    "Pistols": [
+        ("1911", "pistol_semiauto_t9"),
+        ("Magnum", "pistol_revolver_t9"),
+        ("Diamatti", "pistol_burst_t9"),
+        ("AMP63", "pistol_fullauto_t9"),
+        ("Marshal", "pistol_shotgun_t9"),
+        ("1911 akimbo", "pistol_semiauto_t9_dw"),
+        ("Magnum akimbo", "pistol_revolver_t9_dw"),
+        ("Diamatti akimbo", "pistol_burst_t9_dw"),
+        ("AMP63 akimbo", "pistol_fullauto_t9_dw"),
+        ("Marshal akimbo", "pistol_shotgun_t9_dw"),
+    ],
+    "Launchers + special": [
+        ("Cigma 2", "launcher_standard_t9"),
+        ("RPG-7", "launcher_freefire_t9"),
+        ("M79", "special_grenadelauncher_t9"),
+        ("R1 Shadowhunter", "special_crossbow_t9"),
+        ("Nail Gun", "special_nailgun_t9"),
+        ("Ballistic Knife", "special_ballisticknife_t9_dw"),
+    ],
+    "Melee": [
+        ("Knife", "knife_loadout"),
+        ("Sledgehammer", "melee_sledgehammer_t9"),
+        ("Wakizashi", "melee_wakizashi_t9"),
+        ("Machete", "melee_machete_t9"),
+        ("E-Tool", "melee_etool_t9"),
+        ("Baseball Bat", "melee_baseballbat_t9"),
+        ("Mace", "melee_mace_t9"),
+        ("Sai", "melee_sai_t9_dw"),
+        ("Cane", "melee_cane_t9"),
+        ("Battle Axe", "melee_battleaxe_t9"),
+        ("Hammer & Sickle ?", "melee_coldwar_t9_dw"),
+        ("melee_scythe_t9 - unknown", "melee_scythe_t9"),
+        ("Bowie Knife", "melee_bowie"),
+        ("Bowie Knife - bloody", "melee_bowie_bloody"),
+        ("Knife - Scream", "hash_28fdaa999c8aa3af"),
+        ("Knife - Infected", "hash_3f47e8be065a0dc0"),
+    ],
+    "Fun (untested)": [
+        ("Ray Gun", "ray_gun"),
+        ("Flamethrower - Purifier", "hero_flamethrower"),
+        ("Annihilator", "hero_annihilator"),
+        ("War Machine - pineapple gun", "hero_pineapplegun"),
+        ("Death Machine - sig_lmg", "sig_lmg"),
+        ("Sparrow bow - sig_bow_flame", "sig_bow_flame"),
+        ("Turret gun - ultimate_turret", "ultimate_turret"),
+    ],
+}
+
 
 class App:
+    # Config sections split across two scrolling columns (balanced by height).
+    LEFT = ["Teams", "Round", "Loadout", "Match", "Spawns", "Display"]
+    RIGHT = ["Bots", "Custom bot tuning", "Movement", "Overtime zone", "Session / Map"]
+    WIDE = {"Custom bot tuning"}          # rendered in two field-columns to keep it short
+    _DUR = {"Once": 0, "5s": 5, "10s": 10, "30s": 30, "60s": 60, "Fixed": -1}
+    # Cold War text colour codes (^0-^9) with an approximate on-screen colour for the cheat sheet.
+    CODES = [
+        ("^0", "black", "#0a0a0a"),
+        ("^1", "red", "#ff3b3b"),
+        ("^2", "green", "#46d246"),
+        ("^3", "yellow", "#ffd21e"),
+        ("^4", "blue", "#5478ff"),
+        ("^5", "cyan", "#46d2ff"),
+        ("^6", "magenta", "#ff5cff"),
+        ("^7", "white", "#ffffff"),
+        ("^8", "grey (team)", "#9a9a9a"),
+        ("^9", "grey", "#7a7a7a"),
+    ]
+
     def __init__(self, root: tk.Tk, live: bool):
         self.root = root
         self.live = live
         self.vars: dict[str, tk.Variable] = {}
-        self.backend = DvarBackend(dry_run=not live) if DvarBackend else None
+        # Only send config dvars that DIFFER from their default (or were sent before, so a
+        # reset-to-default still applies). Each `set gf_x` registers a dvar in the game's store,
+        # which has a hard cap - blasting all ~50 every apply helped overflow it (crash 2026-09-14).
+        self._defaults = {dvar: default for fields in CONFIG.values()
+                          for dvar, _l, _k, _s, default in fields}
+        self._sent: set = set()
+        # The bridge is the working control path; the old DvarBackend memory-write is retired
+        # here (route A - external dvar write - was proven not to reach the GSC dvar store).
+        self.backend = BridgeBackend(dry_run=not live) if bridge_channel is not None else None
 
         root.title("Gunfight Host Control" + ("  [LIVE]" if live else "  [DRY-RUN]"))
-        root.geometry("560x760")
+        try:                                    # window/taskbar icon (gunfight.us logo)
+            self._icon = tk.PhotoImage(
+                file=os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "logo.png"))
+            root.iconphoto(True, self._icon)
+        except Exception:
+            pass
+        root.geometry("900x880")
+        root.minsize(760, 560)
+
+        style = ttk.Style()
+        for theme in ("vista", "clam"):     # vista is native on Windows; clam is the fallback
+            if theme in style.theme_names():
+                style.theme_use(theme)
+                break
+        root.option_add("*Font", ("Segoe UI", 9))
+        style.configure("TLabelframe.Label", font=("Segoe UI", 9, "bold"), foreground="#20406a")
+        style.configure("Accent.TButton", font=("Segoe UI", 9, "bold"))
 
         self._banner()
         nb = ttk.Notebook(root)
-        nb.pack(fill="both", expand=True, padx=8, pady=(0, 4))
-        nb.add(self._config_tab(nb), text="Config")
-        nb.add(self._actions_tab(nb), text="Actions")
+        nb.pack(fill="both", expand=True, padx=8, pady=(4, 4))
+        nb.add(self._config_tab(nb), text="   Config   ")
+        nb.add(self._actions_tab(nb), text="   Actions   ")
+        nb.add(self._inject_tab(nb), text="   Inject / Status   ")
         self._logbox()
         self._connect()
+        self._tick_status()
 
     def _banner(self):
         c = "#7a1f1f" if self.live else "#20406a"
         bar = tk.Frame(self.root, bg=c)
         bar.pack(fill="x")
-        txt = ("LIVE - writes dvars to the running game"
-               if self.live else "DRY-RUN - shows writes only, touches nothing")
-        tk.Label(bar, text=txt, bg=c, fg="white", font=("Segoe UI", 10, "bold")).pack(pady=4)
+        txt = ("● LIVE - sends commands to the running game over the bridge"
+               if self.live else "○ DRY-RUN - shows the commands only, sends nothing")
+        tk.Label(bar, text=txt, bg=c, fg="white", font=("Segoe UI", 10, "bold")).pack(pady=5)
 
+    # ---- Config: a scrollable two-column pane of setting cards ---------------
     def _config_tab(self, nb) -> ttk.Frame:
         tab = ttk.Frame(nb)
-        for section, fields in CONFIG.items():
-            box = ttk.LabelFrame(tab, text=section)
-            box.pack(fill="x", padx=8, pady=4)
-            for dvar, label, kind, spec, default in fields:
-                self._field(box, dvar, label, kind, spec, default)
-        btns = ttk.Frame(tab)
-        btns.pack(fill="x", padx=8, pady=6)
-        ttk.Button(btns, text="Apply config", command=self._apply_config).pack(side="left")
-        ttk.Button(btns, text="Reset to defaults", command=self._reset).pack(side="left", padx=6)
+
+        bar = ttk.Frame(tab)
+        bar.pack(fill="x", padx=10, pady=(10, 2))
+        ttk.Button(bar, text="Apply now", style="Accent.TButton",
+                   command=self._apply_live).pack(side="left")
+        ttk.Button(bar, text="Next round",
+                   command=self._apply_config).pack(side="left", padx=6)
+        ttk.Button(bar, text="+ Restart",
+                   command=self._apply_restart).pack(side="left")
+        ttk.Button(bar, text="Reset",
+                   command=self._reset).pack(side="left", padx=6)
+        ttk.Label(bar, text="Apply now = live this round (gf_cmd_apply, no restart)",
+                  foreground="#777").pack(side="left", padx=10)
+
+        inner = self._scrollable(tab)
+        left = ttk.Frame(inner)
+        right = ttk.Frame(inner)
+        left.grid(row=0, column=0, sticky="new")
+        right.grid(row=0, column=1, sticky="new")
+        inner.columnconfigure(0, weight=1, uniform="cfg")
+        inner.columnconfigure(1, weight=1, uniform="cfg")
+
+        for name in self.LEFT:
+            self._section(left, name)
+        for name in self.RIGHT:
+            self._section(right, name)
         return tab
 
-    def _field(self, parent, dvar, label, kind, spec, default):
-        row = ttk.Frame(parent)
-        row.pack(fill="x", padx=6, pady=2)
-        ttk.Label(row, text=label, width=30, anchor="w").pack(side="left")
+    def _scrollable(self, parent) -> ttk.Frame:
+        """A vertically scrolling frame that fills `parent`. Returns the inner frame to
+        pack/grid content into; it is kept exactly as wide as the viewport (no h-scroll)."""
+        canvas = tk.Canvas(parent, borderwidth=0, highlightthickness=0)
+        vsb = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=4)
+        inner = ttk.Frame(canvas)
+        win = canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
+        # Wheel scroll only while the pointer is over this canvas (don't hijack combos elsewhere).
+        canvas.bind("<Enter>", lambda e: canvas.bind_all(
+            "<MouseWheel>", lambda ev: canvas.yview_scroll(int(-ev.delta / 120), "units")))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        return inner
+
+    def _section(self, parent, title):
+        fields = CONFIG[title]
+        ncols = 2 if title in self.WIDE else 1
+        box = ttk.LabelFrame(parent, text=title)
+        box.pack(fill="x", padx=6, pady=6)
+        for c in range(ncols):
+            box.columnconfigure(c * 2 + 1, weight=1)
+        for i, (dvar, label, kind, spec, default) in enumerate(fields):
+            r, c = divmod(i, ncols)
+            self._field(box, dvar, label, kind, spec, default, r, c * 2)
+
+    def _field(self, parent, dvar, label, kind, spec, default, r, c):
+        lbl = ttk.Label(parent, text=label, anchor="w")
+        lbl.grid(row=r, column=c, sticky="w", padx=(8, 8), pady=3)
+        if TIPS.get(dvar):
+            _Tip(lbl, TIPS[dvar])
         if kind == "choice":
             var = tk.IntVar(value=default)
-            combo = ttk.Combobox(row, state="readonly",
-                                 values=[l for l, _ in spec], width=22)
+            combo = ttk.Combobox(parent, state="readonly",
+                                 values=[l for l, _ in spec], width=16)
             combo.current([v for _, v in spec].index(default))
-            combo.pack(side="left")
+            combo.grid(row=r, column=c + 1, sticky="ew", padx=(0, 8), pady=3)
             combo.bind("<<ComboboxSelected>>",
-                       lambda e, s=spec, v=var, c=combo: v.set(s[c.current()][1]))
+                       lambda e, s=spec, v=var, cb=combo: v.set(s[cb.current()][1]))
             self.vars[dvar] = var
         elif kind == "int":
             lo, hi, step = spec
             var = tk.IntVar(value=default)
-            ttk.Spinbox(row, from_=lo, to=hi, increment=step, textvariable=var,
-                        width=10).pack(side="left")
+            ttk.Spinbox(parent, from_=lo, to=hi, increment=step, textvariable=var,
+                        width=8).grid(row=r, column=c + 1, sticky="w", padx=(0, 8), pady=3)
             self.vars[dvar] = var
         elif kind == "toggle":
             var = tk.IntVar(value=default)
-            ttk.Checkbutton(row, variable=var).pack(side="left")
+            ttk.Checkbutton(parent, variable=var).grid(row=r, column=c + 1, sticky="w",
+                                                       padx=(0, 8), pady=3)
             self.vars[dvar] = var
 
+    # ---- Actions tab --------------------------------------------------------
     def _actions_tab(self, nb) -> ttk.Frame:
         tab = ttk.Frame(nb)
-        note = ("Actions write gf_cmd_* trigger dvars; the menu payload's command-poller\n"
-                "runs them host-side. Stage = lobby shows the map when the match ends;\n"
+        note = ("Actions send gf_cmd_* triggers over the bridge; the menu's command-poller "
+                "runs them host-side.\nStage = the lobby shows the map when the match ends.   "
                 "Switch NOW = in-match session switch.")
-        tk.Label(tab, text=note, fg="#8a5a00", justify="left").pack(anchor="w", padx=10, pady=6)
+        tk.Label(tab, text=note, fg="#8a5a00", justify="left").pack(anchor="w", padx=12, pady=(12, 8))
 
-        box = ttk.LabelFrame(tab, text="Session switch (map + gametype)")
-        box.pack(fill="x", padx=8, pady=4)
-        self.map_var = tk.StringVar()
-        allmaps = [f"{d}  [{m}]" for d, m in MAPS_6V6] + \
+        box = ttk.LabelFrame(tab, text="Session switch  (map + gametype)")
+        box.pack(fill="x", padx=12, pady=6)
+        KEEP = "(keep current map)"      # switch gametype alone - no map needed
+        self.map_var = tk.StringVar(value=KEEP)
+        allmaps = [KEEP] + [f"{d}  [{m}]" for d, m in MAPS_6V6] + \
                   [f"{d}  [{m}]  (GF)" for d, m in MAPS_GF]
-        self._maplut = {f"{d}  [{m}]": m for d, m in MAPS_6V6}
+        self._maplut = {KEEP: ""}
+        self._maplut.update({f"{d}  [{m}]": m for d, m in MAPS_6V6})
         self._maplut.update({f"{d}  [{m}]  (GF)": m for d, m in MAPS_GF})
-        ttk.Label(box, text="Map").pack(anchor="w", padx=6)
-        ttk.Combobox(box, state="readonly", values=allmaps, textvariable=self.map_var,
-                     width=44).pack(padx=6, pady=2)
+        g = ttk.Frame(box)
+        g.pack(fill="x", padx=10, pady=8)
+        ttk.Label(g, text="Map").grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Combobox(g, state="readonly", values=allmaps, textvariable=self.map_var,
+                     width=48).grid(row=0, column=1, sticky="w", padx=8, pady=4)
         self.gt_var = tk.StringVar(value="gunfight")
-        ttk.Label(box, text="Gametype").pack(anchor="w", padx=6)
-        ttk.Combobox(box, state="readonly", values=GAMETYPES, textvariable=self.gt_var,
-                     width=20).pack(anchor="w", padx=6, pady=2)
+        ttk.Label(g, text="Gametype").grid(row=1, column=0, sticky="w", pady=4)
+        ttk.Combobox(g, state="readonly", values=GAMETYPES, textvariable=self.gt_var,
+                     width=22).grid(row=1, column=1, sticky="w", padx=8, pady=4)
         btns = ttk.Frame(box)
-        btns.pack(padx=6, pady=6)
+        btns.pack(anchor="w", padx=10, pady=(0, 10))
         # Two verbs, same as the in-game pick page. Stage = switchmap_load only: the
         # match keeps running and the pregame lobby shows the map when it ends.
         ttk.Button(btns, text="Stage for lobby (next match)",
-                   command=lambda: self._switch(stage=True)).pack(side="left", padx=4)
-        ttk.Button(btns, text="Switch NOW",
-                   command=lambda: self._switch(stage=False)).pack(side="left", padx=4)
+                   command=lambda: self._switch(stage=True)).pack(side="left", padx=(0, 6))
+        ttk.Button(btns, text="Switch NOW", style="Accent.TButton",
+                   command=lambda: self._switch(stage=False)).pack(side="left")
 
         box2 = ttk.LabelFrame(tab, text="Bots / match")
-        box2.pack(fill="x", padx=8, pady=4)
+        box2.pack(fill="x", padx=12, pady=6)
+        r2 = ttk.Frame(box2)
+        r2.pack(anchor="w", padx=10, pady=10)
         for text, cmd in [("Fill with bots", "fillbots"),
                           ("Remove all bots", "removebots"),
                           ("Restart match", "restart")]:
-            ttk.Button(box2, text=text,
-                       command=lambda c=cmd: self._cmd(c)).pack(side="left", padx=6, pady=6)
+            ttk.Button(r2, text=text, width=16,
+                       command=lambda c=cmd: self._cmd(c)).pack(side="left", padx=4)
         # Single-bot verbs (docs/notes/bots.md). gf_cmd_addbot carries WHICH side:
         # 1 auto (smaller side, tie -> opposite the host) / 2 allies / 3 axis.
         box3 = ttk.LabelFrame(tab, text="Bots - one at a time")
-        box3.pack(fill="x", padx=8, pady=4)
-        for text, settings in [("Add bot (auto)", {"gf_cmd_addbot": 1}),
-                               ("Add bot: allies", {"gf_cmd_addbot": 2}),
-                               ("Add bot: axis", {"gf_cmd_addbot": 3}),
-                               ("Remove one bot", {"gf_cmd_removebot": 1}),
-                               ("Even up teams", {"gf_cmd_evenbots": 1})]:
-            ttk.Button(box3, text=text,
+        box3.pack(fill="x", padx=12, pady=6)
+        r3 = ttk.Frame(box3)
+        r3.pack(anchor="w", padx=10, pady=10)
+        for text, settings in [("Add: auto", {"gf_cmd_addbot": 1}),
+                               ("Add: allies", {"gf_cmd_addbot": 2}),
+                               ("Add: axis", {"gf_cmd_addbot": 3}),
+                               ("Remove one", {"gf_cmd_removebot": 1}),
+                               ("Even up", {"gf_cmd_evenbots": 1})]:
+            ttk.Button(r3, text=text, width=12,
                        command=lambda s=settings: self._write({**s, "gf_cmd_go": 1})
-                       ).pack(side="left", padx=4, pady=6)
+                       ).pack(side="left", padx=4)
+
+        box4 = ttk.LabelFrame(tab, text="Host")
+        box4.pack(fill="x", padx=12, pady=6)
+        r4 = ttk.Frame(box4)
+        r4.pack(anchor="w", padx=10, pady=(10, 4))
+        ttk.Button(r4, text="Pause match", width=16,
+                   command=lambda: self._pause(1)).pack(side="left", padx=4)
+        ttk.Button(r4, text="Resume match", width=16,
+                   command=lambda: self._pause(2)).pack(side="left", padx=4)
+        r5 = ttk.Frame(box4)
+        r5.pack(fill="x", padx=10, pady=(4, 2))
+        ttk.Label(r5, text="Broadcast").pack(side="left")
+        self.say_var = tk.StringVar()
+        entry = ttk.Entry(r5, textvariable=self.say_var)
+        entry.pack(side="left", fill="x", expand=True, padx=6)
+        entry.bind("<Return>", lambda e: self._broadcast())
+        ttk.Button(r5, text="Send", command=self._broadcast).pack(side="left", padx=(0, 2))
+        ttk.Button(r5, text="Clear", command=self._broadcast_clear).pack(side="left", padx=2)
+        ttk.Button(r5, text="Codes", command=self._show_codes).pack(side="left", padx=2)
+        r5b = ttk.Frame(box4)
+        r5b.pack(anchor="w", padx=10, pady=(0, 10))
+        ttk.Label(r5b, text="Location").pack(side="left")
+        self.say_loc = tk.IntVar(value=0)
+        for txt, val in (("Center", 0), ("Feed", 1)):
+            ttk.Radiobutton(r5b, text=txt, variable=self.say_loc, value=val).pack(side="left", padx=(4, 0))
+        ttk.Label(r5b, text="     Hold").pack(side="left")
+        self.say_dur = tk.StringVar(value="Once")
+        ttk.Combobox(r5b, state="readonly", width=7, textvariable=self.say_dur,
+                     values=["Once", "5s", "10s", "30s", "60s", "Fixed"]).pack(side="left", padx=4)
+        ttk.Label(r5b, text="(Fixed holds until Clear; Center holds cleanest)",
+                  foreground="#777").pack(side="left", padx=6)
+
+        # Player / weapons - the menu-only verbs, via the generic gf_cmd_action channel.
+        box5 = ttk.LabelFrame(tab, text="Player / weapons  (host)")
+        box5.pack(fill="x", padx=12, pady=6)
+        r6 = ttk.Frame(box5)
+        r6.pack(anchor="w", padx=10, pady=(10, 4))
+        for text, act in [("Fly", "fly"), ("God mode", "godmode"), ("Third person", "thirdperson"),
+                          ("Max ammo", "maxammo"), ("Drop weapon", "dropweapon"),
+                          ("Unlock all", "unlockall"), ("Freeze all", "freeze")]:
+            ttk.Button(r6, text=text, width=12,
+                       command=lambda a=act: self._action(a)).pack(side="left", padx=3)
+        r7 = ttk.Frame(box5)
+        r7.pack(fill="x", padx=10, pady=4)
+        ttk.Label(r7, text="Give weapon").pack(side="left")
+        self.wpn_var = tk.StringVar()
+        wlist = [f"{d}  [{n}]" for cat in WEAPONS.values() for d, n in cat]
+        self._wpnlut = {f"{d}  [{n}]": n for cat in WEAPONS.values() for d, n in cat}
+        ttk.Combobox(r7, state="readonly", values=wlist, textvariable=self.wpn_var,
+                     width=38).pack(side="left", padx=6)
+        ttk.Button(r7, text="Give", command=self._give_weapon).pack(side="left")
+        r8 = ttk.Frame(box5)
+        r8.pack(anchor="w", padx=10, pady=(4, 10))
+        for label, act, hi in [("Camo id", "camo", 149), ("Operator id", "operator", 60),
+                               ("Outfit id", "outfit", 60)]:
+            ttk.Label(r8, text=label).pack(side="left", padx=(0, 2))
+            var = tk.IntVar(value=0)
+            setattr(self, f"cos_{act}", var)
+            ttk.Spinbox(r8, from_=0, to=hi, textvariable=var, width=5).pack(side="left", padx=(0, 2))
+            ttk.Button(r8, text="Set",
+                       command=lambda a=act: self._action(a, str(getattr(self, f"cos_{a}").get()))
+                       ).pack(side="left", padx=(0, 14))
+        return tab
+
+    # ---- Inject / Status tab -----------------------------------------------
+    def _inject_tab(self, nb) -> ttk.Frame:
+        tab = ttk.Frame(nb)
+        note = ("One-stop launch: confirm the game is up with cwpatch, inject the mod menu, and\n"
+                "build + load the bridge DLL - then Config / Actions drive the match.")
+        tk.Label(tab, text=note, fg="#8a5a00", justify="left").pack(anchor="w", padx=12, pady=(12, 8))
+
+        box = ttk.LabelFrame(tab, text="Status")
+        box.pack(fill="x", padx=12, pady=6)
+        grid = ttk.Frame(box)
+        grid.pack(anchor="w", padx=12, pady=8)
+        self.st_game = ttk.Label(grid, text="Game: checking...")
+        self.st_game.grid(row=0, column=0, sticky="w", pady=2)
+        self.st_cwpatch = ttk.Label(grid, text="cwpatch: checking...")
+        self.st_cwpatch.grid(row=1, column=0, sticky="w", pady=2)
+        self.st_bridge = ttk.Label(grid, text="Bridge DLL: checking...")
+        self.st_bridge.grid(row=2, column=0, sticky="w", pady=2)
+        ttk.Button(box, text="Refresh", command=self._refresh_status).pack(anchor="w", padx=12, pady=(0, 8))
+
+        box2 = ttk.LabelFrame(tab, text="Inject  (one payload per game launch)")
+        box2.pack(fill="x", padx=12, pady=6)
+        r0 = ttk.Frame(box2)
+        r0.pack(anchor="w", padx=12, pady=(10, 2))
+        ttk.Button(r0, text="Set up all  (bridge + menu)", width=26, style="Accent.TButton",
+                   command=self._setup_all).pack(side="left", padx=4)
+        ttk.Label(r0, text="one click - then restart the match to link the menu",
+                  foreground="#777").pack(side="left", padx=8)
+        r = ttk.Frame(box2)
+        r.pack(anchor="w", padx=12, pady=(2, 8))
+        ttk.Label(r, text="or separately:").pack(side="left", padx=(0, 6))
+        ttk.Button(r, text="Inject mod menu", width=18,
+                   command=self._inject_menu).pack(side="left", padx=4)
+        ttk.Button(r, text="Build + inject bridge", width=20,
+                   command=self._inject_bridge).pack(side="left", padx=4)
+        ttk.Label(box2, foreground="#777", justify="left",
+                  text=("Load a private MATCH once before injecting the menu (puts bb.gsc in the pool).\n"
+                        "Menu = GSC payload: needs a match restart to link, and clobbers the last payload.\n"
+                        "Bridge = native DLL: active immediately, coexists with cwpatch. Both drive the game.")
+                  ).pack(anchor="w", padx=12, pady=(0, 8))
         return tab
 
     def _logbox(self):
         frame = ttk.LabelFrame(self.root, text="Log")
-        frame.pack(fill="both", expand=False, padx=8, pady=4)
-        self.logw = tk.Text(frame, height=9, bg="#101418", fg="#c8d0d8",
-                            font=("Consolas", 9), wrap="none")
-        self.logw.pack(fill="both", expand=True)
+        frame.pack(fill="both", expand=False, padx=8, pady=(0, 8))
+        self.logw = tk.Text(frame, height=7, bg="#101418", fg="#c8d0d8",
+                            font=("Consolas", 9), wrap="none", borderwidth=0)
+        sb = ttk.Scrollbar(frame, orient="vertical", command=self.logw.yview)
+        self.logw.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self.logw.pack(side="left", fill="both", expand=True)
 
     # ---- behaviour -----------------------------------------------------------
     def _connect(self):
@@ -275,9 +774,22 @@ class App:
             self._say(f"connect: {e}")
         self._drain()
 
-    def _apply_config(self):
-        settings = {dvar: v.get() for dvar, v in self.vars.items()}
-        self._say(f"apply {len(settings)} config dvars:")
+    def _apply_config(self, trailer=None):
+        # trailer (optional) rides in the SAME message so the config lands before the command
+        # fires: {"gf_cmd_apply":1,"gf_cmd_go":1} (live) or {"gf_cmd_restart":1,"gf_cmd_go":1}.
+        # Send only CHANGED settings (or ones we've sent before) to avoid registering ~50 dvars
+        # every apply and overflowing the game's dvar store.
+        settings = {}
+        for dvar, v in self.vars.items():
+            val = v.get()
+            if val != self._defaults.get(dvar) or dvar in self._sent:
+                settings[dvar] = val
+                self._sent.add(dvar)
+        changed = len(settings)
+        if trailer:
+            settings.update(trailer)
+        tail = ("  + " + " ".join(k for k in trailer if k != "gf_cmd_go")) if trailer else ""
+        self._say(f"apply {changed} changed config dvars{tail}:")
         if self.backend:
             self.backend.apply(settings)
         else:
@@ -285,16 +797,228 @@ class App:
                 self._say(f"  [no backend] set {k} {val}")
         self._drain()
 
-    def _switch(self, stage: bool = False):
-        m = self._maplut.get(self.map_var.get())
-        if not m:
-            self._say("pick a map first")
+    def _apply_live(self):
+        self._apply_config(trailer={"gf_cmd_apply": 1, "gf_cmd_go": 1})
+
+    def _apply_restart(self):
+        self._apply_config(trailer={"gf_cmd_restart": 1, "gf_cmd_go": 1})
+
+    def _action(self, name, arg=""):
+        s = {"gf_cmd_action": name}
+        if arg != "":
+            s["gf_cmd_arg"] = arg
+        s["gf_cmd_go"] = 1
+        self._write(s)
+
+    def _give_weapon(self):
+        n = self._wpnlut.get(self.wpn_var.get())
+        if not n:
+            self._say("pick a weapon first")
             return
-        self._write({"gf_cmd_map": m, "gf_cmd_gametype": self.gt_var.get(),
+        self._action("giveweapon", n)
+
+    def _switch(self, stage: bool = False):
+        # Empty map = keep the current map (GSC falls back to sv_mapname), so you can switch
+        # the gametype alone - e.g. to gunfight - without choosing a map. "" clears any stale value.
+        m = self._maplut.get(self.map_var.get())
+        self._write({"gf_cmd_map": m if m else '""',
+                     "gf_cmd_gametype": self.gt_var.get(),
                      "gf_cmd_stage": int(stage), "gf_cmd_go": 1})
 
     def _cmd(self, name):
         self._write({"gf_cmd_" + name: 1, "gf_cmd_go": 1})
+
+    def _pause(self, val):
+        # gf_cmd_pause: 1 = pause (match_pause), any other value = resume (match_resume).
+        self._write({"gf_cmd_pause": val, "gf_cmd_go": 1})
+
+    def _broadcast(self):
+        # Cap to ~28 chars: the bridge writes each command over cwpatch's 48-byte command blob.
+        msg = self.say_var.get().strip().replace('"', "'")[:28]
+        if not msg:
+            self._say("type a message to broadcast first")
+            return
+        # loc/dur first, quoted msg (spaces survive `set`), go last - one bridge message.
+        self._write({"gf_cmd_say_loc": self.say_loc.get(),
+                     "gf_cmd_say_dur": self._DUR.get(self.say_dur.get(), 0),
+                     "gf_cmd_say": f'"{msg}"', "gf_cmd_go": 1})
+        self.say_var.set("")
+
+    def _broadcast_clear(self):
+        self._write({"gf_cmd_say_clear": 1, "gf_cmd_go": 1})
+
+    def _show_codes(self):
+        win = tk.Toplevel(self.root)
+        win.title("Cold War text codes")
+        win.configure(bg="#101418")
+        try:
+            win.iconphoto(True, self._icon)
+        except Exception:
+            pass
+        tk.Label(win, text="Colour codes - type them into the broadcast message",
+                 bg="#101418", fg="#c8d0d8", font=("Segoe UI", 10, "bold")
+                 ).pack(anchor="w", padx=14, pady=(12, 6))
+        for code, name, color in self.CODES:
+            row = tk.Frame(win, bg="#101418")
+            row.pack(fill="x", padx=14, pady=1)
+            tk.Label(row, text=code, bg="#101418", fg="#8a8f94",
+                     font=("Consolas", 12), width=3, anchor="w").pack(side="left")
+            tk.Label(row, text=name, bg="#101418", fg="#8a8f94",
+                     font=("Consolas", 9), width=13, anchor="w").pack(side="left")
+            tk.Label(row, text="  The quick brown fox 1234  ", bg="#40454b", fg=color,
+                     font=("Consolas", 12)).pack(side="left")
+        tk.Label(win, justify="left", bg="#101418", fg="#8a8f94", font=("Segoe UI", 8),
+                 text=("A ^code colours the rest of the line until the next code; ^7 resets to white.\n"
+                       "Example:   ^1Red ^2green ^3yellow\n"
+                       "Server text has no bold / size / font control, and glyphs are unreliable.\n"
+                       "Messages are capped at ~28 characters (bridge command-blob limit).")
+                 ).pack(anchor="w", padx=14, pady=(10, 12))
+
+    # ---- Inject / Status ---------------------------------------------------
+    def _tick_status(self):
+        self._refresh_status()
+        self.root.after(5000, self._tick_status)      # light poll; probes are read-only
+
+    def _refresh_status(self):
+        if bridge_channel is not None:
+            try:
+                listening, seq, _ = bridge_channel.probe()
+                self.st_bridge.config(
+                    text="Bridge DLL: " + (f"listening (seq={seq})" if listening else "NOT loaded"),
+                    foreground="#1a7f1a" if listening else "#a11")
+            except Exception as e:
+                self.st_bridge.config(text=f"Bridge DLL: {e}", foreground="#a11")
+        threading.Thread(target=self._probe_game_async, daemon=True).start()
+
+    def _probe_game_async(self):
+        # Read-only: process id + the discord_game_sdk.dll module size (0x9000 == cwpatch build).
+        ps = ("$p=Get-Process BlackOpsColdWar -EA SilentlyContinue;"
+              "if($p){$m=$p.Modules|?{$_.ModuleName -ieq 'discord_game_sdk.dll'};"
+              "\"$($p.Id)|$(if($m){$m.ModuleMemorySize}else{0})\"}else{'0|0'}")
+        res = "0|0"
+        try:
+            r = subprocess.run(["pwsh", "-NoProfile", "-Command", ps],
+                               capture_output=True, text=True, timeout=15, **_no_window())
+            res = (r.stdout or "").strip() or "0|0"
+        except Exception:
+            pass
+        self.root.after(0, lambda: self._apply_game_status(res))
+
+    def _apply_game_status(self, res):
+        try:
+            pid_s, size_s = res.split("|")
+            pid, size = int(pid_s), int(size_s)
+        except Exception:
+            pid, size = 0, 0
+        self.st_game.config(text="Game: " + (f"running (pid {pid})" if pid else "not running"),
+                            foreground="#1a7f1a" if pid else "#a11")
+        if not pid:
+            self.st_cwpatch.config(text="cwpatch: -", foreground="#777")
+        elif size == 0x9000:
+            self.st_cwpatch.config(text="cwpatch: loaded (0x9000)", foreground="#1a7f1a")
+        elif size:
+            self.st_cwpatch.config(text=f"cwpatch: wrong build (0x{size:x}) - run ensure-cwpatch",
+                                   foreground="#a11")
+        else:
+            self.st_cwpatch.config(text="cwpatch: NOT loaded", foreground="#a11")
+
+    def _bridge_loaded(self) -> bool:
+        # A listening bridge == the DLL is loaded in the game == gf_bridge.dll is file-locked
+        # (can't be rebuilt) and re-injecting would double-load it.
+        if bridge_channel is None:
+            return False
+        try:
+            listening, _, _ = bridge_channel.probe()
+            return listening
+        except Exception:
+            return False
+
+    def _shell_async(self, args, label, cwd=None, then=None):
+        """Run an injection/build command off the UI thread, tail its output to the Log.
+        Guard: these run the repo's own scripts; the human clicks the button."""
+        self._say(f"$ {label}...")
+        def worker():
+            try:
+                p = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=200,
+                                   **_no_window())
+                out = ((p.stdout or "") + (p.stderr or "")).rstrip()
+                ok = (p.returncode == 0)
+            except FileNotFoundError as e:
+                out, ok = f"cannot run {args[0]!r}: {e} (on PATH?)", False
+            except Exception as e:
+                out, ok = f"error: {e}", False
+            self.root.after(0, lambda: self._shell_done(out, ok, then))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _shell_done(self, out, ok, then):
+        for line in out.splitlines()[-14:]:
+            self._say("  " + line)
+        low = out.lower()
+        failed_menu = "find target script" in low   # acts: bb.gsc not in the pool yet
+        if failed_menu:
+            self._say("  -> load a private MATCH once first (puts bb.gsc in the pool), then inject.")
+        if not ok and ("permission denied" in low or "failed to write output" in low):
+            self._say("  -> gf_bridge.dll is locked because it's loaded in the game.")
+            self._say("     Relaunch the game (unloads it), then Set up all.")
+        self._refresh_status()
+        if then and ok and not failed_menu:      # don't chain past a failed step
+            then()
+
+    def _setup_all(self):
+        if not messagebox.askokcancel(
+                "Set up all",
+                "Build + inject the bridge DLL (if needed), then inject the mod menu?\n\n"
+                "Afterwards restart the match (Actions -> Restart match, or your F-key) to link the menu."):
+            return
+        menu = lambda: self._menu_inject_async(
+            then=lambda: self._say("set up complete - now restart the match to link the menu"))
+        if self._bridge_loaded():
+            # A bridge is already loaded: the DLL file is locked (can't rebuild) and a second
+            # inject would double-load it. Keep the running bridge; just (re)inject the menu.
+            self._say("bridge already loaded - keeping it; injecting menu only")
+            self._say("  (to load a NEW bridge build, relaunch the game first, then Set up all)")
+            menu()
+            return
+        self._shell_async(
+            ["zig", "cc", "-target", "x86_64-windows-gnu", "-shared", "-O2",
+             "-o", "gf_bridge.dll", "bridge.c"],
+            "build gf_bridge.dll", cwd=GFBRIDGE,
+            then=lambda: self._shell_async(
+                ["pwsh", "-NoProfile", "-File", "inject-dll.ps1", "-Dll", "gf_bridge.dll"],
+                "inject gf_bridge.dll", cwd=GFBRIDGE, then=menu))
+
+    def _menu_inject_async(self, then=None):
+        self._shell_async([ACTS, "injectcw", MENU_PAYLOAD, MENU_HOOK, MENU_REPLACE],
+                          "inject mod menu", cwd=os.path.dirname(ACTS), then=then)
+
+    def _inject_menu(self):
+        if not messagebox.askokcancel(
+                "Inject mod menu",
+                "Inject the gunfight_menu payload into the running game?\n\n"
+                "One payload per game launch. Restart the match afterwards to link it."):
+            return
+        self._menu_inject_async()
+
+    def _inject_bridge(self):
+        if self._bridge_loaded():
+            messagebox.showinfo(
+                "Bridge already loaded",
+                "A bridge DLL is already loaded in the running game, so gf_bridge.dll is locked "
+                "and can't be rebuilt (and injecting again would double-load it).\n\n"
+                "To load a NEW build - e.g. after changing bridge.c or its buffer size - relaunch "
+                "the game first (a fresh launch has no bridge loaded), then click Set up all.")
+            return
+        if not messagebox.askokcancel(
+                "Build + inject bridge",
+                "Build gf_bridge.dll (zig) and inject it into the running game?"):
+            return
+        self._shell_async(
+            ["zig", "cc", "-target", "x86_64-windows-gnu", "-shared", "-O2",
+             "-o", "gf_bridge.dll", "bridge.c"],
+            "build gf_bridge.dll", cwd=GFBRIDGE,
+            then=lambda: self._shell_async(
+                ["pwsh", "-NoProfile", "-File", "inject-dll.ps1", "-Dll", "gf_bridge.dll"],
+                "inject gf_bridge.dll", cwd=GFBRIDGE))
 
     def _write(self, settings: dict):
         self._say(f"trigger: {settings}")

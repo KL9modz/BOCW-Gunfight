@@ -191,9 +191,12 @@
 //                       0 (default) normal.
 //
 // Set once, they hold until the game is restarted - at which point the payload
-// has to be re-injected anyway. Every one of them is PRE-REGISTERED with its default
-// at the start of each round (dvars_register - guarded, never resets a value) so the
-// control app's direct dvar write finds a real dvar instead of NULL.
+// has to be re-injected anyway. ⚠ These are NO LONGER pre-registered: dvars_register was
+// disabled 2026-09-13 (registering all 72 at once overflowed the GSC-VM dvar store and crashed
+// the game - memory dvar-pool-crash). It existed only for the dead route-A external dvar write
+// (bocw-7f proved external WPM can't reach the GSC-VM store), so its loss costs nothing: every
+// cfg_* reader uses getdvarint(name, default) and every menu write uses setdvar (registers on
+// demand). Cosmetic only: a setting's '*' current-value marker appears after its first change.
 //
 // ── KEYS (identical to the shipped Atian Menu) ───────────────────────────────
 //     open    ADS + melee     (RMB + V)
@@ -364,10 +367,13 @@ function private cfg_spyplane()      { return getdvarint( #"gf_spyplane", 0 ); }
 function private cfg_map_method()    { return getdvarint( #"gf_map_method", 1 ); }
 function private cfg_switch_wait()   { return getdvarint( #"gf_switch_wait", 25 ); }
 function private cfg_autoswitch()    { return getdvarint( #"gf_autoswitch", 0 ); }
-function private cfg_menu_lines()    { return getdvarint( #"gf_menu_lines", 3 ); }
+// ⚠ Clamped: menu_think primes `for(i=0;i<lines+1)` blanks, so a garbage-huge value here spins
+// the render and freezes the game (measured 2026-09-14). Bound both row counts to a sane range.
+function private cfg_clamp_lines( n ) { if ( n < 1 ) return 1; if ( n > 24 ) return 24; return n; }
+function private cfg_menu_lines()    { return cfg_clamp_lines( getdvarint( #"gf_menu_lines", 3 ) ); }
 function private cfg_menu_region()   { return getdvarint( #"gf_menu_region", 0 ); }
 function private cfg_menu_hspan()    { return getdvarint( #"gf_menu_hspan", 4 ); }
-function private cfg_feed_lines()    { return getdvarint( #"gf_feed_lines", 14 ); }
+function private cfg_feed_lines()    { return cfg_clamp_lines( getdvarint( #"gf_feed_lines", 14 ) ); }
 function private cfg_hint_lines()    { return getdvarint( #"gf_hint_lines", 8 ); }
 function private cfg_hint_newlines() { return getdvarint( #"gf_hint_newlines", 0 ); }
 
@@ -398,7 +404,7 @@ function private cfg_switch_sides()   { return getdvarint( #"gf_switch_sides", 1
 function private cfg_gravity()  { return getdvarint( #"gf_gravity", 800 ); }
 function private cfg_jump()     { return getdvarint( #"gf_jump", -1 ); }
 function private cfg_jump_boost() { return getdvarint( #"gf_jump_boost", 0 ); }
-function private cfg_falldamage() { return getdvarint( #"gf_falldamage", 1 ); }
+function private cfg_falldamage() { return getdvarint( #"gf_falldamage", 0 ); }
 function private cfg_speed()      { return getdvarint( #"gf_speed", 100 ); }
 function private cfg_fly_speed()  { return getdvarint( #"gf_fly_speed", 20 ); }
 function private cfg_fly_fast()   { return getdvarint( #"gf_fly_fast", 60 ); }
@@ -451,6 +457,11 @@ function private dvar_reg( name, default_value )
 
 function private dvars_register()
 {
+    // ⚠ NOT CALLED as of 2026-09-13 - the call in mod_apply is commented out because registering
+    // this whole batch at once overflows the GSC-VM dvar store and fatally crashes the game
+    // ("Can't register more dvar"). Do NOT add more dvar_reg lines here expecting them to run, and
+    // do NOT re-enable the call without a plan for the store cap. Kept for reference. See memory
+    // dvar-pool-crash. (dvar_reg only sets when absent, so re-enabling would still overflow.)
     dvar_reg( #"gf_team_size", 4 );
     dvar_reg( #"gf_timer_seconds", 60 );
     dvar_reg( #"gf_prematch", 15 );
@@ -485,7 +496,7 @@ function private dvars_register()
     dvar_reg( #"gf_gravity", 800 );
     dvar_reg( #"gf_jump", -1 );
     dvar_reg( #"gf_jump_boost", 0 );
-    dvar_reg( #"gf_falldamage", 1 );
+    dvar_reg( #"gf_falldamage", 0 );
     dvar_reg( #"gf_speed", 100 );
     dvar_reg( #"gf_fly_speed", 20 );
     dvar_reg( #"gf_fly_fast", 60 );
@@ -570,8 +581,15 @@ function private mod_is_gunfight()
 
 function private mod_apply()
 {
-    // Every gf_* dvar exists from the first round on (guarded - never resets a value).
-    dvars_register();
+    // ⚠ dvars_register() DISABLED 2026-09-13 (bocw-e1). Force-registering all 72 gf_* dvars at
+    // match start overflows the GSC-VM dvar store -> FATAL "Can't register more dvar" and the game
+    // crashes (klaze's crash dump named it: err 0xa370b5b4, offending-dvar hash 1e61d7c5cd9329f7 =
+    // gf_staged_gt, the 72nd/last dvar_reg). The pre-register's ONLY purpose was dead route A (an
+    // external Dvar_FindVar seeing gf_*); the mod needs none of it - every cfg_* reader uses
+    // getdvarint(name, default) and every menu write uses setdvar (auto-registers ON DEMAND, one at
+    // a time, only for settings the host actually touches). Cosmetic only: the '*' current-value
+    // marker no longer shows a setting's default until it is first touched. See memory dvar-pool-crash.
+    // dvars_register();
 
     // Movement mods apply in EVERY gametype, so they run before the Gunfight gate.
     mod_movement();
@@ -762,9 +780,18 @@ function private mod_movement()
 // Fall damage on/off. bg_falldamageminheight / maxheight are the engine pair the campaign
 // and Zombies "oldschool" mode raise (cp_common globallogic.gsc:184-185), same bg_ family
 // as the verified bg_gravity. Off = both thresholds beyond any map, so a boosted jump or a
-// fly-mode drop lands clean. Stock = the values captured at first run (dvars_register).
+// fly-mode drop lands clean. Stock = the values captured at first run (see the guarded
+// dvar_reg at the top of this function - relocated here from the disabled dvars_register).
 function private mod_falldamage_apply()
 {
+    // Capture the engine's stock fall-damage thresholds ONCE, before we ever override them.
+    // Relocated here 2026-09-13 from the now-disabled dvars_register (the 72-dvar batch overflowed
+    // the GSC-VM dvar store - see memory dvar-pool-crash). dvar_reg is guarded, so this fires only
+    // on the first apply of a launch, when bg_falldamage* are still pristine; this function is the
+    // ONLY writer of those dvars, so the captured value is identical to what dvars_register saw.
+    dvar_reg( #"gf_fd_min_stock", getdvarint( #"bg_falldamageminheight", 128 ) );
+    dvar_reg( #"gf_fd_max_stock", getdvarint( #"bg_falldamagemaxheight", 300 ) );
+
     if ( cfg_falldamage() )
     {
         setdvar( #"bg_falldamageminheight", getdvarint( #"gf_fd_min_stock", 128 ) );
@@ -988,6 +1015,41 @@ function private broadcast_feed( msg )
 {
     foreach ( player in getplayers() )
         player iprintln( msg );
+}
+
+// App broadcast with a chosen location + hold duration (gf_cmd_say / gf_cmd_say_loc / _dur).
+//   loc: 0 = centre (iprintlnbold),  1 = lower-left feed (iprintln).
+//   dur: 0 = send once and let the engine fade it;  > 0 = hold that many seconds;
+//        < 0 = FIXED, held until a Clear (gf_cmd_say_clear -> gf_say_stop).
+// Held text is re-sent every 2 s so the centre line never fades; on the feed a held message
+// re-prints (adds a line each time). Only one held broadcast at a time.
+function private broadcast_hold( msg, loc, dur )
+{
+    level notify( #"gf_say_stop" );
+    if ( dur == 0 )
+    {
+        broadcast_where( msg, loc );
+        return;
+    }
+
+    level endon( #"gf_say_stop" );
+    level endon( #"game_ended" );
+    end = ( dur > 0 ) ? ( gettime() + dur * 1000 ) : 0;
+    while ( true )
+    {
+        broadcast_where( msg, loc );
+        wait( 2.0 );
+        if ( end != 0 && gettime() >= end )
+            break;
+    }
+}
+
+function private broadcast_where( msg, loc )
+{
+    if ( loc == 1 )
+        broadcast_feed( msg );
+    else
+        broadcast_bold( msg );
 }
 
 function private broadcast_countdown()
@@ -2241,7 +2303,17 @@ function private cmd_dispatch()
     if ( say != "" )
     {
         setdvar( #"gf_cmd_say", "" );
-        broadcast_bold( "^3HOST: ^7" + say );
+        loc = getdvarint( #"gf_cmd_say_loc", 0 );   // 0 centre (iprintlnbold), 1 feed (iprintln)
+        dur = getdvarint( #"gf_cmd_say_dur", 0 );   // 0 once; > 0 hold N s; < 0 fixed until Clear
+        level thread broadcast_hold( say, loc, dur );   // no prefix - shows exactly what was typed
+        return;
+    }
+
+    if ( getdvarint( #"gf_cmd_say_clear", 0 ) )
+    {
+        setdvar( #"gf_cmd_say_clear", 0 );
+        level notify( #"gf_say_stop" );
+        self menu_say( "^2app: broadcast cleared" );
         return;
     }
 
@@ -2253,6 +2325,28 @@ function private cmd_dispatch()
             match_pause();
         else
             self thread match_resume();
+        return;
+    }
+
+    // Apply config live (no restart): re-run the safe, idempotent subset of mod_apply,
+    // for the app's "Apply now". A config change lands this round instead of next.
+    if ( getdvarint( #"gf_cmd_apply", 0 ) )
+    {
+        setdvar( #"gf_cmd_apply", 0 );
+        self cmd_apply_live();
+        self menu_say( "^2app: config applied live" );
+        return;
+    }
+
+    // Generic action channel: gf_cmd_action names a menu act_* verb to run on the host,
+    // gf_cmd_arg is its parameter. Lets the app fire the menu-only player/weapon verbs.
+    action = getdvarstring( #"gf_cmd_action", "" );
+    if ( action != "" )
+    {
+        setdvar( #"gf_cmd_action", "" );
+        arg = getdvarstring( #"gf_cmd_arg", "" );
+        setdvar( #"gf_cmd_arg", "" );
+        self cmd_action( action, arg );
         return;
     }
 
@@ -2351,6 +2445,72 @@ function private cmd_dispatch()
 
     self menu_say( "^3app: switching to " + map + " / " + gt + "..." );
     self thread do_session_switch( map, gt );
+}
+
+// The gf_cmd_* channels above ARE reachable from the Windows app now: the in-context DLL
+// bridge (tools/gf-bridge/gf_bridge.dll) runs `set gf_cmd_* ...` in-process via cwpatch's
+// executor, and that DOES reach the GSC dvar store getdvarint reads - proven in-game
+// 2026-09-13 (T1 = Outcome A; the earlier "external WPM can't reach the store" is about a
+// remote WriteProcessMemory, a different path). tools/gf-control drives them.
+
+// Re-apply the live-tunable config immediately, with NO restart (gf_cmd_apply, the app's
+// "Apply now"). This is the idempotent subset of mod_apply: movement / bots / periods (each
+// a plain dvar/setting re-assert) and, in a Gunfight match, the gametype-settings block. The
+// STRUCTURAL parts of mod_apply (level.zones + overtime-zone synth, presentation fixups,
+// spawn-anchor build) are match/round-start work and are deliberately NOT re-run here. The
+// round timer needs nothing - level.gettimelimit stays installed and re-reads every 0.25s.
+function private cmd_apply_live()
+{
+    mod_movement();
+    mod_bots();
+    mod_periods();
+
+    if ( !mod_is_gunfight() )
+        return;
+
+    setgametypesetting( #"maxplayers", clamp_team_size( cfg_team_size() ) * 2 );
+
+    dcc = cfg_customcac() ? 0 : 1;
+    setgametypesetting( #"disablecustomcac", dcc );
+    level.disablecustomcac = dcc;
+
+    setgametypesetting( #"gunfightloadoutindex", cfg_loadout() );
+    setgametypesetting( #"gunfightspyplane", cfg_spyplane() );
+
+    if ( cfg_roundwinlimit() >= 0 )
+        setgametypesetting( #"roundwinlimit", cfg_roundwinlimit() );
+    if ( cfg_roundlimit() >= 0 )
+        setgametypesetting( #"roundlimit", cfg_roundlimit() );
+    if ( cfg_rounds_loadout() >= 0 )
+    {
+        setgametypesetting( #"gunfightroundsperloadout", cfg_rounds_loadout() );
+        level.gunfightroundsperloadout = cfg_rounds_loadout();
+    }
+}
+
+// Run a menu act_* verb by name on the host, for the app's Actions (gf_cmd_action + gf_cmd_arg).
+// Reuses the exact functions the in-game menu uses: each takes ( item, data... ) and acts on
+// self, using item only for the on-screen marker - so a throwaway spawnstruct() as the item is
+// safe, and self is the host (cmd_poll runs on the host). arg is a string; int() where an id is
+// wanted; giveweapon takes the weapon name. Unknown names are reported, not fatal.
+function private cmd_action( action, arg )
+{
+    it = spawnstruct();
+    switch ( action )
+    {
+        case "fly":         self act_fly( it );                  break;
+        case "godmode":     self act_godmode( it );              break;
+        case "maxammo":     self act_maxammo( it );              break;
+        case "thirdperson": self act_thirdperson( it );          break;
+        case "dropweapon":  self act_dropweapon( it );           break;
+        case "unlockall":   self act_unlockall( it );            break;
+        case "freeze":      self act_freeze_all( it );           break;
+        case "giveweapon":  self act_giveweapon( it, arg, arg ); break;
+        case "camo":        self act_camo( it, int( arg ) );     break;
+        case "operator":    self act_skin( it, int( arg ) );     break;
+        case "outfit":      self act_outfit( it, int( arg ) );   break;
+        default:            self menu_say( "^1app: unknown action '" + action + "'" ); break;
+    }
 }
 
 function private menu_restart()
@@ -5336,7 +5496,7 @@ function private act_announce( item )
 
 function private act_say( item, msg )
 {
-    broadcast_bold( "^3HOST: ^7" + msg );
+    broadcast_bold( msg );              // no prefix - shows exactly what the host typed
     self menu_say( "^2sent: " + msg );
     return true;
 }

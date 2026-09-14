@@ -6,6 +6,16 @@ A native GUI that runs the modded Gunfight match from a **real window** (second 
 readback 14 but the feed never grew. So the full control surface moves off the HUD; the
 in-game menu stays as the compact ~4-line panel for when you don't have the app up.
 
+> ⚠ **The write path changed 2026-09-13.** `gf_control.py` no longer writes dvars into game
+> memory — that route (WriteProcessMemory / the route A/B setter below) was proven **not to
+> reach the GSC dvar store** the mod reads. The GUI now sends console `set <dvar> <value>`
+> lines through the **in-process bridge** (`tools/gf-bridge/`): the app writes a shared-memory
+> block, `gf_bridge.dll` polls it and runs each line via cwpatch's executor, and an in-process
+> `set` **does** reach GSC `getdvarint` (proven in-game, T1). Build+inject `gf_bridge.dll` once
+> per launch (`tools/gf-bridge/README.md`), then `python gf_control.py --live`. Everything below
+> about the two memory-write routes is retained as the **RE record of why external memory-write
+> was abandoned**; `dvar_backend.py` remains the read-only anchor/RE toolkit (`--cwpatch` etc.).
+
 ## The idea (why this needs almost no new in-game code)
 
 The injected menu (`src/gunfight_menu`) already **re-reads every `gf_*` dvar in
@@ -30,8 +40,8 @@ So the app's only hard dependency is **reading/writing dvars in the game process
 
 | File | What |
 |---|---|
-| `gf_control.py` | the tkinter GUI. `python gf_control.py` (dry-run) / `--live` (writes) |
-| `dvar_backend.py` | the memory layer: `Proc` (OpenProcess/RPM/WPM/VirtualAllocEx/CreateRemoteThread, mirrored from `tools/lobby-set.py`) + `set_dvar()` over one of two cwpatch-anchored routes (below), plus the in-game CLI that confirms them |
+| `gf_control.py` | the tkinter GUI. `python gf_control.py` (dry-run) / `--live` (sends over the bridge). Its `BridgeBackend` composes `set <dvar> <value>` lines and hands them to `tools/gf-bridge/bridge_channel.py` |
+| `dvar_backend.py` | **no longer the GUI's write path** (see the banner above). Retained as the read-only anchor/RE toolkit: `Proc` (OpenProcess/RPM/WPM/VirtualAllocEx/CreateRemoteThread, mirrored from `tools/lobby-set.py`) + the `--cwpatch/--finddvar/--dumpabs` CLI. The `set_dvar()` memory-write routes are documented below as the retired approach |
 
 Dry-run works anywhere (no game, no admin) — the GUI opens and logs every dvar it would
 write. That is the safe way to review the layout.

@@ -23,7 +23,7 @@ import struct
 import sys
 
 NAME = "gf_bridge"          # must match SHM_NAME in bridge.c (session-local namespace)
-SIZE = 256
+SIZE = 4096          # must match SHM_SIZE in bridge.c; holds a full config apply in one message
 MAGIC = 0x31424647          # 'GFB1', must match SHM_MAGIC in bridge.c
 HDR = 12                    # magic(4) + seq(4) + len(4)
 
@@ -33,8 +33,12 @@ def _map() -> mmap.mmap:
     return mmap.mmap(-1, SIZE, tagname=NAME)
 
 
-def send(commands) -> None:
-    """commands: a string (possibly multi-line) or a list of command strings."""
+def send(commands, quiet: bool = False):
+    """commands: a string (possibly multi-line) or a list of command strings.
+
+    Returns (seq, listening): the sequence number stamped and whether the DLL's magic was
+    already present (i.e. the bridge is loaded). Prints a one-line status unless quiet=True -
+    the GUI passes quiet and formats its own log line."""
     if isinstance(commands, (list, tuple)):
         commands = "\n".join(commands)
     payload = commands.encode("ascii")[: SIZE - HDR - 1]
@@ -46,23 +50,32 @@ def send(commands) -> None:
         m[HDR : HDR + len(payload)] = payload
         struct.pack_into("<III", m, 0, MAGIC, seq, len(payload))
         m.flush()
-        listening = "" if magic == MAGIC else "   (note: DLL magic not seen yet - is bridge.dll loaded?)"
-        print(f"sent #{seq}: {commands!r}{listening}")
+        listening = (magic == MAGIC)
+        if not quiet:
+            note = "" if listening else "   (note: DLL magic not seen yet - is bridge.dll loaded?)"
+            print(f"sent #{seq}: {commands!r}{note}")
+        return seq, listening
+    finally:
+        m.close()
+
+
+def probe():
+    """(listening, seq, last_len) without printing - the GUI's connect() check."""
+    m = _map()
+    try:
+        magic, seq, ln = struct.unpack_from("<III", m, 0)
+        return (magic == MAGIC), seq, ln
     finally:
         m.close()
 
 
 def status() -> int:
-    m = _map()
-    try:
-        magic, seq, ln = struct.unpack_from("<III", m, 0)
-        if magic == MAGIC:
-            print(f"bridge DLL is listening (seq={seq}, last len={ln}).")
-            return 0
-        print("bridge DLL not detected (magic unset). Build+load bridge.c in the game.")
-        return 1
-    finally:
-        m.close()
+    listening, seq, ln = probe()
+    if listening:
+        print(f"bridge DLL is listening (seq={seq}, last len={ln}).")
+        return 0
+    print("bridge DLL not detected (magic unset). Build+load bridge.c in the game.")
+    return 1
 
 
 # -- command composers: mirror the gf_cmd_* channel the GSC cmd_poll() consumes -------------
