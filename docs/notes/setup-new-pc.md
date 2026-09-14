@@ -1,6 +1,44 @@
 # Setting up on a new PC
 
+## ⚡ Quick start — `bootstrap.ps1` (2026-09-14)
+
+On a fresh machine: `git clone` the repo, then from the repo root run
+
+```powershell
+.\bootstrap.ps1 -Cwpatch '<path to your discord_game_sdk.CWPATCH-13824.dll>'
+```
+
+It creates the out-of-repo **siblings** the repo expects at `..` (`ACTS\`, `bocw-source-main\`,
+`payloads\`, `vendor-backup\`), rebuilds the payloads from `src\`, disables the ACTS auto-updater,
+fixes the app launcher's `pythonw` path, makes the **Gunfight Host Control** desktop shortcut, runs
+the toolchain smoke test, and prints a checklist of anything still missing. Idempotent and
+non-destructive; safe to re-run.
+
+**You provide the four things it cannot fetch:**
+- **The game** — BOCW via **Battle.net** on the secondary/throwaway PC + throwaway Activision account.
+- **cwpatch** — the 13.8 KB `discord_game_sdk.CWPATCH-13824.dll`, via `-Cwpatch` (it can't ship in a
+  public repo; it's the one *irreplaceable* binary). Then `tools\ensure-cwpatch.ps1` keeps it in the
+  game's Discord slot. The in-context **bridge** (`tools\gf-bridge`) is inert without it.
+- **ACTS** — v3.3.0. If missing, download to `..\ACTS` (releases: `ate47/atian-cod-tools`).
+- **Tools on PATH** — `git`, **Python 3 (with tkinter)** for the control app + bridge transport, and
+  **zig** to build `gf_bridge.dll`.
+
+Flags: `-SkipDump` skips the ~664 MB `bocw-source` clone (only check-gsc stages 3-4 use it);
+`-NoBuild` skips the payload rebuild.
+
+Then: launch the game → `tools\ensure-cwpatch.ps1` → open the desktop shortcut → **Inject / Status →
+Set up all** (builds+injects the bridge and injects the menu) → restart the match to link it.
+
+Everything below is the manual detail behind those steps and the per-machine gotchas. ⚠ Parts of it
+predate this box (it says Steam / OneDrive / ACTS 3.1.0 in places) — the current reality is
+**Battle.net**, the siblings fetched by `bootstrap.ps1` rather than OneDrive-synced, and **ACTS 3.3.0**.
+
 ## What travels in OneDrive (no action needed)
+
+> ⚠ 2026-09-14: this "OneDrive sync" model was the original dev-laptop's. On a **clone-only** box,
+> `bootstrap.ps1` fetches/rebuilds these siblings instead (ACTS download, `bocw-source` clone,
+> `payloads` rebuild from `src\`). The list below is still the correct inventory of what must end up
+> beside the repo.
 
 These live in the project folder and sync:
 
@@ -20,11 +58,15 @@ These live in the project folder and sync:
 
 ## What does NOT travel — re-verify on each machine
 
-**1. The game install path.** On the machine these notes were written it was:
+**1. The game install path.** Varies per box. On this box (`KL9-DESKTOP`, Battle.net) it is:
 
 ```
-S:\SteamLibrary\steamapps\common\Call of Duty Black Ops Cold War\BlackOpsColdWar.exe
+D:\Battle.net\Call of Duty Black Ops Cold War\BlackOpsColdWar.exe
 ```
+
+On the original dev laptop (Steam) it was
+`S:\SteamLibrary\steamapps\common\Call of Duty Black Ops Cold War\BlackOpsColdWar.exe`.
+`bootstrap.ps1` checks the common Battle.net/Steam locations; otherwise find it with:
 
 Find it on the new box:
 
