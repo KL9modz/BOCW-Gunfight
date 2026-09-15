@@ -331,3 +331,20 @@ strings. *Family: none* returns a map to the engine's own start spawns (now side
 Still open, lower priority: which names key the S&D / Dom / Hardpoint marker sets (FLAGS2 batch built,
 unread); Crossroads (full-map layout under Gunfight, parked); a human joiner on the new spawns.
 
+### 2026-09-15 — TDM's two spawn regimes, and the pick mode
+
+klaze: *"in real TDM the spawns are further back on the boat; after respawning I was brought closer up.
+Gunfight with TDM seems to use the closer-up version — probably ideal on most maps, but I'd like to
+understand and control it."* The model: **openings** = `usestartspawns()` true during the round-start
+grace period → the engine's `start_spawn` list (built at match start from the `tdm` markers, no flag —
+the two extremes); **respawns** = grace over → the scored path over `normal`, weighted toward teammates
+and away from enemies/recent deaths → "closer up" as the team advances. Gunfight never takes the scored
+path (`alwaysusestartspawns`). The TDM-family anchors sit at ±gap/2 from the centre, so they are
+structurally the closer-up kind.
+
+Controls: **Family: none** = the engine's `start_spawn` = TDM's openings exactly (side swap now applied);
+**Guard gap** = the near/far continuum; **`gf_spawn_pick`** (new, default 0 near): 1 = **far ends** — on
+each axis the per_side markers nearest the two outermost projections, scored tight-and-far — TDM's
+openings rebuilt from markers, so it also works where the engine has none. Spawns page *Pick: near /
+far ends*; app Spawns; FAMILIES shows `pick=`. Payload 217,491 B / 1,316 strings, never run.
+

@@ -112,6 +112,9 @@
 //                       mp_spawn_point), uses their side fields when present, and places EVERY
 //                       spawn on them. Gunfight on the S&D spawn set = 2.
 //     gf_dbg_flags      1 = one feed line: which flag fields the markers carry + value tallies.
+//     gf_spawn_pick     0 (default) near: the two sides sit around the centre at gf_spawn_gap -
+//                       TDM's respawn zone, the "closer up" spawns. 1 far ends: the two outermost
+//                       marker groups on the best axis - TDM's opening spawns, rebuilt from markers.
 //     gf_spawn_gap      1800 (default) - the guard's target distance in units between the two
 //                       sides' centres; anchors are the tightest marker groups either side of
 //                       the map centre at about that distance, facing each other.
@@ -420,6 +423,7 @@ function private cfg_spawn_guard()     { return getdvarint( #"gf_spawn_guard", 2
 function private cfg_spawn_diag()      { return getdvarint( #"gf_spawn_diag", 1 ); }
 function private cfg_spawn_autospread(){ return getdvarint( #"gf_spawn_autospread", 2500 ); }
 function private cfg_spawn_gap()       { return getdvarint( #"gf_spawn_gap", 1800 ); }
+function private cfg_spawn_pick()      { return getdvarint( #"gf_spawn_pick", 0 ); }
 function private cfg_strike()          { return getdvarint( #"gf_strike", 0 ); }
 function private cfg_caster_probe()   { return getdvarint( #"gf_caster_probe", 1 ); }
 
@@ -1926,7 +1930,43 @@ function private mod_spawn_build()
     best = undefined;
     bestscore = 0;
 
-    for ( a = 0; a < 4; a++ )
+    // PICK: far ends (klaze, 2026-09-15 - "in real TDM the opening spawns are further back on
+    // the boat, respawns closer up; Gunfight-with-TDM-family uses the closer version"). TDM's
+    // openings are the engine's start_spawn list = the two extremes; this rebuilds that from
+    // the markers: on each axis the per_side markers nearest the two outermost projections,
+    // scored tight-and-far. The gap-based pick (0, default) is the "closer up" version.
+    if ( cfg_spawn_pick() == 1 )
+    {
+        for ( a = 0; a < 4; a++ )
+        {
+            dir = mod_axis_dir( a );
+            lo = 0;
+            hi = 0;
+            foreach ( p in pts )
+            {
+                pr = ( p.origin[ 0 ] - center[ 0 ] ) * dir[ 0 ] + ( p.origin[ 1 ] - center[ 1 ] ) * dir[ 1 ];
+                if ( pr < lo ) lo = pr;
+                if ( pr > hi ) hi = pr;
+            }
+            p1 = center + vectorscale( dir, lo );
+            p2 = center + vectorscale( dir, hi );
+            t1 = mod_nearest_k_excl( pts, p1, per_side, undefined, undefined, undefined, 0, 0 );
+            t2 = mod_nearest_k_excl( pts, p2, per_side, t1, undefined, undefined, 0, 0 );
+            if ( t1.size < 3 || t2.size < 3 )
+                continue;
+            c1 = mod_centroid( t1 );
+            c2 = mod_centroid( t2 );
+            sep = sqrt( mod_dist2d_sq( c1, c2 ) );
+            score = mod_mean_dist2d( t1, c1 ) + mod_mean_dist2d( t2, c2 ) - sep * 0.25;
+            if ( !isdefined( best ) || score < bestscore )
+            {
+                best = { #t1:t1, #t2:t2, #c1:c1, #c2:c2, #sep:sep };
+                bestscore = score;
+            }
+        }
+    }
+
+    for ( a = 0; a < 4 && cfg_spawn_pick() == 0; a++ )
     {
         dir = mod_axis_dir( a );
 
@@ -4834,6 +4874,10 @@ function private build_tree()
     // the map deletes them. No-op on other maps.
     self menu_item( "spawns", "Crossroads: Strike layout ON", &act_strike, 1, undefined, #"gf_strike", 1 );
     self menu_item( "spawns", "Crossroads: full map - stock", &act_strike, 0, undefined, #"gf_strike", 0 );
+    // Which markers become the two sides: near = around the centre at the gap (TDM's
+    // respawn zone, the "closer up" spawns); far ends = the two extremes (TDM's openings).
+    self menu_item( "spawns", "Pick: near - gap based", &act_spawn_pick, 0, undefined, #"gf_spawn_pick", 0 );
+    self menu_item( "spawns", "Pick: far ends - like TDM openings", &act_spawn_pick, 1, undefined, #"gf_spawn_pick", 1 );
     // How far apart the guard puts the two sides (units between the side centres).
     self menu_item( "spawns", "Guard gap 1200", &act_spawn_gap, 1200, undefined, #"gf_spawn_gap", 1200 );
     self menu_item( "spawns", "Guard gap 1800", &act_spawn_gap, 1800, undefined, #"gf_spawn_gap", 1800 );
@@ -6598,7 +6642,7 @@ function private families_line()
         line += " objr=" + int( mod_mean_dist2d( obj, c ) ) + " startmin=" + int( mod_min_dist2d( starts, c ) ) + " trip=" + cfg_spawn_autospread();
     }
 
-    line += " | family=" + family_name( cfg_spawn_family() ) + ( ( isdefined( level.gf_family_note ) && level.gf_family_note != "" ) ? ( " " + level.gf_family_note ) : "" );
+    line += " | pick=" + ( cfg_spawn_pick() ? "far" : "near" ) + " family=" + family_name( cfg_spawn_family() ) + ( ( isdefined( level.gf_family_note ) && level.gf_family_note != "" ) ? ( " " + level.gf_family_note ) : "" );
 
     if ( isdefined( level.gfmenu_spawn ) )
     {
@@ -6676,6 +6720,15 @@ function private act_zone_capture( item, seconds )
     setdvar( #"gf_zone_capture", seconds );
     level.capturetime = seconds;
     self menu_say( "^2zone capture " + seconds + "s" );
+    return true;
+}
+
+function private act_spawn_pick( item, value )
+{
+    setdvar( #"gf_spawn_pick", value );
+    if ( cfg_spawn_guard() )
+        mod_spawn_build();
+    self menu_say( value ? "^2spawn pick: far ends - the two outermost groups, like TDM openings" : "^2spawn pick: near - gap based, the closer-up version" );
     return true;
 }
 
