@@ -175,6 +175,8 @@ CONFIG = {
     "Teams": [
         ("gf_team_size", "Team size", "choice",
          [("2v2", 2), ("3v3", 3), ("4v4", 4), ("5v5", 5), ("6v6", 6)], 4),
+        ("gf_spec_slots", "Spectator slots (added to maxplayers)", "choice",
+         [("0", 0), ("2", 2), ("4", 4)], 2),
     ],
     "Round": [
         ("gf_timer_seconds", "Round timer (s)", "int", (0, 1440, 10), 60),
@@ -347,6 +349,7 @@ TIPS = {
     "gf_fly_speed": "Fly mode speed (Player -> Fly). Sprint speed is the separate field.",
     "gf_fly_fast": "Fly mode speed while sprinting.",
     "gf_menu_hspan": "How many menu items the centre carousel shows side by side (default 4).",
+    "gf_spec_slots": "Spectator/caster slots added on top of team size x 2 in the maxplayers write (capped at the lobby budget), so a spectator does not take a player slot when filling bots.",
     "gf_spawn_gap": "Target distance between the two sides the guard builds (tightest marker groups either side of the map centre, facing each other).",
     "gf_spawn_autospread": "AUTO trips when the nearest start spawn is farther than obj-radius + this (units).",
     "gf_spawn_diag": "Print spawn diagnostics to the feed.",

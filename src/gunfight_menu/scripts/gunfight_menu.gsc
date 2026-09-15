@@ -39,6 +39,9 @@
 // The dvars, read by mod_apply once per match:
 //
 //     gf_team_size      per side, default 4
+//     gf_spec_slots     2 (default) - spectator/caster slots ADDED to the maxplayers write (team
+//                       size x 2 + slots, capped at com_maxclients) so a spectator does not eat a
+//                       player slot at bot fill / join time (klaze 2026-09-15: 4v4 + 1 spectator = 3v4 fill).
 //     gf_timer_seconds  default 60. 0 = NO round timer: rounds end by elimination only
 //     gf_prematch       pre-MATCH countdown in seconds - "match starting in", before round 1.
 //                       Default 15 (the custom-games row offers 5/10/15/30/45/60). -1 = the
@@ -387,6 +390,7 @@ function private __init__()
 // ═════════════════════════════════════════════════════════════════════════════
 
 function private cfg_team_size()     { return getdvarint( #"gf_team_size", 4 ); }
+function private cfg_spec_slots()    { return getdvarint( #"gf_spec_slots", 2 ); }
 function private cfg_timer_seconds() { return getdvarint( #"gf_timer_seconds", 60 ); }
 // "60s", or "inf" when the timer is off - shared by the state line and the compact
 // header so neither ever reads "0s" for unlimited.
@@ -590,6 +594,20 @@ function private dvars_register()
 // Never ask the session for more clients than it has slots for. com_maxclients is
 // read-only from script but READABLE - 10 in a 3v3 lobby, 8 in a normal one - so the
 // bound is measured live rather than assumed. Copied from gunfight_mod.
+// The maxplayers write: team size x 2 PLUS spectator slots (gf_spec_slots, default 2 - the
+// game's own caster allowance), capped at the client budget. klaze 2026-09-15: "spectators
+// seem to count towards the limit - 4v4 with one spectator makes it 3v4 bot fill". With the
+// budget at 12 (a TDM-config lobby) the only cap left at 9 clients is maxplayers = 8, so the
+// spectator is being counted against it; adding the slots lifts it to 10.
+function private maxplayers_value( per_side )
+{
+    mp = per_side * 2 + cfg_spec_slots();
+    budget = getdvarint( #"com_maxclients", 0 );
+    if ( budget > 0 && mp > budget )
+        mp = budget;
+    return mp;
+}
+
 function private clamp_team_size( per_side )
 {
     budget = getdvarint( #"com_maxclients", 0 );
@@ -702,7 +720,7 @@ function private mod_apply()
 
     // Team size. maxplayers = 2 x per side; L6 measured it survives the round boundary,
     // so this is belt-and-braces against the CARRY, which re-initialises settings.
-    setgametypesetting( #"maxplayers", clamp_team_size( cfg_team_size() ) * 2 );
+    setgametypesetting( #"maxplayers", maxplayers_value( clamp_team_size( cfg_team_size() ) ) );
 
     // ── Mode remnants after a session switch ─────────────────────────────────
     // Gametype settings SURVIVE switchmap_load (LS6, docs/notes/session-switch.md), so a
@@ -3536,7 +3554,7 @@ function private cmd_apply_live()
     if ( !mod_is_gunfight() )
         return;
 
-    setgametypesetting( #"maxplayers", clamp_team_size( cfg_team_size() ) * 2 );
+    setgametypesetting( #"maxplayers", maxplayers_value( clamp_team_size( cfg_team_size() ) ) );
 
     dcc = cfg_customcac() ? 0 : 1;
     setgametypesetting( #"disablecustomcac", dcc );
@@ -4775,6 +4793,11 @@ function private build_tree()
     // after a SESSION map switch (2026-09-12). clamp_team_size() bounds it at budget/2, so
     // in an 8- or 10-slot lobby this item degrades to 4v4 / 5v5 and says so.
     self menu_item( "teams", "6v6", &act_team_size, 6, undefined, #"gf_team_size", 6 );
+    // Spectator slots added to maxplayers on top of the team size (default 2 = the caster
+    // allowance) so a spectator does not eat a player slot at bot fill / join time.
+    self menu_item( "teams", "Spectator slots 0", &act_spec_slots, 0, undefined, #"gf_spec_slots", 0 );
+    self menu_item( "teams", "Spectator slots 2", &act_spec_slots, 2, undefined, #"gf_spec_slots", 2 );
+    self menu_item( "teams", "Spectator slots 4", &act_spec_slots, 4, undefined, #"gf_spec_slots", 4 );
     self menu_item( "teams", "Fill with bots", &act_fill_bots );
     self menu_item( "teams", "Remove all bots", &act_remove_bots );
 
@@ -5404,11 +5427,19 @@ function private build_tree()
 
 // ── Teams ────────────────────────────────────────────────────────────────────
 
+function private act_spec_slots( item, value )
+{
+    setdvar( #"gf_spec_slots", value );
+    setgametypesetting( #"maxplayers", maxplayers_value( clamp_team_size( cfg_team_size() ) ) );
+    self menu_say( "^2spectator slots " + value + " - maxplayers now " + census_v( getgametypesetting( #"maxplayers" ) ) + " (budget " + getdvarint( #"com_maxclients", 0 ) + ")" );
+    return true;
+}
+
 function private act_team_size( item, per_side )
 {
     clamped = clamp_team_size( per_side );
     setdvar( #"gf_team_size", clamped );
-    setgametypesetting( #"maxplayers", clamped * 2 );
+    setgametypesetting( #"maxplayers", maxplayers_value( clamped ) );
 
     if ( clamped < per_side )
     {
@@ -5449,7 +5480,7 @@ function private fill_bots()
 
             if ( !isdefined( b ) )
             {
-                self menu_say( "^1bot refused at " + getplayers( #"allies" ).size + "v" + getplayers( #"axis" ).size + " - client budget hit" );
+                self menu_say( "^1bot refused at " + getplayers( #"allies" ).size + "v" + getplayers( #"axis" ).size + " - clients " + getplayers().size + " / budget " + getdvarint( #"com_maxclients", 0 ) + " / maxplayers " + census_v( getgametypesetting( #"maxplayers" ) ) );
                 return;
             }
 
