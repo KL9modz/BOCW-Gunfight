@@ -921,6 +921,17 @@ function private mod_spawn_movement()
 
     self speed_apply();
     self thread jump_boost_think();
+
+    // Fall damage off, the engine-native way (2026-09-15): specialty_fallheight is the engine
+    // perk behind "no fall damage" - Infected grants it to the infected (infect.gsc:87),
+    // Zombies Turned sets/unsets it (zm_turned.gsc:149/:228); no CW loadout perk exposes it.
+    // Granted here, after give_loadout has cleared and re-applied the loadout's perks
+    // (globallogic_spawn.gsc:637 vs this callback at :758), so it survives the spawn. The
+    // bg_falldamage* dvars and the onplayerdamage gate stay as belt-and-braces.
+    if ( !cfg_falldamage() )
+        self setperk( #"specialty_fallheight" );
+    else if ( self hasperk( #"specialty_fallheight" ) )
+        self unsetperk( #"specialty_fallheight" );
 }
 
 // gf_speed percent -> setmovespeedscale, on top of the loadout's own modifier exactly the
