@@ -582,9 +582,10 @@ class App:
                    command=self._apply_restart).pack(side="left")
         ttk.Button(bar, text="Reset",
                    command=self._reset).pack(side="left", padx=6)
-        ttk.Button(bar, text="Apply ALL (sync)",
-                   command=lambda: self._apply_config(trailer={"gf_cmd_apply": 1, "gf_cmd_go": 1}, force=True)
-                   ).pack(side="left", padx=6)
+        # NO "Apply ALL" button: one existed for ~10 minutes on 2026-09-15 and CRASHED the game
+        # on first click - ~60 `set gf_*` in one message registers that many dvars at once and
+        # the store overflows ("Can't register more dvar", the 2026-09-14 crash class). The
+        # touched-field rule above is the safe way to undo an in-game menu value.
         ttk.Label(bar, text="Apply now = live this round (gf_cmd_apply, no restart)",
                   foreground="#777").pack(side="left", padx=10)
 
@@ -891,8 +892,8 @@ class App:
         # fires: {"gf_cmd_apply":1,"gf_cmd_go":1} (live) or {"gf_cmd_restart":1,"gf_cmd_go":1}.
         # Send CHANGED settings, ones sent before, and ones the user touched (even back to the
         # default) - not the whole set every time, to avoid registering ~50 dvars per apply.
-        # force=True (Apply ALL) sends every field: the sync button for when the in-game menu
-        # and the app have drifted.
+        # force=True would send every field - never wire it to a button: it crashed the game
+        # (dvar store overflow) on 2026-09-15. Kept only for a deliberate, small CONFIG.
         settings = {}
         for dvar, v in self.vars.items():
             val = v.get()
