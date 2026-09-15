@@ -523,6 +523,11 @@ class App:
         self._defaults = {dvar: default for fields in CONFIG.values()
                           for dvar, _l, _k, _s, default in fields}
         self._sent: set = set()
+        # Anything the user TOUCHES in the UI is sent on the next apply even when it sits at
+        # the app default - the in-game menu (or a previous app run) may have left the dvar
+        # at another value, and "unchanged from default" then silently did nothing
+        # (klaze 2026-09-15: unchecking bots passive / fall damage + Apply had no effect).
+        self._touched: set = set()
         # The bridge is the working control path; the old DvarBackend memory-write is retired
         # here (route A - external dvar write - was proven not to reach the GSC dvar store).
         self.backend = BridgeBackend(dry_run=not live) if bridge_channel is not None else None
@@ -577,6 +582,9 @@ class App:
                    command=self._apply_restart).pack(side="left")
         ttk.Button(bar, text="Reset",
                    command=self._reset).pack(side="left", padx=6)
+        ttk.Button(bar, text="Apply ALL (sync)",
+                   command=lambda: self._apply_config(trailer={"gf_cmd_apply": 1, "gf_cmd_go": 1}, force=True)
+                   ).pack(side="left", padx=6)
         ttk.Label(bar, text="Apply now = live this round (gf_cmd_apply, no restart)",
                   foreground="#777").pack(side="left", padx=10)
 
@@ -637,17 +645,20 @@ class App:
             combo.bind("<<ComboboxSelected>>",
                        lambda e, s=spec, v=var, cb=combo: v.set(s[cb.current()][1]))
             self.vars[dvar] = var
+            var.trace_add("write", lambda *_a, d=dvar: self._touched.add(d))
         elif kind == "int":
             lo, hi, step = spec
             var = tk.IntVar(value=default)
             ttk.Spinbox(parent, from_=lo, to=hi, increment=step, textvariable=var,
                         width=8).grid(row=r, column=c + 1, sticky="w", padx=(0, 8), pady=3)
             self.vars[dvar] = var
+            var.trace_add("write", lambda *_a, d=dvar: self._touched.add(d))
         elif kind == "toggle":
             var = tk.IntVar(value=default)
             ttk.Checkbutton(parent, variable=var).grid(row=r, column=c + 1, sticky="w",
                                                        padx=(0, 8), pady=3)
             self.vars[dvar] = var
+            var.trace_add("write", lambda *_a, d=dvar: self._touched.add(d))
 
     # ---- Actions tab --------------------------------------------------------
     def _actions_tab(self, nb) -> ttk.Frame:
@@ -875,15 +886,17 @@ class App:
             self._say(f"connect: {e}")
         self._drain()
 
-    def _apply_config(self, trailer=None):
+    def _apply_config(self, trailer=None, force=False):
         # trailer (optional) rides in the SAME message so the config lands before the command
         # fires: {"gf_cmd_apply":1,"gf_cmd_go":1} (live) or {"gf_cmd_restart":1,"gf_cmd_go":1}.
-        # Send only CHANGED settings (or ones we've sent before) to avoid registering ~50 dvars
-        # every apply and overflowing the game's dvar store.
+        # Send CHANGED settings, ones sent before, and ones the user touched (even back to the
+        # default) - not the whole set every time, to avoid registering ~50 dvars per apply.
+        # force=True (Apply ALL) sends every field: the sync button for when the in-game menu
+        # and the app have drifted.
         settings = {}
         for dvar, v in self.vars.items():
             val = v.get()
-            if val != self._defaults.get(dvar) or dvar in self._sent:
+            if force or val != self._defaults.get(dvar) or dvar in self._sent or dvar in self._touched:
                 settings[dvar] = val
                 self._sent.add(dvar)
         changed = len(settings)
