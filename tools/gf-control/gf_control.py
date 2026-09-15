@@ -251,6 +251,10 @@ CONFIG = {
         ("gf_speed", "Move speed %", "int", (25, 400, 25), 100),
         ("gf_falldamage", "Fall damage", "toggle", None, 0),
         ("gf_jump", "Jump height", "int", (-1, 1000, 10), -1),
+        ("gf_fly_speed", "Fly speed", "choice",
+         [("10", 10), ("20", 20), ("40", 40), ("80", 80)], 20),
+        ("gf_fly_fast", "Fly sprint speed", "choice",
+         [("30", 30), ("60", 60), ("120", 120), ("240", 240)], 60),
     ],
     "Overtime zone": [
         # gunfight_menu "Overtime zone" page (docs/notes/overtime-zone.md). Off = HP tiebreak.
@@ -290,6 +294,7 @@ CONFIG = {
          [("Menu centre + info feed + hint", 2), ("Lower-left feed", 0), ("Center", 1),
           ("Menu feed + status centre", 3)], 2),
         ("gf_feed_lines", "Feed lines", "int", (2, 12, 1), 14),
+        ("gf_menu_hspan", "Centre carousel width (items)", "int", (1, 9, 1), 4),
         ("gf_caster_probe", "Caster input probe", "choice", [("Off", 0), ("On", 1)], 1),
         # Debug feed: each tool prints ONE complete feed line every 3 s while on.
         ("gf_census", "Debug: settings census", "choice",
@@ -339,6 +344,9 @@ TIPS = {
     "gf_spawn_family": "Build the guard's anchors only from markers flagged for this mode (mp_spawn_point fields like tdm=1, sd=1), using their side fields when present; every spawn goes on them. S&D = Gunfight on the S&D spawn set.",
     "gf_dbg_flags": "Debug feed: one line - which mode/side flag fields the map's spawn markers carry, with value tallies.",
     "gf_spawn_pick": "Near = two groups around the map centre at the gap (TDM's respawn zone). Far ends = the two outermost marker groups (TDM's opening spawns), rebuilt from markers so it works where the engine has none.",
+    "gf_fly_speed": "Fly mode speed (Player -> Fly). Sprint speed is the separate field.",
+    "gf_fly_fast": "Fly mode speed while sprinting.",
+    "gf_menu_hspan": "How many menu items the centre carousel shows side by side (default 4).",
     "gf_spawn_gap": "Target distance between the two sides the guard builds (tightest marker groups either side of the map centre, facing each other).",
     "gf_spawn_autospread": "AUTO trips when the nearest start spawn is farther than obj-radius + this (units).",
     "gf_spawn_diag": "Print spawn diagnostics to the feed.",
@@ -708,6 +716,10 @@ class App:
                    command=lambda: self._pause(1)).pack(side="left", padx=4)
         ttk.Button(r4, text="Resume match", width=16,
                    command=lambda: self._pause(2)).pack(side="left", padx=4)
+        ttk.Button(r4, text="Announce settings", width=18,
+                   command=lambda: self._action("announce")).pack(side="left", padx=4)
+        ttk.Button(r4, text="Countdown 5..GO", width=16,
+                   command=lambda: self._action("countdown")).pack(side="left", padx=4)
         r5 = ttk.Frame(box4)
         r5.pack(fill="x", padx=10, pady=(4, 2))
         ttk.Label(r5, text="Broadcast").pack(side="left")
@@ -764,7 +776,34 @@ class App:
             ttk.Button(r8, text="Set",
                        command=lambda a=act: self._action(a, str(getattr(self, f"cos_{a}").get()))
                        ).pack(side="left", padx=(0, 14))
+
+        # Per-player verbs (the menu's Players page): gf_cmd_target names the player as shown
+        # in game - exact name or a case-insensitive prefix; the GSC resolves it.
+        box6 = ttk.LabelFrame(tab, text="Player by name  (as shown in game; a prefix is enough)")
+        box6.pack(fill="x", padx=12, pady=6)
+        r9 = ttk.Frame(box6)
+        r9.pack(fill="x", padx=10, pady=(10, 10))
+        ttk.Label(r9, text="Player").pack(side="left")
+        self.target_var = tk.StringVar()
+        ttk.Entry(r9, textvariable=self.target_var, width=22).pack(side="left", padx=6)
+        for text, act, arg in [("Move to allies", "move", "allies"), ("Move to axis", "move", "axis"),
+                               ("Spectator", "spectate", ""), ("Freeze / unfreeze", "freezeone", "")]:
+            ttk.Button(r9, text=text, width=16,
+                       command=lambda a=act, g=arg: self._target_action(a, g)).pack(side="left", padx=3)
         return tab
+
+    def _target_action(self, name, arg=""):
+        target = self.target_var.get().strip()
+        if not target:
+            self._say("name a player first")
+            return
+        # quoted like the broadcast text: names carry spaces ("C. Smartt"); the per-command
+        # cap is ~48 bytes, so keep the name short - a prefix resolves in the GSC.
+        s = {"gf_cmd_target": f'"{target[:24]}"', "gf_cmd_action": name}
+        if arg != "":
+            s["gf_cmd_arg"] = arg
+        s["gf_cmd_go"] = 1
+        self._write(s)
 
     # ---- Inject / Status tab -----------------------------------------------
     def _inject_tab(self, nb) -> ttk.Frame:

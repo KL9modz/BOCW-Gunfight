@@ -3578,8 +3578,48 @@ function private cmd_action( action, arg )
         case "camo":        self act_camo( it, int( arg ) );     break;
         case "operator":    self act_skin( it, int( arg ) );     break;
         case "outfit":      self act_outfit( it, int( arg ) );   break;
+        case "announce":    self act_announce( it );             break;
+        case "countdown":   self act_countdown( it );            break;
+        // Per-player verbs (2026-09-15, app parity): gf_cmd_target names the player as shown
+        // in game (case-insensitive, prefix match accepted); arg = team for move.
+        case "move":        self act_move( it, cmd_target(), ( tolower( arg ) == "axis" ) ? #"axis" : #"allies" ); break;
+        case "spectate":    self act_spectate( it, cmd_target() ); break;
+        case "freezeone":   self act_freeze_player( it, cmd_target() ); break;
         default:            self menu_say( "^1app: unknown action '" + action + "'" ); break;
     }
+}
+
+// The player gf_cmd_target names: exact name first, then a case-insensitive prefix; the
+// dvar is consumed. undefined (with a feed line) when nobody matches, and the act_* verbs
+// already answer "player left" to undefined.
+function private cmd_target()
+{
+    want = getdvarstring( #"gf_cmd_target", "" );
+    setdvar( #"gf_cmd_target", "" );
+
+    if ( want == "" )
+    {
+        self menu_say( "^1app: no target player named" );
+        return undefined;
+    }
+
+    lw = tolower( want );
+    hit = undefined;
+    foreach ( player in getplayers() )
+    {
+        if ( !isdefined( player.name ) )
+            continue;
+        pn = tolower( player.name );
+        if ( pn == lw )
+            return player;
+        if ( !isdefined( hit ) && pn.size >= lw.size && getsubstr( pn, 0, lw.size ) == lw )
+            hit = player;
+    }
+
+    if ( !isdefined( hit ) )
+        self menu_say( "^1app: no player named '" + want + "'" );
+
+    return hit;
 }
 
 function private menu_restart()
