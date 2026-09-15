@@ -893,6 +893,23 @@ function private mod_falldamage_apply()
         setdvar( #"bg_falldamageminheight", 100000 );
         setdvar( #"bg_falldamagemaxheight", 200000 );
     }
+
+    // The hard way too (klaze 2026-09-15: "fall damage isn't always off and I'm not touching
+    // it"). The dvars are what the engine consults, but something re-applies the stock
+    // thresholds on some rounds. So the script-side damage gate as well: level.onplayerdamage
+    // (player_damage.gsc:1482) - returning 0 makes modify_player_damage return undefined, and
+    // :139 treats undefined damage as no damage, stock's own path. Installed only where stock
+    // left the default (&globallogic::blank); VIP/OIC/SAS/Prop own theirs and keep them.
+    if ( level.onplayerdamage == &globallogic::blank || level.onplayerdamage == &mod_onplayerdamage )
+        level.onplayerdamage = &mod_onplayerdamage;
+}
+
+function private mod_onplayerdamage( einflictor, eattacker, idamage, idflags, smeansofdeath, weapon, vpoint, vdir, shitloc, psoffsettime )
+{
+    if ( !cfg_falldamage() && isdefined( smeansofdeath ) && smeansofdeath == "MOD_FALLING" )
+        return 0;
+
+    return undefined;
 }
 
 // Per-life movement state, every player (on_spawned fires after give_loadout, which is
