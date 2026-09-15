@@ -98,6 +98,12 @@ These are **not** auto-loaded. Open the one you need.
   2026-09-13, never run): one `sethintstring` on a trigger linked to the host — the layout every "full
   HUD" Cold War GSC menu really uses, since T9 retail has no hudelem builtins. No fade, no ~4-line cap.
   Stock shapes it copies (ctf / laststand / vip), the seven-step test, and the joiner-visibility guard.
+- [lui-elems](lui-elems.md) — **positioned text rows from script, MEASURED 2026-09-13**: T9 has no hudelem
+  builtins but ships their replacement, the luielem system (`LUIelemText` / `LUIelemImage`, x/y/colour/alpha
+  per row, no line cap). A CLIENT payload (`src/gunfight_menu_c/`, pair load_shared.csc → radiation_debug.csc)
+  opened one in an MP match and it drew "Match starting" — then a plain string in it was a **fatal LUI error**
+  (`localizeentry`, hash = the string). So: positioned rows of STOCK localized keys only, a wrong key crashes
+  the client, and the hint panel stays the free-text ceiling. The `77LCOPnn` readout; crash-dump decode.
 - [ecosystem-survey](ecosystem-survey.md) — **the whole Cold War modding scene, swept 2026-09-13.**
   Nobody else does open MP gametype/lobby work; the one new thing is the Zombies-only *T9 Mod Manager*
   scene (Aug 2026, 1.4k-member Discord, encrypted `.cwm` packages, mods configured in the pregame

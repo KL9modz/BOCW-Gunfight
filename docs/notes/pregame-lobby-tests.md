@@ -99,9 +99,87 @@ host-side; the open question is the **joiner**.
 
 | Test | Result | Verdict |
 |---|---|---|
-| 1 · frontend GSC (probe 50 / 52) | | |
-| 2 · lobby-set red-triangle (held?) | | |
+| 1 · frontend GSC (probe 50 / 52) | ✅ **PASS 2026-09-14** — GSC runs in the lobby; a `maxplayers` write from the lobby carries into the match | **read + write + carry all confirmed** |
+| 2 · lobby-set red-triangle (held?) | ❌ **NEGATIVE 2026-09-14** — setters resolve, but calling them from a remote thread doesn't drive the lobby and hangs match start | **native-setter route via `CreateRemoteThread` doesn't deliver; STAGE remains** |
 | 3 · STAGE + joiner | | |
+
+### Test 2 — full result (2026-09-14, klaze). The setters are real; the *method* doesn't land.
+
+The scan is clean and repeatable across relaunches: `LobbySetGameType` @ `module+0xae4b730`,
+`LobbySetMap` @ `module+0xae4b810`, the call-site and prologue signatures **agree** on LobbySetMap, and
+the two sit **0xe0 apart** (BO4 has them 0x10 apart — same jump table). ate47's signatures resolve on
+this CW build with high confidence, and both targets have MSVC function-entry shape. So the addresses
+are not in doubt.
+
+What the three calls did:
+
+| Call | timeout | result | lobby |
+|---|---|---|---|
+| `LobbySetGameType(0,"gunfight")` | 5s | **returned** | no visible change (lobby was already Gunfight) |
+| `LobbySetMap(0,"mp_miami")` (off-compat) | 5s | **TIMED OUT** (hung) | game stayed up; map unchanged |
+| `LobbySetMap(0,"mp_sm_market")` (compatible) | 15s | **returned** | **map row did NOT update**, then **hitting Play HUNG the game** |
+
+▶ **The Play-hang is the finding.** LobbySetMap is *not* a no-op — it wrote enough underlying state to
+**break the match load** — but it did **not** update the visible map row, and the loader then choked on
+the inconsistent lobby. Clicking a map row in the UI drives the LUA/session model, the dependent map
+fields, and these C++ setters *together*; calling the two C++ functions alone from a remote thread
+leaves the lobby **half-set** — invisible to the UI, fatal on start. The functions are **lower-level
+than the row-click handler** and (LobbySetMap on the large off-compat Miami) also appear to want the
+main UI thread, hanging when hijacked onto a `CreateRemoteThread`.
+
+⇒ **The native-setter route does not give pregame map control via this injection method.** Measured,
+reproducible (Play hangs), no longer "untried". A *different* approach — calling the higher-level
+row-click handler that updates everything, or driving it on the UI thread — is a separate, unbuilt
+investigation. **Untried — not ruled out:** that higher-level handler; setting on the UI thread (APC /
+hook) rather than a fresh remote thread.
+
+**Tool changes made this session** (`tools/lobby-set.py`, all in the Python app / agent lane): forced
+UTF-8 output (a `✓`/`⚠`/`→` print was crashing on the cp1252 console — and would have crashed the write
+path before the setter call); on a thread **timeout the stub+string are now leaked, not freed** (freeing
+them under a still-running thread is a use-after-free that can itself wedge the game); added `--timeout`
+to tell a slow setter from a deadlocked one.
+
+**The map route stays STAGE (Test 3)** — `switchmap_load` staging the lobby's next map, proven
+host-side; the joiner is its open clause.
+
+### Test 1 — full result (2026-09-14, klaze, read via held on-screen summary)
+
+The probe's in-match readout was rebuilt from 13 coded numbers (one every 5 s into the 4-line feed —
+probe 52 emitted 9th at ~48 s and a ~40 s round always ended first) into **two plain-text lines held
+centre-screen, alternating every 3 s** (`iprintlnbold`; free text there is SAFE — it is the stock
+"match starting" print — unlike LUIelemText/hint-panel free text, which crashes: [[lui-elem-route]]).
+Screenshot-legible. `test_frontend.gscc` = read-only, `test_frontend_maxp.gscc` = writer.
+
+**Controlled pair, same 3v3 Gunfight lobby, only `write_maxplayers` differs:**
+
+| Run | wrote in lobby | `lobby.max` (frontend read) | `match.max` (match start, before any in-match write) |
+|---|---|---|---|
+| read-only | — | **6** (native 3v3) | **6** |
+| writer | `setgametypesetting(#"maxplayers",8)` each sample | **8** | **8** |
+
+- **GSC runs in the pregame lobby** — samples 10–68 over ~100–680 s (probe 50). Closes "nothing runs
+  there" for good.
+- **The frontend store is the real pending config, not a default** — read-only `lobby.max=6` == the
+  match's `match.max=6`, and `time=40` matched too.
+- **A frontend `maxplayers` write carries into the match** — writer `lobby.max` read back 8 (write
+  stuck) and the match *launched* at `match.max=8`. The in-match half only reads, so the 8 is the
+  carried pregame value, not an in-match write. Same store the match starts from.
+- ✅ **This DIRECTLY MEASURES the mechanism the 2026-09-09 P2 run could only infer.** That run confirmed
+  the *behaviour* — klaze seated a 4th bot per side and played **4v4** (HUD: 4 icons/side, [[pregame-routes]]
+  P2 RESULT) — but its probes **59/60 were never captured**: the 5s-spaced 13-probe emit chain never
+  reached them before the ~40s round ended, so "the write carried" rested on behaviour, not a number.
+  The held readout removes the round-truncation problem, and `match.max=8` is that missing number. Same
+  for probe 50 (samples, uncaptured 09-09) and the native-vs-written `lobby.max` pair.
+- ⚠ **Still open: the human joiner.** Bots-to-4v4 from the lobby is confirmed (09-09); a human 4th
+  *joining* a pregame lobby configured this way is untested. **Untried — not ruled out.**
+- Side findings: `flags=63` (frontend·private·mp·online·players·host — fully-formed private lobby);
+  `cmc` (com_maxclients) reads **2** in the lobby, not populated to the match value until the match
+  spins up; **`dbg=4`** = `adddebugcommand` is **nulled in the match** (console-from-script dead
+  in-match, like BO4) — closes the "fire a console command from script" map lead.
+
+**⇒ The write test (old P2) is the pregame team-size solve at the setting level.** Next: seat a 4th in
+the lobby / fill bots to 4v4 (bodies), then the joiner. The app can drive this by writing `maxplayers`
+from the lobby via the bridge instead of waiting for the match.
 
 **Any win closes roadmap #1** and gives the app a real pregame layer (drive the frontend, not just the
 match). Update [[pregame-routes]], [[map-native-lobby-call]], and [[roadmap]] with whichever landed.

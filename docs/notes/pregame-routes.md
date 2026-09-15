@@ -367,6 +367,25 @@ position 12. So "the write's read-back matched" is **not** directly measured; wh
 behaviour, which is stronger evidence for the goal but weaker evidence about the mechanism. Re-run for
 59/60 if the mechanism matters. Probe 58 re-read **2** (lobby `com_maxclients`), consistent with P1.
 
+✅ **GAP CLOSED 2026-09-14 — the mechanism is now directly measured.** The uncaptured-probe problem
+above was the 5s-spaced 13-probe emit chain outrunning a ~40s round. The in-match readout was rebuilt
+into **two plain-text lines held centre-screen, alternating every 3s** (`iprintlnbold`; free text there
+is stock-safe, unlike LUIelemText — [[lui-elem-route]]), so every value is on screen the whole round
+and screenshot-legible. Controlled pair, same 3v3 lobby, only `write_maxplayers` differs
+(`test_frontend.gscc` read-only vs `test_frontend_maxp.gscc` writer):
+
+| Run | `lobby.max` (frontend read) | `match.max` (match start, before any in-match write) |
+|---|---|---|
+| read-only | **6** (native 3v3) | **6** |
+| writer (`maxplayers=8`) | **8** (write stuck, read back) | **8 — CARRIED** |
+
+So the write's read-back (probe 59-equivalent: `lobby.max` 6→8) **and** the carry into the match (probe
+60: `match.max=8`) are now both direct numbers, confirming the 09-09 behavioural result at the
+mechanism level. Also captured directly this time: probe 50 samples **10–68** (frontend ran ~100–680s),
+`flags=63`, and **`dbg=4` → `adddebugcommand` is nulled in the match** (console-from-script dead
+in-match; closes P3 as a control route — see below). The only thing still resting on behaviour alone is
+the human joiner.
+
 ⚠ **Bots, not humans, again.** The team screen accepted them, which is more than the in-match route
 ever achieved — but a human 4th joining a pregame lobby is still untested.
 

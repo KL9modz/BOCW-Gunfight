@@ -437,6 +437,11 @@ Since `setloadout`/`giveweapon` are server-side and applied per player, **joiner
 with nothing installed** — this is a clean, high-value mod feature squarely inside the joiner-safe envelope.
 
 ## 16. Spawning / team-assignment — full control for Gunfight on ANY map
+
+▶ **2026-09-14: superseded in part by [`spawn-system.md`](spawn-system.md)** — CW has no per-mode
+classnames (`mp_tdm_spawn_*_start` do not exist; the families below that the guard gathers are legacy
+names), the markers are one flagged `mp_spawn_point` family, and Gunfight's selectors are TDM's generic
+ones. The pipeline description here is still right; read the new note for the mechanisms and the probe.
 The critical system for any-map Gunfight. Good news up front: **it already works on every MP map**, and the
 mod has clean hooks for *total* placement control.
 

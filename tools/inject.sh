@@ -90,6 +90,20 @@ if [ -n "${GF_TARGET:-}" ]; then
     TARGET="$GF_TARGET"
 fi
 
+# CLIENT-script projects: a .cscc on the client pair that ran and printed in the
+# MATCH client VM (2026-09-10). Its replace target differs from the .gscc pair, so
+# a client payload coexists with gunfight_menu (measured, pregame-routes.md).
+# Listed individually for the same reason as the frontend names above.
+# docs/notes/lui-elems.md
+CLIENT=0
+case "$NAME" in
+    gunfight_menu_c)
+        PAYLOAD="$SP/$NAME.cscc"
+        TARGET='scripts\core_common\load_shared.csc'
+        REPLACE='scripts\core_common\radiation_debug.csc'
+        CLIENT=1 ;;
+esac
+
 # Reject a name that would escape the payload dir before it reaches the -f test,
 # so a typo says so instead of producing a confusing MISSING path.
 case "$NAME" in
@@ -101,7 +115,7 @@ if [ ! -f "$PAYLOAD" ]; then
     echo "MISSING: $PAYLOAD"
     echo
     echo "Built payloads in $SP:"
-    ls -1 "$SP"/*.gscc 2>/dev/null | sed 's|.*/|  |; s|\.gscc$||' || echo "  (none)"
+    ls -1 "$SP"/*.gscc "$SP"/*.cscc 2>/dev/null | sed 's|.*/|  |; s|\.[gc]scc$||' || echo "  (none)"
     echo
     echo "Compile it first:  acts gscc <script>.gsc -g cw -p pc -o $SP/$NAME"
     exit 1
@@ -153,6 +167,7 @@ case "$NAME" in
     test_latejoin)     echo "  20xxxxx = allies*100 + axis. 2000404 is 4v4" ;;
     test_sessionswitch) echo "  read_only=1 FIRST: 40 must not be 99999. Live: read 41 before judging presence" ;;
     gunfight_menu)     echo "  RMB+V opens. RMB up / LMB down / R select / V back. Settings persist as gf_* dvars" ;;
+    gunfight_menu_c)   echo "  78 T B nn every 5s: 2 text rows + a 10-box material-form column at x25. WHITE bar filling = int-index material works (pos=index); RED bar = raw-string name works; nothing = boxes blocked. lui-elems.md" ;;
     lobby_state)       echo "  start the match FROM THE LOBBY, not F7. LS1-LS3 name the map the lobby believes in" ;;
     test_frontend)     echo "  inject at the MAIN MENU. match -> lobby -> set up 3v3 -> match. Read 50 FIRST: 0 = frontend half never ran" ;;
     *)    echo "  test a LOBBY RETURN afterwards if this payload writes anything" ;;

@@ -512,7 +512,8 @@ def build_stub(func: int, arg_str: int, lobby: int = LOBBY_TYPE_PRIVATE) -> byte
     )
 
 
-def call_setter(proc: Proc, func: int, value: str, lobby: int, label: str) -> bool:
+def call_setter(proc: Proc, func: int, value: str, lobby: int, label: str,
+                timeout_ms: int = 5000) -> bool:
     raw = value.encode("ascii") + b"\x00"
     s = proc.alloc(len(raw), PAGE_READWRITE)
     if not proc.write(s, raw):
@@ -527,10 +528,19 @@ def call_setter(proc: Proc, func: int, value: str, lobby: int, label: str) -> bo
         _die("could not write the stub")
 
     print(f"  {label}({lobby}, \"{value}\")  fn={func:#x} str={s:#x} stub={c:#x}")
-    ok = proc.run(c)
-    proc.free(c)
-    proc.free(s)
-    print("    " + ("returned" if ok else "TIMED OUT - the game may be wedged"))
+    ok = proc.run(c, timeout_ms)
+    if ok:
+        # Thread returned - safe to reclaim the stub and the argument string.
+        proc.free(c)
+        proc.free(s)
+        print("    returned")
+    else:
+        # TIMED OUT: the remote thread is STILL RUNNING on this stub and string.
+        # Freeing them now is a use-after-free that can crash the game on its
+        # own. Leak both instead (a few dozen bytes, gone at process exit) and
+        # say so - the setter may just be slow (a map load), or genuinely wedged.
+        print("    TIMED OUT - thread still running; leaked stub+string rather than "
+              "free them under it. The setter may be mid-load, or the game is wedged.")
     return ok
 
 
@@ -636,6 +646,18 @@ def self_test() -> int:
 
 
 def main() -> int:
+    # Windows consoles default to cp1252, which cannot encode the ✓ / ⚠ / →
+    # status glyphs printed below - Python raises UnicodeEncodeError and aborts
+    # mid-run. That is dangerous on the write path: the cross-check ✓ prints
+    # during the re-scan, BEFORE the setter call, so an un-fixed console crashes
+    # the tool before it ever writes. Force UTF-8 so a status line can never do
+    # that (no-op where stdout is already UTF-8 or not reconfigurable).
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
     ap = argparse.ArgumentParser(
         description="Set the BOCW custom-games lobby map/gametype, ignoring the UI's "
         "map-mode compatibility rule. Scans and reports by default; changes nothing "
@@ -650,6 +672,11 @@ def main() -> int:
     ap.add_argument(
         "--force", action="store_true",
         help="call even if the self-checks are unhappy",
+    )
+    ap.add_argument(
+        "--timeout", type=float, default=5.0,
+        help="seconds to wait for each setter's thread before giving up (default 5). "
+        "Raise it to tell a slow setter (a map load) from a deadlocked one.",
     )
     ap.add_argument("--func-gametype", help="skip the scan, use this absolute address")
     ap.add_argument("--func-map", help="skip the scan, use this absolute address")
@@ -774,10 +801,11 @@ def main() -> int:
         print("\ncalling")
         # Gametype first: in the stock UI picking a mode is what filters the map
         # list, so this is the order the front end itself uses.
+        timeout_ms = int(args.timeout * 1000)
         if args.gametype:
-            call_setter(proc, fn_gt, args.gametype, args.lobby, "LobbySetGameType")
+            call_setter(proc, fn_gt, args.gametype, args.lobby, "LobbySetGameType", timeout_ms)
         if args.map:
-            call_setter(proc, fn_map, args.map, args.lobby, "LobbySetMap")
+            call_setter(proc, fn_map, args.map, args.lobby, "LobbySetMap", timeout_ms)
 
         print(
             "\nLook at the lobby. The map and mode rows are what to read - and then "

@@ -58,6 +58,23 @@
 //                       Asserted at every Gunfight match start (mod_apply) and primed before a
 //                       switch (mode_profile_prime). The rest of the blob is measured, not guessed:
 //                       Display -> Settings census. docs/notes/mode-remnants.md
+//     gf_profile        1 (default) = when a Gunfight level is running on ANOTHER mode's blob (only
+//                       an in-match Switch NOW from TDM does that - a lobby launch rebuilds the
+//                       blob from the session gametype, column B == A), assert the REAL Gunfight
+//                       blob (column A, docs/notes/mode-remnants.md): settings + level vars, so
+//                       1 life per round, no kill limit, fixed loadouts, no streaks/perks. Detected
+//                       by playerNumLives/roundWinLimit (profile_is_hybrid). 0 = the raw hybrid.
+//     gf_census         0 off (default). DEBUG FEED: 1 = print the settings blob AS LAUNCHED
+//                       (the snapshot mod_apply takes before its own writes) as ONE feed line
+//                       every 3 s; 2 = the LIVE values. Short keys, legend in
+//                       docs/notes/mode-remnants.md. Display -> Debug feed.
+//     gf_dbg_spawn      1 = one feed line every 3 s: this round's engine/guard placements, every
+//                       player (name:team:how:d:PILE) + the guard state. docs/notes/spawn-system.md
+//     gf_dbg_structs    1 = one feed line: mp_spawn_point counts, the first structs' fields, the
+//                       engine's spawn list names.
+//     gf_dbg_families   1 = one feed line: spawn-struct family counts, legacy detector numbers,
+//                       what the guard built.
+//     gf_dbg_match      1 = one feed line: the Show-match-info readout.
 //     gf_camo           camo forced onto every loadout-pool weapon, every player, every spawn.
 //                       -2 random each round (DEFAULT: one roll per weapon, shared by everyone)
 //                       -3 random per player-spawn / -1 stock (the pool's own look - bare,
@@ -84,6 +101,20 @@
 //                       which buttons a caster delivers to GSC + which channel renders can be
 //                       read off in one match. Toggle from Display. Only runs while casting.
 //     gf_spawn_diag     1 on (default) - 60=armed(N) / 61=inert + AUTO probes
+//     gf_strike         0 (default) - Crossroads: keep the STRIKE layout under Gunfight by renaming
+//                       the oob-clip / boundary entities the map's on_game_playing would delete.
+//                       Off by default: the client map script still draws the 12v12 minimap and
+//                       bounds (mp_tundra.csc), so clips stand on visibly open ground. No-op elsewhere.
+//     gf_spawn_family   1 tdm (DEFAULT since 2026-09-15, measured good on Hijacked) / 0 none / 2 sd /
+//                       3 dom / 4 ctf / 5 koth / 6 control / 7 dm:
+//                       the guard builds its anchors ONLY from markers carrying that mode's flag
+//                       field (measured on Hijacked: `tdm=1` is a plain script field on
+//                       mp_spawn_point), uses their side fields when present, and places EVERY
+//                       spawn on them. Gunfight on the S&D spawn set = 2.
+//     gf_dbg_flags      1 = one feed line: which flag fields the markers carry + value tallies.
+//     gf_spawn_gap      1800 (default) - the guard's target distance in units between the two
+//                       sides' centres; anchors are the tightest marker groups either side of
+//                       the map centre at about that distance, facing each other.
 //                       62=obj-radius 63=nearest-start 64=decision + per-spawn receipts, to
 //                       the HOST's screen only. Nothing this payload prints reaches a joiner.
 //     gf_zone           0 off (default) / 1 on - build the OVERTIME CAPTURE ZONE that private
@@ -108,7 +139,8 @@
 //                       the loadout still rotates - klaze's "rotates the loadouts but does
 //                       not switch sides" (2026-09-13). docs/notes/mode-remnants.md
 //     gf_menu_lines     visible item rows in the panel window, default 7 (was 2)
-//     gf_menu_region    0 lower-left feed (default) / 1 center screen / 2 SPLIT status-left
+//     gf_menu_region    2 (DEFAULT since 2026-09-14): menu carousel in the centre, status block
+//                       in the feed, info line in the hint row / 0 lower-left feed / 1 centre / 2 SPLIT status-left
 //                       menu-centre / 3 SPLIT menu-left status-centre / 4 HINT panel. ⚠ The
 //                       centre shows only ONE line (engine limit; no dvar grows it - only the
 //                       lower-left feed is multi-line, ~4). So region 2 renders the centre
@@ -127,9 +159,11 @@
 //                       ⚠ built 2026-09-13, never run - see the hint knobs below.
 //     gf_hint_lines     region-4 item rows per page, default 8 (Lucy-Base packs 8, SoCanKam
 //                       15). Lower it if the widget truncates the string.
-//     gf_hint_newlines  region-4 row separator: 0 (default) one packed line, rows split by
-//                       ^8| - the form both open menus ship, so it is the proven one; 1 = a
-//                       real newline between rows. Whether the widget honours a newline is
+//     gf_hint_newlines  region-4 row separator: DISABLED 2026-09-14 - a real \n CLOSES THE
+//                       MATCH (the use-prompt widget can't take an embedded newline). Rows are
+//                       always packed on one line, split by ^8| (the form both open menus ship).
+//                       (old note kept below for context; the newline path no longer exists.)
+//                       [former] 1 = a real newline between rows. Whether the widget honours it is
 //                       UNMEASURED; flip it once from Display and look.
 //     gf_menu_hspan     region-2 carousel width: how many entries the centre bar shows at
 //                       once, default 4. Fixed window (clamped) so the bar does not grow/
@@ -164,8 +198,10 @@
 //                       While paused, "BLINKER CHECKPOINT" is held on every screen (re-sent
 //                       every 3 s, pause_banner_think) until the 5 s resume countdown.
 //     gf_cmd_say        app/bridge channel: a non-empty string is broadcast to every player
-//                       (centre, bold) and cleared. gf_cmd_pause 1 = pause the match / 2 =
-//                       resume, same as the Host page.
+//                       and cleared. gf_cmd_say_loc 0 = centre (bold) / 1 = feed / 2 = a held
+//                       HINT banner (persistent, per-player glued trigger; gf_say_hint_indent
+//                       nudges it right). gf_cmd_say_dur 0 once / >0 hold N s / <0 until Clear.
+//                       gf_cmd_pause 1 = pause the match / 2 = resume, same as the Host page.
 //     gf_bot_diff_allies  bot difficulty per side, the stock gametype setting behind the
 //     gf_bot_diff_axis    custom-games "Bot Difficulty" row: bot_difficulty_<team>, read by
 //                       bot_difficulty::assign() when a bot joins its team (cracked 2026-09-12:
@@ -298,6 +334,7 @@
 #using scripts\core_common\values_shared;
 #using scripts\core_common\struct;
 #using scripts\core_common\music_shared;
+#using scripts\core_common\exploder_shared;
 #using scripts\core_common\bots\bot;
 // bot_difficulty: assign() is the stock "re-read bot_difficulty_<team> and install the bundle"
 // entry point (bot_difficulty.gsc:34). bot.gsc #uses it, so it links wherever bot does.
@@ -355,6 +392,7 @@ function private cfg_prematch()      { return getdvarint( #"gf_prematch", 15 ); 
 function private cfg_preround()      { return getdvarint( #"gf_preround", 7 ); }
 function private cfg_loadout()       { return getdvarint( #"gf_loadout", 0 ); }
 function private cfg_customcac()     { return getdvarint( #"gf_customcac", 0 ); }
+function private cfg_profile()       { return getdvarint( #"gf_profile", 1 ); }
 // Loadout-pool camo (docs/notes/loadout-camo.md). -2 (default) = random each round, one roll
 // per weapon that everyone shares. -3 = rolls per player-spawn. -1 = stock, the pool's own look.
 // >= 0 = force that camo index on every pool weapon at every spawn. The random modes draw from
@@ -371,16 +409,18 @@ function private cfg_autoswitch()    { return getdvarint( #"gf_autoswitch", 0 );
 // the render and freezes the game (measured 2026-09-14). Bound both row counts to a sane range.
 function private cfg_clamp_lines( n ) { if ( n < 1 ) return 1; if ( n > 24 ) return 24; return n; }
 function private cfg_menu_lines()    { return cfg_clamp_lines( getdvarint( #"gf_menu_lines", 3 ) ); }
-function private cfg_menu_region()   { return getdvarint( #"gf_menu_region", 0 ); }
+function private cfg_menu_region()   { return getdvarint( #"gf_menu_region", 2 ); }
 function private cfg_menu_hspan()    { return getdvarint( #"gf_menu_hspan", 4 ); }
 function private cfg_feed_lines()    { return cfg_clamp_lines( getdvarint( #"gf_feed_lines", 14 ) ); }
 function private cfg_hint_lines()    { return getdvarint( #"gf_hint_lines", 8 ); }
 function private cfg_hint_newlines() { return getdvarint( #"gf_hint_newlines", 0 ); }
 
 // #spawn_guard (ported from gunfight_mod, adapted to dvars). Default OFF - test solo first.
-function private cfg_spawn_guard()     { return getdvarint( #"gf_spawn_guard", 0 ); }
+function private cfg_spawn_guard()     { return getdvarint( #"gf_spawn_guard", 2 ); }
 function private cfg_spawn_diag()      { return getdvarint( #"gf_spawn_diag", 1 ); }
 function private cfg_spawn_autospread(){ return getdvarint( #"gf_spawn_autospread", 2500 ); }
+function private cfg_spawn_gap()       { return getdvarint( #"gf_spawn_gap", 1800 ); }
+function private cfg_strike()          { return getdvarint( #"gf_strike", 0 ); }
 function private cfg_caster_probe()   { return getdvarint( #"gf_caster_probe", 1 ); }
 
 // Overtime zone (docs/notes/overtime-zone.md). Default OFF: a zone is a round-start
@@ -476,7 +516,7 @@ function private dvars_register()
     dvar_reg( #"gf_switch_wait", 25 );
     dvar_reg( #"gf_autoswitch", 0 );
     dvar_reg( #"gf_menu_lines", 3 );
-    dvar_reg( #"gf_menu_region", 0 );
+    dvar_reg( #"gf_menu_region", 2 );
     dvar_reg( #"gf_feed_lines", 14 );
     dvar_reg( #"gf_spawn_guard", 0 );
     dvar_reg( #"gf_spawn_autospread", 2500 );
@@ -591,6 +631,13 @@ function private mod_apply()
     // marker no longer shows a setting's default until it is first touched. See memory dvar-pool-crash.
     // dvars_register();
 
+    // Settings census: snapshot the blob AS LAUNCHED before anything below writes to it
+    // (once per gametype|map per match), and start the centre-screen readout when asked
+    // (gf_census 1). Every mode, before the gate - a TDM match's blob is a reference too.
+    census_snapshot();
+    if ( debug_feed_any() )
+        debug_feed_start();
+
     // Movement mods apply in EVERY gametype, so they run before the Gunfight gate.
     mod_movement();
 
@@ -666,15 +713,19 @@ function private mod_apply()
     // ⚠ ONLY disablecustomcac is asserted. gunfight.gsc:102 keys the whole fixed-loadout
     // path off THIS one setting (== 1 -> givecustomloadout stays &givecustomloadout, the
     // table main() built at :80-89 -> fixed loadouts; != 1 -> custom classes), so this is
-    // the sufficient and documented fix. disableClassSelection is deliberately NOT forced:
-    // its real-Gunfight value is inferred, not read, and forcing 1 when the blob wants 0
-    // changes the spawn path (globallogic_ui.gsc:305) - a "stuck spawn" risk, not a crash,
-    // flagged in review 2026-09-13. Let gunfight's own onstartgametype derive it, and read
-    // the true value with Display -> Settings census before ever asserting it.
+    // the sufficient and documented fix. disableClassSelection WAS deliberately not forced
+    // (its value was inferred; forcing 1 when the blob wants 0 changes the spawn path,
+    // globallogic_ui.gsc:305). 2026-09-14: the launch census READ it as 1 in the real
+    // Gunfight blob (column A), so mode_profile_gunfight below asserts it with customcac.
     // gf_customcac 1 = the rules-menu "Custom Classes" row (disable_cac.json), on purpose.
     dcc = cfg_customcac() ? 0 : 1;
     setgametypesetting( #"disablecustomcac", dcc );
     level.disablecustomcac = dcc;
+
+    // The rest of the real Gunfight blob (column A, measured 2026-09-14) - settings AND the
+    // level vars globallogic already copied, so a Case-B hybrid launch plays as real Gunfight
+    // from THIS round. ⚠ Built 2026-09-14, never run. See mode_profile_gunfight.
+    mode_profile_gunfight( 1 );
 
     // Loadout set and spy plane - written each match from the dvars (mod_apply is once
     // per match). Harmless when unchanged. The loadout LATCH (game.var_96a8ff4a) is
@@ -696,10 +747,15 @@ function private mod_apply()
     //     so setgametypesetting alone is read too late. Set the live level var too.
     //  2. on_round_switch only toggles game.switchedsides when level.var_d1455682.switchsides
     //     is set (the gametype bundle's flag). Force it on so the swap actually happens.
-    if ( cfg_rounds_loadout() >= 0 )
+    //  3. (2026-09-14) "stock" (-1) meant "leave the lobby value alone" - which in a Case-B
+    //     launch is TDM's blob: gunfightroundsperloadout=0 (column T), i.e. NEVER rotate the
+    //     loadout or swap sides. The real Gunfight blob has 2 (column A). So stock now means
+    //     A's 2, the same way the profile treats roundwinlimit/roundlimit.
+    rpl = ( cfg_rounds_loadout() >= 0 ) ? cfg_rounds_loadout() : 2;
+    if ( cfg_rounds_loadout() >= 0 || ( cfg_profile() && profile_is_hybrid() ) )
     {
-        setgametypesetting( #"gunfightroundsperloadout", cfg_rounds_loadout() );
-        level.gunfightroundsperloadout = cfg_rounds_loadout();
+        setgametypesetting( #"gunfightroundsperloadout", rpl );
+        level.gunfightroundsperloadout = rpl;
         if ( isdefined( level.var_d1455682 ) )
             level.var_d1455682.switchsides = 1;
     }
@@ -732,10 +788,23 @@ function private mod_apply()
     if ( !have_zone )
         mod_presentation_fixups();
 
+    // Crossroads: keep the Strike layout under Gunfight (renames the entities the map's
+    // on_game_playing would delete; must run before that callback - it does, this is
+    // on_start_gametype). Also yields the area the guard builds inside. No-op elsewhere.
+    mod_layout_keep();
+
     // #spawn_guard: rebuild the central-spawn anchors each round (level is torn down per
-    // round). No-op inside unless the flag is on; the on_spawned handler reads the result.
+    // round) and install the pre-spawn override (path 1 of spawning_shared onspawnplayer).
+    // Off = hook removed, stock spawns. docs/notes/spawn-system.md
     if ( cfg_spawn_guard() )
+    {
         mod_spawn_build();
+        level.var_cda5136b = &mod_spawn_override;
+    }
+    else
+    {
+        level.var_cda5136b = undefined;
+    }
 
     mod_menu_restart_all();
 }
@@ -1026,6 +1095,15 @@ function private broadcast_feed( msg )
 function private broadcast_hold( msg, loc, dur )
 {
     level notify( #"gf_say_stop" );
+
+    if ( loc == 2 )
+    {
+        broadcast_hint_start( msg, dur );   // persistent banner; dur < 0 = held until Clear
+        return;
+    }
+
+    broadcast_hint_stop();                  // a centre/feed broadcast clears any banner
+
     if ( dur == 0 )
     {
         broadcast_where( msg, loc );
@@ -1063,6 +1141,100 @@ function private broadcast_countdown()
     }
 
     broadcast_bold( "^2GO!" );
+}
+
+// ── Broadcast as a persistent HINT banner (loc 2). Unlike the centre print, a hint
+// string STAYS on screen with no re-send and no flicker, so it is the clean "held
+// until Clear" banner. Each player gets a trigger_radius glued to them (so they are
+// always inside it) showing the message. Text sits at the fixed use-prompt anchor
+// (sethintstring has no position arg); gf_say_hint_indent prepends spaces to nudge it
+// right. ⚠ OPEN QUESTION this tests: does a server hint on a player entity render for a
+// VANILLA JOINER? All prior hint work was host-only. If it does, this is a rare
+// joiner-visible server->client text channel (game-systems §2: most mod text is host-only).
+function private broadcast_hint_start( msg, dur )
+{
+    level.gf_hint_msg = msg;
+    level notify( #"gf_hint_changed" );
+
+    if ( !is_true( level.gf_hint_running ) )
+    {
+        level.gf_hint_running = 1;
+        level thread broadcast_hint_manager();
+    }
+
+    if ( dur > 0 )
+        level thread broadcast_hint_expire( msg, dur );
+}
+
+function private broadcast_hint_stop()
+{
+    level.gf_hint_msg = undefined;
+    level notify( #"gf_hint_changed" );
+}
+
+// A timed banner (dur > 0) clears itself, unless a newer banner replaced it first.
+function private broadcast_hint_expire( msg, dur )
+{
+    level endon( #"game_ended" );
+    level endon( #"gf_hint_changed" );
+    wait( dur );
+    if ( isdefined( level.gf_hint_msg ) && level.gf_hint_msg == msg )
+        broadcast_hint_stop();
+}
+
+// Re-applies to every CURRENT player each 2 s (so a joiner mid-banner picks it up), until
+// the message is cleared; then removes every banner trigger. Re-setting the same hint
+// string is idempotent - no flicker, unlike the centre print's re-send.
+function private broadcast_hint_manager()
+{
+    level endon( #"game_ended" );
+
+    while ( isdefined( level.gf_hint_msg ) )
+    {
+        indent = "";
+        pad = getdvarint( #"gf_say_hint_indent", 0 );
+        for ( i = 0; i < pad; i++ )
+            indent += " ";
+
+        foreach ( player in getplayers() )
+        {
+            if ( !isdefined( player.gf_say_trig ) )
+                player broadcast_hint_make();
+
+            player.gf_say_trig sethintstring( indent + level.gf_hint_msg );
+        }
+
+        level waittilltimeout( 2, #"gf_hint_changed" );
+    }
+
+    broadcast_hint_wipe();
+    level.gf_hint_running = undefined;
+}
+
+// One banner trigger glued to the player (NO cursor icon; short text so it never clips).
+function private broadcast_hint_make()
+{
+    trig = spawn( "trigger_radius", self.origin, 0, 96, 128 );
+    trig setcursorhint( "HINT_NOICON" );
+    trig triggerignoreteam();
+    trig setvisibletoplayer( self );
+    trig setmovingplatformenabled( 1 );
+    trig enablelinkto();
+    trig.origin = self.origin;
+    trig linkto( self );
+    self.gf_say_trig = trig;
+}
+
+function private broadcast_hint_wipe()
+{
+    foreach ( player in getplayers() )
+    {
+        if ( isdefined( player.gf_say_trig ) )
+        {
+            player.gf_say_trig delete();
+            player.gf_say_trig = undefined;
+        }
+    }
 }
 
 // The state line every joiner cannot otherwise see: team size, timer, map, mode, limits.
@@ -1210,6 +1382,437 @@ function private mod_norespawns_hud()
     clientfield::set_world_uimodel( "hudItems.team2.noRespawnsLeft", 1 );
 }
 
+// ── Keep Crossroads' STRIKE layout under Gunfight (klaze, 2026-09-14) ────────────
+// mp_tundra.gsc on_game_playing() opens the full 12v12 map for every gametype outside its
+// Strike list - it deletes the "tundra_oob_clip" entities and the "5v5_asset_boundary"
+// entities (by targetname and by script_noteworthy) - and "gunfight" is outside the list,
+// so a Case-B launch of Crossroads is the big map under a "Crossroads Strike" label. That
+// callback fires at set_game_playing (globallogic.gsc:4413), AFTER this mod_apply, and it
+// finds its victims by NAME - so renaming them here (a stock idiom: globallogic.gsc:4243
+// sets a targetname) leaves it nothing to delete and the Strike clips stand. main() had
+// already hidden the boundary misc models at level_init (:54); showmiscmodels() brings them
+// back, and the Strike branch's own turret/fx calls are repeated for fidelity (the map's
+// 12v12 lighting exploder still runs from its callback - cosmetic). The kept entities also
+// give the spawn guard the AREA: their centroid and ring radius bound the markers it may
+// use, so the two sides are built inside the Strike area, not out on the big map.
+// gf_strike - DEFAULT 0 since the first run (2026-09-14): the CLIENT half of the map script
+// (mp_tundra.csc function_7f639bc1) branches on the same gametype list and hides the 6v6
+// boundary decals / occluders for gunfight, so every client - vanilla joiners included -
+// draws the full-map minimap and bounds while the server keeps Strike clips: invisible walls
+// on open ground ("the minimap is broken" - klaze). Unreachable from a server payload. Kept
+// as an option; a no-op on any map without those names (only Crossroads has them;
+// Armada/Collateral already keep Strike for small modes, gunfight included).
+function private mod_layout_keep()
+{
+    level.gf_area_center = undefined;
+    level.gf_area_radius = undefined;
+    level.gf_strike_status = "off";
+
+    if ( !cfg_strike() )
+        return;
+
+    oob = getentarray( "tundra_oob_clip", "targetname" );
+    bnd = arraycombine( getentarray( "5v5_asset_boundary", "targetname" ), getentarray( "5v5_asset_boundary", "script_noteworthy" ), 0, 0 );
+    level.gf_strike_status = "no-ents";
+
+    if ( oob.size == 0 && bnd.size == 0 )
+        return;
+
+    level.gf_strike_status = "kept " + oob.size + "+" + bnd.size;
+
+    foreach ( e in oob )
+    {
+        if ( isdefined( e ) )
+            e.targetname = "gf_oob_keep";
+    }
+
+    foreach ( e in bnd )
+    {
+        if ( !isdefined( e ) )
+            continue;
+        e.targetname = "gf_5v5_keep";
+        e.script_noteworthy = "gf_5v5_keep";
+    }
+
+    showmiscmodels( "5v5_asset_boundary" );
+    hidemiscmodels( "turret_model" );
+    exploder::exploder( "fxexp_tundra_6v6" );
+    level.var_633063a5 = 1;
+
+    // The area the clips enclose. Brush entities can carry a (0,0,0) origin, so only ents
+    // with a real origin count; fewer than 3 = no area (the guard uses the marker centroid).
+    ring = arraycombine( oob, bnd, 0, 0 );
+    sum = ( 0, 0, 0 );
+    n = 0;
+    foreach ( e in ring )
+    {
+        if ( isdefined( e ) && isdefined( e.origin ) && length( e.origin ) > 1 )
+        {
+            sum += e.origin;
+            n++;
+        }
+    }
+
+    if ( n >= 3 )
+    {
+        c = sum / n;
+        dsum = 0;
+        foreach ( e in ring )
+        {
+            if ( isdefined( e ) && isdefined( e.origin ) && length( e.origin ) > 1 )
+                dsum += sqrt( mod_dist2d_sq( e.origin, c ) );
+        }
+        level.gf_area_center = c;
+        level.gf_area_radius = ( dsum / n ) * 0.85;
+    }
+
+    if ( !isdefined( level.gf_area_radius ) )
+        level.gf_strike_status += " noarea";
+}
+
+function private act_strike( item, value )
+{
+    setdvar( #"gf_strike", value );
+    self menu_say( value ? "^2Crossroads Strike layout under Gunfight ON - from the next match/round" : "^2Crossroads: full map under Gunfight - stock" );
+    return true;
+}
+
+// ── Spawn FAMILY: build the anchors from one mode's markers (klaze, 2026-09-14) ─────────
+// MEASURED on Hijacked (STRUCTS line): every mp_spawn_point struct carries its mode flag as a
+// plain script field - `tdm=1` on the first three - so the per-mode marker sets ARE readable
+// from script (Crossroads' first three read empty only because they carry flags this probe
+// did not ask for: the 10v10/12v12 variants). "I've yet to see any map use normal S&D spawns
+// under Gunfight - let's get Gunfight using the S&D spawn system." So: gf_spawn_family picks
+// a flag; the guard's anchors are built only from markers that carry it; sides come from the
+// markers' own side fields when they have them (what those are called is what the FLAGS
+// debug line measures - the candidates below are the plausible names), else the geometric
+// two-sides search runs inside that family. With a family set the override places EVERY
+// spawn on the anchors (the engine's tdm start list is not consulted).
+//   0 none (engine start spawns, anchors only when the engine has none - AUTO - or FORCE)
+//   1 tdm   2 sd   3 dom   4 ctf   5 koth   6 control   7 dm/ffa
+// DEFAULT 1 (tdm) + guard AUTO since 2026-09-15: MEASURED on Hijacked by klaze - "the results
+// were very good, they switched sides and lined up well for Gunfight." The 78 tdm markers,
+// two ends picked geometrically, facing each other, sides swapped by the guard. Family: none
+// hands a map back to the engine's own start spawns.
+function private cfg_spawn_family()   { return getdvarint( #"gf_spawn_family", 1 ); }
+
+function private family_name( f )
+{
+    if ( f == 1 ) return "tdm";
+    if ( f == 2 ) return "sd";
+    if ( f == 3 ) return "dom";
+    if ( f == 4 ) return "ctf";
+    if ( f == 5 ) return "koth";
+    if ( f == 6 ) return "control";
+    if ( f == 7 ) return "dm";
+    return "none";
+}
+
+// Does this marker carry the family's flag? (fields, by constant name - GSC has no dynamic
+// field access, so one branch per family.)
+function private mod_marker_has( s, f )
+{
+    if ( f == 1 ) return isdefined( s.tdm );
+    if ( f == 2 ) return isdefined( s.sd );
+    if ( f == 3 ) return isdefined( s.dom );
+    if ( f == 4 ) return isdefined( s.ctf );
+    if ( f == 5 ) return isdefined( s.koth );
+    if ( f == 6 ) return isdefined( s.control );
+    if ( f == 7 ) return isdefined( s.dm ) || isdefined( s.ffa );
+    return false;
+}
+
+// Which side a marker belongs to, 1 / 2 / 0 (none), from the plausible side fields. The
+// FLAGS line says which of these a map actually uses; unknown names simply never match.
+function private mod_marker_side( s, f )
+{
+    if ( isdefined( s.attacker ) ) return 1;
+    if ( isdefined( s.defender ) ) return 2;
+    if ( isdefined( s.sd_attacker ) ) return 1;
+    if ( isdefined( s.sd_defender ) ) return 2;
+    if ( isdefined( s.allies ) ) return 1;
+    if ( isdefined( s.axis ) ) return 2;
+    if ( isdefined( s.tdm_allies_start ) ) return 1;
+    if ( isdefined( s.tdm_axis_start ) ) return 2;
+    if ( isdefined( s.dom_allies_start ) ) return 1;
+    if ( isdefined( s.dom_axis_start ) ) return 2;
+    if ( isdefined( s.ctf_allies ) ) return 1;
+    if ( isdefined( s.ctf_axis ) ) return 2;
+
+    t = undefined;
+    if ( isdefined( s.team ) )
+        t = s.team;
+    else if ( isdefined( s.script_team ) )
+        t = s.script_team;
+
+    if ( isdefined( t ) )
+    {
+        if ( t == "allies" || t == #"allies" || t == "attacker" || t == #"attacker" || t == "team1" || t == #"team1" )
+            return 1;
+        if ( t == "axis" || t == #"axis" || t == "defender" || t == #"defender" || t == "team2" || t == #"team2" )
+            return 2;
+    }
+
+    // Value-coded flags: a family field worth 2 / 3 rather than 1 (a guess the FLAGS tallies
+    // will confirm or kill).
+    v = undefined;
+    if ( f == 1 && isdefined( s.tdm ) ) v = s.tdm;
+    if ( f == 2 && isdefined( s.sd ) ) v = s.sd;
+    if ( f == 3 && isdefined( s.dom ) ) v = s.dom;
+    if ( f == 4 && isdefined( s.ctf ) ) v = s.ctf;
+    if ( isdefined( v ) && isint( v ) )
+    {
+        if ( v == 2 ) return 1;
+        if ( v == 3 ) return 2;
+    }
+
+    return 0;
+}
+
+function private act_spawn_family( item, value )
+{
+    setdvar( #"gf_spawn_family", value );
+    if ( cfg_spawn_guard() )
+    {
+        mod_spawn_build();
+        level.var_cda5136b = &mod_spawn_override;
+    }
+    self menu_say( value ? ( "^2spawn family " + family_name( value ) + " - anchors from its markers, every spawn" + ( isdefined( level.gfmenu_spawn ) ? "" : " (NO markers with that flag here - stock spawns)" ) ) : "^2spawn family off - engine / geometric" );
+    return true;
+}
+
+// ── FLAGS debug line: which flag fields the map's markers carry, with value tallies ─────
+function private flags_tally( line, name, cnt, vals )
+{
+    if ( cnt == 0 )
+        return line;
+
+    line += " " + name + "=" + cnt;
+    if ( isdefined( vals ) && vals != "" )
+        line += "[" + vals + "]";
+    return line;
+}
+
+// Value tally for an int-valued flag: "1:90 2:6 3:6".
+function private flags_vals( arr )
+{
+    counts = [];
+    other = 0;
+    foreach ( v in arr )
+    {
+        if ( isint( v ) && v >= 0 && v <= 9 )
+            counts[ v ] = ( isdefined( counts[ v ] ) ? counts[ v ] : 0 ) + 1;
+        else
+            other++;
+    }
+    out = "";
+    for ( i = 0; i <= 9; i++ )
+    {
+        if ( isdefined( counts[ i ] ) )
+            out += ( out == "" ? "" : " " ) + i + ":" + counts[ i ];
+    }
+    if ( other )
+        out += ( out == "" ? "" : " " ) + "x:" + other;
+    return out;
+}
+
+function private flags_line()
+{
+    if ( isdefined( level.gf_flags_line ) )
+        return level.gf_flags_line;
+
+    arr = struct::get_array( "mp_spawn_point", "targetname" );
+    if ( !isdefined( arr ) )
+        arr = [];
+
+    // One counter + value list per candidate. Kept to the names a CW map plausibly uses.
+    c_tdm = []; c_sd = []; c_dom = []; c_ctf = []; c_koth = []; c_ctrl = []; c_dm = []; c_ffa = [];
+    c_dem = []; c_vip = []; c_kc = []; c_conf = []; c_gun = []; c_prop = []; c_spy = []; c_esc = [];
+    c_war = []; c_w12 = []; c_t10 = []; c_d10 = []; c_k10 = []; c_c10 = []; c_ft = []; c_dk = [];
+    c_start = []; c_ss = []; c_tstart = []; c_sstart = []; c_all = []; c_ax = []; c_att = []; c_def = [];
+    c_team = []; c_steam = []; c_sdatt = []; c_sddef = []; c_sf = []; c_sint = []; c_str = []; c_nw = [];
+
+    foreach ( s in arr )
+    {
+        if ( isdefined( s.tdm ) ) c_tdm[ c_tdm.size ] = s.tdm;
+        if ( isdefined( s.sd ) ) c_sd[ c_sd.size ] = s.sd;
+        if ( isdefined( s.dom ) ) c_dom[ c_dom.size ] = s.dom;
+        if ( isdefined( s.ctf ) ) c_ctf[ c_ctf.size ] = s.ctf;
+        if ( isdefined( s.koth ) ) c_koth[ c_koth.size ] = s.koth;
+        if ( isdefined( s.control ) ) c_ctrl[ c_ctrl.size ] = s.control;
+        if ( isdefined( s.dm ) ) c_dm[ c_dm.size ] = s.dm;
+        if ( isdefined( s.ffa ) ) c_ffa[ c_ffa.size ] = s.ffa;
+        if ( isdefined( s.dem ) ) c_dem[ c_dem.size ] = s.dem;
+        if ( isdefined( s.vip ) ) c_vip[ c_vip.size ] = s.vip;
+        if ( isdefined( s.kc ) ) c_kc[ c_kc.size ] = s.kc;
+        if ( isdefined( s.conf ) ) c_conf[ c_conf.size ] = s.conf;
+        if ( isdefined( s.gun ) ) c_gun[ c_gun.size ] = s.gun;
+        if ( isdefined( s.prop ) ) c_prop[ c_prop.size ] = s.prop;
+        if ( isdefined( s.spy ) ) c_spy[ c_spy.size ] = s.spy;
+        if ( isdefined( s.escort ) ) c_esc[ c_esc.size ] = s.escort;
+        if ( isdefined( s.war ) ) c_war[ c_war.size ] = s.war;
+        if ( isdefined( s.war12v12 ) ) c_w12[ c_w12.size ] = s.war12v12;
+        if ( isdefined( s.tdm10v10 ) ) c_t10[ c_t10.size ] = s.tdm10v10;
+        if ( isdefined( s.dom10v10 ) ) c_d10[ c_d10.size ] = s.dom10v10;
+        if ( isdefined( s.koth10v10 ) ) c_k10[ c_k10.size ] = s.koth10v10;
+        if ( isdefined( s.conf10v10 ) ) c_c10[ c_c10.size ] = s.conf10v10;
+        if ( isdefined( s.fireteam ) ) c_ft[ c_ft.size ] = s.fireteam;
+        if ( isdefined( s.dropkick ) ) c_dk[ c_dk.size ] = s.dropkick;
+        if ( isdefined( s.start ) ) c_start[ c_start.size ] = s.start;
+        if ( isdefined( s.start_spawn ) ) c_ss[ c_ss.size ] = s.start_spawn;
+        if ( isdefined( s.tdm_start ) ) c_tstart[ c_tstart.size ] = s.tdm_start;
+        if ( isdefined( s.sd_start ) ) c_sstart[ c_sstart.size ] = s.sd_start;
+        if ( isdefined( s.allies ) ) c_all[ c_all.size ] = s.allies;
+        if ( isdefined( s.axis ) ) c_ax[ c_ax.size ] = s.axis;
+        if ( isdefined( s.attacker ) ) c_att[ c_att.size ] = s.attacker;
+        if ( isdefined( s.defender ) ) c_def[ c_def.size ] = s.defender;
+        if ( isdefined( s.team ) ) c_team[ c_team.size ] = s.team;
+        if ( isdefined( s.script_team ) ) c_steam[ c_steam.size ] = s.script_team;
+        if ( isdefined( s.sd_attacker ) ) c_sdatt[ c_sdatt.size ] = s.sd_attacker;
+        if ( isdefined( s.sd_defender ) ) c_sddef[ c_sddef.size ] = s.sd_defender;
+        if ( isdefined( s.spawnflags ) ) c_sf[ c_sf.size ] = s.spawnflags;
+        if ( isdefined( s.script_int ) ) c_sint[ c_sint.size ] = s.script_int;
+        if ( isdefined( s.script_string ) ) c_str[ c_str.size ] = s.script_string;
+        if ( isdefined( s.script_noteworthy ) ) c_nw[ c_nw.size ] = s.script_noteworthy;
+    }
+
+    line = "^3FLAGS^7 n=" + arr.size;
+    line = flags_tally( line, "tdm", c_tdm.size, flags_vals( c_tdm ) );
+    line = flags_tally( line, "sd", c_sd.size, flags_vals( c_sd ) );
+    line = flags_tally( line, "dom", c_dom.size, flags_vals( c_dom ) );
+    line = flags_tally( line, "ctf", c_ctf.size, flags_vals( c_ctf ) );
+    line = flags_tally( line, "koth", c_koth.size, flags_vals( c_koth ) );
+    line = flags_tally( line, "control", c_ctrl.size, flags_vals( c_ctrl ) );
+    line = flags_tally( line, "dm", c_dm.size, flags_vals( c_dm ) );
+    line = flags_tally( line, "ffa", c_ffa.size, flags_vals( c_ffa ) );
+    line = flags_tally( line, "dem", c_dem.size, flags_vals( c_dem ) );
+    line = flags_tally( line, "vip", c_vip.size, flags_vals( c_vip ) );
+    line = flags_tally( line, "kc", c_kc.size, flags_vals( c_kc ) );
+    line = flags_tally( line, "conf", c_conf.size, flags_vals( c_conf ) );
+    line = flags_tally( line, "gun", c_gun.size, flags_vals( c_gun ) );
+    line = flags_tally( line, "prop", c_prop.size, flags_vals( c_prop ) );
+    line = flags_tally( line, "spy", c_spy.size, flags_vals( c_spy ) );
+    line = flags_tally( line, "escort", c_esc.size, flags_vals( c_esc ) );
+    line = flags_tally( line, "war", c_war.size, flags_vals( c_war ) );
+    line = flags_tally( line, "war12v12", c_w12.size, flags_vals( c_w12 ) );
+    line = flags_tally( line, "tdm10v10", c_t10.size, flags_vals( c_t10 ) );
+    line = flags_tally( line, "dom10v10", c_d10.size, flags_vals( c_d10 ) );
+    line = flags_tally( line, "koth10v10", c_k10.size, flags_vals( c_k10 ) );
+    line = flags_tally( line, "conf10v10", c_c10.size, flags_vals( c_c10 ) );
+    line = flags_tally( line, "fireteam", c_ft.size, flags_vals( c_ft ) );
+    line = flags_tally( line, "dropkick", c_dk.size, flags_vals( c_dk ) );
+    line = flags_tally( line, "start", c_start.size, flags_vals( c_start ) );
+    line = flags_tally( line, "start_spawn", c_ss.size, flags_vals( c_ss ) );
+    line = flags_tally( line, "tdm_start", c_tstart.size, flags_vals( c_tstart ) );
+    line = flags_tally( line, "sd_start", c_sstart.size, flags_vals( c_sstart ) );
+    line = flags_tally( line, "allies", c_all.size, flags_vals( c_all ) );
+    line = flags_tally( line, "axis", c_ax.size, flags_vals( c_ax ) );
+    line = flags_tally( line, "attacker", c_att.size, flags_vals( c_att ) );
+    line = flags_tally( line, "defender", c_def.size, flags_vals( c_def ) );
+    line = flags_tally( line, "team", c_team.size, ( c_team.size ? spawn_fv( c_team[ 0 ] ) : "" ) );
+    line = flags_tally( line, "script_team", c_steam.size, ( c_steam.size ? spawn_fv( c_steam[ 0 ] ) : "" ) );
+    line = flags_tally( line, "sd_attacker", c_sdatt.size, flags_vals( c_sdatt ) );
+    line = flags_tally( line, "sd_defender", c_sddef.size, flags_vals( c_sddef ) );
+    line = flags_tally( line, "spawnflags", c_sf.size, flags_vals( c_sf ) );
+    line = flags_tally( line, "script_int", c_sint.size, flags_vals( c_sint ) );
+    line = flags_tally( line, "script_string", c_str.size, ( c_str.size ? spawn_fv( c_str[ 0 ] ) : "" ) );
+    line = flags_tally( line, "script_noteworthy", c_nw.size, ( c_nw.size ? spawn_fv( c_nw[ 0 ] ) : "" ) );
+
+    level.gf_flags_line = line;
+    return line;
+}
+
+// Second batch of candidate names (Hijacked read only tdm/ctf/control/ffa - S&D, Dom,
+// Hardpoint and the sides must be keyed by something else). Separate line, same tick.
+function private flags_line2()
+{
+    if ( isdefined( level.gf_flags_line2 ) )
+        return level.gf_flags_line2;
+
+    arr = struct::get_array( "mp_spawn_point", "targetname" );
+    if ( !isdefined( arr ) )
+        arr = [];
+
+    a1 = []; a2 = []; a3 = []; a4 = []; a5 = []; a6 = []; a7 = []; a8 = []; a9 = []; a10 = [];
+    a11 = []; a12 = []; a13 = []; a14 = []; a15 = []; a16 = []; a17 = []; a18 = []; a19 = []; a20 = [];
+    a21 = []; a22 = []; a23 = []; a24 = []; a25 = []; a26 = []; a27 = []; a28 = []; a29 = []; a30 = [];
+
+    foreach ( s in arr )
+    {
+        if ( isdefined( s.snd ) ) a1[ a1.size ] = s.snd;
+        if ( isdefined( s.search ) ) a2[ a2.size ] = s.search;
+        if ( isdefined( s.sd_a ) ) a3[ a3.size ] = s.sd_a;
+        if ( isdefined( s.sd_b ) ) a4[ a4.size ] = s.sd_b;
+        if ( isdefined( s.sd_attackers ) ) a5[ a5.size ] = s.sd_attackers;
+        if ( isdefined( s.sd_defenders ) ) a6[ a6.size ] = s.sd_defenders;
+        if ( isdefined( s.attackers ) ) a7[ a7.size ] = s.attackers;
+        if ( isdefined( s.defenders ) ) a8[ a8.size ] = s.defenders;
+        if ( isdefined( s.demolition ) ) a9[ a9.size ] = s.demolition;
+        if ( isdefined( s.domination ) ) a10[ a10.size ] = s.domination;
+        if ( isdefined( s.dom_a ) ) a11[ a11.size ] = s.dom_a;
+        if ( isdefined( s.dom_b ) ) a12[ a12.size ] = s.dom_b;
+        if ( isdefined( s.dom_c ) ) a13[ a13.size ] = s.dom_c;
+        if ( isdefined( s.hardpoint ) ) a14[ a14.size ] = s.hardpoint;
+        if ( isdefined( s.hp ) ) a15[ a15.size ] = s.hp;
+        if ( isdefined( s.hq ) ) a16[ a16.size ] = s.hq;
+        if ( isdefined( s.oic ) ) a17[ a17.size ] = s.oic;
+        if ( isdefined( s.bounty ) ) a18[ a18.size ] = s.bounty;
+        if ( isdefined( s.ct ) ) a19[ a19.size ] = s.ct;
+        if ( isdefined( s.infil ) ) a20[ a20.size ] = s.infil;
+        if ( isdefined( s.frontline ) ) a21[ a21.size ] = s.frontline;
+        if ( isdefined( s.team1 ) ) a22[ a22.size ] = s.team1;
+        if ( isdefined( s.team2 ) ) a23[ a23.size ] = s.team2;
+        if ( isdefined( s.spawn_type ) ) a24[ a24.size ] = s.spawn_type;
+        if ( isdefined( s.type ) ) a25[ a25.size ] = s.type;
+        if ( isdefined( s.script_label ) ) a26[ a26.size ] = s.script_label;
+        if ( isdefined( s.script_gametype ) ) a27[ a27.size ] = s.script_gametype;
+        if ( isdefined( s.script_gametype_sd ) ) a28[ a28.size ] = s.script_gametype_sd;
+        if ( isdefined( s.target ) ) a29[ a29.size ] = s.target;
+        if ( isdefined( s.radius ) ) a30[ a30.size ] = s.radius;
+    }
+
+    line = "^3FLAGS2^7";
+    line = flags_tally( line, "snd", a1.size, flags_vals( a1 ) );
+    line = flags_tally( line, "search", a2.size, flags_vals( a2 ) );
+    line = flags_tally( line, "sd_a", a3.size, flags_vals( a3 ) );
+    line = flags_tally( line, "sd_b", a4.size, flags_vals( a4 ) );
+    line = flags_tally( line, "sd_attackers", a5.size, flags_vals( a5 ) );
+    line = flags_tally( line, "sd_defenders", a6.size, flags_vals( a6 ) );
+    line = flags_tally( line, "attackers", a7.size, flags_vals( a7 ) );
+    line = flags_tally( line, "defenders", a8.size, flags_vals( a8 ) );
+    line = flags_tally( line, "demolition", a9.size, flags_vals( a9 ) );
+    line = flags_tally( line, "domination", a10.size, flags_vals( a10 ) );
+    line = flags_tally( line, "dom_a", a11.size, flags_vals( a11 ) );
+    line = flags_tally( line, "dom_b", a12.size, flags_vals( a12 ) );
+    line = flags_tally( line, "dom_c", a13.size, flags_vals( a13 ) );
+    line = flags_tally( line, "hardpoint", a14.size, flags_vals( a14 ) );
+    line = flags_tally( line, "hp", a15.size, flags_vals( a15 ) );
+    line = flags_tally( line, "hq", a16.size, flags_vals( a16 ) );
+    line = flags_tally( line, "oic", a17.size, flags_vals( a17 ) );
+    line = flags_tally( line, "bounty", a18.size, flags_vals( a18 ) );
+    line = flags_tally( line, "ct", a19.size, flags_vals( a19 ) );
+    line = flags_tally( line, "infil", a20.size, flags_vals( a20 ) );
+    line = flags_tally( line, "frontline", a21.size, flags_vals( a21 ) );
+    line = flags_tally( line, "team1", a22.size, flags_vals( a22 ) );
+    line = flags_tally( line, "team2", a23.size, flags_vals( a23 ) );
+    line = flags_tally( line, "spawn_type", a24.size, ( a24.size ? spawn_fv( a24[ 0 ] ) : "" ) );
+    line = flags_tally( line, "type", a25.size, ( a25.size ? spawn_fv( a25[ 0 ] ) : "" ) );
+    line = flags_tally( line, "script_label", a26.size, ( a26.size ? spawn_fv( a26[ 0 ] ) : "" ) );
+    line = flags_tally( line, "script_gametype", a27.size, ( a27.size ? spawn_fv( a27[ 0 ] ) : "" ) );
+    line = flags_tally( line, "script_gametype_sd", a28.size, flags_vals( a28 ) );
+    line = flags_tally( line, "target", a29.size, ( a29.size ? spawn_fv( a29[ 0 ] ) : "" ) );
+    line = flags_tally( line, "radius", a30.size, ( a30.size ? spawn_fv( a30[ 0 ] ) : "" ) );
+
+    if ( line == "^3FLAGS2^7" )
+        line += " none of the second batch";
+
+    level.gf_flags_line2 = line;
+    return line;
+}
+
+function private cfg_dbg_flags()    { return getdvarint( #"gf_dbg_flags", 0 ); }
+function private act_dbg_flags( item ) { return self act_dbg( item, #"gf_dbg_flags", 1, "marker flags" ); }
+
 // ═════════════════════════════════════════════════════════════════════════════
 // SPAWN GUARD — ported from gunfight_mod (game-systems sec 16b), dvar-driven here.
 // Fixes combined-arms/large-variant OOB / odd spawns by repositioning each player
@@ -1220,15 +1823,11 @@ function private mod_norespawns_hud()
 
 function private mod_spawn_build()
 {
-    // AUTO (mode 2): measure the map first and only guard the ones that need it. A good
-    // map keeps its designer spawns (level.gfmenu_spawn stays undefined -> place no-ops);
-    // a wrong-layout map falls through to the reposition below. Force (mode 1) always builds.
-    if ( cfg_spawn_guard() == 2 && !mod_spawn_needs_guard() )
-    {
-        level.gfmenu_spawn = undefined;
-        return;
-    }
-
+    // AUTO (mode 2) used to gate on mod_spawn_needs_guard() here - a detector built on the
+    // legacy mp_tdm_spawn_*_start names, which CW does not ship, so it read "too few starts"
+    // on every map. Since 2026-09-14 AUTO decides PER SPAWN in mod_spawn_override with the
+    // engine's own start picker; the anchors are always built (cheap) and only used when
+    // the engine has nothing. Force (mode 1) uses them always.
     pts = mod_gather_spawns();
 
     if ( !isdefined( pts ) || pts.size < 2 )
@@ -1240,33 +1839,146 @@ function private mod_spawn_build()
     }
 
     center = mod_centroid( pts );
+    level.gf_family_note = "";
 
-    // Enough central points that each side gets one PER PLAYER with a few spare -
-    // at 6v6 the old fixed 12 left ~6 a side and the random pick below then doubled
-    // players up on the same struct.
-    k = cfg_team_size() * 2 + 4;
-    if ( k < 12 )
-        k = 12;
-    central = mod_nearest_k( pts, center, k );   // the most central real spawn structs
-
-    // Split the central cluster into two sides along whichever axis the cluster is
-    // longer on, so the teams are separated but close. Always-X put both teams in one
-    // pile on maps whose central corridor runs north-south.
-    ax = mod_spread_axis( central );
-    med = mod_median_axis( central, ax );
-    team1 = [];
-    team2 = [];
-    foreach ( p in central )
+    // A spawn FAMILY: only that mode's markers, and its own sides when the markers name them.
+    fam = cfg_spawn_family();
+    if ( fam != 0 )
     {
-        if ( mod_coord( p, ax ) <= med )
-            team1[ team1.size ] = p;
-        else
-            team2[ team2.size ] = p;
+        fpts = [];
+        foreach ( p in pts )
+        {
+            if ( mod_marker_has( p, fam ) )
+                fpts[ fpts.size ] = p;
+        }
+
+        if ( fpts.size < 4 )
+        {
+            level.gfmenu_spawn = undefined;
+            level.gf_family_note = family_name( fam ) + ":none";
+            return;
+        }
+
+        pts = fpts;
+        center = mod_centroid( pts );
+
+        s1 = [];
+        s2 = [];
+        foreach ( p in pts )
+        {
+            side = mod_marker_side( p, fam );
+            if ( side == 1 )
+                s1[ s1.size ] = p;
+            else if ( side == 2 )
+                s2[ s2.size ] = p;
+        }
+
+        if ( s1.size >= 2 && s2.size >= 2 )
+        {
+            // The map's own sides for this family - use them as they are.
+            c1 = mod_centroid( s1 );
+            c2 = mod_centroid( s2 );
+            team1 = mod_anchor_copies( s1, c2 );
+            team2 = mod_anchor_copies( s2, c1 );
+            level.gf_family_note = family_name( fam ) + ":" + pts.size + " sides " + s1.size + "/" + s2.size;
+            rp0 = isdefined( game.roundsplayed ) ? game.roundsplayed : 0;
+            level.gfmenu_spawn = { #team1:mod_shuffle( team1 ), #team2:mod_shuffle( team2 ), #next1:0, #next2:0, #round:rp0 };
+            return;
+        }
+
+        level.gf_family_note = family_name( fam ) + ":" + pts.size + " nosides->geo";
     }
-    if ( team1.size == 0 )
-        team1 = central;
-    if ( team2.size == 0 )
-        team2 = central;
+
+    // A kept Strike area (mod_layout_keep) bounds the search: only markers inside its ring,
+    // centred on it - so the sides are built inside the playable area, not out on the
+    // full map. Falls back to every marker when too few are inside.
+    if ( isdefined( level.gf_area_center ) && isdefined( level.gf_area_radius ) )
+    {
+        inside = [];
+        r2 = level.gf_area_radius * level.gf_area_radius;
+        foreach ( p in pts )
+        {
+            if ( mod_dist2d_sq( p.origin, level.gf_area_center ) <= r2 )
+                inside[ inside.size ] = p;
+        }
+        if ( inside.size >= 12 )
+        {
+            pts = inside;
+            center = level.gf_area_center;
+        }
+    }
+
+    // TWO SIDES A REAL DISTANCE APART (klaze, 2026-09-14, Crossroads: with the old central
+    // split - one blob cut at its median, sides 680u apart - "we all spawned together").
+    // The markers carry no mode flags script can read (STRUCTS line: targetname, origin,
+    // angles, nothing else), so the sides are chosen geometrically: for four axes through
+    // the map's marker centroid and three gaps around gf_spawn_gap, take each side's
+    // per_side nearest markers to the two ideal points C -/+ axis*gap/2 (no marker on both
+    // sides), and keep the configuration whose groups are tightest and whose separation is
+    // closest to the gap. Every anchor is still a designer-placed marker; each is copied
+    // into a fresh struct whose angles face the OTHER side's centre, so a Gunfight round
+    // opens with both teams looking at each other, the way the real maps do.
+    per_side = cfg_team_size() + 2;
+    if ( per_side < 6 )
+        per_side = 6;
+
+    gap = cfg_spawn_gap();
+    best = undefined;
+    bestscore = 0;
+
+    for ( a = 0; a < 4; a++ )
+    {
+        dir = mod_axis_dir( a );
+
+        for ( g = 0; g < 3; g++ )
+        {
+            gg = gap;
+            if ( g == 1 )
+                gg = gap * 1.25;
+            else if ( g == 2 )
+                gg = gap * 1.5;
+
+            // Each side only draws from markers at least (gg/2 - 150) out from the centre
+            // on its own side of the axis - a HARD constraint, so the dense middle cannot
+            // pull both groups together (first run: gap 1200 gave sep 661).
+            p1 = center - vectorscale( dir, gg / 2 );
+            p2 = center + vectorscale( dir, gg / 2 );
+            t1 = mod_nearest_k_excl( pts, p1, per_side, undefined, center, dir, -1, gg / 2 - 150 );
+            t2 = mod_nearest_k_excl( pts, p2, per_side, t1, center, dir, 1, gg / 2 - 150 );
+
+            if ( t1.size < 3 || t2.size < 3 )
+                continue;
+
+            c1 = mod_centroid( t1 );
+            c2 = mod_centroid( t2 );
+            sep = sqrt( mod_dist2d_sq( c1, c2 ) );
+            score = mod_mean_dist2d( t1, c1 ) + mod_mean_dist2d( t2, c2 ) + abs( sep - gap );
+
+            if ( !isdefined( best ) || score < bestscore )
+            {
+                best = { #t1:t1, #t2:t2, #c1:c1, #c2:c2, #sep:sep };
+                bestscore = score;
+            }
+        }
+    }
+
+    // No axis had 3+ markers far enough out on both sides (a tiny map): fall back to the
+    // unconstrained nearest groups so the guard still arms.
+    if ( !isdefined( best ) )
+    {
+        dir = mod_axis_dir( 0 );
+        t1 = mod_nearest_k_excl( pts, center - vectorscale( dir, gap / 2 ), per_side, undefined, undefined, undefined, 0, 0 );
+        t2 = mod_nearest_k_excl( pts, center + vectorscale( dir, gap / 2 ), per_side, t1, undefined, undefined, 0, 0 );
+        if ( t1.size == 0 || t2.size == 0 )
+        {
+            level.gfmenu_spawn = undefined;
+            return;
+        }
+        best = { #t1:t1, #t2:t2, #c1:mod_centroid( t1 ), #c2:mod_centroid( t2 ), #sep:0 };
+    }
+
+    team1 = mod_anchor_copies( best.t1, best.c2 );
+    team2 = mod_anchor_copies( best.t2, best.c1 );
 
     // Shuffled once per round; mod_spawn_place hands them out in order so no two
     // players of a side land on the same struct (a telefrag at worst, a pile at best).
@@ -1415,6 +2127,111 @@ function private mod_min_dist2d( pts, center )
 
 // Fires on every spawn (registered in __init__). No-op unless the flag is on and anchors
 // were built this round. Repositions the player onto a central spawn for their team.
+// ── The pre-spawn override (path 1) — built 2026-09-14 after klaze's Crossroads read ────
+// MEASURED (docs/notes/spawn-system.md §5): on Crossroads under gunfight the host spawned at
+// 0,0,0, 1082u from the nearest marker - path 4, the map-centre fallback: the engine's
+// start list AND its scored lists had nothing for this gametype, so it fell through to
+// level.mapcenter. Every further player lands on the same point (the pile). The on_spawned
+// teleport (mod_spawn_place) fixes the position a frame late; this fixes the SPAWN itself
+// through the engine's own hook: spawning_shared.gsc onspawnplayer() :198 calls
+// level.var_cda5136b( predictedspawn ) first and, when it returns true, does nothing else -
+// the callback has placed the player (stock's contract: `self spawn( origin, angles )`).
+// Nothing in MP installs that hook (grep of the dump), so it is ours.
+//
+// AUTO (gf_spawn_guard 2) decides PER SPAWN with the engine's own start picker, the builtin
+// stock calls at :469: function_77b7335( team, "start_spawn" ). A defined result = the engine
+// has a start spawn for this player -> use THAT (one call, so the point is not consumed
+// twice), which on every good map is byte-for-byte stock behaviour. Undefined = the engine
+// has nothing (the Crossroads case) -> place on our anchors. So AUTO never touches a map
+// that works, and needs no per-map data and no legacy family names (the old detector
+// compared mp_tdm_spawn_*_start to objective families - names CW does not ship, so it read
+// "too few starts" everywhere and would have guarded every map). FORCE (1) = anchors always.
+// predictedspawn (the killcam's pre-spawn prediction) is left to stock: on a bad map that
+// prediction is the map centre, cosmetic.
+function private mod_spawn_override( predictedspawn )
+{
+    if ( predictedspawn )
+        return false;
+
+    if ( !isplayer( self ) || !isdefined( self.team ) )
+        return false;
+
+    if ( cfg_spawn_guard() == 2 && cfg_spawn_family() == 0 )
+    {
+        // MEASURED 2026-09-15 (Hijacked, engine spawns): the sides did NOT switch. The legacy
+        // start-spawn path swapped the team by NAME when game.switchedsides was set
+        // (spawning.gsc getteamstartspawnname -> util::function_6f4ff113); the engine path
+        // hands self.team straight to the picker and swaps nothing. So ask for the OTHER
+        // team's start spawn while switched - the same swap the anchors already do.
+        team = self.team;
+        if ( isdefined( game.switchedsides ) && game.switchedsides )
+            team = util::getotherteam( team );
+
+        s = function_77b7335( team, "start_spawn" );
+
+        if ( isdefined( s ) && isdefined( s.origin ) )
+        {
+            self spawn( s.origin, isdefined( s.angles ) ? s.angles : ( 0, 0, 0 ) );
+            self.lastspawntime = gettime();
+            self.gf_spawn_how = "engine";
+            return true;
+        }
+    }
+
+    pt = self mod_spawn_next_anchor();
+
+    if ( !isdefined( pt ) || !isdefined( pt.origin ) )
+        return false;                       // no anchors: stock does what it does
+
+    self spawn( pt.origin, isdefined( pt.angles ) ? pt.angles : ( 0, 0, 0 ) );
+    self.lastspawntime = gettime();
+    self.gf_spawn_how = "anchor";
+    return true;
+}
+
+// The round-robin the on_spawned teleport used, factored out so both paths share it. Returns
+// the struct for this player's side, or undefined when the guard is not armed.
+function private mod_spawn_next_anchor()
+{
+    if ( !isdefined( level.gfmenu_spawn ) )
+        return undefined;
+
+    rp = isdefined( game.roundsplayed ) ? game.roundsplayed : 0;
+    if ( !isdefined( level.gfmenu_spawn.round ) || level.gfmenu_spawn.round != rp )
+    {
+        level.gfmenu_spawn.team1 = mod_shuffle( level.gfmenu_spawn.team1 );
+        level.gfmenu_spawn.team2 = mod_shuffle( level.gfmenu_spawn.team2 );
+        level.gfmenu_spawn.next1 = 0;
+        level.gfmenu_spawn.next2 = 0;
+        level.gfmenu_spawn.round = rp;
+    }
+
+    switched = isdefined( game.switchedsides ) && game.switchedsides;
+    use_team2 = ( self.team == #"axis" ) ? !switched : switched;
+
+    if ( use_team2 )
+    {
+        list = level.gfmenu_spawn.team2;
+        idx = level.gfmenu_spawn.next2;
+        level.gfmenu_spawn.next2 = idx + 1;
+        self.gf_spawn_side = "team2";
+    }
+    else
+    {
+        list = level.gfmenu_spawn.team1;
+        idx = level.gfmenu_spawn.next1;
+        level.gfmenu_spawn.next1 = idx + 1;
+        self.gf_spawn_side = "team1";
+    }
+
+    if ( !isdefined( list ) || list.size == 0 )
+        return undefined;
+
+    self.gf_spawn_slot = idx % list.size;
+    self.gf_spawn_slots = list.size;
+    return list[ self.gf_spawn_slot ];
+}
+
 function private mod_spawn_place()
 {
     // Host player tools that need re-asserting each spawn (both reset on respawn).
@@ -1427,58 +2244,32 @@ function private mod_spawn_place()
     // globallogic_spawn.gsc:637, this callback fires at :758), so repaint on top of it.
     self mod_camo_on_spawn();
 
+    // Spawn log (gf_spawn_diag): where the ENGINE put this player, before the guard below
+    // moves anyone - the per-map evidence for docs/notes/spawn-system.md.
+    if ( cfg_spawn_diag() )
+        self spawn_log_record();
+
     if ( !cfg_spawn_guard() )
         return;
 
-    if ( !isdefined( level.gfmenu_spawn ) )
+    // The pre-spawn override (mod_spawn_override) handled this spawn: receipt only. To the
+    // HOST, named per player - `self` here is whoever just spawned, and printing on `self`
+    // put "spawn guard: ..." on every joiner's own feed each time they spawned.
+    if ( isdefined( self.gf_spawn_how ) )
+    {
+        if ( cfg_spawn_diag() && self.gf_spawn_how == "anchor" )
+            mod_host_say( "spawn guard: " + self.name + " -> " + self.gf_spawn_side + " anchor " + self.gf_spawn_slot + "/" + self.gf_spawn_slots );
+        self.gf_spawn_how = undefined;
         return;
+    }
 
+    // Legacy path - the override was not installed for this spawn (it is installed at
+    // mod_apply and by the menu action; a spawn before either lands here): the teleport,
+    // a frame after the engine placed the player. Same anchors, same round-robin.
     if ( !isplayer( self ) || !isdefined( self.team ) )
         return;
 
-    // Per-round refresh. mod_spawn_build runs at on_start_gametype, which fires ONCE per
-    // MATCH - so without this the anchor order is shuffled a single time and the sides never
-    // follow the round switch. on_spawned fires at each round's start in a no-respawn mode,
-    // so when the round advances, reshuffle both sides and reset the counters here. The first
-    // spawner of the round does it; the rest see the same round and take the round-robin.
-    rp = isdefined( game.roundsplayed ) ? game.roundsplayed : 0;
-    if ( !isdefined( level.gfmenu_spawn.round ) || level.gfmenu_spawn.round != rp )
-    {
-        level.gfmenu_spawn.team1 = mod_shuffle( level.gfmenu_spawn.team1 );
-        level.gfmenu_spawn.team2 = mod_shuffle( level.gfmenu_spawn.team2 );
-        level.gfmenu_spawn.next1 = 0;
-        level.gfmenu_spawn.next2 = 0;
-        level.gfmenu_spawn.round = rp;
-    }
-
-    // Which physical cluster a team spawns on follows the engine's own side state, so the
-    // guard's sides stay consistent with the scoreboard when Gunfight switches sides
-    // (game.switchedsides, toggled by on_round_switch every gunfightroundsperloadout rounds).
-    switched = isdefined( game.switchedsides ) && game.switchedsides;
-    use_team2 = ( self.team == #"axis" ) ? !switched : switched;
-
-    // Round-robin through the side's shuffled list: distinct struct per player. The counter
-    // is tied to the physical list, not the team, so it stays correct when the sides flip.
-    if ( use_team2 )
-    {
-        list = level.gfmenu_spawn.team2;
-        idx = level.gfmenu_spawn.next2;
-        level.gfmenu_spawn.next2 = idx + 1;
-        side = "team2";
-    }
-    else
-    {
-        list = level.gfmenu_spawn.team1;
-        idx = level.gfmenu_spawn.next1;
-        level.gfmenu_spawn.next1 = idx + 1;
-        side = "team1";
-    }
-
-    if ( !isdefined( list ) || list.size == 0 )
-        return;
-
-    slot = idx % list.size;
-    pt = list[ slot ];
+    pt = self mod_spawn_next_anchor();
 
     if ( !isdefined( pt ) || !isdefined( pt.origin ) )
         return;
@@ -1488,11 +2279,8 @@ function private mod_spawn_place()
     if ( isdefined( pt.angles ) )
         self setplayerangles( pt.angles );
 
-    // Receipt so an "odd spawn" report can be matched against what the guard did. To the
-    // HOST, named per player - `self` here is whoever just spawned, and printing on
-    // `self` put "spawn guard: ..." on every joiner's own feed each time they spawned.
     if ( cfg_spawn_diag() )
-        mod_host_say( "spawn guard: " + self.name + " -> " + side + " anchor " + slot + "/" + list.size );
+        mod_host_say( "spawn guard (teleport): " + self.name + " -> " + self.gf_spawn_side + " anchor " + self.gf_spawn_slot + "/" + self.gf_spawn_slots );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1742,6 +2530,151 @@ function private mod_spawn_families()
     return names;
 }
 
+// ── Spawn log + struct probe (gf_spawn_diag) — docs/notes/spawn-system.md ──────────────
+// The per-map evidence the spawn picture needs, from the host's own matches:
+//   spawn_log_record   at every spawn (before the guard moves anyone): round, player, team,
+//                      origin, the NEAREST map spawn struct (family#index, distance) and a
+//                      PILE flag when another living player is within 48u. Kept in game. so
+//                      it survives the round boundary; the Spawn report prints it.
+//   structs_line       (debug feed) the field schema of the map's mp_spawn_point structs - which of the
+//                      candidate keys are defined and what they hold. CW folds every mode's
+//                      spawn markers into one mp_spawn_point family with per-mode flags
+//                      (dev_spawn.gsc lists the flag vocabulary: tdm sd dom ctf koth control
+//                      dm ffa dem vip ...), but the dump ships no map entity data and the
+//                      MP spawnlogic/spawning scripts are missing from it, so the only way
+//                      to learn how "tdm start" is marked on a point is to read one.
+//   getspawnlists()    the engine builtin (0 args, funcs_cw.csv): what spawn lists the
+//                      engine built for this gametype - "normal", the start list, ...
+function private spawn_fv( v )
+{
+    if ( !isdefined( v ) )
+        return "-";
+    if ( isstring( v ) )
+        return v;
+    if ( isvec( v ) )
+        return int( v[ 0 ] ) + "," + int( v[ 1 ] ) + "," + int( v[ 2 ] );
+    if ( ishash( v ) )
+        return "hash";
+    if ( isarray( v ) )
+        return "arr" + v.size;
+    return "" + v;
+}
+
+function private spawn_team_str( t )
+{
+    if ( !isdefined( t ) )
+        return "?";
+    if ( t == #"axis" )
+        return "axis";
+    if ( t == #"allies" )
+        return "allies";
+    return "other";
+}
+
+function private spawn_log_record()
+{
+    if ( !isplayer( self ) || !isdefined( self.origin ) )
+        return;
+
+    if ( !isdefined( game.gf_spawnlog ) )
+        game.gf_spawnlog = [];
+
+    rp = isdefined( game.roundsplayed ) ? game.roundsplayed : 0;
+
+    bestd = -1;
+    bestname = "none";
+    bestidx = -1;
+
+    foreach ( n in mod_spawn_families() )
+    {
+        arr = struct::get_array( n, "targetname" );
+
+        if ( !isdefined( arr ) )
+            continue;
+
+        for ( i = 0; i < arr.size; i++ )
+        {
+            s = arr[ i ];
+
+            if ( !isdefined( s ) || !isdefined( s.origin ) )
+                continue;
+
+            d = distancesquared( s.origin, self.origin );
+
+            if ( bestd < 0 || d < bestd )
+            {
+                bestd = d;
+                bestname = n;
+                bestidx = i;
+            }
+        }
+    }
+
+    pile = "";
+    foreach ( p in getplayers() )
+    {
+        if ( p != self && isalive( p ) && isdefined( p.origin ) && distance( p.origin, self.origin ) < 48 )
+            pile = " ^1PILE:" + p.name;
+    }
+
+    how = isdefined( self.gf_spawn_how ) ? self.gf_spawn_how : "stock";
+    line = "r" + rp + " " + self.name + " " + spawn_team_str( self.team ) + " " + spawn_fv( self.origin ) + " near " + bestname + "#" + bestidx + " d=" + ( bestd < 0 ? "-" : ( "" + int( sqrt( bestd ) ) ) ) + " " + how + pile;
+
+    // Keep the last 24: rebuild without the oldest when full ([]-construction, see keys_init).
+    if ( game.gf_spawnlog.size >= 24 )
+    {
+        trimmed = [];
+        for ( i = 1; i < game.gf_spawnlog.size; i++ )
+            trimmed[ trimmed.size ] = game.gf_spawnlog[ i ];
+        game.gf_spawnlog = trimmed;
+    }
+
+    game.gf_spawnlog[ game.gf_spawnlog.size ] = line;
+
+    // Compact per-round entry for the debug feed's SPAWN line (level. = this round only).
+    if ( !isdefined( level.gf_spawn_round ) )
+        level.gf_spawn_round = [];
+    level.gf_spawn_round[ level.gf_spawn_round.size ] = self.name + ":" + spawn_team_str( self.team ) + ":" + how + ":d" + ( bestd < 0 ? "-" : ( "" + int( sqrt( bestd ) ) ) ) + ( pile != "" ? ":PILE" : "" );
+
+    if ( !cfg_dbg_spawn() )
+        mod_host_say( "spawn: " + line );
+}
+
+// One struct's candidate fields -> "k=v k=v". Only defined ones print.
+function private spawn_struct_fields( s )
+{
+    out = "";
+    if ( isdefined( s.script_string ) )        out += " str=" + spawn_fv( s.script_string );
+    if ( isdefined( s.script_noteworthy ) )    out += " nw=" + spawn_fv( s.script_noteworthy );
+    if ( isdefined( s.script_label ) )         out += " lbl=" + spawn_fv( s.script_label );
+    if ( isdefined( s.script_int ) )           out += " int=" + spawn_fv( s.script_int );
+    if ( isdefined( s.script_team ) )          out += " team=" + spawn_fv( s.script_team );
+    if ( isdefined( s.spawnflags ) )           out += " sf=" + spawn_fv( s.spawnflags );
+    if ( isdefined( s.script_gametype_tdm ) )  out += " gt_tdm=" + spawn_fv( s.script_gametype_tdm );
+    if ( isdefined( s.script_gametype_sd ) )   out += " gt_sd=" + spawn_fv( s.script_gametype_sd );
+    if ( isdefined( s.script_gametype_dom ) )  out += " gt_dom=" + spawn_fv( s.script_gametype_dom );
+    if ( isdefined( s.script_gametype_dm ) )   out += " gt_dm=" + spawn_fv( s.script_gametype_dm );
+    if ( isdefined( s.script_gametype_ctf ) )  out += " gt_ctf=" + spawn_fv( s.script_gametype_ctf );
+    if ( isdefined( s.script_gametype_koth ) ) out += " gt_koth=" + spawn_fv( s.script_gametype_koth );
+    if ( isdefined( s.tdm ) )                  out += " tdm=" + spawn_fv( s.tdm );
+    if ( isdefined( s.sd ) )                   out += " sd=" + spawn_fv( s.sd );
+    if ( isdefined( s.start ) )                out += " start=" + spawn_fv( s.start );
+    if ( isdefined( s.script_start ) )         out += " sstart=" + spawn_fv( s.script_start );
+    if ( isdefined( s.spawn_type ) )           out += " stype=" + spawn_fv( s.spawn_type );
+    if ( isdefined( s.script_spawn_type ) )    out += " sstype=" + spawn_fv( s.script_spawn_type );
+    if ( isdefined( s.type ) )                 out += " type=" + spawn_fv( s.type );
+    if ( isdefined( s.radius ) )               out += " rad=" + spawn_fv( s.radius );
+    if ( isdefined( s.script_flag ) )          out += " flag=" + spawn_fv( s.script_flag );
+    if ( isdefined( s.script_parameters ) )    out += " prm=" + spawn_fv( s.script_parameters );
+    if ( isdefined( s.classname ) )            out += " cls=" + spawn_fv( s.classname );
+    if ( isdefined( s.targetname ) )           out += " tn=" + spawn_fv( s.targetname );
+    if ( isdefined( s.target ) )               out += " tgt=" + spawn_fv( s.target );
+    if ( isdefined( s.angles ) )               out += " ang=" + spawn_fv( s.angles );
+    if ( out == "" )
+        out = " (none of the candidate fields)";
+    return out;
+}
+
 // Spawns -> "Spawn report": what this map actually places, and what the guard built from
 // it. Three lines a page so it can be read. Zero counts are skipped.
 function private spawn_report()
@@ -1775,12 +2708,12 @@ function private spawn_report()
         c = mod_centroid( obj );
         objrad = int( mod_mean_dist2d( obj, c ) );
         startmin = int( mod_min_dist2d( starts, c ) );
-        verdict = ( startmin > objrad + cfg_spawn_autospread() ) ? "^1WRONG-LAYOUT -> AUTO guards" : "^2ok -> AUTO leaves stock";
-        self iprintln( "auto: obj r=" + objrad + " nearest start=" + startmin + " trip=" + cfg_spawn_autospread() + "  " + verdict );
+        verdict = ( startmin > objrad + cfg_spawn_autospread() ) ? "^1legacy detector: wrong-layout" : "^2legacy detector: ok";
+        self iprintln( "legacy: obj r=" + objrad + " nearest start=" + startmin + " trip=" + cfg_spawn_autospread() + "  " + verdict + " - AUTO now decides per spawn" );
     }
     else
     {
-        self iprintln( "auto: starts=" + starts.size + " obj=" + obj.size + " (too few to judge; AUTO " + ( starts.size < 2 ? "guards" : "leaves stock" ) + ")" );
+        self iprintln( "legacy detector: starts=" + starts.size + " obj=" + obj.size + " - AUTO now decides per spawn via the engine start picker" );
     }
 
     if ( isdefined( level.gfmenu_spawn ) )
@@ -1793,10 +2726,8 @@ function private spawn_report()
     else
     {
         reason = "switched off";
-        if ( cfg_spawn_guard() == 1 )
-            reason = "too few points";
-        else if ( cfg_spawn_guard() == 2 )
-            reason = "AUTO: map looks ok, or too few points";
+        if ( cfg_spawn_guard() )
+            reason = "too few markers to build anchors";
         self iprintln( "guard not armed this round (" + reason + ")" );
     }
 }
@@ -1809,6 +2740,102 @@ function private mod_centroid( pts )
         sum += p.origin;
 
     return sum / pts.size;
+}
+
+// The four axes the side search tries, as unit vectors: x, y and the two diagonals.
+function private mod_axis_dir( a )
+{
+    if ( a == 0 )
+        return ( 1, 0, 0 );
+    if ( a == 1 )
+        return ( 0, 1, 0 );
+    if ( a == 2 )
+        return ( 0.7071, 0.7071, 0 );
+    return ( 0.7071, -0.7071, 0 );
+}
+
+// k nearest of pts to target (2D), skipping any struct in excl, and - when hcenter/hdir are
+// given - only markers whose projection on hdir from hcenter, times sign, is >= minproj
+// (the half-plane past the ideal point's side). O(n*k), no sort - this runs 24 times per
+// build, so the O(n^2) sort in mod_nearest_k would not do.
+function private mod_nearest_k_excl( pts, target, k, excl, hcenter, hdir, sign, minproj )
+{
+    center = target;
+    out = [];
+    taken = [];
+
+    for ( n = 0; n < k; n++ )
+    {
+        besti = -1;
+        bestd = 0;
+
+        for ( i = 0; i < pts.size; i++ )
+        {
+            if ( isdefined( taken[ i ] ) )
+                continue;
+
+            p = pts[ i ];
+            if ( !isdefined( p ) || !isdefined( p.origin ) )
+                continue;
+
+            if ( isdefined( excl ) && mod_in_array( excl, p ) )
+                continue;
+
+            if ( isdefined( hcenter ) && isdefined( hdir ) && sign != 0 )
+            {
+                proj = ( ( p.origin[ 0 ] - hcenter[ 0 ] ) * hdir[ 0 ] + ( p.origin[ 1 ] - hcenter[ 1 ] ) * hdir[ 1 ] ) * sign;
+                if ( proj < minproj )
+                    continue;
+            }
+
+            d = mod_dist2d_sq( p.origin, center );
+            if ( besti < 0 || d < bestd )
+            {
+                besti = i;
+                bestd = d;
+            }
+        }
+
+        if ( besti < 0 )
+            break;
+
+        taken[ besti ] = 1;
+        out[ out.size ] = pts[ besti ];
+    }
+
+    return out;
+}
+
+function private mod_in_array( arr, p )
+{
+    foreach ( q in arr )
+    {
+        if ( q == p )
+            return true;
+    }
+
+    return false;
+}
+
+// Fresh anchor structs: the marker's origin, angles turned (yaw only) toward the other
+// side's centre. The map's own structs are never modified.
+function private mod_anchor_copies( markers, face )
+{
+    out = [];
+
+    foreach ( m in markers )
+    {
+        a = spawnstruct();
+        a.origin = m.origin;
+        d = ( face[ 0 ] - m.origin[ 0 ], face[ 1 ] - m.origin[ 1 ], 0 );
+        if ( length( d ) > 1 )
+            a.angles = vectortoangles( d );
+        else
+            a.angles = isdefined( m.angles ) ? m.angles : ( 0, 0, 0 );
+        out[ out.size ] = a;
+    }
+
+    return out;
 }
 
 function private mod_nearest_k( pts, center, k )
@@ -2313,6 +3340,7 @@ function private cmd_dispatch()
     {
         setdvar( #"gf_cmd_say_clear", 0 );
         level notify( #"gf_say_stop" );
+        broadcast_hint_stop();              // also clear a held hint banner
         self menu_say( "^2app: broadcast cleared" );
         return;
     }
@@ -2438,7 +3466,7 @@ function private cmd_dispatch()
 
     if ( stage )
     {
-        self menu_say( "^2app: staged " + map + " / " + gt + " - the lobby shows it when this match ends" );
+        self menu_say( "^2app: staging " + map + " / " + gt + " - do not end the match until STAGE READY" );
         self thread do_session_stage( map, gt );
         return;
     }
@@ -2473,6 +3501,7 @@ function private cmd_apply_live()
     dcc = cfg_customcac() ? 0 : 1;
     setgametypesetting( #"disablecustomcac", dcc );
     level.disablecustomcac = dcc;
+    mode_profile_gunfight( 1 );             // idempotent; same as match start
 
     setgametypesetting( #"gunfightloadoutindex", cfg_loadout() );
     setgametypesetting( #"gunfightspyplane", cfg_spyplane() );
@@ -2895,15 +3924,16 @@ function private menu_render( lines )
         return;
     }
 
-    // A layout change away from HINT leaves its trigger up until the next repaint; drop it
-    // here so the widget does not keep showing a frozen panel under the text one.
-    self menu_hint_hide();
-
+    // Region 2 (the DEFAULT since 2026-09-14, klaze: "menu in the middle, info in the feed
+    // and in the hint") uses the hint row for its info line, so it keeps the trigger; every
+    // other layout drops it here so a stale panel never sits under the text one.
     if ( cfg_menu_region() == 2 )
     {
         self menu_render_split( lines, 1 );
         return;
     }
+
+    self menu_hint_hide();
     if ( cfg_menu_region() == 3 )
     {
         self menu_render_split( lines, 0 );
@@ -2940,7 +3970,7 @@ function private menu_render( lines )
     if ( menu.id == "start_menu" )
         self menu_draw( self menu_state_line() );
     else
-        self menu_draw( "^5" + menu.name + " ^7" + pos + "  ^8> ^7" + self menu_state_compact() );
+        self menu_draw( "^2" + menu.name + " " + pos + "  > " + self menu_state_compact() );
 
     if ( n == 0 )
     {
@@ -2983,6 +4013,23 @@ function private menu_render_split( lines, list_center )
             self iprintln( l );
 
         self iprintlnbold( isdefined( menu ) ? self menu_hline( menu ) : "" );
+
+        // The hint row (use-prompt widget: one non-wrapping line that does not fade) carries
+        // the info line - page, position, the compact state, the last action - while the
+        // menu is open; the trigger goes with the menu.
+        if ( isdefined( menu ) )
+        {
+            n = menu.items.size;
+            info = "^2" + menu.name + " " + ( ( n == 0 ) ? "-/-" : ( "" + ( menu.cursor + 1 ) + "/" + n ) ) + " | " + self menu_state_compact();
+            if ( isdefined( self.gfmenu.lastmsg ) && self.gfmenu.lastmsg != "" )
+                info += " | " + self.gfmenu.lastmsg;
+            trig = self menu_hint_trigger();
+            trig sethintstring( info );
+        }
+        else
+        {
+            self menu_hint_hide();
+        }
         return;
     }
 
@@ -3066,7 +4113,10 @@ function private menu_hint_trigger()
         return self.gfmenu_hint;
 
     trig = spawn( "trigger_radius", self.origin, 0, 96, 128 );
-    trig setcursorhint( "HINT_NOICON" );
+    // ⚠ NO setcursorhint: HINT_NOICON renders a compact single-line prompt that CLIPS the
+    // string at the screen edge (measured 2026-09-14). SoCanKam's working CW menu sets no
+    // cursor hint and the use-prompt widget WRAPS its 15-item pipe-joined string across
+    // lines - that wrap is how a hint panel becomes multi-row. Leave the cursor hint unset.
     trig triggerignoreteam();
     trig setvisibletoplayer( self );
     trig setmovingplatformenabled( 1 );
@@ -3156,11 +4206,11 @@ function private menu_render_hint()
     if ( menu.id == "start_menu" )
         rows[ rows.size ] = self menu_state_line();
     else
-        rows[ rows.size ] = "^5" + menu.name + "  ^8> ^7" + self menu_state_compact();
+        rows[ rows.size ] = "^2" + menu.name + "  > " + self menu_state_compact();
 
     if ( n == 0 )
     {
-        rows[ rows.size ] = "^8(empty)";
+        rows[ rows.size ] = "^2(empty)";
     }
     else
     {
@@ -3168,12 +4218,14 @@ function private menu_render_hint()
             rows[ rows.size ] = self menu_item_line( menu, i );
     }
 
-    foot = "^8" + pos + "  ^7RMB^8 up ^7LMB^8 down ^7R^8 select ^7V^8 back";
+    foot = "^2" + pos + "  RMB up LMB down R select V back";
     if ( isdefined( self.gfmenu.lastmsg ) && self.gfmenu.lastmsg != "" )
-        foot += "  ^8| " + self.gfmenu.lastmsg;
+        foot += "  | " + self.gfmenu.lastmsg;
     rows[ rows.size ] = foot;
 
-    sep = cfg_hint_newlines() ? "\n" : " ^8| ";
+    // ⚠ A real newline (\n) in sethintstring CLOSES THE MATCH — the stock use-prompt
+    // widget cannot take an embedded newline (measured in-game 2026-09-14). Packed only.
+    sep = " ^8| ";
     txt = "";
     for ( i = 0; i < rows.size; i++ )
         txt += ( ( i > 0 ) ? sep : "" ) + rows[ i ];
@@ -3190,10 +4242,10 @@ function private menu_render_hint()
 function private menu_hline( menu )
 {
     n = menu.items.size;
-    head = "^5" + menu.name + " ^7" + ( ( n == 0 ) ? "-/-" : ( "" + ( menu.cursor + 1 ) + "/" + n ) );
+    head = "^2" + menu.name + " " + ( ( n == 0 ) ? "-/-" : ( "" + ( menu.cursor + 1 ) + "/" + n ) );
 
     if ( n == 0 )
-        return head + " ^8(empty)";
+        return head + " (empty)";
 
     // FIXED window of gf_menu_hspan entries (default 4), clamped like the vertical list so
     // the bar always shows the same number of items instead of growing/shrinking as you
@@ -3214,8 +4266,8 @@ function private menu_hline( menu )
     for ( i = start; i < start + win; i++ )
         strip += " " + self menu_hitem( menu, i );
 
-    lead = ( start > 0 ) ? " ^8<" : "";
-    tail = ( start + win < n ) ? " ^8>" : "";
+    lead = ( start > 0 ) ? " ^2<" : "";
+    tail = ( start + win < n ) ? " ^2>" : "";
 
     return head + lead + strip + tail;
 }
@@ -3235,12 +4287,12 @@ function private menu_hitem( menu, i )
     submenu = isdefined( it.data1 ) && isdefined( self.gfmenu.menus[ it.data1 ] );
     body = it.name + ( active ? "*" : "" ) + ( submenu ? ">" : "" );
 
-    // Same scheme as the vertical rows: green brackets = current, cyan = opens a page, dim
-    // grey = the rest. The brackets are the "you are here" marker in the sideways strip.
+    // Same scheme as the vertical rows: red brackets = current, green = the rest. The
+    // brackets are the "you are here" marker in the sideways strip.
     if ( menu.cursor == i )
-        return "^2[" + body + "]";
+        return "^1[" + body + "]";
 
-    return ( submenu ? "^5" : "^8" ) + body;
+    return "^2" + body;
 }
 
 // The full status block for the SPLIT layout - "status of everything and what we have
@@ -3259,17 +4311,17 @@ function private menu_status_block()
 
     // L1 adds round + round-win score (Gunfight teamscores = rounds won), so the pane shows
     // where the match stands, not just the config. "R3 2-1" = round 3, allies 2 / axis 1.
-    out[ out.size ] = "^3GF ^7" + ts + "v" + ts + " ^8| ^7" + cfg_timer_label() + " ^8| ^7" + gt + " ^8| ^7R" + info_round() + " " + info_score( #"allies" ) + "-" + info_score( #"axis" );
+    out[ out.size ] = "^2GF " + ts + "v" + ts + " | " + cfg_timer_label() + " | " + gt + " | R" + info_round() + " " + info_score( #"allies" ) + "-" + info_score( #"axis" );
 
-    l2 = "^7" + map + " ^8| ^7" + seated + "/" + budget + " ^8| ^7" + meth;
+    l2 = "^2" + map + " | " + seated + "/" + budget + " | " + meth;
     staged = tolower( getdvarstring( #"gf_staged_map", "" ) );
     if ( staged != "" && staged != tolower( map ) )
-        l2 += " ^8| ^3next:^7" + staged;
+        l2 += " | next:" + staged;
     out[ out.size ] = l2;
 
     flags = self menu_enabled_flags();
     if ( flags != "" )
-        out[ out.size ] = "^8on: ^7" + flags;
+        out[ out.size ] = "^2on: " + flags;
 
     if ( isdefined( self.gfmenu.lastmsg ) && self.gfmenu.lastmsg != "" )
         out[ out.size ] = self.gfmenu.lastmsg;
@@ -3431,23 +4483,19 @@ function private menu_item_line( menu, i )
     else if ( menu.id == "gametype" && isdefined( it.data1 ) )
         active = ( tolower( getdvarstring( #"g_gametype", "" ) ) == it.data1 );
 
-    // Colour scheme (the only "formatting" server text has - no fonts, glyphs unreliable):
-    //   ^2 green  = the selected row's caret, the current-value marker (*), and [ON]
-    //   ^5 cyan   = a row that opens a sub-page (+ a trailing > so it reads as "opens")
-    //   ^7 white  = the selected row's label            ^8 grey = unselected / dim
-    // so at a glance: green caret = where you are, green name+* = the live setting, cyan =
-    // drills in. Markers are suffixes in a fixed order so columns line up down the list.
-    if ( cur )
-        namecol = submenu ? "^5" : ( active ? "^2" : "^7" );
-    else
-        namecol = submenu ? "^5" : ( active ? "^2" : "^8" );
+    // Colour scheme (klaze, 2026-09-14: "every menu and entry green, the selected one red"):
+    //   ^1 red    = the selected row - caret and label
+    //   ^2 green  = every other row, page rows included, and the markers (* / > / [ON])
+    // The markers stay suffixes in a fixed order so columns line up down the list; the
+    // sub-page > and the current-value * still tell "opens" from "is set" by shape.
+    namecol = cur ? "^1" : "^2";
 
-    line = ( cur ? "^2> " : "^8  " ) + namecol + it.name;
+    line = ( cur ? "^1> " : "^2  " ) + namecol + it.name;
 
     if ( active )
         line += " ^2*";
     if ( submenu )
-        line += " ^5>";
+        line += " ^2>";
     if ( it.activated )
         line += " ^2[ON]";
 
@@ -3492,14 +4540,14 @@ function private menu_state_line()
     gt = getdvarstring( #"g_gametype", "?" );
     meth = cfg_map_method() ? "SESSION" : "carry";
 
-    line = "^7" + ts + "v" + ts + " ^8| ^7" + cfg_timer_label() + " ^8| ^7" + map + " ^8| ^7" + gt + " ^8| ^7" + seated + "/" + budget + " ^8| ^7" + meth;
+    line = "^2" + ts + "v" + ts + " | " + cfg_timer_label() + " | " + map + " | " + gt + " | " + seated + "/" + budget + " | " + meth;
 
     // A staged pick, until it is either started from the lobby or overtaken by a NOW
     // switch. Shown only while it differs from where we are, so a stage of the current
     // map (or a stale marker) never reads as pending.
     staged = tolower( getdvarstring( #"gf_staged_map", "" ) );
     if ( staged != "" && staged != tolower( map ) )
-        line += " ^8| ^3next:^7" + staged;
+        line += " | next:" + staged;
 
     return line;
 }
@@ -3735,6 +4783,10 @@ function private build_tree()
     // from another mode leaves ON by accident (the settings blob carries), see mod_apply.
     self menu_item( "loadout", "Custom classes OFF - Gunfight loadouts", &act_customcac, 0, undefined, #"gf_customcac", 0 );
     self menu_item( "loadout", "Custom classes ON", &act_customcac, 1, undefined, #"gf_customcac", 1 );
+    // The real Gunfight blob (column A) asserted at every Gunfight match start, so a Case-B
+    // launch (TDM lobby config) plays as real Gunfight. OFF = watch the raw hybrid on purpose.
+    self menu_item( "loadout", "Gunfight profile ON - real blob", &act_profile, 1, undefined, #"gf_profile", 1 );
+    self menu_item( "loadout", "Gunfight profile OFF - raw hybrid", &act_profile, 0, undefined, #"gf_profile", 0 );
 
     // ── Loadout-pool camo — every pool weapon, every player, every spawn. A pick repaints
     //    everyone NOW as well (Gunfight has no respawn, so "next spawn" is next round).
@@ -3777,7 +4829,32 @@ function private build_tree()
     self menu_item( "spawns", "Spawn guard OFF", &act_spawn_guard, 0, undefined, #"gf_spawn_guard", 0 );
     self menu_item( "spawns", "Spawn guard AUTO (only bad maps)", &act_spawn_guard, 2, undefined, #"gf_spawn_guard", 2 );
     self menu_item( "spawns", "Spawn guard FORCE (every map)", &act_spawn_guard, 1, undefined, #"gf_spawn_guard", 1 );
+    // Crossroads under Gunfight loads the full 12v12 map (its script opens it for every
+    // gametype outside its Strike list). ON keeps the Strike clips by renaming them before
+    // the map deletes them. No-op on other maps.
+    self menu_item( "spawns", "Crossroads: Strike layout ON", &act_strike, 1, undefined, #"gf_strike", 1 );
+    self menu_item( "spawns", "Crossroads: full map - stock", &act_strike, 0, undefined, #"gf_strike", 0 );
+    // How far apart the guard puts the two sides (units between the side centres).
+    self menu_item( "spawns", "Guard gap 1200", &act_spawn_gap, 1200, undefined, #"gf_spawn_gap", 1200 );
+    self menu_item( "spawns", "Guard gap 1800", &act_spawn_gap, 1800, undefined, #"gf_spawn_gap", 1800 );
+    self menu_item( "spawns", "Guard gap 2400", &act_spawn_gap, 2400, undefined, #"gf_spawn_gap", 2400 );
+    self menu_item( "spawns", "Guard gap 3200", &act_spawn_gap, 3200, undefined, #"gf_spawn_gap", 3200 );
     self menu_item( "spawns", "Spawn report", &act_spawn_report );
+    // The evidence rows (docs/notes/spawn-system.md) - debug-feed toggles: one complete line
+    // every 3 s while on. Placements need gf_spawn_diag 1 (default) to be recorded.
+    self menu_item( "spawns", "Debug: spawn placements this round", &act_dbg_spawn, undefined, undefined, #"gf_dbg_spawn", 1 );
+    self menu_item( "spawns", "Debug: spawn structs + engine lists", &act_dbg_structs, undefined, undefined, #"gf_dbg_structs", 1 );
+    self menu_item( "spawns", "Debug: spawn families + guard state", &act_dbg_families, undefined, undefined, #"gf_dbg_families", 1 );
+    self menu_item( "spawns", "Debug: marker flags census", &act_dbg_flags, undefined, undefined, #"gf_dbg_flags", 1 );
+    // Which mode's markers the guard builds from (every spawn on them when set).
+    self menu_item( "spawns", "Family: none - engine / geometric", &act_spawn_family, 0, undefined, #"gf_spawn_family", 0 );
+    self menu_item( "spawns", "Family: S&D markers", &act_spawn_family, 2, undefined, #"gf_spawn_family", 2 );
+    self menu_item( "spawns", "Family: TDM markers", &act_spawn_family, 1, undefined, #"gf_spawn_family", 1 );
+    self menu_item( "spawns", "Family: Domination markers", &act_spawn_family, 3, undefined, #"gf_spawn_family", 3 );
+    self menu_item( "spawns", "Family: CTF markers", &act_spawn_family, 4, undefined, #"gf_spawn_family", 4 );
+    self menu_item( "spawns", "Family: Hardpoint markers", &act_spawn_family, 5, undefined, #"gf_spawn_family", 5 );
+    self menu_item( "spawns", "Family: Control markers", &act_spawn_family, 6, undefined, #"gf_spawn_family", 6 );
+    self menu_item( "spawns", "Family: FFA markers", &act_spawn_family, 7, undefined, #"gf_spawn_family", 7 );
 
     // ── Display — the text layout. SPLIT is klaze's "status left, menu centre". Kept a
     // live toggle so a build where the centre clips the list can be reverted in-menu. ──
@@ -3790,8 +4867,8 @@ function private build_tree()
     self menu_item( "display", "Hint rows 6", &act_hint_lines, 6, undefined, #"gf_hint_lines", 6 );
     self menu_item( "display", "Hint rows 8", &act_hint_lines, 8, undefined, #"gf_hint_lines", 8 );
     self menu_item( "display", "Hint rows 12", &act_hint_lines, 12, undefined, #"gf_hint_lines", 12 );
-    self menu_item( "display", "Hint rows: packed on one line", &act_hint_newlines, 0, undefined, #"gf_hint_newlines", 0 );
-    self menu_item( "display", "Hint rows: newlines - measure it", &act_hint_newlines, 1, undefined, #"gf_hint_newlines", 1 );
+    // Newline separator removed: a \n in sethintstring closes the match (measured 2026-09-14).
+    // Rows are always packed with ^8| now; menu_render_hint hardcodes the separator.
     // The centre shows only ONE line (engine limit), so region 2 renders the menu there as
     // a HORIZONTAL carousel (items side by side, current bracketed, sliding as you scroll).
     // Region 3 puts a vertical multi-row list in the ~4-line lower-left feed instead.
@@ -3805,9 +4882,18 @@ function private build_tree()
     self menu_item( "display", "Centre width 5", &act_menu_hspan, 5, undefined, #"gf_menu_hspan", 5 );
     // Full state readout to the feed (more than the pane can hold at once).
     self menu_item( "display", "Show match info", &act_match_info );
-    // The settings blob, key=value, to the feed - run once in a real Gunfight and once after
-    // a switch from TDM; the diff is the mode-remnant list (docs/notes/mode-remnants.md).
-    self menu_item( "display", "Settings census to feed", &act_settings_census );
+    // Debug feed: every debug tool as an on/off that prints ONE complete feed line every
+    // 3 s while on (klaze, 2026-09-14). Persists across matches (dvars), restarts at match
+    // start. See DEBUG FEED.
+    self menu_add( "debug", "Debug feed", "display", 1 );
+    self menu_item( "debug", "Settings census: AS LAUNCHED", &act_dbg_census, 1, undefined, #"gf_census", 1 );
+    self menu_item( "debug", "Settings census: LIVE", &act_dbg_census, 2, undefined, #"gf_census", 2 );
+    self menu_item( "debug", "Spawn placements this round", &act_dbg_spawn, undefined, undefined, #"gf_dbg_spawn", 1 );
+    self menu_item( "debug", "Spawn structs + engine lists", &act_dbg_structs, undefined, undefined, #"gf_dbg_structs", 1 );
+    self menu_item( "debug", "Spawn families + guard state", &act_dbg_families, undefined, undefined, #"gf_dbg_families", 1 );
+    self menu_item( "debug", "Marker flags census", &act_dbg_flags, undefined, undefined, #"gf_dbg_flags", 1 );
+    self menu_item( "debug", "Match info", &act_dbg_match, undefined, undefined, #"gf_dbg_match", 1 );
+    self menu_item( "debug", "Everything off", &act_dbg_all_off );
     // Caster diagnosis: prints button/render probe lines while the host is a CoD Caster.
     self menu_item( "display", "Caster input probe ON", &act_caster_probe, 1, undefined, #"gf_caster_probe", 1 );
     self menu_item( "display", "Caster input probe OFF", &act_caster_probe, 0, undefined, #"gf_caster_probe", 0 );
@@ -3904,6 +4990,12 @@ function private build_tree()
     // Links coloured (^5 cyan) so they stand out from the message text.
     self menu_item( "say", "Visit us at gunfight.us", &act_say, "Visit us at ^5gunfight.us" );
     self menu_item( "say", "Join us at discord.gg/blackops", &act_say, "Join us at ^5discord.gg/blackops" );
+    // Hint-banner broadcasts: a PERSISTENT line at the use-prompt anchor, held until Clear
+    // (the centre/feed items above send once). broadcast_hint_start( msg, -1 ).
+    self menu_item( "say", "Banner: gunfight.us [held]", &act_banner, "^7Custom Gunfight  ^5gunfight.us" );
+    self menu_item( "say", "Banner: discord.gg/blackops [held]", &act_banner, "^7Join  ^5discord.gg/blackops" );
+    self menu_item( "say", "Banner: waiting for host [held]", &act_banner, "^3Waiting for the host..." );
+    self menu_item( "say", "Clear banner", &act_banner_clear, undefined );
 
     // ── Vehicles — drivable, Combined-Arms/12v12-layout maps only ────────────
     self menu_add( "vehicles", "Vehicles", "start_menu", 1 );
@@ -5184,50 +6276,364 @@ function private act_match_info( item )
 // ── Settings census ──────────────────────────────────────────────────────────
 // The rest of the mode-remnant question is answered by measurement, not by the dump: the
 // per-mode default blobs live in the LUI presets, which the dump does not carry (the DDL
-// only declares the fields). This prints the settings that shape a Gunfight match, key=value,
-// to the host's feed in batches the feed can show. Run it ONCE in a Gunfight launched from
-// the lobby with Gunfight selected (the real blob) and ONCE after a TDM -> Gunfight switch;
-// the diff is the remnant list, and docs/notes/mode-remnants.md is where it goes. Every key
-// below is a declared field of ddl/mp_gametype_settings.ddl; values print raw (bools 0/1,
-// fixed-point as the engine returns it, "undef" for a key this build does not know).
-function private act_settings_census( item )
+// only declares the fields). This reads the settings that shape a Gunfight match, key=value.
+// Run it ONCE in a Gunfight launched from a lobby with Gunfight selected (the real blob) and
+// ONCE in a Gunfight launched from a TDM-config lobby (klaze's Case B, the hybrid); the diff
+// is the remnant list, and docs/notes/mode-remnants.md is where it goes. Every key below is
+// a declared field of ddl/mp_gametype_settings.ddl; values print raw (bools 0/1, fixed-point
+// as the engine returns it, "-" for a key this build does not know).
+//
+// SNAPSHOT AT LAUNCH (2026-09-14). A census read from the menu mid-match sees the values
+// mod_apply has ALREADY asserted (customcac, loadoutindex, spyplane, roundwinlimit,
+// maxplayers, ...) - not the blob the lobby launched with, which is the thing the diff is
+// about. So census_snapshot() runs FIRST THING in mod_apply, before any write, once per
+// (gametype, map) per match (game. survives the round boundary; a NOW switch changes the key
+// and re-snapshots), and keeps the lines in game.gf_census. The menu shows that snapshot;
+// a second row shows the live values for comparison.
+//
+// DISPLAY (klaze, 2026-09-14): one complete feed line, continuously, while gf_census is on -
+// see DEBUG FEED below (census_line). 1 = the launch snapshot, 2 = live. Short keys, legend
+// in docs/notes/mode-remnants.md.
+function private census_v( v )
 {
-    self thread settings_census();
+    return isdefined( v ) ? ( "" + v ) : "-";
+}
+
+function private census_s( key )
+{
+    return census_v( getgametypesetting( key ) );
+}
+
+function private census_key()
+{
+    return tolower( getdvarstring( #"g_gametype", "?" ) ) + "|" + getdvarstring( #"sv_mapname", "?" );
+}
+
+// The blob as the match launched with it. Called before mod_apply writes anything; once per
+// (gametype, map) - round 2 of the same match keeps round 1's snapshot, which is the clean one.
+function private census_snapshot()
+{
+    key = census_key();
+
+    if ( isdefined( game.gf_census_key ) && game.gf_census_key == key )
+        return;
+
+    game.gf_census_key = key;
+    game.gf_census = census_lines();
+}
+
+// Five lines: [0] centre, [1] hint (wide), [2..4] feed. The tag is added at display time.
+function private census_lines()
+{
+    l = [];
+
+    c = "tl=" + census_s( #"timelimit" ) + " sl=" + census_s( #"scorelimit" ) + " rl=" + census_s( #"roundlimit" ) + " rwl=" + census_s( #"roundwinlimit" );
+    c += " cum=" + census_s( #"cumulativeroundscores" ) + " rsw=" + census_s( #"roundswitch" ) + " spk=" + census_s( #"teamscoreperkill" );
+    c += " fr=" + census_s( #"playerforcerespawn" ) + " qr=" + census_s( #"playerqueuedrespawn" ) + " rd=" + census_s( #"playerrespawndelay" ) + " nl=" + census_s( #"playernumlives" );
+    l[ 0 ] = c;
+
+    h = "mp=" + census_s( #"maxplayers" ) + " tc=" + census_s( #"teamcount" ) + " hc=" + census_s( #"hardcoremode" ) + " spec=" + census_s( #"spectatetype" );
+    h += " cac=" + census_s( #"disablecustomcac" ) + " cls=" + census_s( #"disableclassselection" ) + " prk=" + census_s( #"perksenabled" ) + " att=" + census_s( #"disableattachments" );
+    h += " wd=" + census_s( #"disableweapondrop" ) + " lks=" + census_s( #"loadoutkillstreaksenabled" ) + " tch=" + census_s( #"allowingameteamchange" ) + " tac=" + census_s( #"disabletacinsert" );
+    h += " gfr=" + census_s( #"gunfightroundsperloadout" ) + " gfs=" + census_s( #"gunfightspyplane" ) + " gfl=" + census_s( #"gunfightloadoutindex" );
+    l[ 1 ] = h;
+
+    f = "cap=" + census_s( #"capturetime" ) + " ext=" + census_s( #"extratime" ) + " pre=" + census_s( #"prematchperiod" ) + " prr=" + census_s( #"preroundperiod" );
+    f += " hp=" + census_s( #"playermaxhealth" ) + " reg=" + census_s( #"playerhealthregentime" ) + " ah=" + census_s( #"autoheal" ) + " dmg=" + census_s( #"bulletdamagescalar" );
+    l[ 2 ] = f;
+
+    f = "rad=" + census_s( #"forceradar" ) + " exd=" + census_s( #"roundstartexplosivedelay" ) + " skd=" + census_s( #"roundstartkillstreakdelay" ) + " spr=" + census_s( #"playersprinttime" );
+    f += " bnd=" + ( isdefined( level.var_d1455682 ) ? "y" : "n" ) + " ssg=" + census_v( isdefined( level.var_d1455682 ) ? level.var_d1455682.switchsides : undefined );
+    f += " lrs=" + census_v( level.roundswitch ) + " ss=" + census_v( game.switchedsides ) + " rp=" + census_v( game.roundsplayed );
+    l[ 3 ] = f;
+
+    l[ 4 ] = getdvarstring( #"g_gametype", "?" ) + "/" + getdvarstring( #"sv_mapname", "?" ) + " cfg cac=" + cfg_customcac() + " sw=" + cfg_switch_sides();
+
+    return l;
+}
+
+function private census_host()
+{
+    foreach ( player in getplayers() )
+    {
+        if ( player ishost() )
+            return player;
+    }
+
+    return undefined;
+}
+
+// The hint trigger is the broadcast banner's (broadcast_hint_make, host only here). Left
+// alone when a banner is running - it owns the trigger then.
+function private census_hint_clear()
+{
+    if ( isdefined( level.gf_hint_msg ) )
+        return;
+
+    host = census_host();
+
+    if ( isdefined( host ) && isdefined( host.gf_say_trig ) )
+    {
+        host.gf_say_trig delete();
+        host.gf_say_trig = undefined;
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// DEBUG FEED — one complete line per tool, continuously, while the tool is on.
+// klaze, 2026-09-14: "the feed can hold very long lines of text - every debug tool gets an
+// enable option that auto-prints just ONE full line with every data point needed for that
+// debug in the feed, continuously, while the option is on." So: one level thread, a 3 s
+// tick (the feed fades in about that), and each enabled tool contributes one line to the
+// HOST's feed per tick. Nothing here uses the centre or the hint row any more.
+//   gf_census        0 off · 1 the settings blob AS LAUNCHED (the snapshot mod_apply took
+//                    before its own writes) · 2 the LIVE values      -> census_line
+//   gf_dbg_spawn     this round's engine placements, every player   -> spawn_line
+//   gf_dbg_structs   the mp_spawn_point schema + engine list names  -> structs_line
+//   gf_dbg_families  spawn-struct family counts + guard state       -> families_line
+//   gf_dbg_match     the match/config readout (Show match info)     -> match_line
+// Display -> Debug feed page toggles them; the app's Display section carries the dvars.
+// The loop starts at every match start when any is on, and from every toggle.
+// ═════════════════════════════════════════════════════════════════════════════
+function private cfg_dbg_census()   { return getdvarint( #"gf_census", 0 ); }
+function private cfg_dbg_spawn()    { return getdvarint( #"gf_dbg_spawn", 0 ); }
+function private cfg_dbg_structs()  { return getdvarint( #"gf_dbg_structs", 0 ); }
+function private cfg_dbg_families() { return getdvarint( #"gf_dbg_families", 0 ); }
+function private cfg_dbg_match()    { return getdvarint( #"gf_dbg_match", 0 ); }
+
+function private debug_feed_any()
+{
+    return cfg_dbg_census() || cfg_dbg_spawn() || cfg_dbg_structs() || cfg_dbg_families() || cfg_dbg_match() || cfg_dbg_flags();
+}
+
+function private debug_feed_start()
+{
+    if ( isdefined( level.gf_dbgfeed_on ) && level.gf_dbgfeed_on )
+        return;
+
+    level thread debug_feed_loop();
+}
+
+function private debug_feed_loop()
+{
+    level endon( #"game_ended" );
+
+    level.gf_dbgfeed_on = 1;
+
+    while ( debug_feed_any() )
+    {
+        host = census_host();
+
+        if ( isdefined( host ) )
+        {
+            if ( cfg_dbg_census() )
+                host iprintln( census_line( cfg_dbg_census() == 2 ) );
+            if ( cfg_dbg_spawn() )
+                host iprintln( spawn_line() );
+            if ( cfg_dbg_structs() )
+                host iprintln( structs_line() );
+            if ( cfg_dbg_families() )
+                host iprintln( families_line() );
+            if ( cfg_dbg_flags() )
+            {
+                host iprintln( flags_line() );
+                host iprintln( flags_line2() );
+            }
+            if ( cfg_dbg_match() )
+                host iprintln( match_line() );
+        }
+
+        wait 3;
+    }
+
+    level.gf_dbgfeed_on = 0;
+}
+
+// Menu toggles. value: the dvar value to set (0 = off). A toggle on a running tool turns
+// it off; the loop notices on its next tick and ends itself when nothing is left on.
+function private act_dbg( item, dvar, value, label )
+{
+    cur = getdvarint( dvar, 0 );
+    nv = ( cur == value ) ? 0 : value;
+    setdvar( dvar, nv );
+
+    if ( nv )
+    {
+        debug_feed_start();
+        self menu_say( "^2debug feed: " + label + " ON - one line every 3 s until switched off" );
+    }
+    else
+    {
+        self menu_say( "^2debug feed: " + label + " off" );
+    }
+
     return true;
 }
 
-function private census_v( v )
+function private act_dbg_census( item, value )     { return self act_dbg( item, #"gf_census", value, value == 2 ? "settings census LIVE" : "settings census AS LAUNCHED" ); }
+function private act_dbg_spawn( item )             { return self act_dbg( item, #"gf_dbg_spawn", 1, "spawn placements" ); }
+function private act_dbg_structs( item )           { return self act_dbg( item, #"gf_dbg_structs", 1, "spawn structs" ); }
+function private act_dbg_families( item )          { return self act_dbg( item, #"gf_dbg_families", 1, "spawn families" ); }
+function private act_dbg_match( item )             { return self act_dbg( item, #"gf_dbg_match", 1, "match info" ); }
+
+function private act_dbg_all_off( item )
 {
-    return isdefined( v ) ? ( "" + v ) : "undef";
+    setdvar( #"gf_census", 0 );
+    setdvar( #"gf_dbg_spawn", 0 );
+    setdvar( #"gf_dbg_structs", 0 );
+    setdvar( #"gf_dbg_families", 0 );
+    setdvar( #"gf_dbg_match", 0 );
+    setdvar( #"gf_dbg_flags", 0 );
+    self menu_say( "^2debug feed: everything off" );
+    return true;
 }
 
-function private settings_census()
+// ── The five line builders ───────────────────────────────────────────────────
+
+// The 46 settings, short keys (legend: docs/notes/mode-remnants.md), one line.
+function private census_line( live )
 {
-    self endon( #"disconnect" );
-    level endon( #"game_ended" );
-
-    rows = [];
-    rows[ rows.size ] = "timelimit=" + census_v( getgametypesetting( #"timelimit" ) ) + " scorelimit=" + census_v( getgametypesetting( #"scorelimit" ) ) + " roundlimit=" + census_v( getgametypesetting( #"roundlimit" ) ) + " roundwinlimit=" + census_v( getgametypesetting( #"roundwinlimit" ) );
-    rows[ rows.size ] = "cumulative=" + census_v( getgametypesetting( #"cumulativeroundscores" ) ) + " roundswitch=" + census_v( getgametypesetting( #"roundswitch" ) ) + " scoreperkill=" + census_v( getgametypesetting( #"teamscoreperkill" ) );
-    rows[ rows.size ] = "forcerespawn=" + census_v( getgametypesetting( #"playerforcerespawn" ) ) + " queuedrespawn=" + census_v( getgametypesetting( #"playerqueuedrespawn" ) ) + " respawndelay=" + census_v( getgametypesetting( #"playerrespawndelay" ) ) + " numlives=" + census_v( getgametypesetting( #"playernumlives" ) );
-    rows[ rows.size ] = "maxplayers=" + census_v( getgametypesetting( #"maxplayers" ) ) + " teamcount=" + census_v( getgametypesetting( #"teamcount" ) ) + " hardcore=" + census_v( getgametypesetting( #"hardcoremode" ) ) + " spectate=" + census_v( getgametypesetting( #"spectatetype" ) );
-    rows[ rows.size ] = "customcac_off=" + census_v( getgametypesetting( #"disablecustomcac" ) ) + " classsel_off=" + census_v( getgametypesetting( #"disableclassselection" ) ) + " perks=" + census_v( getgametypesetting( #"perksenabled" ) ) + " attach_off=" + census_v( getgametypesetting( #"disableattachments" ) );
-    rows[ rows.size ] = "weapondrop_off=" + census_v( getgametypesetting( #"disableweapondrop" ) ) + " loadoutstreaks=" + census_v( getgametypesetting( #"loadoutkillstreaksenabled" ) ) + " teamchange=" + census_v( getgametypesetting( #"allowingameteamchange" ) );
-    rows[ rows.size ] = "gf_rounds_per_loadout=" + census_v( getgametypesetting( #"gunfightroundsperloadout" ) ) + " gf_spyplane=" + census_v( getgametypesetting( #"gunfightspyplane" ) ) + " gf_loadoutindex=" + census_v( getgametypesetting( #"gunfightloadoutindex" ) );
-    rows[ rows.size ] = "capturetime=" + census_v( getgametypesetting( #"capturetime" ) ) + " extratime=" + census_v( getgametypesetting( #"extratime" ) ) + " prematch=" + census_v( getgametypesetting( #"prematchperiod" ) ) + " preround=" + census_v( getgametypesetting( #"preroundperiod" ) );
-    // The side-switch state: the bundle gate, the live generic-path cadence, the flag itself.
-    rows[ rows.size ] = "bundle=" + ( isdefined( level.var_d1455682 ) ? "yes" : "NO" ) + " switchsides_gate=" + census_v( isdefined( level.var_d1455682 ) ? level.var_d1455682.switchsides : undefined ) + " level_roundswitch=" + census_v( level.roundswitch ) + " switchedsides=" + census_v( game.switchedsides ) + " roundsplayed=" + census_v( game.roundsplayed );
-    rows[ rows.size ] = "g_gametype=" + getdvarstring( #"g_gametype", "?" ) + " map=" + getdvarstring( #"sv_mapname", "?" ) + " gf_customcac=" + cfg_customcac() + " gf_switch_sides=" + cfg_switch_sides();
-
-    self menu_say( "^3settings census: " + rows.size + " lines, 3 every 3s - screenshot each batch" );
-
-    for ( i = 0; i < rows.size; i++ )
+    if ( live || !isdefined( game.gf_census ) )
     {
-        self iprintln( "^7" + rows[ i ] );
-
-        if ( ( i % 3 ) == 2 )
-            wait 3;
+        l = census_lines();
+        tag = "^3CENSUS LIVE^7 ";
     }
+    else
+    {
+        l = game.gf_census;
+        tag = "^2CENSUS LAUNCH^7 ";
+    }
+
+    return tag + l[ 4 ] + " | " + l[ 0 ] + " | " + l[ 1 ] + " | " + l[ 2 ] + " | " + l[ 3 ];
+}
+
+// This round's placements as the engine (or the guard) made them - every player - plus the
+// guard's state. Entries come from spawn_log_record (level.gf_spawn_round, per round).
+function private spawn_line()
+{
+    rp = isdefined( game.roundsplayed ) ? game.roundsplayed : 0;
+    gd = cfg_spawn_guard();
+    hook = isdefined( level.var_cda5136b ) ? "y" : "n";
+    anchors = isdefined( level.gfmenu_spawn ) ? ( level.gfmenu_spawn.team1.size + "+" + level.gfmenu_spawn.team2.size ) : "none";
+    sw = ( isdefined( game.switchedsides ) && game.switchedsides ) ? 1 : 0;
+
+    line = "^3SPAWN^7 r" + rp + " guard=" + ( gd == 2 ? "AUTO" : ( gd == 1 ? "FORCE" : "off" ) ) + " hook=" + hook + " anchors=" + anchors + " switched=" + sw + " players=" + getplayers().size;
+
+    if ( !isdefined( level.gf_spawn_round ) || level.gf_spawn_round.size == 0 )
+        return line + " | no spawns recorded this round";
+
+    line += " |";
+    foreach ( e in level.gf_spawn_round )
+        line += " " + e;
+
+    return line;
+}
+
+// The map's mp_spawn_point schema and the engine's list names. Built once per level.
+function private structs_line()
+{
+    if ( isdefined( level.gf_structs_line ) )
+        return level.gf_structs_line;
+
+    arr = struct::get_array( "mp_spawn_point", "targetname" );
+    na = struct::get_array( "mp_spawn_point_allies", "targetname" );
+    nx = struct::get_array( "mp_spawn_point_axis", "targetname" );
+    line = "^3STRUCTS^7 mp_spawn_point=" + ( isdefined( arr ) ? arr.size : 0 ) + " allies=" + ( isdefined( na ) ? na.size : 0 ) + " axis=" + ( isdefined( nx ) ? nx.size : 0 );
+
+    for ( i = 0; i < 3; i++ )
+    {
+        if ( isdefined( arr ) && i < arr.size )
+            line += " | #" + i + spawn_struct_fields( arr[ i ] );
+    }
+
+    lists = getspawnlists();
+    if ( isdefined( lists ) && isarray( lists ) )
+    {
+        line += " | lists n=" + lists.size + ":";
+        foreach ( x in lists )
+            line += " " + spawn_fv( x );
+    }
+    else
+    {
+        line += " | lists: " + spawn_fv( lists );
+    }
+
+    level.gf_structs_line = line;
+    return line;
+}
+
+// Every spawn family this map places (non-zero only), the legacy detector's numbers, and
+// what the guard built. Built once per level.
+function private families_line()
+{
+    if ( isdefined( level.gf_families_line ) )
+        return level.gf_families_line;
+
+    line = "^3FAMILIES^7 strike=" + ( isdefined( level.gf_strike_status ) ? level.gf_strike_status : "?" );
+    if ( isdefined( level.gf_area_radius ) )
+        line += " area=" + spawn_fv( level.gf_area_center ) + " r=" + int( level.gf_area_radius );
+    line += " |";
+    n = 0;
+    foreach ( name in mod_spawn_families() )
+    {
+        arr = struct::get_array( name, "targetname" );
+
+        if ( !isdefined( arr ) || arr.size == 0 )
+            continue;
+
+        line += " " + name + "=" + arr.size;
+        n++;
+    }
+
+    if ( n == 0 )
+        line += " none-by-any-known-targetname";
+
+    starts = mod_gather_named( mod_start_families() );
+    obj = mod_gather_named( mod_obj_families() );
+    line += " | legacy starts=" + starts.size + " obj=" + obj.size;
+
+    if ( starts.size >= 2 && obj.size >= 4 )
+    {
+        c = mod_centroid( obj );
+        line += " objr=" + int( mod_mean_dist2d( obj, c ) ) + " startmin=" + int( mod_min_dist2d( starts, c ) ) + " trip=" + cfg_spawn_autospread();
+    }
+
+    line += " | family=" + family_name( cfg_spawn_family() ) + ( ( isdefined( level.gf_family_note ) && level.gf_family_note != "" ) ? ( " " + level.gf_family_note ) : "" );
+
+    if ( isdefined( level.gfmenu_spawn ) )
+    {
+        c1 = mod_centroid( level.gfmenu_spawn.team1 );
+        c2 = mod_centroid( level.gfmenu_spawn.team2 );
+        line += " | guard armed " + level.gfmenu_spawn.team1.size + "+" + level.gfmenu_spawn.team2.size + " sep=" + int( sqrt( mod_dist2d_sq( c1, c2 ) ) ) + " gap=" + cfg_spawn_gap();
+    }
+    else
+    {
+        line += " | guard not armed";
+    }
+
+    level.gf_families_line = line;
+    return line;
+}
+
+// Show match info, on one line.
+function private match_line()
+{
+    ts = cfg_team_size();
+    gd = cfg_spawn_guard();
+    st = tolower( getdvarstring( #"gf_staged_map", "" ) );
+
+    line = "^3MATCH^7 " + getdvarstring( #"g_gametype", "?" ) + "/" + getdvarstring( #"sv_mapname", "?" ) + " " + ( cfg_map_method() ? "session" : "carry" );
+    if ( st != "" )
+        line += " next=" + st + "/" + getdvarstring( #"gf_staged_gt", "" );
+    line += " | R" + info_round() + " " + info_score( #"allies" ) + "-" + info_score( #"axis" );
+    line += " | " + ts + "v" + ts + " A=" + getplayers( #"allies" ).size + "(" + info_bots( #"allies" ) + "b) X=" + getplayers( #"axis" ).size + "(" + info_bots( #"axis" ) + "b) budget=" + getdvarint( #"com_maxclients", 0 );
+    line += " | timer=" + cfg_timer_label() + " win=" + ( cfg_roundwinlimit() >= 0 ? ( "" + cfg_roundwinlimit() ) : "stock" ) + " cap=" + ( cfg_roundlimit() >= 0 ? ( "" + cfg_roundlimit() ) : "stock" ) + " rot=" + ( cfg_rounds_loadout() >= 0 ? ( "" + cfg_rounds_loadout() ) : "stock" );
+    line += " | loadout=" + info_loadout() + " camo=" + ( cfg_camo() != -1 ? camo_label( cfg_camo() ) : "stock" ) + " spy=" + cfg_spyplane() + " cac=" + cfg_customcac() + " profile=" + cfg_profile();
+    line += " | pre=" + ( cfg_prematch() >= 0 ? ( cfg_prematch() + "s" ) : "lobby" ) + "/" + ( cfg_preround() >= 0 ? ( cfg_preround() + "s" ) : "lobby" );
+    line += " | spawn=" + ( gd == 2 ? "AUTO" : ( gd == 1 ? "FORCE" : "off" ) ) + " zone=" + ( cfg_zone() ? ( "ot" + cfg_zone_overtime() + "/cap" + cfg_zone_capture() ) : "off" );
+    line += " | grav=" + cfg_gravity() + " jump=" + ( cfg_jump() >= 0 ? ( "" + cfg_jump() ) : "stock" ) + " boost=" + cfg_jump_boost() + " speed=" + cfg_speed() + "% fall=" + ( cfg_falldamage() ? "stock" : "off" );
+
+    return line;
 }
 
 function private act_menu_hspan( item, value )
@@ -5273,6 +6679,15 @@ function private act_zone_capture( item, seconds )
     return true;
 }
 
+function private act_spawn_gap( item, value )
+{
+    setdvar( #"gf_spawn_gap", value );
+    if ( cfg_spawn_guard() )
+        mod_spawn_build();
+    self menu_say( "^2guard gap " + value + "u between the sides" + ( isdefined( level.gfmenu_spawn ) ? ( " - rebuilt, next spawns use it" ) : "" ) );
+    return true;
+}
+
 function private act_spawn_guard( item, value )
 {
     setdvar( #"gf_spawn_guard", value );
@@ -5284,14 +6699,16 @@ function private act_spawn_guard( item, value )
         // level.* and getplayers(). In AUTO this also runs the detector; if it decides the
         // map is fine, gfmenu_spawn stays undefined and stock spawns stand.
         mod_spawn_build();
+        level.var_cda5136b = &mod_spawn_override;
         armed = isdefined( level.gfmenu_spawn );
         if ( value == 2 )
-            self menu_say( armed ? "^3spawn guard AUTO - map needs it, repositioning; test SOLO" : "^2spawn guard AUTO - map spawns look ok, left stock" );
+            self menu_say( armed ? "^2spawn guard AUTO - engine start spawns when it has them, anchors when it has none" : "^3spawn guard AUTO - no anchors on this map, too few markers; stock spawns" );
         else
-            self menu_say( "^3spawn guard FORCE - all maps; test SOLO, full effect next round" );
+            self menu_say( armed ? "^3spawn guard FORCE - anchors on every spawn from now" : "^3spawn guard FORCE - no anchors on this map, too few markers; stock spawns" );
     }
     else
     {
+        level.var_cda5136b = undefined;
         self menu_say( "^2spawn guard OFF - stock spawns" );
     }
 
@@ -5501,6 +6918,22 @@ function private act_say( item, msg )
     return true;
 }
 
+// A held hint banner (loc 2) instead of a one-shot centre print. broadcast_hint_start
+// handles the per-player glued triggers; -1 = fixed until Clear banner / gf_cmd_say_clear.
+function private act_banner( item, msg )
+{
+    broadcast_hint_start( msg, -1 );
+    self menu_say( "^2banner shown [hint] - Clear banner to remove" );
+    return true;
+}
+
+function private act_banner_clear( item, msg )
+{
+    broadcast_hint_stop();
+    self menu_say( "^2banner cleared" );
+    return true;
+}
+
 // ── Vehicles ───────────────────────────────────────────────────────────────
 // Spawn a drivable vehicle ahead of the host. The mechanism is the shipped Atian
 // menu's (menu_funcs.gsc func_spawn_vehicle): spawnvehicle + makeusable, with physics
@@ -5707,6 +7140,10 @@ function private act_unlockall( item )
 //                     from in-match GSC (the layer docs/notes/lobby-setters.md targets
 //                     with a native call), so the next match launches from the lobby
 //                     the normal way. docs/notes/session-switch.md - "Stage".
+//                     ⚠ 2026-09-14: the load is ASYNC - a match ended before it completes
+//                     discards the stage (measured: Stage gunfight + immediate end = lobby
+//                     still TDM). The verb now waits for the load notify and prints STAGE
+//                     READY; end the match after that. do_session_stage has the record.
 //   Switch NOW        switchmap_load + switchmap_switch: the verified in-match session
 //                     switch, unchanged.
 //
@@ -5768,7 +7205,7 @@ function private map_pick_open( map_name, gametype, label )
 function private act_pick_stage( item )
 {
     p = self.gfmenu.pick;
-    self menu_say( "^2staged " + p.map + " / " + p.gt + " - the lobby shows it when this match ends" );
+    self menu_say( "^2staging " + p.map + " / " + p.gt + " - do not end the match until STAGE READY" );
     self thread do_session_stage( p.map, p.gt );
     return false;
 }
@@ -5820,6 +7257,30 @@ function private do_session_stage( map_name, gametype )
     mode_profile_prime( gametype );
     switchmap_load( map_name, gametype );
     stage_mark( map_name, gametype );
+
+    // MEASURED 2026-09-14 (klaze): Stage followed by an immediate End Game left the lobby
+    // on the OLD gametype (TDM match -> Stage gunfight -> end -> lobby still TDM), while the
+    // very same load reached through Switch NOW - end the match DURING its wait - put
+    // Gunfight in the lobby (and the 2026-09-12 Stage discovery was made that way too).
+    // The load is asynchronous: the engine commits the pair to the session when the load
+    // completes, and a match ended before that discards it. So this holds for the same
+    // notify the switch waits on and SAYS when it lands - the host ends the match after
+    // the STAGE READY line, not before. Only the first load of a session is known to fire
+    // the notify (later ones sit the cap, docs/notes/session-switch.md); past the cap the
+    // load has still almost certainly completed, so the message says that, not "failed".
+    // No endons: the thread must survive the menu closing, like do_session_switch.
+    self menu_say( "^3staging " + map_name + " / " + gametype + " - wait for STAGE READY before ending the match" );
+
+    w = cfg_switch_wait();
+    if ( w <= 0 )
+        w = 25;
+
+    r = level waittilltimeout( w, #"switchmap_preload_finished" );
+
+    if ( isdefined( r ) && isdefined( r._notify ) && r._notify == #"timeout" )
+        self iprintlnbold( "^3STAGE READY (no load notify in " + w + "s - normal after the first switch): " + map_name + " / " + gametype );
+    else
+        self iprintlnbold( "^2STAGE READY - load finished: " + map_name + " / " + gametype + " - end the match when you like" );
 }
 
 // What the session switch does NOT move: the settings blob. switchmap_load moves the
@@ -5831,6 +7292,130 @@ function private do_session_stage( map_name, gametype )
 // mod_apply asserts the same at match start, which covers a lobby launch that rebuilds
 // the blob. Only the Gunfight-critical key is known; everything else in the blob is
 // measured by the census (Display -> Settings census) before it gets baked in here.
+// ── The Gunfight profile: column A, measured 2026-09-14 ─────────────────────
+// docs/notes/mode-remnants.md "Column A". A Gunfight level reached by an in-match Switch NOW
+// from TDM runs g_gametype=gunfight on the TDM match's settings blob (LS6), and klaze sees
+// TDM rules bleed into play. (A LOBBY launch does not do this - column B == A, see
+// profile_is_hybrid.) These are the REAL Gunfight blob's values, read with the launch
+// census, for every key the mod does not already manage (timer -> gf_timer;
+// rounds-per-loadout / spy plane / loadout index / customcac / maxplayers / prematch /
+// preround / roundswitch -> their own settings), asserted so the hybrid plays as A.
+//
+// Two writes per key. The SETTING, so every later read agrees and so a stage carries it
+// across a round boundary. And, in-match only, the
+// LEVEL VAR globallogic copied out of the blob BEFORE this callback ran - function_b9b7618
+// (globallogic.gsc:5030-5188) and the util.gsc register* calls from init() (:364-369) - which
+// is what THIS round actually reads: a setting written here alone would take effect one
+// round late. in_match is kept for a settings-only caller; every current caller is in-match.
+//
+// The first thing a TDM blob breaks is playerNumLives (unlimited = respawns inside a round
+// and no elimination round-end, gunfight.gsc ondeadevent via globallogic's numlives gate)
+// and scoreLimit (a kill limit Gunfight never reaches as 0). disableClassSelection is now
+// READ as 1 in A, so the 2026-09-13 caveat against forcing it is lifted - it is asserted
+// with customcac (0 when the host wants custom classes, which need class selection).
+// gf_profile 0 turns the whole assertion off (to watch the raw hybrid on purpose).
+// Is this level running Gunfight on ANOTHER mode's blob? MEASURED 2026-09-14: a lobby launch
+// rebuilds the blob from the SESSION gametype's preset - a Case-B lobby (TDM config, gunfight
+// session) launched column B == column A, the real Gunfight blob. The only way a TDM blob
+// reaches a Gunfight level is an in-match Switch NOW (LS6: the current match's settings ride
+// the switch). So the profile must fire there and NOWHERE else - on a real Gunfight blob it
+// would trample the host's own Gunfight rules-page choices (round win limit 4, rounds per
+// loadout 3, ...) with A's constants. The real blob always has playerNumLives=1 and a
+// roundWinLimit of 1-6 (the Gunfight rules row publishes 1-6, never 0); TDM's has 0 and 0
+// (column T). Read BEFORE anything writes them; latched per level.
+function private profile_is_hybrid()
+{
+    if ( isdefined( level.gf_hybrid ) )
+        return level.gf_hybrid;
+
+    nl = getgametypesetting( #"playernumlives" );
+    rwl = getgametypesetting( #"roundwinlimit" );
+    level.gf_hybrid = ( !isdefined( nl ) || nl != 1 || !isdefined( rwl ) || rwl == 0 ) ? 1 : 0;
+
+    if ( level.gf_hybrid )
+        broadcast_feed( "^3profile: Gunfight on another mode's blob - asserting the real one" );
+
+    return level.gf_hybrid;
+}
+
+function private mode_profile_gunfight( in_match )
+{
+    if ( !cfg_profile() || !profile_is_hybrid() )
+        return;
+
+    // Round rules.
+    setgametypesetting( #"playernumlives", 1 );
+    setgametypesetting( #"scorelimit", 0 );
+    setgametypesetting( #"cumulativeroundscores", 0 );
+    setgametypesetting( #"teamscoreperkill", 0 );
+    rwl = ( cfg_roundwinlimit() >= 0 ) ? cfg_roundwinlimit() : 6;
+    rl = ( cfg_roundlimit() >= 0 ) ? cfg_roundlimit() : 0;
+    setgametypesetting( #"roundwinlimit", rwl );
+    setgametypesetting( #"roundlimit", rl );
+
+    // Respawn shape.
+    setgametypesetting( #"playerforcerespawn", 1 );
+    setgametypesetting( #"playerqueuedrespawn", 0 );
+    setgametypesetting( #"playerrespawndelay", 0 );
+
+    // Loadout surface.
+    dcs = cfg_customcac() ? 0 : 1;
+    setgametypesetting( #"disableclassselection", dcs );
+    setgametypesetting( #"perksenabled", 0 );
+    setgametypesetting( #"loadoutkillstreaksenabled", 0 );
+    setgametypesetting( #"disableattachments", 0 );
+    setgametypesetting( #"disableweapondrop", 0 );
+    setgametypesetting( #"disabletacinsert", 0 );
+
+    // Health, damage, radar, pacing.
+    setgametypesetting( #"playermaxhealth", 150 );
+    setgametypesetting( #"playerhealthregentime", 5 );
+    setgametypesetting( #"autoheal", 0 );
+    setgametypesetting( #"bulletdamagescalar", 1 );
+    setgametypesetting( #"forceradar", 0 );
+    setgametypesetting( #"roundstartexplosivedelay", 5 );
+    setgametypesetting( #"roundstartkillstreakdelay", 10 );
+    setgametypesetting( #"playersprinttime", 4 );
+    setgametypesetting( #"spectatetype", 6 );
+
+    if ( !in_match )
+        return;
+
+    level.numlives = 1;
+    level.graceperiod = 15;                 // function_b9b7618 :5321 derives it from numlives
+    level.scorelimit = 0;
+    level.cumulativeroundscores = 0;
+    level.teamscoreperkill = 0;
+    level.roundwinlimit = rwl;
+    level.roundlimit = rl;
+    level.playerforcerespawn = 1;
+    level.playerqueuedrespawn = 0;
+    level.playerrespawndelay = 0;
+    level.disableclassselection = dcs;
+    level.perksenabled = 0;
+    level.loadoutkillstreaksenabled = 0;    // player_loadout.gsc:252 copied it at init
+    level.disableattachments = 0;
+    level.disableweapondrop = 0;
+    level.disabletacinsert = 0;
+    level.playermaxhealth = 150;
+    level.var_90bb9821 = 0;                 // :5172 = playermaxhealth - 150
+    level.playerhealthregentime = 5;
+    level.autoheal = 0;
+    level.bulletdamagescalar = 1;
+    level.forceradar = 0;
+    level.roundstartexplosivedelay = 5;
+    level.roundstartkillstreakdelay = 10;
+    level.playersprinttime = 4;
+    level.spectatetype = 6;
+}
+
+function private act_profile( item, value )
+{
+    setdvar( #"gf_profile", value );
+    self menu_say( value ? "^2Gunfight profile ON - the real blob is asserted at every Gunfight match start" : "^3Gunfight profile OFF - a Case-B launch runs on the lobby config's raw blob" );
+    return true;
+}
+
 function private mode_profile_prime( gametype )
 {
     if ( gametype != "gunfight" && gametype != "gunfight_3v3" )
@@ -5838,6 +7423,9 @@ function private mode_profile_prime( gametype )
 
     dcc = cfg_customcac() ? 0 : 1;
     setgametypesetting( #"disablecustomcac", dcc );
+    // Nothing else is primed: MEASURED 2026-09-14, a lobby launch rebuilds the blob from the
+    // session gametype's preset (column B == A), so settings written here never reach it.
+    // The profile fires in the switched level's own mod_apply instead.
 }
 
 function private do_map_switch( map_name, gametype )

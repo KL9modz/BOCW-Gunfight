@@ -107,7 +107,7 @@ function private default_config()
     return {
         // The frontend half writes NOTHING with both of these at 0.
         // One at a time: a single run with both on cannot say which one mattered.
-        #write_maxplayers: 1,
+        #write_maxplayers: 0,
         #maxplayers_value: 8,
         #write_timelimit:  0,
         #timelimit_value:  60,
@@ -316,34 +316,69 @@ function private report( cfg )
     // on_start_gametype fires before players are in the match.
     wait( 8 );
 
-    // 60/61 FIRST: read before anything in this payload (or anything else) writes.
-    // ⚠ PROBE 62 FIRST. It emitted LAST until 2026-09-10 and was never once read:
-    //   a Gunfight round is ~40s, the emit chain is 13 probes at 5s, and the
-    //   round always ended first. It answers whether adddebugcommand() - the
-    //   console from script - is alive, which is now the best remaining lead for
-    //   setting the lobby MAP (no GSC setter exists; the save is cloud, not local).
-    //   Put the most important probe where it will actually be seen.
+    // ── ONE HELD, SCREENSHOTTABLE SUMMARY ────────────────────────────────────
+    //   Rewritten 2026-09-14. The old design emitted 13 coded numbers one every
+    //   5s into the 4-line feed; probe 52 (9th, ~48s) never printed before a
+    //   ~40s round ended, and the ones that did scrolled past ("so many numbers").
+    //   Instead: gather every value once, compose TWO plain-text lines, and hold
+    //   them centre-screen for the whole round with iprintlnbold on a 2s re-send
+    //   loop (the broadcast_hold trick). One screenshot, nothing to decode.
+    //   ⚠ iprintlnbold free text is SAFE — it is the stock "match starting" print.
+    //     LUIelemText/hint-panel free text is NOT proven safe (localize-by-key
+    //     crash, memory lui-elem-route) — do not move this readout there.
+
+    // frontend stash — written in the lobby, survives the transition into the match:
+    s50 = unstash( 50 );                    // sample count (undefined/0 = never ran)
+    samples   = label_num( s50 );
+    flags     = label_num( unstash( 51 ) );
+    lobbymaxp = label_num( unstash( 52 ) ); // maxplayers as the LOBBY held it
+    lobbytime = label_num( unstash( 53 ) );
+    lobbycmc  = label_num( unstash( 58 ) );
+    writeres  = label_num( unstash( 59 ) ); // 0 off/2 wrote+matched/3 rejected (writer build)
+
+    // read fresh in the match, before anything here writes (the old probes 60/61):
+    matchmax  = label_num( getgametypesetting( #"maxplayers" ) );  // 8 here = a frontend write CARRIED in
+    matchtime = label_num( getgametypesetting( #"timelimit" ) );
+
+    dbg = "off";
     if ( cfg.debugcmd )
     {
-        emit( 62, debugcmd_test() );
+        dbg = label_num( debugcmd_test() );
     }
 
-    emit( 60, getgametypesetting( #"maxplayers" ) );
-    emit( 61, getgametypesetting( #"timelimit" ) );
+    ran = isdefined( s50 ) && s50 > 0;
+    if ( ran )
+    {
+        line1 = "^2P1 LOBBY RAN^7  samples=" + samples + "  lobby.max=" + lobbymaxp + "  time=" + lobbytime + "  flags=" + flags + "  cmc=" + lobbycmc;
+    }
+    else
+    {
+        line1 = "^1P1 LOBBY GSC DID NOT RUN^7 (samples=" + samples + ") — route dead, go to Test 2";
+    }
+    line2 = "^3MATCH^7  match.max=" + matchmax + "  time=" + matchtime + "  wrote=" + writeres + "  dbg=" + dbg;
 
-    // The stash, in the header's order. 50 = 99999 means the frontend half
-    // never ran - or this is the first match after injecting, which is the
-    // expected result for that match (see PROTOCOL step 1).
-    emit( 50, unstash( 50 ) );
-    emit( 51, unstash( 51 ) );
-    emit( 58, unstash( 58 ) );
-    emit( 56, unstash( 56 ) );
-    emit( 55, unstash( 55 ) );
-    emit( 52, unstash( 52 ) );
-    emit( 53, unstash( 53 ) );
-    emit( 54, unstash( 54 ) );
-    emit( 57, unstash( 57 ) );
-    emit( 59, unstash( 59 ) );
+    // Hold the lines the whole round. ⚠ iprintlnbold shows ONE centre message and
+    // each call REPLACES the last (measured 2026-09-14: printing line1 then line2
+    // back-to-back showed only line2), so ALTERNATE the two pages every 3s rather
+    // than printing both at once. Each page then holds 3s — long enough to
+    // screenshot. game_ended ends the loop; the iteration cap is a backstop.
+    show_lobby = true;
+    level endon( #"game_ended" );
+    for ( i = 0; i < 80; i++ )
+    {
+        line = line2;
+        if ( show_lobby )
+        {
+            line = line1;
+        }
+        show_lobby = !show_lobby;
+
+        foreach ( player in getplayers() )
+        {
+            player iprintlnbold( line );
+        }
+        wait( 3 );
+    }
 
 }
 
@@ -383,6 +418,17 @@ function private unstash( id )
         return undefined;
     }
     return v;
+}
+
+// For the labeled front-load block: an undefined read (the frontend never
+// stashed it, or getgametypesetting threw there) prints as text, not a number.
+function private label_num( v )
+{
+    if ( !isdefined( v ) )
+    {
+        return "none";
+    }
+    return "" + v;
 }
 
 function private emit( id, value )

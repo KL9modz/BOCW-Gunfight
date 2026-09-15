@@ -25,19 +25,22 @@ before acting on any map or pregame claim here.
 
 ▶ **What the project is for now: [[roadmap]]** — **pregame lobby control is klaze's #1 priority for
 the whole project.**
-🔓🔓 **THE LIVE MAP ROUTE: [[lobby-setters]].** The game sets its own pregame lobby map/mode with
-native functions `LobbySetMap( 0, map )` / `LobbySetGameType( 0, mode )` — the layer the menu writes
-and the glitch reconfigures. It **skips the compat gate** rather than beating it (which is why the
-LUI-wall closures don't apply). `tools/lobby-set.py` scans + calls them (scan-only by default; a
-git-recovered function-**prologue** sig cross-checks the call-site scan — [[lobby-setters]]).
-`CreateRemoteThread` is one API beyond gfscan/injectcw; **klaze ruled it acceptable on the test box,
-and a joiner tester is available** (2026-09-12). ▶ Judge it on joiners — the clause the carry fails.
+❌ **THE NATIVE LOBBY SETTERS — MEASURED NEGATIVE 2026-09-14. [[lobby-setters]], [[pregame-routes]] Test 2.**
+`LobbySetMap( 0, map )` / `LobbySetGameType( 0, mode )` ARE the real functions — signatures resolve on
+the live build (call-site + prologue agree, 0xe0 apart, function-entry shape) — but they **cannot be
+driven from a `CreateRemoteThread`**: GameType returned with no visible effect, Map **hung** on an
+off-compat map, and on a compatible map returned without updating the row and then **hung the game on
+Play** (it writes partial state the UI ignores and the loader chokes on). They are **lower-level than
+the row-click handler**, which also drives the LUA/session model and dependent fields; a future attempt
+targets that handler or a UI-thread call, not these two via a fresh thread. `tools/lobby-set.py` scans +
+calls them (scan-only by default). ▶ **For the map, use the in-match STAGE route below**, not these.
 `src/lobby_state/` is the read-only GSC oracle that names the loaded map+gametype in-match (start the
 match FROM THE LOBBY). CE is closed by measurement. ✅ **In-match `switchmap_load` WORKS** once the
 payload has been through `tools/strip-strhdr.ps1` (its map-name literal had been garbled by the ACTS
 string header): the lobby follows the switch, `com_maxclients` read 12 in a Gunfight session, and 6v6
 filled — measured with `src/lobby_state/`, [[session-switch]]. It is the working in-match map route
-today; the native lobby setters above remain the *pregame* route, untested. ✅ **And the load half
+today; the native lobby setters above were the hoped *pregame* route but **tested negative 2026-09-14**
+(they don't drive the lobby via a remote thread). ✅ **And the load half
 alone STAGES the lobby's next map** (klaze, 2026-09-12): `switchmap_load( map, gametype )` with no
 `switchmap_switch()`, end the match, and the pregame lobby has that map selected. The menu's map and
 gametype picks now offer both verbs — *Stage for lobby* / *Switch NOW* ([[session-switch]] → *Stage*).
@@ -637,17 +640,16 @@ The MP path is the undocumented one. **Validate it with a hello-world before wri
 None of this is needed for the mod. It is here because it shares the process and the anti-cheat
 surface, and because one piece of it is directly useful.
 
-- 🔓🔓 **THE MAP LEAD: call the game's own lobby setters directly — [[lobby-setters]].**
-  `LobbySetGameType( 0, mode )` / `LobbySetMap( 0, map )` are native functions that set the pregame
-  lobby — the layer the menu writes and the glitch reconfigures — and they **skip the compat gate**
-  instead of fighting it. Reached by signature scan (no proxy, no export, no glitch, no CE, no console
-  command-table); `tools/lobby-set.py` does it, scan-only by default. Cross-validated across ate47's
-  active BO4 tool, his disabled CW port (`cw/cw_lobby_tool.cpp`), and the git-recovered v3.3.0 DLL
-  (`bocw-dll/systems/exported.cpp`, which gives a robust function-**prologue** sig + the
-  `(rcx=lobby 0, rdx=char* name)` convention). **Untested in-game; the decisive question is whether
-  `LobbySetMap` reconfigures the compat gate (real, joinable solve) or only sets a field** — the
-  picker's red-triangle test answers it with no second account, and `src/lobby_state/` names the
-  loaded map/gametype in-match. This is the strongest map route since the DLL work was shelved.
+- 🪦 **THE MAP LEAD (native lobby setters) — TESTED NEGATIVE 2026-09-14. [[lobby-setters]], [[pregame-routes]] Test 2.**
+  `LobbySetGameType( 0, mode )` / `LobbySetMap( 0, map )` are the real native functions and their
+  signatures resolve cleanly on the live build (call-site + prologue agree, 0xe0 apart), but calling
+  them from a `CreateRemoteThread` does not drive the lobby: GameType had no visible effect, Map hung on
+  an off-compat map, and on a compatible map returned without updating the row then **hung the game on
+  Play** — partial state the UI ignores, fatal to the loader. `tools/lobby-set.py` scans + calls them
+  (scan-only by default; cross-validated across ate47's BO4 tool, the disabled CW port, and the v3.3.0
+  DLL prologue). They are lower-level than the row-click handler; a future try targets that handler or a
+  UI-thread call. ▶ **The working map route is in-match STAGE** (`switchmap_load` alone, above) — joiner
+  still open. `src/lobby_state/` names the loaded map/gametype in-match.
 - 🪦 **`acts cwdllgt gunfight mp_moscow` — the proxy DELIVERY is dead, but it targeted the RIGHT
   functions.** It needs ACTS's `acts-bocw.dll` as `powrprof.dll`, which **crashes the game at startup**
   (3/3, identical offset — [[dll-proxy]]). ✅ The "exports don't exist" second death was a

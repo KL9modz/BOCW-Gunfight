@@ -1,4 +1,16 @@
-# `LobbySetMap` / `LobbySetGameType` — the layer the map hunt never tried
+# `LobbySetMap` / `LobbySetGameType` — the native pregame setters
+
+❌ **MEASURED NEGATIVE 2026-09-14 — this route does NOT deliver via `CreateRemoteThread`.** The
+signatures resolve cleanly on the live CW build (`LobbySetGameType` @ `module+0xae4b730`, `LobbySetMap`
+@ `module+0xae4b810`, call-site + prologue agree, 0xe0 apart), but calling the two C++ setters from a
+remote thread does not drive the lobby: `LobbySetGameType` had no visible effect, `LobbySetMap` **hung**
+on an off-compat map (Miami, 5s), and for a compatible map (Market, 15s) it **returned without updating
+the map row and then hung the game on Play** — it writes partial state the UI ignores and the loader
+chokes on. Full result + tool fixes: [`pregame-lobby-tests.md`](pregame-lobby-tests.md) Test 2. The
+setters are **lower-level than the row-click handler**; a future attempt targets that handler or a
+UI-thread call, not these two via a fresh remote thread. ▶ **Use the in-match STAGE route (below) for
+the map.** Everything below is the (correct) reasoning that led here — kept, but no longer "the live
+route".
 
 ⚠ **Read [`pregame-routes.md`](pregame-routes.md) first.** P1–P11, the memory scans, the glitch
 analysis and the closure table are there. This note is one route that is **not in that table**, found

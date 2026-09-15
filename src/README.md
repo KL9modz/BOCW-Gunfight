@@ -14,6 +14,11 @@ gunfight_menu/    ⬅ THE HOSTING PAYLOAD. gunfight_mod's fixes + team size + an
                   bot fill, move players, timer, loadout set, pool camo, spy plane,
                   restart, map. Settings are dvars so they survive rounds AND matches.
                   One payload - B9 says nothing can be injected on top of it.
+gunfight_menu_c/  the CLIENT-side LUI-element probe. DIFFERENT PAIR: load_shared.csc ->
+                  radiation_debug.csc, coexists with gunfight_menu (measured). ✅ RAN 2026-09-13:
+                  LUIelemText renders in MP (stock key) — 💥 a plain string in it is a FATAL LUI
+                  error (localizeentry). Now draws two stock-key rows, prints 77LCOPnn every 5s.
+                  Stock keys only, ever. docs/notes/lui-elems.md
 
   ── staged tests. ONE PER MATCH. Each WRITES. Lobby return after each. ──
 test_maprestart/  B4 · can map_restart replace F7, and drop the cwpatch prerequisite?

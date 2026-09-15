@@ -188,6 +188,8 @@ CONFIG = {
          [("Default", 0), ("Snipers", 1), ("Blueprints", 2), ("Melee", 3)], 0),
         ("gf_customcac", "Custom classes", "choice",
          [("Off (Gunfight loadouts)", 0), ("On (player classes)", 1)], 0),
+        ("gf_profile", "Gunfight profile (real blob)", "choice",
+         [("On", 1), ("Off (raw hybrid)", 0)], 1),
         # Camo forced onto every pool weapon at every spawn (docs/notes/loadout-camo.md).
         # Random each round is the default; other ids 1-121 via the in-game "by ID" page.
         ("gf_camo", "Pool camo", "choice",
@@ -260,7 +262,14 @@ CONFIG = {
     ],
     "Spawns": [
         ("gf_spawn_guard", "Spawn guard", "choice",
-         [("Off", 0), ("Auto (bad maps)", 2), ("Force (every map)", 1)], 0),
+         [("Auto (default)", 2), ("Force (every map)", 1), ("Off", 0)], 2),
+        ("gf_strike", "Crossroads: Strike layout under Gunfight", "choice",
+         [("Off (full map)", 0), ("On", 1)], 0),
+        ("gf_spawn_family", "Spawn family (markers to build from)", "choice",
+         [("TDM (default - measured good)", 1), ("None - engine / geometric", 0), ("S&D", 2),
+          ("Domination", 3), ("CTF", 4), ("Hardpoint", 5), ("Control", 6), ("FFA", 7)], 1),
+        ("gf_spawn_gap", "Guard gap (units between sides)", "choice",
+         [("1200", 1200), ("1800", 1800), ("2400", 2400), ("3200", 3200)], 1800),
         ("gf_spawn_autospread", "Auto trip dist", "int", (0, 8000, 100), 2500),
         ("gf_spawn_diag", "Spawn diagnostics", "choice", [("Off", 0), ("On", 1)], 1),
     ],
@@ -273,12 +282,21 @@ CONFIG = {
     ],
     "Display": [
         ("gf_menu_lines", "In-game rows", "int", (2, 12, 1), 3),
-        # Only the two TESTED layouts. SPLIT (2/3) and HINT (4) are untested render paths that
-        # froze the game 2026-09-14 - re-add once verified in-game.
+        # Default 2 since 2026-09-14 (klaze): menu carousel centre + status in the feed + info in
+        # the hint row. The 2026-09-14 freeze was a torn dvar, since clamped; SPLIT is bounded.
         ("gf_menu_region", "Panel region", "choice",
-         [("Lower-left feed", 0), ("Center", 1)], 0),
+         [("Menu centre + info feed + hint", 2), ("Lower-left feed", 0), ("Center", 1),
+          ("Menu feed + status centre", 3)], 2),
         ("gf_feed_lines", "Feed lines", "int", (2, 12, 1), 14),
         ("gf_caster_probe", "Caster input probe", "choice", [("Off", 0), ("On", 1)], 1),
+        # Debug feed: each tool prints ONE complete feed line every 3 s while on.
+        ("gf_census", "Debug: settings census", "choice",
+         [("Off", 0), ("As launched", 1), ("Live", 2)], 0),
+        ("gf_dbg_spawn", "Debug: spawn placements", "choice", [("Off", 0), ("On", 1)], 0),
+        ("gf_dbg_structs", "Debug: spawn structs + lists", "choice", [("Off", 0), ("On", 1)], 0),
+        ("gf_dbg_families", "Debug: spawn families + guard", "choice", [("Off", 0), ("On", 1)], 0),
+        ("gf_dbg_match", "Debug: match info", "choice", [("Off", 0), ("On", 1)], 0),
+        ("gf_dbg_flags", "Debug: marker flags census", "choice", [("Off", 0), ("On", 1)], 0),
     ],
 }
 
@@ -311,9 +329,14 @@ TIPS = {
     # Expanded feature set (matches the in-game menu pages):
     "gf_switch_sides": "Mod-owned = one coupled flip per rotation. Stock = both engine paths (may double-flip).",
     "gf_customcac": "Off = the mod's Gunfight loadouts. On = each player's own custom classes.",
+    "gf_profile": "When a Gunfight level runs on another mode's settings (only an in-match Switch NOW from TDM does that; a lobby launch already gets the real blob), assert the real Gunfight blob (column A, 2026-09-14): 1 life/round, no kill limit, fixed loadouts, no streaks. Off = the raw hybrid.",
     "gf_zone": "Capture-zone overtime (needs gf_zone entities). Off = health tiebreak.",
     "gf_zone_radius": "Capture-zone radius in units. Stock ~128.",
-    "gf_spawn_guard": "Off / Auto (guard only bad-layout maps) / Force (every map). Untested - test solo.",
+    "gf_spawn_guard": "Off / Auto (engine start spawns when it has them, the guard's anchors when it has none - e.g. Crossroads under Gunfight) / Force (anchors always).",
+    "gf_strike": "Crossroads loads the full 12v12 map under Gunfight. On = keep the Strike clips server-side - but clients (joiners too) still draw the 12v12 minimap and bounds, so walls stand on open ground. Off by default. No-op on other maps.",
+    "gf_spawn_family": "Build the guard's anchors only from markers flagged for this mode (mp_spawn_point fields like tdm=1, sd=1), using their side fields when present; every spawn goes on them. S&D = Gunfight on the S&D spawn set.",
+    "gf_dbg_flags": "Debug feed: one line - which mode/side flag fields the map's spawn markers carry, with value tallies.",
+    "gf_spawn_gap": "Target distance between the two sides the guard builds (tightest marker groups either side of the map centre, facing each other).",
     "gf_spawn_autospread": "AUTO trips when the nearest start spawn is farther than obj-radius + this (units).",
     "gf_spawn_diag": "Print spawn diagnostics to the feed.",
     "gf_autoswitch": "On = auto-switch back to Gunfight when a non-GF gametype is injected.",
@@ -321,6 +344,11 @@ TIPS = {
     "gf_feed_lines": "Lower-left feed lines the menu primes (latched at HUD build, ~4-5 visible).",
     "gf_menu_region": "Where the menu draws. HINT panel = the use-prompt widget; others use feed / centre.",
     "gf_caster_probe": "Log a caster's button inputs to the feed (for wiring the caster keyset).",
+    "gf_census": "Debug feed: one line every 3 s with all 46 settings (short keys, legend in docs/notes/mode-remnants.md). As launched = the blob before the mod writes; Live = now.",
+    "gf_dbg_spawn": "Debug feed: one line every 3 s - this round's engine/guard placements for every player (name:team:how:distance-to-nearest-marker:PILE) plus the guard state.",
+    "gf_dbg_structs": "Debug feed: one line - mp_spawn_point counts, the first structs' fields, and the engine's spawn list names.",
+    "gf_dbg_families": "Debug feed: one line - spawn-struct family counts, legacy detector numbers, what the guard built.",
+    "gf_dbg_match": "Debug feed: one line - the Show-match-info readout (mode/map, round, teams, timer, loadout, spawn guard, movement).",
 }
 
 # Audited names (docs/reference/bocw-maps.md). display -> (map, gametype-note)
@@ -691,13 +719,16 @@ class App:
         r5b.pack(anchor="w", padx=10, pady=(0, 10))
         ttk.Label(r5b, text="Location").pack(side="left")
         self.say_loc = tk.IntVar(value=0)
-        for txt, val in (("Center", 0), ("Feed", 1)):
+        for txt, val in (("Center", 0), ("Feed", 1), ("Banner", 2)):
             ttk.Radiobutton(r5b, text=txt, variable=self.say_loc, value=val).pack(side="left", padx=(4, 0))
         ttk.Label(r5b, text="     Hold").pack(side="left")
         self.say_dur = tk.StringVar(value="Once")
         ttk.Combobox(r5b, state="readonly", width=7, textvariable=self.say_dur,
                      values=["Once", "5s", "10s", "30s", "60s", "Fixed"]).pack(side="left", padx=4)
-        ttk.Label(r5b, text="(Fixed holds until Clear; Center holds cleanest)",
+        ttk.Label(r5b, text="  Indent").pack(side="left")
+        self.say_indent = tk.StringVar(value="0")
+        ttk.Spinbox(r5b, from_=0, to=40, width=3, textvariable=self.say_indent).pack(side="left", padx=2)
+        ttk.Label(r5b, text="(Banner = persistent hint line, held until Clear; Indent nudges it right)",
                   foreground="#777").pack(side="left", padx=6)
 
         # Player / weapons - the menu-only verbs, via the generic gf_cmd_action channel.
@@ -866,9 +897,14 @@ class App:
         if not msg:
             self._say("type a message to broadcast first")
             return
-        # loc/dur first, quoted msg (spaces survive `set`), go last - one bridge message.
+        try:
+            indent = max(0, min(40, int(self.say_indent.get() or 0)))
+        except ValueError:
+            indent = 0
+        # loc/dur/indent first, quoted msg (spaces survive `set`), go last - one bridge message.
         self._write({"gf_cmd_say_loc": self.say_loc.get(),
                      "gf_cmd_say_dur": self._DUR.get(self.say_dur.get(), 0),
+                     "gf_say_hint_indent": indent,
                      "gf_cmd_say": f'"{msg}"', "gf_cmd_go": 1})
         self.say_var.set("")
 
