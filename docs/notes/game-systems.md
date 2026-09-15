@@ -367,6 +367,9 @@ setting), the first-round forfeit clock (`function_67ed6c46` `:875`, reads the l
 - **Jump boost** = `setvelocity( getvelocity() + (0,0,boost) )` at takeoff (`isonground` edge + `jumpbuttonpressed`
   + `!ismantling`), the shape `mp-dvars.md` recommended; `bg_falldamageminheight/maxheight` (the pair cp/zm
   oldschool raises, `cp_common/globallogic.gsc:184`) pushed out of reach when fall damage is switched off.
+  ✅ **MEASURED OFF 2026-09-15 (klaze)** once `specialty_fallheight` is set on every spawn — the engine perk
+  Infected/Zombies-Turned use (no CW loadout perk exposes it); the dvars alone were "not always off". The
+  `level.onplayerdamage` MOD_FALLING gate is the third layer.
   `setjumpheight` (exe+a03df20, no stock caller) stays on the Jump page as the untested alternative.
 - **Speed** = `setmovespeedscale()` per player, re-applied on `on_spawned` because `give_loadout` resets it
   (`player_loadout.gsc:1883-1887`; spawn order `globallogic_spawn.gsc:637` loadout → `:758` callback). `g_speed`
