@@ -388,7 +388,19 @@ MAPS_GF = [
     ("KGB", "mp_sm_finance"), ("Mansion", "mp_sm_market"),
     ("Showroom", "mp_sm_deptstore"), ("U-Bahn", "mp_sm_berlin_tunnel"),
 ]
-GAMETYPES = ["gunfight", "gunfight_3v3", "tdm", "dm", "dom", "koth", "sd", "conf", "control"]
+# The full 12v12 layouts of the large maps: same files, but the map scripts open the 12v12
+# boundary only for a 10v10/12v12 gametype string, so these pair the map with tdm10v10 and
+# the gametype box is overridden when one is picked (mirrors the menu's "12v12 layouts" page).
+MAPS_12V12 = [
+    ("Armada 12v12 - TDM 10v10", "mp_black_sea"), ("Collateral 12v12 - TDM 10v10", "mp_dune"),
+    ("Crossroads 12v12 - TDM 10v10", "mp_tundra"),
+]
+# Fireteam / Multi-team maps (40-player dedicated-server modes; the menu marks them untested).
+MAPS_FT = [
+    ("Alpine", "wz_ski_slopes"), ("Duga", "wz_duga"), ("Golova", "wz_golova"),
+    ("Ruka", "wz_forest"), ("Sanatorium", "wz_sanatorium"),
+]
+GAMETYPES = ["gunfight", "gunfight_3v3", "tdm", "tdm10v10", "dm", "dom", "koth", "sd", "conf", "control"]
 
 # Weapons for the give-weapon action, extracted from gunfight_menu.gsc wp_* pages.
 # (display, internal name); the app sends the internal name as gf_cmd_arg.
@@ -677,10 +689,16 @@ class App:
         KEEP = "(keep current map)"      # switch gametype alone - no map needed
         self.map_var = tk.StringVar(value=KEEP)
         allmaps = [KEEP] + [f"{d}  [{m}]" for d, m in MAPS_6V6] + \
-                  [f"{d}  [{m}]  (GF)" for d, m in MAPS_GF]
+                  [f"{d}  [{m}]  (GF)" for d, m in MAPS_GF] + \
+                  [f"{d}  [{m}]  (12v12)" for d, m in MAPS_12V12] + \
+                  [f"{d}  [{m}]  (Fireteam, untested)" for d, m in MAPS_FT]
         self._maplut = {KEEP: ""}
         self._maplut.update({f"{d}  [{m}]": m for d, m in MAPS_6V6})
         self._maplut.update({f"{d}  [{m}]  (GF)": m for d, m in MAPS_GF})
+        self._maplut.update({f"{d}  [{m}]  (12v12)": m for d, m in MAPS_12V12})
+        self._maplut.update({f"{d}  [{m}]  (Fireteam, untested)": m for d, m in MAPS_FT})
+        # a 12v12 pick carries its own gametype (tdm10v10), like the menu's act_map_gt rows
+        self._map_gt = {f"{d}  [{m}]  (12v12)": "tdm10v10" for d, m in MAPS_12V12}
         g = ttk.Frame(box)
         g.pack(fill="x", padx=10, pady=8)
         ttk.Label(g, text="Map").grid(row=0, column=0, sticky="w", pady=4)
@@ -939,8 +957,9 @@ class App:
         # Empty map = keep the current map (GSC falls back to sv_mapname), so you can switch
         # the gametype alone - e.g. to gunfight - without choosing a map. "" clears any stale value.
         m = self._maplut.get(self.map_var.get())
+        gt = self._map_gt.get(self.map_var.get(), self.gt_var.get())
         self._write({"gf_cmd_map": m if m else '""',
-                     "gf_cmd_gametype": self.gt_var.get(),
+                     "gf_cmd_gametype": gt,
                      "gf_cmd_stage": int(stage), "gf_cmd_go": 1})
 
     def _cmd(self, name):
