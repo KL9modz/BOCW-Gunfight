@@ -419,3 +419,87 @@ Debug feed → "Asset census: vehicles + props"** (`gf_dbg_assets`, app: Config 
 res= G=`, every 3 s while on, computed once per round. Same candidate list, same order (index 82 =
 Chopper Gunner), same controls. Map changes now go through the menu's own Stage / Switch NOW, and
 the census follows. `src/vehicle_probe/` and `src/prop_probe/` stay as the standalone forms.
+
+---
+
+## 6. ⭐ OFFLINE — the complete per-map vehicle matrix, no probing. 2026-09-16
+
+`tables/bgcache/<zone>.csv` carries a `vehicle,#<name>` row per resident vehicle asset. A map's set =
+the map zone + the always-loaded `core_bootstrap` + `core_common` + `mp_common`. That answers "which
+vehicles on which map" for all 36 MP maps **with no map loads at all** — the probe's residency
+question is offline data.
+
+**Universe: 205 vehicle names across the 68 zones — 58 plaintext, 147 hashed.**
+
+### The 20 universal vehicles (every MP map, 15 named + 5 hashed)
+
+```
+defaultvehicle_mp                              veh_ultimate_turret
+fake_vehicle                                   veh_ultimate_turret_wz
+heli_ai_mp                                     vehicle_straferun_mp
+veh_missile_turret                             vehicle_t9_mil_helicopter_care_package
+veh_t8_ac130_gunship_mp                        vehicle_t9_mil_ru_air_vtol_forger
+veh_t8_helicopter_gunship_mp                   vehicle_t9_rcxd_racing
+veh_t8_helicopter_gunship_mp_guard             vehicle_t9_rcxd_racing_alt
+veh_t9_mil_us_helicopter_large_chopper_gunner
+```
+
+⭐ **This explains run 4 exactly.** The one resident vehicle the probe found by name was the Chopper
+Gunner — and it sits in **both** `core_common` and `mp_common`, i.e. universal. The probe was not
+finding a Gas Station vehicle; it was finding the killstreak baseline every MP map carries.
+
+⚠ These are **streak / system** vehicles, not drivables. Availability everywhere is not the same as
+being useful everywhere.
+
+### Per-map additions (map zone only, minus universal)
+
+| map | extra | the named ones |
+|---|---|---|
+| `mp_black_sea` | 15 | jetski, jetski_alt, tactical_raft (+_alt), `veh…boat_pgb_double_gun` (+_alt), `boct…raft_gry_pc` |
+| `mp_tundra` | 13 | ⭐ `vehicle_t9_mil_ru_tank_t72` (+`_alt`, `_sr`), `vehicle_t9_mil_snowmobile` (+`_alt`) |
+| `mp_dune` | 11 | `veh_quad_player_wz_pc`, motorcycle (+`_alt`), `mil_fav_light` (+`_alt`), `truck_transport_player_alt`, `…_obj_sr` |
+| `mp_cartel` | 5 | `vehicle_motorcycle_mil_us_offroad_alt` |
+| `mp_tank` | 4 | `boct_mil_boat_tactical_raft_gry_pc` |
+| `mp_sm_gas_station` | 4 | `vehicle_motorcycle_mil_us_offroad` (+`_alt`) |
+| `mp_miami` | 3 | `boct_mil_boat_tactical_raft_gry_pc` |
+| `mp_kgb` | 3 | (hashed only) |
+| `mp_amerika` `mp_mall` `mp_moscow` | 2 | (hashed only) |
+| `mp_apocalypse` `mp_cliffhanger` `mp_echelon` `mp_express_rm` `mp_satellite` | 1 | (hashed only) |
+
+**18 of the 36 MP maps add NOTHING beyond universal** — Nuketown, Hijacked, Raid, Zoo, Village, Slums,
+Drive-In, Firebase, Jungle, Paintball, Russian Base, Miami Strike and every `mp_sm_*` except Gas
+Station. On those maps the only vehicles that exist are the 20 streak/system ones.
+
+⚠ **Gas Station ships a motorcycle**, and the probe did not find it — because the probe's candidates
+were 105 `veh_t9_*` **xmodel** names and the asset is `vehicle_motorcycle_mil_us_offroad`. A reminder
+that the parity finding (§5) is real but **partial**: some vehicle assets share an xmodel name, most
+do not.
+
+### ⚠ The menu's vehicle list, cross-checked
+
+Of the **144** `#"veh…"` / `#"vehicle…"` names in `gunfight_menu.gsc`, **18 exist anywhere in the
+205-name universe**; the other 126 are the probe's xmodel candidate list still present as display
+data. The 18 real ones:
+
+```
+veh_mil_ru_fav_heavy                     vehicle_t9_mil_ru_tank_t72_sr
+veh_t9_mil_us_helicopter_large_chopper_gunner   vehicle_t9_mil_ru_truck_light_player
+vehicle_motorcycle_mil_us_offroad        vehicle_t9_mil_ru_truck_transport_player
+vehicle_t8_mil_air_transport_infiltration  vehicle_t9_mil_ru_truck_transport_player_obj_sr
+vehicle_t9_civ_ru_sedan_80s_player       vehicle_t9_mil_snowmobile
+vehicle_t9_mil_air_transport_hpc_intro   vehicle_t9_mil_us_helicopter_large_cp_armada_player
+vehicle_t9_mil_fav_light                 vehicle_t9_mil_us_truck_m35_canvas_cp / _cargo_cp / _tanker_cp
+vehicle_t9_mil_helicopter_care_package   vehicle_t9_rcxd_racing
+```
+
+⚠ **Only 2 of those 18 are universal** (`chopper_gunner`, `care_package`, plus `rcxd_racing`). Several
+are **`_cp`** — campaign-only, resident on no MP zone — and `tank_t72_sr` / `snowmobile` are
+**Tundra-only**, `mil_fav_light` **Dune-only**, `motorcycle` **Gas Station / Cartel / Dune only**.
+So the page should gate per map off this table, or most rows will fail on most maps.
+
+### ⚠ Hash resolution is dead, second confirmation
+
+All 147 hashed vehicle names through the ACTS index (§2's runbook): **1 of 147**
+(`3effd1dd89ee3d36` = `flying_camera_drone_wz_escape_infil`). The community index does not carry
+BOCW vehicle names. The 58 plaintext names are what we have, and per the matrix above they are
+enough for every MP map.

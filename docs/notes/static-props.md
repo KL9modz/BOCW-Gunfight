@@ -131,7 +131,72 @@ therefore a cheap second number and tells you the shape of a map's table, not ju
 That inverts the risk profile versus vehicles: the thing that could have made vehicles host-only eye
 candy has no equivalent here. ⚠ Stated from the source, **not yet measured with a real joiner.**
 
-## 5. ⚠ The dump's model list is NOT a prop catalogue
+## 5b. ⭐ RETRACTION 2026-09-16 — the dump DOES enumerate props, per map, offline
+
+§5 below says static props are "largely invisible to this dump". **That is wrong**, and it was wrong
+when written: it scanned `scripts/` + `scriptbundle/` only. The per-zone asset manifests answer it
+directly, and they were in the tree the whole time:
+
+| file | what it is | Gas Station |
+|---|---|---|
+| `tables/bgcache/<zone>.csv` | **gameplay** manifest — `vehicle` `model` `weapon` `character` `fx` `destructible` `scriptbundle` rows | 206 `model`, 4 `vehicle` |
+| `tables/data/assets/<zone>.csv` | **full render** manifest — every `xmodel` in the zone | **4,333 `xmodel`** |
+
+A map's resident model set = the map zone + the always-loaded `core_bootstrap` + `core_common` +
+`mp_common` (the model `map-assets.json` already uses for vehicles).
+
+### The universal prop set — on EVERY MP map
+
+`core_bootstrap + core_common + mp_common` carry **20,572 xmodels** (19,620 plaintext). ⚠ Almost all
+of that is loadout, not scenery, and the split is the useful part:
+
+| family | count | what it is |
+|---|---|---|
+| `attach_*` | 11,179 | weapon attachments |
+| `c_*` | 3,864 | characters |
+| `wpn_*` | 3,402 | weapons |
+| **`p9_*`** | **338** | ⭐ **the actual T9 props** |
+| `wrist_*` | 290 | watches |
+| `veh_*` | 198 | vehicle models |
+
+So the universal prop set is **~338 models**, and they are real recognisable objects, available on
+every map with no per-map check: `p9_usa_bench_01`, `p9_usa_bicycle_01`, `p9_usa_dumpster_01_full`,
+`p9_usa_couch_04`, `p9_nt6_arcade_game`, `p9_nt6_chair_wood`, `p9_nt6_machine_washing_dirty`,
+`p9_mal_arcade_cabinet_08`, `p9_mal_bean_bag_chair_sml`, `p9_ger_tank_barrel_metal_01`,
+`p9_rus_amk_telephonebooth_01_closed_v2_wet`, `p9_ger_kgb_mount_barrier_concrete_144`.
+
+### ⭐ The 12 `_prophunt` models — purpose-built, and universal
+
+Twelve xmodels carry a literal `_prophunt` suffix, and **all twelve are in `mp_common`**, so they are
+resident on every MP map:
+
+```
+p9_barrel_metal_rusted_01_prophunt        p9_nt6_abandoned_mattress_01_prophunt
+p9_krail_concrete_worn_01_prophunt        p9_nt6_mannequin_clothes_female_02_dmg_full_prophunt
+p9_rm_rai_dub_vase_prophunt               p9_nt6_mannequin_clothes_female_03_dirty_full_prophunt
+p9_ang_satellite_panel_02_prophunt        p9_nt6_mannequin_clothes_male_01_dirty_full_prophunt
+p9_ang_satellite_panel_03_prophunt        p9_ger_tank_computer_server_diagnostic_01_silver_prophunt
+p9_ang_satellite_capsule_plate_02_prophunt  p9_ger_tank_tank_tread_rolls_01_prophunt
+```
+
+Treyarch authored these *for* Prop Hunt — presumably the ones needing bespoke collision or scale.
+Twelve is not the mode's whole roster (the `_ph.csv` tables are), but it is a **known-good, known-
+universal starter set that needs no table read and no probe.**
+
+### Map-specific props
+
+Gas Station's own zone adds **1,144** usable models once the loadout families are excluded
+(`attach_*`, `c_*`, `wpn_*`, `wrist_*`), led by `veh_t9_*` 194, `p9_usa_*` 50, `p8_wz_*` 30.
+So the per-map layer is ~1,000 models, and §6's "intersect the tables across maps" can now be done
+**entirely offline** against these manifests rather than one map load at a time.
+
+⚠ What this does NOT replace: the `_ph.csv` tables still carry **scale, offset and rotation** per
+prop (§2). The manifests answer *what is resident*; the CSV answers *how to place it well*. Both are
+worth having, and only the CSV needs a runtime read.
+
+---
+
+## 5. ⚠ The dump's model list is NOT a prop catalogue — ⚠ SUPERSEDED, see §5b
 
 3,324 plaintext `model#` names exist in `scripts/` + `scriptbundle/` (vs only 451 hashed — the
 inverse of the `vehicle#` situation, where everything was hashed). Tempting, but check what they are:

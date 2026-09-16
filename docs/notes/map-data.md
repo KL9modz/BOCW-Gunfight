@@ -263,3 +263,28 @@ default back, one click.
 **Untried — not ruled out:** the engine-list route (§1.5); a per-map preset consumer; naming the
 unresolved vehicle hashes by spawning them (the label is whatever it turns out to be); reading the
 `_ph.csv` tables' remaining columns (scale / offset / rotation) into the props channel.
+
+---
+
+## 4. What is answerable OFFLINE, and what is not. 2026-09-16
+
+A sweep of every offline source, to stop future work probing for things the dump already answers.
+
+| question | offline? | source |
+|---|---|---|
+| Which **vehicles** are resident per map | ✅ **fully** | `tables/bgcache/<zone>.csv` `vehicle,` rows — see [[vehicles]] §6, all 36 MP maps |
+| Which **xmodels / props** are resident per map | ✅ **fully** | `tables/data/assets/<zone>.csv` `xmodel,` rows — see [[static-props]] §5b |
+| Which **weapons / characters / fx / destructibles** per map | ✅ | the same two manifests (`weapon,` `character,` `fx,` `destructible,` rows) |
+| Prop **scale / offset / rotation** | ❌ runtime | `gamedata/tables/mp/<map>_ph.csv` is not in the dump; `tablelookuprow` reads it live |
+| **Spawn points** — positions, mode flags, group_index, START flag | ❌ **runtime only** | map entity data, compiled into the map `.ff` |
+
+⚠ **Spawns are the one of the three that cannot go offline, and this is why.** `mp_spawn_point`
+structs live in the map's compiled entity data. The dump's `radiant/` directory holds a single
+988-line `keys.txt` (a Radiant KVP *reference*, mostly campaign/AI keys), and neither `tables/` nor
+`gamedata/` contains any `mp_spawn_point` reference. §1 reverse-engineers the *reading* code and the
+field names correctly; the *values* per map still need the STARTS tally (§1.5) in game.
+
+That makes the split clean: **assets are a table read, spawns are a probe.** Any future "what does
+this map have" question should check the two manifests first — the vehicle census probe was written
+before this was known, and the answer it returned (§[[vehicles]] 5) is one row of a table that was
+already on disk.
