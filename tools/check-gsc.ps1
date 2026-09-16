@@ -18,6 +18,9 @@ param(
     [Parameter(Mandatory = $true)][string]$Script,
     [string]$Acts   = "$PSScriptRoot\..\..\ACTS\bin\acts.exe",
     [string]$Source = "$PSScriptRoot\..\..\bocw-source-main",
+    # Every builtin the ENGINE exports, read off the live exe (4,481 rows). Optional:
+    # without it stage 4 falls back to "called somewhere in the dump", which is weaker.
+    [string]$Table  = "$PSScriptRoot\..\..\reference\funcs_cw.csv",
     [switch]$CompileOnly
 )
 
@@ -130,16 +133,61 @@ $keywords = @('if','while','for','foreach','switch','case','return','break','con
 # builtins this stage exists to check.
 $localFns = [regex]::Matches($text, '(?m)^\s*function\s+(?:private\s+|autoexec\s+)*([a-z_][a-z0-9_]*)\s*\(') |
             ForEach-Object { $_.Groups[1].Value }
-$bare = [regex]::Matches($text, '(?<![\w:.\\&])([a-z_][a-z0-9_]*)\s*\(') |
+# String literals are not code. "Unlock all (best-effort)" used to report all() as NOT IN
+# DUMP, and the script-function rule below inherits the same false positives ("spawn
+# guard (teleport)" -> guard()), so blank every literal before scanning for calls.
+$code = [regex]::Replace($text, '"(?:[^"\\]|\\.)*"', '""')
+$bare = [regex]::Matches($code, '(?<![\w:.\\&])([a-z_][a-z0-9_]*)\s*\(') |
         ForEach-Object { $_.Groups[1].Value } |
         Where-Object { $keywords -notcontains $_ -and $localFns -notcontains $_ } |
         Sort-Object -Unique
 
+# The engine table, when present. A name in it is a real builtin no matter what else
+# the dump says; a name NOT in it that the dump DEFINES as a script function is the
+# prop.gsc trap below.
+$engine = $null
+$tablePath = (Resolve-Path $Table -ErrorAction SilentlyContinue).Path
+if ($tablePath) {
+    $engine = @{}
+    Import-Csv $tablePath | ForEach-Object { if ($_.func) { $engine[$_.func.Trim().ToLower()] = 1 } }
+    Write-Host ("  engine table: {0} builtins" -f $engine.Count) -ForegroundColor DarkGray
+} else {
+    Write-Host "  (no engine table at $Table - falling back to called-in-dump only)" -ForegroundColor DarkYellow
+}
+
+$dumpFiles = @("$Source\scripts\*.gsc","$Source\scripts\*\*.gsc","$Source\scripts\*\*\*.gsc")
+
 foreach ($b in $bare) {
-    $found = Select-String -Path "$Source\scripts\*.gsc","$Source\scripts\*\*.gsc","$Source\scripts\*\*\*.gsc" `
-                           -Pattern "\b$b\s*\(" -List -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($found) {
+    # ⚠ THE PROP.GSC TRAP (2026-09-15, two game crashes): "called somewhere in the dump" is
+    # NOT "is a builtin". prop.gsc defines getmapname() and tablelookupbyrow() as LOCAL
+    # script functions and calls them bare; a probe that copied those calls compiled,
+    # passed this stage, and crashed the game at runtime. A bare name the dump DEFINES
+    # with `function` is a script function, reachable only through its namespace - unless
+    # the engine table also lists it (a real builtin that some class happens to shadow).
+    $defined = $null
+    if (-not ($engine -and $engine.ContainsKey($b))) {
+        $defined = Select-String -Path $dumpFiles -Pattern "^\s*function\s+(private\s+|autoexec\s+)*$b\s*\(" -List -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+    if ($defined) {
+        $where = "{0}:{1}" -f (Split-Path $defined.Path -Leaf), $defined.LineNumber
+        Write-Host ("  SCRIPT FUNCTION  {0}()  - defined in {1}, not a builtin. Call it through its namespace or copy it." -f $b, $where) -ForegroundColor Red
+        $bad++
+        continue
+    }
+    if ($engine -and $engine.ContainsKey($b)) {
         Write-Host ("  ok  {0}()" -f $b) -ForegroundColor DarkGray
+        continue
+    }
+    $found = Select-String -Path $dumpFiles -Pattern "\b$b\s*\(" -List -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found) {
+        # Not in the engine table but stock calls it and nothing defines it: a VM
+        # intrinsic (isdefined, wait, waittill, endon, notify, vectorscale ...) or a
+        # builtin the table missed. Say which case this is rather than a bare ok.
+        if ($engine) {
+            Write-Host ("  ok  {0}()  - not in the engine table, but stock calls it undefined (intrinsic)" -f $b) -ForegroundColor DarkGray
+        } else {
+            Write-Host ("  ok  {0}()" -f $b) -ForegroundColor DarkGray
+        }
     } else {
         Write-Host ("  NOT IN DUMP  {0}()  - no stock script calls this. Not a T9 builtin?" -f $b) -ForegroundColor Red
         $bad++

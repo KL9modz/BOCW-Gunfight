@@ -169,7 +169,8 @@ case "$NAME" in
     gunfight_menu)     echo "  RMB+V opens. RMB up / LMB down / R select / V back. Settings persist as gf_* dvars" ;;
     gunfight_menu_c)   echo "  78 T B nn every 5s: 2 text rows + a 10-box material-form column at x25. WHITE bar filling = int-index material works (pos=index); RED bar = raw-string name works; nothing = boxes blocked. lui-elems.md" ;;
     lobby_state)       echo "  start the match FROM THE LOBBY, not F7. LS1-LS3 name the map the lobby believes in" ;;
-    vehicle_probe)     echo "  VPROBE <map> A= B= H= T= G= S= N= in the feed every 3s from 8s into the round. G must be 0 and N must be 202 before A means anything" ;;
+    vehicle_probe)     echo "  two lines every 3s from 8s in: VPROBE3 (G must be 0, N 105, M names the resident vehicle) + PPROBE (tbl=0 means no prop table on this map)" ;;
+    prop_probe)        echo "  PPROBE <map> tbl= rows= xs= s= m= l= xl= first= res= G= every 3s from 8s in. tbl=0 is a real result (no Prop Hunt table); G must be 0" ;;
     test_frontend)     echo "  inject at the MAIN MENU. match -> lobby -> set up 3v3 -> match. Read 50 FIRST: 0 = frontend half never ran" ;;
     *)    echo "  test a LOBBY RETURN afterwards if this payload writes anything" ;;
 esac

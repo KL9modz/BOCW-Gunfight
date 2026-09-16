@@ -5,8 +5,12 @@ out of `bocw-source-main` (T9 dump). **Nothing here is measured in-game yet** �
 source reference, and the one question that actually decides the feature (per-map asset residency)
 is *not answerable from the dump at all*. The probe that answers it is specified at the bottom.
 
-**Status: RESEARCH ONLY. No in-game test. Two spawn paths identified, one of them dead in stock MP;
-30 vehicle behaviour types enumerated; the gate is asset residency + clientfield symmetry.**
+**Status 2026-09-15: PROBE RAN (§5).** Run 1: the hashed-type form of `isassetloaded` is VOID (yes to
+everything); by the plain-string form **one** of the 105 `veh_t9_*` model names IS a resident vehicle
+asset on `mp_sm_gas_station` — the namespaces share names. Runs 2–3 crashed the game at link time —
+our bug (two prop.gsc *script* functions called as builtins; the validator hole that let it through
+is fixed). v4 built, not yet run. Two spawn paths identified, one of them dead in stock MP; 30
+vehicle behaviour types enumerated; the gate is asset residency + clientfield symmetry.**
 
 ---
 
@@ -257,3 +261,79 @@ matrix, measured rather than inferred.
 ⚠ Do not build the spawn UI before Q1 returns. "Every spawnable vehicle depending on map
 type" is *defined* by that table, and guessing it from asset names is exactly the mistake the
 `_wz` / `_mp` suffixes invite.
+
+---
+
+## 5. MEASURED — 2026-09-15, the parity probe ran
+
+**Run 1** (`src/vehicle_probe/` v1, `mp_sm_gas_station`, Gunfight, host only), one line every 3 s:
+
+```
+VPROBE mp_sm_gas_station A=105 B=1 H=68 T=29 G=1 S=0 N=202
+```
+
+Decoded in the order the probe's own reading guide demands:
+
+- **G=1 → form A is VOID.** The `+1` bit is form A (`#"vehicle"`, a *hashed* type argument) claiming
+  the bogus name is loaded — and A=105, H=68, T=29 are every candidate in every set. The hashed-type
+  form of `isassetloaded` answers **yes to everything**. It is not a residency test. Stock never uses
+  it (all 10 stock call sites pass the plain string: `"vehicle"`, `"xanim"`, `"aitype"`,
+  `"stringtable"`). ⚠ **Every future `isassetloaded` call in the project uses the plain-string type
+  argument.** The `+2` bit is clear, so form B passed its control.
+- **B=1 → the namespaces DO share names.** By the valid form, exactly **one** of the 105 `veh_t9/t8_*`
+  xmodel-style names is a resident `vehicle` asset on this map. That closes step 1: the `model#`
+  names are usable candidates for `vehicle#`, and what limits the count on a Gunfight map is
+  per-map residency, not the naming. (v2, below, prints *which*.)
+- **S=0** — no `veh_spawn_point` structs; stock Path A is unreachable here, as expected.
+- **N=202** build control correct.
+
+**Two corrections to §4 made by this run:**
+
+1. Step 2's design constraint ("retail renders numbers only, so emit counts and bitmasks") is
+   **retracted** — that finding was the unstripped ACTS string header ([[toolchain]]); with
+   `tools/strip-strhdr.ps1` the probe prints labelled text, and v2 prints resident asset **names**
+   directly. No bitmasks needed.
+2. The probe gated its once-per-map report on the `mapname` dvar, which **does not exist in CW**
+   ([[session-switch]] LS2); it now reads `sv_mapname` and simply re-prints every round (the counts
+   are per map, and the map name is in the line).
+
+**v2** (same payload name) tests form B only and prints: `Ms` = hits by **name** over the 105 as
+plain strings, `Mh` = the same 105 as `#"hashed"` names by list index (the two must agree — a
+string-vs-hash discrepancy would be its own finding), `H`/`T` by the valid form, `S`, `N`, and a
+second line `PPROBE` carrying the [[static-props]] table read so both probes run in one match
+(they share the injection target and cannot coexist).
+
+### Runs 2 and 3 — v2 and v3 CRASHED the game at LINK time. Cause found: the validator's hole
+
+Both crashes identical (`BlackOpsColdWar.20260916-014558.zip`, `...-015433.zip`; a copy of the
+first is `payloads/vehicle_probe.v2-crash-20260916-014558.zip`): `error_message
+0x6394f836,0000000000000001,`, raised from the server-frame → script-VM chain after a routine
+recursed 23 frames deep, **5–6 s after the map switch — before the probe's 8 s wait had ended**. So
+nothing in `report()` ran; the script died while the engine was *linking* it. That is the
+`logprint()` signature `tools/check-gsc.ps1` already documents ("crashed 1–2 s into a map load").
+
+**The cause: two calls the probe made as bare builtins are SCRIPT functions.** `prop_probe`'s
+table read was copied from `prop.gsc:1850` — but `getmapname()` is defined *in that file*
+(`prop.gsc:1825`, `return level.script;`) and so is `tablelookupbyrow( table, row, col )`
+(`prop.gsc:1834`, a wrapper over the real builtin `tablelookuprow( table, row )`). Neither is in
+the engine's builtin table (`C:\bocw\reference\funcs_cw.csv`, 4,481 rows read off the live exe).
+Compiled fine; the linker could not resolve the imports; the game died. v1 had no prop line, which
+is the only reason it survived.
+
+**Why the validator said `ok`:** stage 4 only checked that a bare name is *called* somewhere in the
+dump — and prop.gsc calls its own local functions. Fixed 2026-09-15: stage 4 now (1) strips string
+literals before scanning (the old `all()` / `unavailable()` false positives are gone), (2) accepts
+any name in the engine table as a builtin, and (3) reports **`SCRIPT FUNCTION name() - defined in
+file:line`** as fatal for a bare name the dump defines with `function` and the engine table does
+not list. `gunfight_menu.gsc` passes with zero notes; both probes now pass and are rebuilt.
+
+⚠ Retraction of what an earlier revision of this section said: the crash was **not** an
+`isassetloaded` on an existing-but-not-resident asset. That case is simply **unmeasured** — not
+suspect. The `vehicle/default_engine.graph` string on the captured stack was the level loader's
+own work (vehicle assets link during the load), not anything the probe asked for. The candidate
+sets v2 dropped (campaign hashes, type strings, plain-string names) were dropped for a wrong
+reason and can go back in — one set per run, so a real finding stays attributable.
+
+**v4** (built as `payloads/vehicle_probe.gscc`, 16,207 B): v3 with `level.script` in place of
+`getmapname()` and a local `table_cell()` over `tablelookuprow`. Prints `VPROBE3 <map> G= M=[i:name]
+S= N=105` + the guarded `PPROBE` line. Not yet run.

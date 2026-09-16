@@ -37,41 +37,40 @@
 //    form works. Read that one first. If every count including the controls is 0,
 //    the call form is wrong and the run says nothing about residency.
 //
-// ── HOW TO READ THE OUTPUT ────────────────────────────────────────────────────
-// ONE labelled feed line, re-printed every 3 s for the whole round (the debug-feed
-// convention: if it is not in the screenshot it is not there). Text renders fine
-// once the payload has been through tools/strip-strhdr.ps1 (toolchain.md - the old
-// "numbers only" finding WAS the unstripped string header; mp_probe predates the fix).
+// ── RUN 1 (2026-09-15, mp_sm_gas_station) settled the call form ──────────────
+//   VPROBE mp_sm_gas_station A=105 B=1 H=68 T=29 G=1 S=0 N=202
+// G=1 is the +1 bit: form A (#"vehicle", a HASHED type argument) said "loaded" for
+// the bogus name - and for all 105 models, all 68 hashes and all 29 types. Form A
+// answers yes to everything and is VOID. Form B ("vehicle", the plain string, the
+// only form stock ever uses) passed its control and found exactly ONE resident model
+// name. So the namespaces DO share names; v2 below says which.
 //
-//   VPROBE <map> A=nnn B=nnn H=nnn T=nnn G=n S=nnn N=202
+// ── RUNS 2 AND 3 (v2, v3) CRASHED THE GAME AT LINK TIME - our bug, not the engine ──
+// Both 5-6 s after the map switch, BEFORE the 8 s wait ended: nothing in report()
+// ran. The prop line, copied from prop.gsc:1850, called getmapname() and
+// tablelookupbyrow() as builtins - both are SCRIPT functions defined in prop.gsc
+// (1825, 1834), absent from the engine table, so the linker could not resolve the
+// imports and the game died (the logprint signature check-gsc.ps1 describes).
+// check-gsc stage 4 now catches this class ("SCRIPT FUNCTION ... defined in file:line").
+// An earlier revision blamed isassetloaded on an existing non-resident asset - that
+// case is UNMEASURED, not suspect; the campaign hashes / type strings / plain-string
+// names dropped from v2 can go back in, one set per run. See docs/notes/vehicles.md §5.
 //
-//   A  MODELS resident, form A (#"vehicle")     <- THE ANSWER
-//   B  MODELS resident, form B ("vehicle")      <- the form stock uses (scene_vehicle_shared.gsc:43)
-//   H  HASHES resident (campaign scene vehicles)
-//   T  TYPES resident                            expected 0
-//   G  bogus-asset control                       MUST BE 0 - see below
-//   S  veh_spawn_point structs on this map
-//   N  total candidates tested. BUILD CONTROL, must read 202. Anything else means a
-//      different build is running than the one this comment describes.
+// ── HOW TO READ THE OUTPUT (v3) ───────────────────────────────────────────────
+// v3 runs only what v1 proved safe - the 105 #"hashed" model names through the
+// plain-string type form - and names the hit from a display-only list (no lookup
+// on strings). ONE labelled line, re-printed every 3 s for the whole round, plus
+// the PPROBE line (guarded, see prop_line).
 //
-// ⚠ READ FIELD G FIRST. It tests a name no asset can have, in both call forms
-//    (+1 = form A claimed it is loaded, +2 = form B did). Non-zero means
-//    isassetloaded is not answering the question we think it is and the ENTIRE RUN
-//    IS VOID. All-zero counts are only meaningful once G reads 0.
+//   VPROBE3 <map> G=n M=n[i:name i:name] S=n N=105
 //
-// ⚠ A vs B is the CALL-FORM discriminator. If they disagree, the type argument form
-//    matters and every future isassetloaded call must use the winning one. Stock only
-//    ever passes the plain string ("vehicle", "xanim", "aitype", "stringtable").
+//   G   bogus-asset control (hashed, form B). MUST BE 0 or the run is void.
+//   M   MODELS resident by isassetloaded( "vehicle", #"name" ) - hits as index:name
+//   S   veh_spawn_point structs on this map (stock Path A) - expected 0
+//   N   candidates tested. BUILD CONTROL, must read 105.
 //
-// ⚠ Field A is the decision:
-//       >0  the model# and vehicle# namespaces share names. The candidate list is
-//           essentially solved and step 2 (the residency probe) can be built.
-//        0  parity is dead; the authoritative list has to come out of the shipped
-//           fastfiles with ACTS on the game machine.
-//
-// ⚠ Field S: is stock Path A reachable on this map at all? mp_common/vehicle.gsc:104
-//    reads these structs, and its entry point initvehiclemap() has ZERO callers in
-//    the whole dump. Expect 0. A non-zero would be a genuine surprise worth chasing.
+// scenehashes() and typenames() are kept as the documented candidate sets but are
+// NOT CALLED - see run 2. Index lists stop after 24 entries with ",...".
 //
 // ── EVERY ROUND, EVERY MAP ────────────────────────────────────────────────────
 // callback::on_start_gametype fires EVERY ROUND (mp_probe measured it: `level` is
@@ -221,6 +220,121 @@ function private models()
     return c;
 }
 
+// The same 105 names as plain strings, SAME ORDER (Mh indices refer to this order).
+// Stock hands isassetloaded plain-string names too (an xanim name at
+// script_2e03cad685678246.gsc:681), so this is a legal form, and a hit prints
+// as text instead of needing an index lookup.
+function private model_names()
+{
+    c = [];
+    c[c.size] = "veh_t8_drone_hunter_mp_light";
+    c[c.size] = "veh_t8_drone_raps";
+    c[c.size] = "veh_t8_drone_recon_cp_light_small";
+    c[c.size] = "veh_t8_drone_siege_arm_d";
+    c[c.size] = "veh_t8_drone_siege_minigun_d";
+    c[c.size] = "veh_t8_drone_siege_rocket_d";
+    c[c.size] = "veh_t8_drone_wasp_piece_body_mp";
+    c[c.size] = "veh_t8_drone_wasp_piece_wing_rocket_left_mp";
+    c[c.size] = "veh_t8_drone_wasp_piece_wing_rocket_right_mp";
+    c[c.size] = "veh_t8_mil_air_gunship";
+    c[c.size] = "veh_t8_mil_air_jet_fighter_mp_dark";
+    c[c.size] = "veh_t8_mil_air_jet_fighter_mp_light";
+    c[c.size] = "veh_t8_mil_boat_tactical_raft";
+    c[c.size] = "veh_t8_mil_helicopter_light_debris_fastrope_bar";
+    c[c.size] = "veh_t8_mil_helicopter_light_debris_skids";
+    c[c.size] = "veh_t8_mil_helicopter_light_debris_tail";
+    c[c.size] = "veh_t8_mil_jet_cargo_gunship_pickup";
+    c[c.size] = "veh_t8_soviet_civ_sedan_midsize_dest_vehicle";
+    c[c.size] = "veh_t8_vintage_gaz66_troopbed";
+    c[c.size] = "veh_t9_civ_eu_2dr_wagon_blue";
+    c[c.size] = "veh_t9_civ_eu_2dr_wagon_red";
+    c[c.size] = "veh_t9_civ_eu_bicycle";
+    c[c.size] = "veh_t9_civ_eu_sedan_50s";
+    c[c.size] = "veh_t9_civ_eu_van_work";
+    c[c.size] = "veh_t9_civ_eu_wagon_50s";
+    c[c.size] = "veh_t9_civ_hatchback_80s_tan";
+    c[c.size] = "veh_t9_civ_hatchback_80s_tan_eu_tkd";
+    c[c.size] = "veh_t9_civ_ru_bus_large";
+    c[c.size] = "veh_t9_civ_ru_sedan_60s_vista";
+    c[c.size] = "veh_t9_civ_ru_sedan_80s";
+    c[c.size] = "veh_t9_civ_ru_sedan_80s_base";
+    c[c.size] = "veh_t9_civ_ru_sedan_80s_cp";
+    c[c.size] = "veh_t9_civ_ru_sedan_80s_cp_wet";
+    c[c.size] = "veh_t9_civ_ru_sedan_80s_kgb_cp";
+    c[c.size] = "veh_t9_civ_ru_sedan_80s_police_lit";
+    c[c.size] = "veh_t9_civ_ru_truck_light_hardtop_cp";
+    c[c.size] = "veh_t9_civ_us_station_wagon_vista_wht";
+    c[c.size] = "veh_t9_civ_us_truck_4x4_cp_duga";
+    c[c.size] = "veh_t9_civ_us_truck_4x4_cp_turkey";
+    c[c.size] = "veh_t9_civ_us_van_vista_window";
+    c[c.size] = "veh_t9_drone_rcxd_pickup";
+    c[c.size] = "veh_t9_mil_air_flogger_fly_napalm";
+    c[c.size] = "veh_t9_mil_air_flogger_pickup";
+    c[c.size] = "veh_t9_mil_air_transport_cp";
+    c[c.size] = "veh_t9_mil_gaz66_riders";
+    c[c.size] = "veh_t9_mil_helicopter_gunship_riders";
+    c[c.size] = "veh_t9_mil_remote_missile";
+    c[c.size] = "veh_t9_mil_remote_missile_pickup";
+    c[c.size] = "veh_t9_mil_ru_air_awacs_gear_down";
+    c[c.size] = "veh_t9_mil_ru_air_counter_spyplane_mp";
+    c[c.size] = "veh_t9_mil_ru_air_counter_spyplane_mp_friendly";
+    c[c.size] = "veh_t9_mil_ru_air_counter_spyplane_pickup";
+    c[c.size] = "veh_t9_mil_ru_air_flogger_flight";
+    c[c.size] = "veh_t9_mil_ru_air_frogfoot_mp";
+    c[c.size] = "veh_t9_mil_ru_air_frogfoot_pickup";
+    c[c.size] = "veh_t9_mil_ru_air_spyplane_friendly_mp";
+    c[c.size] = "veh_t9_mil_ru_air_spyplane_mp";
+    c[c.size] = "veh_t9_mil_ru_air_spyplane_pickup";
+    c[c.size] = "veh_t9_mil_ru_air_vtol_forger_cockpit";
+    c[c.size] = "veh_t9_mil_ru_air_vtol_forger_flight";
+    c[c.size] = "veh_t9_mil_ru_air_vtol_forger_pickup";
+    c[c.size] = "veh_t9_mil_ru_heli_gunship_hind";
+    c[c.size] = "veh_t9_mil_ru_heli_gunship_hind_yam";
+    c[c.size] = "veh_t9_mil_ru_truck_50s_cargo_delivery_tenla_market";
+    c[c.size] = "veh_t9_mil_ru_truck_light_base";
+    c[c.size] = "veh_t9_mil_ru_truck_light_mp_tundra";
+    c[c.size] = "veh_t9_mil_ru_truck_transport";
+    c[c.size] = "veh_t9_mil_snowmobile_spawn_medpack";
+    c[c.size] = "veh_t9_mil_snowmobile_spawn_ski";
+    c[c.size] = "veh_t9_mil_us_air_aurora_spyplane_friendly";
+    c[c.size] = "veh_t9_mil_us_air_napalm_bomb_projectile";
+    c[c.size] = "veh_t9_mil_us_air_napalm_bomb_projectile_lrg";
+    c[c.size] = "veh_t9_mil_us_air_napalm_strike";
+    c[c.size] = "veh_t9_mil_us_air_napalm_strike_pickup";
+    c[c.size] = "veh_t9_mil_us_air_napalm_strike_vista";
+    c[c.size] = "veh_t9_mil_us_air_snake";
+    c[c.size] = "veh_t9_mil_us_air_snake_finish_move_vehicle";
+    c[c.size] = "veh_t9_mil_us_air_snake_pickup";
+    c[c.size] = "veh_t9_mil_us_air_snake_riders";
+    c[c.size] = "veh_t9_mil_us_air_transport_hpc_intro";
+    c[c.size] = "veh_t9_mil_us_air_transport_static_ground";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_armada_turret_base";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_chopper_gunner";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_cp_armada";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_cp_armada_02";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_cp_prisoner_dest";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_cp_takedown";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_pickup";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_riders";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_riders_armada_ai";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_riders_armada_player";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_static";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_vip_settings";
+    c[c.size] = "veh_t9_mil_us_helicopter_light_zm_sv_intro_static";
+    c[c.size] = "veh_t9_mil_us_turret_lmg_stationary_cp";
+    c[c.size] = "veh_t9_mphd_uaz_riders";
+    c[c.size] = "veh_t9_mphd_uaz_riders_amk";
+    c[c.size] = "veh_t9_mphd_uaz_riders_takedown";
+    c[c.size] = "veh_t9_rcxd_finish_prop_fin_move";
+    c[c.size] = "veh_t9_sv_atv_payload";
+    c[c.size] = "veh_t9_sv_truck_hemtt_payload_delivery";
+    c[c.size] = "veh_t9_turret_m60_riders";
+    c[c.size] = "veh_t9_turret_mg_riders";
+    c[c.size] = "veh_t9_zm_arc_xd";
+    c[c.size] = "veh_t9_zm_ndu_mil_tank_tiger";
+    return c;
+}
+
 function private scenehashes()
 {
     c = [];
@@ -330,36 +444,29 @@ function private typenames()
     return c;
 }
 
-// ── counters. Two call forms, identical otherwise. ───────────────────────────
+// ── hit list. Form B ("vehicle") only - form A is void (run 1). ─────────────
 
-function private count_a( list )
+// hashed list -> "n[i:name,j:name]" - names come from the parallel display list
+// and are never passed to the engine (run 2)
+function private hits( list, names )
 {
     n = 0;
-
-    for ( i = 0; i < list.size; i++ )
-    {
-        if ( isassetloaded( #"vehicle", list[ i ] ) )
-        {
-            n++;
-        }
-    }
-
-    return n;
-}
-
-function private count_b( list )
-{
-    n = 0;
+    txt = "";
 
     for ( i = 0; i < list.size; i++ )
     {
         if ( isassetloaded( "vehicle", list[ i ] ) )
         {
             n++;
+
+            if ( n <= 24 )
+            {
+                txt += ( n > 1 ? "," : "" ) + i + ":" + names[ i ];
+            }
         }
     }
 
-    return n;
+    return n + "[" + txt + ( n > 24 ? ",..." : "" ) + "]";
 }
 
 function private report()
@@ -367,18 +474,12 @@ function private report()
     // on_start_gametype fires before players are in the match.
     wait( 8 );
 
+    names = model_names();
     m = models();
-    h = scenehashes();
-    t = typenames();
 
-    // ⚠ THE CONTROL. A name no asset can have, in both call forms. Read this
-    // field before believing any other number in the run.
+    // ⚠ THE CONTROL. A name no asset can have, hashed, form B - the exact call v1
+    // proved safe. Read this field before believing any other number in the run.
     bogus = 0;
-
-    if ( isassetloaded( #"vehicle", #"veh_t9_gf_probe_nonexistent_asset" ) )
-    {
-        bogus += 1;
-    }
 
     if ( isassetloaded( "vehicle", #"veh_t9_gf_probe_nonexistent_asset" ) )
     {
@@ -396,18 +497,145 @@ function private report()
         spawnpoints = nodes.size;
     }
 
-    line = "^3VPROBE ^7" + getdvarstring( #"sv_mapname", "?" )
-        + " A=" + count_a( m ) + " B=" + count_b( m ) + " H=" + count_a( h )
-        + " T=" + count_a( t ) + " G=" + bogus + " S=" + spawnpoints
-        + " N=" + ( m.size + h.size + t.size );
+    line = "^3VPROBE3 ^7" + getdvarstring( #"sv_mapname", "?" )
+        + " G=" + bogus + " M=" + hits( m, names ) + " S=" + spawnpoints
+        + " N=" + m.size;
+
+    pline = prop_line();
 
     // Computed once, shown for the whole round: the feed fades in seconds, so a
     // single print is only readable if someone is staring at it 8 s into the round.
+    // Two lines per tick: this payload also carries the static-prop read, so both
+    // probes land in one match (see prop_line).
     for ( ;; )
     {
         emit( line );
+        emit( pline );
         wait( 3 );
     }
+}
+
+// ── the static-prop read (src/prop_probe) ────────────────────────────────────
+// Mirrored VERBATIM between prop_probe.gsc and vehicle_probe.gsc so both probes
+// read in ONE match: every injection shares the same replace target, so two
+// payloads cannot coexist. Edit both or neither.
+//
+//   PPROBE <map> tbl=n rows=n xs=n s=n m=n l=n xl=n other=n first=<model> res=n G=n
+//
+//   tbl    isassetloaded( "stringtable", path ) - the guard STOCK puts in front of
+//          every table read it is not sure of (scoreevents_shared.gsc:502/532/537).
+//          0 = no Prop Hunt table on this map; nothing else is read. That is a REAL
+//          RESULT: stock itself falls back to an invisible prop.
+//   rows   numrows in gamedata/tables/mp/<map>_ph.csv (prop.gsc:1850) <- THE NUMBER
+//   xs..xl the size buckets, keyed off column 1 exactly as stock getpropsize does
+//          (a switch on hashed literals against the runtime cell - a proven form);
+//          other = rows whose size text matched none of the five.
+//   first  the model name in row 0 - the map's OWN curated prop, read at runtime.
+//   res    1 if that model is a resident xmodel by isassetloaded( "xmodel", name ).
+//          ⚠ Only asked when tbl=1: the model is then in the map's own curated
+//          table, so it exists AND is resident - the one case run 2 left safe.
+//   G      bogus-asset control, hashed, form B. MUST BE 0 or res means nothing.
+function private prop_line()
+{
+    // Built exactly as stock builds it (prop.gsc:1852-1853). Stock's getmapname() is a
+    // SCRIPT function there (prop.gsc:1825, `return level.script;`), not a builtin -
+    // calling it bare from another namespace crashed the game twice (runs 2 and 3).
+    mapname = level.script;
+
+    if ( !isdefined( mapname ) )
+    {
+        mapname = util::get_map_name();
+    }
+
+    path = "gamedata/tables/mp/" + mapname + "_ph.csv";
+
+    bogus = 0;
+
+    if ( isassetloaded( "xmodel", #"p9_gf_probe_nonexistent_prop" ) )
+    {
+        bogus += 2;
+    }
+
+    tbl = isassetloaded( "stringtable", path ) ? 1 : 0;
+
+    if ( !tbl )
+    {
+        return "^3PPROBE ^7" + getdvarstring( #"sv_mapname", "?" ) + " tbl=0 G=" + bogus;
+    }
+
+    numrows = tablelookuprowcount( path );
+
+    if ( !isdefined( numrows ) )
+    {
+        numrows = 0;
+    }
+
+    xsmall = 0;
+    small = 0;
+    medium = 0;
+    large = 0;
+    xlarge = 0;
+    other = 0;
+
+    for ( i = 0; i < numrows; i++ )
+    {
+        sizetext = table_cell( path, i, 1 );
+
+        switch ( sizetext )
+        {
+            case #"xsmall":
+                xsmall++;
+                break;
+            case #"small":
+                small++;
+                break;
+            case #"medium":
+                medium++;
+                break;
+            case #"large":
+                large++;
+                break;
+            case #"xlarge":
+                xlarge++;
+                break;
+            default:
+                other++;
+                break;
+        }
+    }
+
+    first = "-";
+    res = "-";
+
+    if ( numrows > 0 )
+    {
+        firstmodel = table_cell( path, 0, 0 );
+
+        if ( isdefined( firstmodel ) && firstmodel != "" )
+        {
+            first = firstmodel;
+            res = isassetloaded( "xmodel", firstmodel ) ? 1 : 0;
+        }
+    }
+
+    return "^3PPROBE ^7" + getdvarstring( #"sv_mapname", "?" )
+        + " tbl=1 rows=" + numrows + " xs=" + xsmall + " s=" + small + " m=" + medium
+        + " l=" + large + " xl=" + xlarge + " other=" + other
+        + " first=" + first + " res=" + res + " G=" + bogus;
+}
+
+// prop.gsc:1834 - also a SCRIPT function there, not a builtin (same trap as getmapname).
+// The real builtin is tablelookuprow( table, row ), which returns the row as an array.
+function private table_cell( table, row, col )
+{
+    columns = tablelookuprow( table, row );
+
+    if ( isdefined( columns ) && col < columns.size )
+    {
+        return columns[ col ];
+    }
+
+    return "";
 }
 
 // iprintln, NOT iprintlnbold: the bold window holds one message and each print

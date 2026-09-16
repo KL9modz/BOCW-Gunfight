@@ -27,55 +27,22 @@
 //    dvar. Table lookups and isassetloaded calls only.
 //
 // ── HOW TO READ THE OUTPUT ────────────────────────────────────────────────────
-// Retail renders NUMBERS ONLY (see ../mp_probe/scripts/mp_probe.gsc), so every
-// answer is a digit. THREE LINES, printed back-to-back with no wait, via iprintln
-// (the STACKING feed) rather than iprintlnbold (which replaces). One screenshot
-// captures the run.
+// ONE labelled feed line, re-printed every 3 s for the whole round (the debug-feed
+// convention: if it is not in the screenshot it is not there). Text renders fine
+// once the payload has been through tools/strip-strhdr.ps1 (toolchain.md - the old
+// "numbers only" finding WAS the unstripped string header; mp_probe predates the fix).
+// The line format and field meanings are documented on prop_line() below.
 //
-// Fields are FIXED WIDTH and zero-padded, so a leading zero never collapses the
-// line. Read in 3-digit groups after the first digit.
+// ── EVERY ROUND, EVERY MAP ────────────────────────────────────────────────────
+// callback::on_start_gametype fires EVERY ROUND (mp_probe measured it: `level` is
+// rebuilt, so this thread dies at the round end and starts again). The table is per
+// map, not per round, so re-reporting is harmless - and the map name is in the line,
+// so a mid-match map switch is its own report. ONE PAYLOAD COVERS MANY MAPS.
+// (An earlier revision gated on the `mapname` dvar, which does not exist in CW -
+// lobby_state LS2 measured it - so the gate never engaged anyway.)
 //
-//   1 NNN AAA BBB    N = numrows in <map>_ph.csv   ⬅ THE NUMBER
-//                    A = xsmall bucket count
-//                    B = small  bucket count
-//
-//   2 FFF CCC DDD    F = flags, see below. MUST have bit 4 CLEAR.
-//                    C = medium bucket count
-//                    D = large  bucket count
-//
-//   3 EEE            E = xlarge bucket count
-//
-// FLAGS (field F) are additive:
-//    +1  row-0 model IS resident, form A: isassetloaded( #"xmodel", name )
-//    +2  row-0 model IS resident, form B: isassetloaded(  "xmodel", name )
-//    +4  ⚠ THE BOGUS CONTROL FIRED — a name no asset can have reported as loaded.
-//        Non-zero here means isassetloaded is not answering the question we think
-//        it is, and EVERY residency reading in this run is void.
-//
-// So a healthy map with a real table reads something like
-//   1042005012 / 2003018004 / 3003   =  42 rows, 5 xsmall, 12 small, flags 3,
-//                                       18 medium, 4 large, 3 xlarge
-// and a map with no table reads
-//   1000000000 / 2000000000 / 3000.
-//
-// ⚠ N = 0 is a REAL RESULT, not a failure: that map has no Prop Hunt table and
-//    stock itself would fall back to an invisible prop. Distinguish it from a
-//    broken run by field F — a broken run also fails the bogus control or reads 0
-//    on both residency bits for a map that clearly has rows.
-//
-// ⚠ Flags bits 1 and 2 are the CALL-FORM discriminator for the asset-type argument,
-//    the same open question [[vehicles]] carries. If they disagree, every future
-//    isassetloaded call in the project must use the winning form.
-//
-// ── ONCE PER MAP, NOT ONCE PER ROUND ─────────────────────────────────────────
-// callback::on_start_gametype fires EVERY ROUND (mp_probe probe 6 measured it), and
-// `level` is rebuilt each round, so the marker has to live in a dvar. `gf_pprobe_map`
-// holds the last map reported. ⚠ ONE PAYLOAD THEREFORE COVERS MANY MAPS — switch maps
-// in-game and each reports once, cleanly, with no relink. To force a re-read of a map
-// already seen, set gf_pprobe_map to anything else.
-//
-// ⚠ Deliberately a DIFFERENT dvar from vehicle_probe's gf_vprobe_map, so the two
-//    probes can never gate each other if both are ever present.
+// ⚠ The same read ships inside src/vehicle_probe as its second line, so both probes
+//    can run in one match. prop_line() is mirrored verbatim there - edit both.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #using scripts\core_common\callbacks_shared;
@@ -104,24 +71,65 @@ function private report()
     // on_start_gametype fires before players are in the match.
     wait( 8 );
 
-    curmap = getdvarstring( #"sv_mapname", "" );
+    line = prop_line();
 
-    // Empty mapname means the gate cannot work; report anyway rather than going
-    // silent. A probe that quietly does nothing is the worst failure mode here.
-    if ( curmap != "" )
+    // Computed once, shown for the whole round: the feed fades in seconds, so a
+    // single print is only readable if someone is staring at it 8 s into the round.
+    for ( ;; )
     {
-        if ( curmap == getdvarstring( #"gf_pprobe_map", "" ) )
-        {
-            return;
-        }
+        emit( line );
+        wait( 3 );
+    }
+}
 
-        setdvar( #"gf_pprobe_map", curmap );
+// ── the static-prop read (src/prop_probe) ────────────────────────────────────
+// Mirrored VERBATIM between prop_probe.gsc and vehicle_probe.gsc so both probes
+// read in ONE match: every injection shares the same replace target, so two
+// payloads cannot coexist. Edit both or neither.
+//
+//   PPROBE <map> tbl=n rows=n xs=n s=n m=n l=n xl=n other=n first=<model> res=n G=n
+//
+//   tbl    isassetloaded( "stringtable", path ) - the guard STOCK puts in front of
+//          every table read it is not sure of (scoreevents_shared.gsc:502/532/537).
+//          0 = no Prop Hunt table on this map; nothing else is read. That is a REAL
+//          RESULT: stock itself falls back to an invisible prop.
+//   rows   numrows in gamedata/tables/mp/<map>_ph.csv (prop.gsc:1850) <- THE NUMBER
+//   xs..xl the size buckets, keyed off column 1 exactly as stock getpropsize does
+//          (a switch on hashed literals against the runtime cell - a proven form);
+//          other = rows whose size text matched none of the five.
+//   first  the model name in row 0 - the map's OWN curated prop, read at runtime.
+//   res    1 if that model is a resident xmodel by isassetloaded( "xmodel", name ).
+//          ⚠ Only asked when tbl=1: the model is then in the map's own curated
+//          table, so it exists AND is resident - the one case run 2 left safe.
+//   G      bogus-asset control, hashed, form B. MUST BE 0 or res means nothing.
+function private prop_line()
+{
+    // Built exactly as stock builds it (prop.gsc:1852-1853). Stock's getmapname() is a
+    // SCRIPT function there (prop.gsc:1825, `return level.script;`), not a builtin -
+    // calling it bare from another namespace crashed the game twice (runs 2 and 3).
+    mapname = level.script;
+
+    if ( !isdefined( mapname ) )
+    {
+        mapname = util::get_map_name();
     }
 
-    // Built exactly as stock builds it (prop.gsc:1852-1853). getmapname() rather
-    // than the mapname dvar read above, so this matches stock's path byte for byte
-    // even if the two ever diverge.
-    path = "gamedata/tables/mp/" + getmapname() + "_ph.csv";
+    path = "gamedata/tables/mp/" + mapname + "_ph.csv";
+
+    bogus = 0;
+
+    if ( isassetloaded( "xmodel", #"p9_gf_probe_nonexistent_prop" ) )
+    {
+        bogus += 2;
+    }
+
+    tbl = isassetloaded( "stringtable", path ) ? 1 : 0;
+
+    if ( !tbl )
+    {
+        return "^3PPROBE ^7" + getdvarstring( #"sv_mapname", "?" ) + " tbl=0 G=" + bogus;
+    }
+
     numrows = tablelookuprowcount( path );
 
     if ( !isdefined( numrows ) )
@@ -129,19 +137,16 @@ function private report()
         numrows = 0;
     }
 
-    // Bucket counts, keyed off column 1 exactly as stock's getpropsize does
-    // (prop.gsc:2189-2205) — a SWITCH on HASHED literals. The table cell is a
-    // runtime string and stock compares it against #"xsmall" etc., so that
-    // comparison form is proven rather than assumed.
     xsmall = 0;
     small = 0;
     medium = 0;
     large = 0;
     xlarge = 0;
+    other = 0;
 
     for ( i = 0; i < numrows; i++ )
     {
-        sizetext = tablelookupbyrow( path, i, 1 );
+        sizetext = table_cell( path, i, 1 );
 
         switch ( sizetext )
         {
@@ -161,97 +166,51 @@ function private report()
                 xlarge++;
                 break;
             default:
+                other++;
                 break;
         }
     }
 
-    // ── flags ────────────────────────────────────────────────────────────────
-    // Residency of the FIRST model in the table. This single reading confirms two
-    // things at once: that the runtime table read returned a usable name, and that
-    // the name resolves to a resident xmodel. Reading it from the table rather than
-    // from a hardcoded literal is the point — it is the map's OWN curated prop.
-    flags = 0;
+    first = "-";
+    res = "-";
 
     if ( numrows > 0 )
     {
-        firstmodel = tablelookupbyrow( path, 0, 0 );
+        firstmodel = table_cell( path, 0, 0 );
 
         if ( isdefined( firstmodel ) && firstmodel != "" )
         {
-            if ( isassetloaded( #"xmodel", firstmodel ) )
-            {
-                flags += 1;
-            }
-
-            if ( isassetloaded( "xmodel", firstmodel ) )
-            {
-                flags += 2;
-            }
+            first = firstmodel;
+            res = isassetloaded( "xmodel", firstmodel ) ? 1 : 0;
         }
     }
 
-    // ⚠ THE CONTROL. A name no asset can have. If either form claims it is loaded,
-    // isassetloaded is not answering the question we think it is and the residency
-    // bits above mean nothing.
-    if ( isassetloaded( #"xmodel", #"p9_gf_probe_nonexistent_prop" ) || isassetloaded( "xmodel", #"p9_gf_probe_nonexistent_prop" ) )
-    {
-        flags += 4;
-    }
-
-    // Three lines, no waits between them, so they land in the feed together.
-    line( 1, numrows, xsmall, small );
-    line( 2, flags, medium, large );
-
-    // ⚠ Line 3 is deliberately SHORT (4 digits). See the ceiling note on line().
-    emitraw( 3000 + clamp999( xlarge ) );
+    return "^3PPROBE ^7" + getdvarstring( #"sv_mapname", "?" )
+        + " tbl=1 rows=" + numrows + " xs=" + xsmall + " s=" + small + " m=" + medium
+        + " l=" + large + " xl=" + xlarge + " other=" + other
+        + " first=" + first + " res=" + res + " G=" + bogus;
 }
 
-// Pack three fixed-width zero-padded fields behind a line id:  <id>AAABBBCCC.
-// Fixed width is what makes a leading zero survive — a 0 in the first field must
-// not collapse the line to fewer digits, or the groups misalign.
-//
-// ⚠⚠ SIGNED 32-BIT CEILING — an invariant for anyone editing the field order.
-//    Max is 2,147,483,647. Worst cases as shipped:
-//        line 1   1,999,999,999   (id 1, any fields)             always safe
-//        line 2   2,007,999,999   (id 2, field A = flags, max 7) safe
-//    Line 2 is the tight one: WITH ID 2, FIELD A MAY NOT EXCEED 146. That is why
-//    `flags` (bounded 0-7) is field A on line 2 and never a bucket count, which is
-//    unbounded in principle. **Do not reorder line 2's fields.** clamp999 protects
-//    each FIELD, not the SUM, so there is no runtime guard against this.
-function private line( id, a, b, c )
+// prop.gsc:1834 - also a SCRIPT function there, not a builtin (same trap as getmapname).
+// The real builtin is tablelookuprow( table, row ), which returns the row as an array.
+function private table_cell( table, row, col )
 {
-    emitraw( id * 1000000000 + clamp999( a ) * 1000000 + clamp999( b ) * 1000 + clamp999( c ) );
-}
+    columns = tablelookuprow( table, row );
 
-// Every field is 3 digits wide. A value that cannot fit would shift every field to
-// its left and silently corrupt the line, so clamp rather than overflow — 999 is
-// visibly wrong, a shifted line is not.
-function private clamp999( v )
-{
-    if ( !isdefined( v ) )
+    if ( isdefined( columns ) && col < columns.size )
     {
-        return 999;
+        return columns[ col ];
     }
 
-    if ( v > 999 )
-    {
-        return 999;
-    }
-
-    if ( v < 0 )
-    {
-        return 999;
-    }
-
-    return v;
+    return "";
 }
 
 // iprintln, NOT iprintlnbold: the bold window holds one message and each print
-// replaces the previous, so three bold lines would leave only the last on screen.
-function private emitraw( value )
+// replaces the previous; iprintln stacks in the feed, where the mod menu prints too.
+function private emit( text )
 {
     foreach ( player in getplayers() )
     {
-        player iprintln( value );
+        player iprintln( text );
     }
 }
