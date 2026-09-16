@@ -155,3 +155,52 @@ the count, plus per-family counts for the projectile weapons in §2, plus a bogu
 this project's convention is one writing test per match (`src/README.md`). Residency first, then a
 separate staged test that fires a single rocket on a single shot with the rate-of-fire question in §4
 explicitly in view.
+
+---
+
+## 6. ⭐ OFFLINE — weapon residency, answered from the zone manifests. 2026-09-16
+
+§4's open question 3 ("which weapons are resident on an MP map") is a table read, not a probe.
+`tables/bgcache/<zone>.csv` carries a `weapon,#<name>` row per resident weapon; a map's set = the
+map zone + `core_bootstrap` + `core_common` + `mp_common` (same model as [[vehicles]] §6).
+
+### ⭐ 331 weapons are UNIVERSAL — every projectile this feature wanted, on every map
+
+```
+launcher_standard_t9        the rocket launcher       special_crossbow_t9    bolts
+launcher_freefire_t9        free-fire launcher        sig_bow_flame          flame bow
+special_grenadelauncher_t9  grenade launcher          hero_flamethrower
+remote_missile (+_missile, +_bomblet)                 jetfighter_missile
+straferun_rockets                                     missile_turret
+```
+
+**So "turn bullets into rockets or crossbow bolts" needs no per-map gating at all.** Both the rocket
+launcher and the crossbow are in the always-loaded zones. `mp_nuketown6` adds **zero** weapons beyond
+universal; Gas Station and Tundra add only hashed ones. The weapon side of this feature is uniform
+across all 36 MP maps — unlike vehicles, where 18 maps carry nothing but the streak baseline.
+
+### ⚠ CORRECTION — `crossbow_special_t8` does not exist
+
+§2's table lists `crossbow_special_t8`, harvested from a `getweapon( #"..." )` call in the dump.
+**It is in ZERO zones** — a dead reference in script (almost certainly a BO4 leftover; the dump
+contains calls for assets Cold War does not ship). The real asset is **`special_crossbow_t9`**,
+resident in **19** zones including the universal three.
+
+⚠ Generalise this: §2's list came from `getweapon()` *call sites*, which prove only that some script
+mentions a name. **Residency comes from the manifests.** Re-check any weapon in that table against
+`bgcache` before building on it — `ray_gun` / `raygun_mark2` / `avogadro_bolt` were already flagged
+there as probably-ZM, and this is the mechanism that settles such questions.
+
+### ⚠ FX names are mostly hashed — this constrains the tracer work
+
+`core_bootstrap + core_common + mp_common` carry **1,364 fx / client_fx** rows, but only **66 are
+plaintext**; the rest are `hash_*`. So §3's "attach your own FX to the projectile entity" has a much
+smaller *named* palette than the raw count suggests, and picking a trail by name means working from
+those 66 or resolving hashes (which the ACTS index cannot do for this game — [[vehicles]] §6, 1 of
+147). The named universal ones that look trail-shaped are few:
+`destruct/fx8_atk_chppr_smk_trail`, `destruct/fx8_atk_chppr_exp_trail`,
+`killstreaks/fx8_mortar_jet_contrails`.
+
+⚠ This does not block the feature — `playfx` takes a hash literal exactly as `vip.gsc:688` does
+(`playfx( #"hash_6c0862bb0e561d0d", ... )`) — but choosing a *good-looking* trail from hashes is
+trial and error, not selection.
