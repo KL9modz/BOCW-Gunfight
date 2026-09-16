@@ -148,3 +148,32 @@ Solo with a bot first (the bot row takes every verb), then a joiner:
 Unknowns to record: whether `getweaponslist( 1 )` includes the alt/underbarrel entries (harmless if so);
 whether `suicide()` bypasses `enableinvulnerability` (stock oob relies on it for players); whether the
 kick reason key shows the inactivity text or a generic drop; third person on a joiner.
+
+---
+
+## ⚠ Character outfits are NOT enumerable offline — negative result, 2026-09-16
+
+An attempt to give the Players page's appearance rows a real list from the zone manifests
+(the method that worked for [[vehicles]] and [[static-props]]) **failed, and the reason is
+structural rather than a gap in the data.**
+
+- **`character` rows in `bgcache` are not operator skins.** Universal carries **6** (one plaintext,
+  `$default_character`); the richest MP map, `mp_tundra`, has **5**. These are AI/scripted characters,
+  not the player-appearance space.
+- **The operator models are `c_t9_*` xmodels** — 3,864 of them universal — but they are `xmodel`
+  rows, not `character` rows, and nothing in the manifests maps a model to an outfit slot.
+- **The builtins take an INTEGER INDEX, not a name.** Stock passes small literals:
+  `setcharacteroutfit( 5 )` (`cp_ger_stakeout.gsc:179`), `setcharacteroutfit( 1 )`
+  (`cp_nam_prisoner.gsc:938`), `setspecialistindex( index )` (`player_role.gsc:189`). The dev GUI
+  pairs it with a body type — `setcharacterbodytype( bodytype )` then `setcharacteroutfit(
+  outfitindex )` (`dev_shared.gsc:364-372`) — and **bounds neither**.
+
+So the index space is discoverable only by walking 0..N in game and looking. No table read helps.
+
+⚠ **And `dev_shared.gsc`'s copy is inside a `Type: dev` function**, so `setcharacterbodytype` may be
+in the **dev-only** class that retail refuses outside a `/# #/` devblock — the 110-name `type=1` set
+`tools/check-gsc.ps1` now flags. Check it against the engine table before calling it; that exact
+class crashed the game once already ([[vehicles]] §5).
+
+`setcharacteroutfit` itself is called from non-dev stock (`vehicle_shared.gsc:6098`,
+`scene_player_shared.gsc:1727`), so that one is safe.
