@@ -360,7 +360,16 @@ PPROBE  mp_sm_gas_station tbl=1 rows=13 xs=0 s=4 m=5 l=4 xl=0 other=0 first=p8_w
   class for Spy Plane / RC-XD, restart, re-read `M`. If `M` follows the loadouts, the feature can
   *choose* what to make spawnable by what the host equips.
 
-**Next runs, in order:** (1) the loadout test above; (2) a multi-map walk with the same payload —
-it re-links on every map load, so no re-inject — to settle common-set vs per-map for both lines;
-(3) the sets v2 dropped, one per run: campaign hashes (`H`), type strings (`T`), plain-string names
-(`Ms` vs `Mh`).
+**Next runs, in order:** (1) the loadout test above; (2) a multi-map walk to settle common-set vs
+per-map for both lines; (3) the sets v2 dropped, one per run: campaign hashes (`H`), type strings
+(`T`), plain-string names (`Ms` vs `Mh`).
+
+### The probe is now a menu tool: `gf_dbg_assets` (2026-09-15, klaze: "3")
+
+The standalone payloads cannot coexist with `gunfight_menu` (one replace target), which made a map
+walk two injections per map. So the same two reads live in the mod's debug feed as **Display →
+Debug feed → "Asset census: vehicles + props"** (`gf_dbg_assets`, app: Config → Debug): lines
+`VEHICLES <map> G= M=n[i:name] S= N=105` and `PROPS <map> tbl= rows= xs= s= m= l= xl= other= first=
+res= G=`, every 3 s while on, computed once per round. Same candidate list, same order (index 82 =
+Chopper Gunner), same controls. Map changes now go through the menu's own Stage / Switch NOW, and
+the census follows. `src/vehicle_probe/` and `src/prop_probe/` stay as the standalone forms.

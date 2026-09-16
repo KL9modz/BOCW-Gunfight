@@ -207,3 +207,7 @@ PPROBE mp_sm_gas_station tbl=1 rows=13 xs=0 s=4 m=5 l=4 xl=0 other=0 first=p8_wz
 **script functions defined in prop.gsc**, not builtins; calling them bare crashed the game at link
 time twice ([[vehicles]] §5, runs 2–3). The probe now uses `level.script` and a local wrapper over
 the real builtin `tablelookuprow( table, row )`. `tools/check-gsc.ps1` catches the class now.
+
+The same read is now the `PROPS` line of the mod's debug feed (`gf_dbg_assets`, Display → Debug
+feed → "Asset census: vehicles + props"), so the per-map `rows` census is a map walk with the menu
+in — see [[vehicles]] §5.
