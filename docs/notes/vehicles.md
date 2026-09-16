@@ -364,6 +364,34 @@ PPROBE  mp_sm_gas_station tbl=1 rows=13 xs=0 s=4 m=5 l=4 xl=0 other=0 first=p8_w
 per-map for both lines; (3) the sets v2 dropped, one per run: campaign hashes (`H`), type strings
 (`T`), plain-string names (`Ms` vs `Mh`).
 
+### Run 5 — Fireteam maps (wz_forest/Ruka, wz_duga) under TDM: still just the Chopper Gunner
+
+```
+VEHICLES wz_forest G=0 M=1[82:veh_t9_mil_us_helicopter_large_chopper_gunner] S=0 N=105
+PROPS    wz_forest tbl=0 G=0
+```
+
+klaze: "just the chopper gunner is wrong, I know there are many vehicles on this map." Both true.
+The map *ships* ATVs, trucks, snowmobiles, a Hind - but those are spawned by the **Fireteam
+gametype** from Radiant `*_spawner` ents (mp_common/vehicle.gsc `vehiclespawnthread` ->
+`spawnfromspawner`; wz_forest.gsc only registers a per-vehicle debug callback). Under TDM/Gunfight
+that code never runs, so the map's vehicles are neither entities nor resident assets - the engine
+streams only what the active mode needs, and the one resident vehicle is the loadout/streak Chopper
+Gunner. `tbl=0`: Ruka ships no Prop Hunt table (first measured "no" - so prop tables ARE per-map).
+
+**Batch 2 added (index 105+):** the real `vehicle_t9_*` / `veh_quad_player_wz_*` / Hind / snowmobile
+names + their hashed siblings, harvested from the wz map scripts' vehicletype arrays and the
+spawnvehicle call sites (49 names, list now 154). And an **`E=` field**: the vehicle ENTITIES live
+in the level now (`getvehiclearray`), as index:namexcount. So the next run separates "resident asset"
+(M) from "actually spawned" (E). A Fireteam-mode launch is the real test for both - not reachable via
+the Case-B path yet.
+
+⚠ **Batch 2 first shipped a DEV-ONLY call and crashed on load** - the E= tally used
+`function_9e72a96()` to stringify the vehicletype hash; that builtin is `funcs_cw.csv` type=1, refused
+by retail outside a devblock ("Dev only calls must be wrapped in a devblock", error 0x6394f836). Fixed
+by matching `.vehicletype` against the candidate list by index instead; check-gsc now flags type=1
+builtins. See the [[gsc-builtin-trap]] memory / this note's sibling in check-gsc.
+
 ### The probe is now a menu tool: `gf_dbg_assets` (2026-09-15, klaze: "3")
 
 The standalone payloads cannot coexist with `gunfight_menu` (one replace target), which made a map

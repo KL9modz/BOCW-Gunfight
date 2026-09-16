@@ -149,8 +149,18 @@ $engine = $null
 $tablePath = (Resolve-Path $Table -ErrorAction SilentlyContinue).Path
 if ($tablePath) {
     $engine = @{}
-    Import-Csv $tablePath | ForEach-Object { if ($_.func) { $engine[$_.func.Trim().ToLower()] = 1 } }
-    Write-Host ("  engine table: {0} builtins" -f $engine.Count) -ForegroundColor DarkGray
+    $devonly = @{}
+    Import-Csv $tablePath | ForEach-Object {
+        if ($_.func) {
+            $fn = $_.func.Trim().ToLower()
+            $engine[$fn] = 1
+            # type column: 0 = normal, 1 = DEV-ONLY (retail refuses it outside /# #/ with
+            # "Dev only calls must be wrapped in a devblock" - crashed the game 2026-09-15,
+            # function_9e72a96 in the vehicle census). 110 such names in the table.
+            if ($_.type -and $_.type.Trim() -eq '1') { $devonly[$fn] = 1 }
+        }
+    }
+    Write-Host ("  engine table: {0} builtins ({1} dev-only)" -f $engine.Count, $devonly.Count) -ForegroundColor DarkGray
 } else {
     Write-Host "  (no engine table at $Table - falling back to called-in-dump only)" -ForegroundColor DarkYellow
 }
@@ -175,7 +185,12 @@ foreach ($b in $bare) {
         continue
     }
     if ($engine -and $engine.ContainsKey($b)) {
-        Write-Host ("  ok  {0}()" -f $b) -ForegroundColor DarkGray
+        if ($devonly.ContainsKey($b)) {
+            Write-Host ("  DEV-ONLY  {0}()  - engine table type=1; retail refuses it outside a /# #/ devblock (crashes with 'Dev only calls must be wrapped in a devblock')." -f $b) -ForegroundColor Red
+            $bad++
+        } else {
+            Write-Host ("  ok  {0}()" -f $b) -ForegroundColor DarkGray
+        }
         continue
     }
     $found = Select-String -Path $dumpFiles -Pattern "\b$b\s*\(" -List -ErrorAction SilentlyContinue | Select-Object -First 1
