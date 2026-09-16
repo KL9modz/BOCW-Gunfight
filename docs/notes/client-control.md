@@ -177,3 +177,55 @@ class crashed the game once already ([[vehicles]] §5).
 
 `setcharacteroutfit` itself is called from non-dev stock (`vehicle_shared.gsc:6098`,
 `scene_player_shared.gsc:1727`), so that one is safe.
+
+---
+
+## ⚠ Weapon charms — NOT settable server-side. 2026-09-16
+
+klaze: *"can we put a random charm on every gun in gunfight?"* **Not as a real charm.** The assets are
+all there; the API is not.
+
+**The assets are fine — 496 `attach_t9_charm_*` xmodels are resident on EVERY MP map**
+(`core_bootstrap + core_common + mp_common`, per the manifests). `attach_t9_charm_8_ball`,
+`_action_fig`, `_afro_pick`, `_ammo_box`, `_80_fridge` … the whole catalogue is universal.
+
+### Why it cannot be done properly
+
+**`charm` appears in exactly TWO files in the entire dump, and both are `.csc`** —
+`core_common/custom_class.csc` and `core/gametypes/frontend.csc`. A `grep -rln charm --include=*.gsc`
+over `scripts/` returns **nothing**. There is no server-side charm API of any kind.
+
+The mechanism is client-owned end to end (`custom_class.csc:1130-1135`):
+
+```gsc
+var_571f2574 = getloadoutitem( localclientnum, var_73cd9b6e, #"primarycharm" );
+...                                            #"secondarycharm"
+```
+
+The **client** reads the charm out of **that player's own loadout data** and attaches the model
+itself into `level.weapon_script_model[ localclientnum ][ #"charm" ]`. The server never participates.
+So this is worse than the usual Gate 2 problem ([[vehicles]] §3): it is not that a vanilla joiner
+would fail to draw *our* field — it is that there is no field, and the input is the player's
+create-a-class, which a server mod does not own.
+
+### The partial workaround, and its honest limit
+
+**`attach( model, tag )` IS a server-side builtin** and stock calls it on entities including players
+(`archetype_notetracks.gsc:71` attaches a weapon worldmodel to `"tag_stowed_back"`;
+`archetype_skeleton.gsc:87-89` attaches to `"j_head"` / `"tag_weapon_right"` / `"tag_weapon_left"`).
+It is a plain model attachment on a replicated entity, so **Gate 2 does not apply — joiners see it.**
+
+So `player attach( #"attach_t9_charm_8_ball", "tag_weapon_right" )` should hang a charm model off a
+player's weapon hand, randomised per player, on every map, with no client install.
+
+⚠⚠ **But it lands on the WORLD model, not the viewmodel.** First-person weapons are rendered
+client-side from the viewmodel, which the server cannot attach to — so **everyone would see the charm
+on your gun except you.** For a cosmetic whose entire point is that the owner sees it, that inverts
+the feature. It is a fun third-person/killcam detail, not charms.
+
+⚠ Untested besides: whether `"tag_weapon_right"` is a valid tag on a *player* (stock uses it on AI
+archetypes; the player example is `"tag_stowed_back"`), and whether charm models scale sanely when
+attached to a hand tag rather than hung off a weapon's charm point.
+
+⚠ `attach()` is **not currently called anywhere in `gunfight_menu.gsc`** — it would be a new builtin
+for this project, so run `check-gsc` on it with the engine table present before relying on it.
