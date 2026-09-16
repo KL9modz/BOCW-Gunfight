@@ -7,6 +7,18 @@ hello_world/      minimal validator — proves the MP hook fires. ✅ CONFIRMED 
 mp_probe/         read-only — com_maxclients, timelimit, zone count, cadence
 lobby_probe/      read-only — four player-count builtins + isvalidgametype() over
                   candidate Gunfight strings. NOT YET RUN
+vehicle_probe/    read-only — 202 candidates through isassetloaded(), emitted as
+                  counts: do the model# names we HAVE overlap the vehicle# names
+                  spawnvehicle NEEDS? Plus the veh_spawn_point count (is stock
+                  Path A reachable at all). Guessing is free — the engine resolves
+                  the name. ✅ COMPILES + VALIDATES, NOT YET RUN.
+                  docs/notes/vehicles.md
+prop_probe/       read-only — reads the per-map Prop Hunt table
+                  gamedata/tables/mp/<map>_ph.csv at RUNTIME (row count, the five
+                  size-bucket counts, first model's residency). Stock falls back to
+                  an INVISIBLE prop when a map has no table, so the row count is the
+                  number that decides whether props are free on that map.
+                  ✅ COMPILES + VALIDATES, NOT YET RUN. docs/notes/static-props.md
 gunfight_mod/     the real mod. ✅ ALL FOUR SWITCHES VERIFIED 2026-09-08 —
                   3v3 Gunfight on Zoo, 60s rounds, timed out cleanly, correct HUD
 gunfight_menu/    ⬅ THE HOSTING PAYLOAD. gunfight_mod's fixes + team size + an

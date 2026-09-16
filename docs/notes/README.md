@@ -143,6 +143,35 @@ These are **not** auto-loaded. Open the one you need.
 - [team-sizes](team-sizes.md) — where team size actually lives, what is overridable from GSC and
   what is a hard engine ceiling.
 
+- [vehicles](vehicles.md) — **what is spawnable per map, and the two gates on it.** Stock's map-baked
+  vehicle system is DEAD (`initvehiclemap()` has zero callers in the whole dump); the live route is
+  `spawnvehicle` + `usevehicle( player, 0 )`, map-independent. Gates: asset residency (testable at
+  runtime — stock itself does `isassetloaded( "vehicle", ... )`) and **clientfield symmetry**, which
+  decides whether a vanilla joiner sees the vehicle or only the host. ⚠ Carries a retraction: the
+  `veh_t9_*` names are **xmodels**, the wrong namespace. Includes the ACTS hash-index runbook
+  (`merge_hash_index` is the undocumented step that makes `lookup` work) and why cracking is the
+  wrong target — the engine resolves guesses for free. `src/vehicle_probe/` tests parity.
+
+- [static-props](static-props.md) — ⭐ **Treyarch already ships a curated prop table PER MAP**:
+  `gamedata/tables/mp/<mapname>_ph.csv`, 11 columns (model, size, scale, offset xyz, rotation xyz),
+  read by Prop Hunt at `prop.gsc:1850`. Not in the dump, and it does not need to be —
+  `tablelookupbyrow` reads it at RUNTIME, so a prop menu is self-configuring per map and "universal
+  vs map-specific" stops being an offline question. Spawning is just
+  `spawn( "script_model" )` + `setmodel` + `setscale`. ⭐ **Gate 2 does not apply** — the prop is a
+  plain entity, so a vanilla joiner sees it (prop.gsc's 11 clientfields are all Prop Hunt gameplay,
+  none render the prop). ⚠ The dump's 3,324 `model#` names are NOT a prop catalogue — real static
+  props live in Radiant and are invisible to it.
+
+- [projectiles](projectiles.md) — **you do not override a weapon's projectile, you intercept the
+  shot.** `callback::on_weapon_fired` (registered per player by core MP scoring, so it is live) gives
+  `params.weapon`; `magicbullet( weapon, start, end, owner )` fires your own and ⭐ **returns the
+  projectile entity**, with a 5th arg that is a **homing target**. Weapon names are plaintext (342 vs
+  64 hashed), incl. `launcher_standard_t9` and `crossbow_special_t8`. Validity test is stock's own
+  `getweapon( x ) != level.weaponnone`. Effects split three ways: **FX are server-side and reachable**,
+  **tracers have NO script API** (`setweapontracer` does not exist), and ⚠ **beams/lasers are
+  `.csc`-only**, so Gate 2 blocks them for vanilla joiners. Carries the four real unknowns, incl.
+  whether full-auto fire survives a `magicbullet` per shot.
+
 **Risk and disclosure**
 
 - [tac-risk-model](tac-risk-model.md) — threat model and **participant disclosure** for the mod: where
