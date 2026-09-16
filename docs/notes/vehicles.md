@@ -1,0 +1,259 @@
+# MP vehicles — what is spawnable, and what gates it per map. Dump research 2026-09-15
+
+Goal: support **every spawnable vehicle, per map type**. This note is the static half, read entirely
+out of `bocw-source-main` (T9 dump). **Nothing here is measured in-game yet** — every claim is a
+source reference, and the one question that actually decides the feature (per-map asset residency)
+is *not answerable from the dump at all*. The probe that answers it is specified at the bottom.
+
+**Status: RESEARCH ONLY. No in-game test. Two spawn paths identified, one of them dead in stock MP;
+30 vehicle behaviour types enumerated; the gate is asset residency + clientfield symmetry.**
+
+---
+
+## 1. There are two spawn paths, and stock MP starts neither by default
+
+### Path A — map-baked spawners (`mp_common/vehicle.gsc`)
+
+`vehiclemainthread()` (`mp_common/vehicle.gsc:104`) drives the whole stock MP vehicle system off
+**map entity data**:
+
+```gsc
+spawn_nodes   = struct::get_array( "veh_spawn_point", "targetname" );
+veh_name      = spawn_node.script_noteworthy;          // which vehicle
+time_interval = int( spawn_node.script_parameters );   // respawn interval
+thread vehiclespawnthread( veh_name, spawn_node.origin, spawn_node.angles, time_interval );
+```
+
+and `vehiclespawnthread` (`:124`) then needs a **second** baked entity:
+
+```gsc
+veh_spawner = getent( veh_name + "_spawner", "targetname" );
+vehicle     = veh_spawner spawnfromspawner( veh_name, 1, 1, 1 );
+```
+
+So Path A requires *both* a `veh_spawn_point` struct **and** a `<veh_name>_spawner` entity compiled
+into the map. Same shape as BO1's `mp_wager_spawn`: map data, not script.
+
+> ⚠ **`initvehiclemap()` IS NEVER CALLED.** `grep -rn "initvehiclemap" .` over the **entire
+> 566 MB dump** returns exactly one line: its own definition at `mp_common/vehicle.gsc:86`.
+> `veh_spawn_point` likewise appears once, at `:104`, inside the function that entry point threads.
+> So no stock MP gametype, map script or system in the dump activates this. Either a map-side `.gsc`
+> compiled into a `.ff` calls it (not visible here), or it is legacy. **Do not assume Path A runs on
+> any map** until something in-game proves it.
+
+### Path B — direct, map-independent
+
+`vehicle_shared.gsc` exposes a plain spawn with no map entity involved:
+
+```gsc
+function spawn( *modelname, targetname, vehicletype, origin, angles )   // :2849
+{
+    return spawnvehicle( vehicletype, origin, angles, targetname );
+}
+```
+
+and the one that also seats the caller — the primitive this feature wants:
+
+```gsc
+function function_fa8ced6e( v_origin, v_angles, str_vehicle )           // :5523
+{
+    if ( self isinvehicle() ) { return self getvehicleoccupied(); }
+    var_80730518 = spawnvehicle( str_vehicle, v_origin, v_angles, "player_spawned_vehicle" );
+    var_80730518 usevehicle( self, 0 );                                  // seat 0 = driver
+    return var_80730518;
+}
+```
+
+`spawnvehicle` is overloaded — 4 args (`vehicle_shared:2855`), 6 (`killstreak_vehicle.gsc:213`, adds
+owner), 9 (`scene_vehicle_shared.gsc:44`). `usevehicle( player, seat )` is confirmed at 8 stock call
+sites including `bots/bot.gsc:1249`, so **bots can be seated too**.
+
+`player_is_driver()` (`mp_common/vehicle.gsc:60`) defines driver as `getoccupantseat( player ) == 0`.
+
+---
+
+## 2. The 30 vehicle behaviour types
+
+A spawned vehicle asset is bound to its behaviour by **type string**, via
+`vehicle::add_main_callback( "<type>", &fn )`. Full set registered anywhere in the dump:
+
+| Class | Types |
+|---|---|
+| **Drivable, ground** | `player_atv` `player_btr40` `player_fav_light` `hemtt_wz` `player_motorcycle_2wd` `player_sedan` `player_snowmobile` `player_tank` `player_truck_transport` `player_uaz` `player_van` |
+| **Drivable, air** | `player_vtol` `helicopter_heavy` `player_large_helicopter_armada` `air_vehicle1` |
+| **Drivable, water** | `player_jetski` `player_pbr` `tactical_raft_wz` |
+| **Turrets** | `auto_turret` `emp_turret` `microwave_turret` |
+| **Drones / streaks** | `raps` `rcxd` (+ `vehicle_t9_rcxd_racing{,_mq,_zm}`) `repulsor_drone` `siegebot` `wasp` `veh_flak_drone_mp` `xbot` |
+
+⚠ **Read the mode suffixes as scope hints, not guarantees.** `hemtt_wz` / `tactical_raft_wz`
+are Warzone-named, `veh_flak_drone_mp` is MP-named, `..._zm` is Zombies. A `_wz` type may still be
+resident on an MP map — that is exactly what the probe must settle, not something to infer.
+
+Backing scripts live in `scripts/core_common/vehicles/` (43 files, `.gsc` + `.csc` pairs).
+
+⚠⚠ **A TYPE IS NOT A SPAWN ARGUMENT.** Dispatch happens on **`self.vehicletype`**
+(`globallogic_vehicle.gsc:37`, fallback `self.scriptvehicletype` at `:41`) — a field *inside the
+spawned asset*. So `player_tank` is a behaviour key the asset declares, **not** a name you can hand
+to `spawnvehicle`. Do not build a candidate list out of this table.
+
+### The candidate-list problem — ⚠ THIS IS THE ACTUAL BLOCKER
+
+`spawnvehicle` takes a **`vehicle#` asset name**, and that namespace is nearly absent from the dump:
+
+- **`veh_t9_*` is the WRONG namespace.** All 342 of those strings are **xmodels** — they appear as
+  `"model#veh_t9_mil_ru_tank_t72_turret_dead"` in `scriptbundle/vehiclecustomsettings/`. An earlier
+  revision of this note listed them as "MP-plausible candidates". **Disregard that.** (Note also
+  `veh_t8_mil_atv_recon_*` in the ATV bundle — BO4 assets are reused, so even the prefix is not a
+  reliable family marker.)
+- **Only 68 unique `vehicle#hash_*` references exist in the whole dump, and every one is in
+  `scriptbundle/scene/`** — campaign cutscene vehicles. Zero MP vehicles.
+- **The one field that feeds `spawnvehicle` for streaks is stripped.** `killstreak_vehicle.gsc:213`
+  spawns `bundle.ksvehicle`; every `ksvehicle` value in the dump is the bare string `"vehicle#"`
+  with nothing after the prefix.
+
+**Cracking was attempted and failed: 0 of 68** against a 439-name pool (all `veh_t8/t9_*` model names
+plus every `vehiclecustomsettings` basename, with and without the `_settings` / `_bundle_settings`
+suffixes). Algorithm verified first against the project's own known crack —
+`maxsquadplayers` → `hash_3a4691a853585241`, exact, FNV1a64 & MASK63.
+
+**The ACTS community hash index is now set up, tested, and does NOT contain them — 0 of 68.**
+Runbook, because this capability is reusable project-wide and took a few wrong turns to reach:
+
+```
+acts download_hash_index      # 51 MB of .cdb, incl. hashes-scr-bocw.cdb
+acts merge_hash_index         # REQUIRED -> package_index/merged_hash.acef (44 MB)
+acts lookup <bare hex hash>   # NOT hash_xxx, NOT #"...", NOT vehicle#... - bare hex only
+```
+
+⚠ **`merge_hash_index` is the step that makes `lookup` work**, and nothing says so — before it,
+every lookup returns `can't be find`, which reads identically to a genuine miss.
+⚠ **`hashreplacer` never matched anything** in any syntax tried, including the verified control.
+Use `lookup`.
+⚠ Control the tool before trusting a miss: `lookup 6bada5168620c5fe` must print `=default`
+(hash of the literal string `default`). With that control passing, **all 68 vehicle hashes miss** —
+so the community index genuinely lacks them. The project's own `maxsquadplayers` crack also misses,
+which is consistent: it was cracked here, not contributed upstream.
+
+Prefix compression is why a plain `grep` over the `.cdb` looks empty: the header is `PNDB`, strings
+follow in plaintext but share prefixes with their predecessor (`$default`, `+actionslot 1`, then
+bare `2`, `3`, `4`), so only the first entry of a run greps.
+
+### ⚠ But cracking is the WRONG TARGET — guesses are testable in-game for free
+
+`isassetloaded` takes a name and lets the **engine** resolve it. A guessed name that is wrong simply
+returns false. So the probe does **not** need cracked names, and does not need the fastfile
+extraction to *start*: it can test **guessed** names directly, and a GSC loop can test hundreds in a
+frame when the output is only a count.
+
+That makes the 342 `veh_t9_*` model names useful again — not as known vehicle assets (they are not),
+but as **342 free guesses** at naming parity between the `model#` and `vehicle#` namespaces. Parity
+is plausible and costs nothing to test.
+
+**If any count comes back non-zero, parity holds and the list is essentially solved.** If every
+count is zero, parity is dead and the authoritative list must come from the shipped fastfiles (ACTS
+reads them; needs a machine with BOCW installed — a **one-time offline extraction, not a match**).
+
+Tuning bundles in `scriptbundle/vehiclecustomsettings/` (45 files) remain the best human-readable
+index of what Treyarch built — `tank_t9_mil_ru_t72_settings`, `tank_t9_mil_us_m1a1_settings`,
+`player_ground_vehicle_settings_{atv,btr40,hemtt,snowmobile,uaz,van,...}` — but they are **settings,
+not spawn names**, and the mapping between the two is exactly what is missing.
+
+---
+
+## 3. What gates a vehicle on a given map — TWO gates, not one
+
+### Gate 1 — asset residency, and the runtime test for it
+
+`spawnvehicle()` needs the vehicle asset **loaded in the current map's zone**. The dump cannot answer
+which maps carry which vehicles: map `.ff` contents are not in it. But the engine can, and **stock
+already performs this exact check**:
+
+```gsc
+if ( isassetloaded( "vehicle", _s.model ) )      // scene_vehicle_shared.gsc:43
+{
+    _e = spawnvehicle( _s.model, ... );
+}
+```
+
+`isassetloaded` is confirmed in the dump (also used with `"aitype"`, `"xanim"`, `"stringtable"`), and
+`check-gsc` stage 4 already resolves it as a real T9 builtin. **This is the mechanism the feature
+should be built on**: probe per map, offer only what is resident. Strictly better than a hardcoded
+map-to-vehicle table, which would rot on every content patch.
+
+### Gate 2 — clientfield symmetry. THE ONE THAT CAN KILL IT
+
+`player_tank.gsc:24` shows a drivable is **not** just a spawn:
+
+```gsc
+function private preinit()
+{
+    vehicle::add_main_callback( "player_tank", &function_c0f1d81b );
+    clientfield::register( "scriptmover", "tank_deathfx",      1, 1, "int" );
+    clientfield::register( "vehicle",     "tank_shellejectfx", 1, 1, "int" );
+}
+```
+
+Cross-reference [[game-systems]]: **clientfields are symmetric** — a vanilla joiner runs stock `.csc`
+and registers only the fields that build registers. So vehicle FX work for a joiner **iff the stock
+vehicle system is registered in the running mode on that map**. A server-only mod cannot add a
+clientfield a vanilla client will read.
+
+This splits the feature cleanly, and the split should drive test order:
+
+- **System already registered in MP** — spawning is plausibly a pure server-side call, joiner-safe.
+- **System not registered** — the vehicle may spawn and drive but render wrong for un-modded clients
+  (missing death FX, no shell eject, no light toggle). Same failure class the project already
+  documented for clientfields.
+
+Note `mp_common/vehicle.gsc` registers a system (`system::register( #"vehicle", ... )`, `:14`) whose
+`preinit` is **empty** (`:22`). So the MP vehicle *system* exists on every MP map while its *map
+loop* (Path A) never starts. Understand that asymmetry before designing around it.
+
+---
+
+## 4. Next steps — in dependency order
+
+**Step 1 — the PARITY probe. Buildable now, no fastfile extraction needed.** Per §2 the engine
+resolves guessed names for free, so the first probe's job is to answer *one* question: is there any
+overlap between the `model#` names we have and the `vehicle#` names we need? Emit three counts —
+the 342 `veh_t9_*` guesses, the 30 behaviour-type strings, the 68 known scene hashes — plus the
+controls. **Any non-zero count essentially solves the candidate list.** All-zero sends us to the
+fastfiles, and that is worth knowing before spending a game session on extraction.
+
+⚠ This reverses an earlier revision of this note, which said the probe was blocked on step 1.
+It is not: guessing is free, and the parity question is cheaper to answer than the extraction.
+
+**Step 2 — the residency probe (only meaningful once step 1 finds a live namespace).** Design
+constraints are already fixed by
+`mp_probe`: retail renders **numbers only**, read off-screen at 5s spacing. So residency must be
+emitted as counts and bitmasks, not names. A **16-bit mask fits the 5-digit value field exactly**, so
+16 candidates per emitted number. Include a **call-form control** (both `#"vehicle"` and `"vehicle"`
+as the type argument, plus one deliberately bogus asset that must read 0) — without it, an all-zero
+result cannot distinguish "nothing resident" from "wrong call form".
+
+**Step 3 — run it. The first TWO maps are the valuable ones**, because they settle the
+common-set-vs-per-map question cheaply: identical resident count *and* fingerprint across two
+different maps means a common/mode zone and the matrix collapses to a handful of runs; divergence
+means it is genuinely per-map and the full pass is 40 maps.
+
+**Step 4 — the remaining runtime questions:**
+
+1. **Per map, which vehicle assets are resident?** Loop the step-1 candidate list through
+   `isassetloaded( <type>, <asset> )` at `on_start_gametype` and emit counts + bitmasks. Read-only,
+   no spawn, no risk — and it produces the map-to-vehicle table the feature is defined by.
+   ⚠ Candidates are passed as **hashes, not names** (`#"hash_..."`, the form
+   `getgametypesetting( #"hash_3a4691a853585241" )` already proves works), so residency is testable
+   even for assets whose names are never recovered. Names are needed only for menu *labels*.
+2. **Does a resident asset actually spawn and drive** via `spawnvehicle` + `usevehicle( player, 0 )`
+   on a non-Combined-Arms map?
+3. **Does a vanilla joiner see it correctly** (Gate 2), or only the modded host?
+4. **Is Path A reachable at all** — does any MP map ship `veh_spawn_point` structs?
+   `struct::get_array( "veh_spawn_point", "targetname" ).size` answers that in one line.
+
+Q1 and Q4 are both read-only census calls and belong in the **same** probe, modelled on the existing
+`src/mp_probe/` and `src/test_mapexists/`. Q1's output is the deliverable: the real per-map vehicle
+matrix, measured rather than inferred.
+
+⚠ Do not build the spawn UI before Q1 returns. "Every spawnable vehicle depending on map
+type" is *defined* by that table, and guessing it from asset names is exactly the mistake the
+`_wz` / `_mp` suffixes invite.
