@@ -364,6 +364,19 @@ PPROBE  mp_sm_gas_station tbl=1 rows=13 xs=0 s=4 m=5 l=4 xl=0 other=0 first=p8_w
 per-map for both lines; (3) the sets v2 dropped, one per run: campaign hashes (`H`), type strings
 (`T`), plain-string names (`Ms` vs `Mh`).
 
+### The menu can spawn them (2026-09-15, klaze: "just add the vehicles, it has a safety net")
+
+Start_menu -> Vehicles: 16 `veh_spawn` items over the real vehicle# names (buggies, quad,
+motorcycle, snowmobile, sedan, light/transport trucks, T-72 + base tank, Hind, Armada heli,
+care-package heli, prototype plane, jetski, PBR boat) + "Enter vehicle I am aiming at". The
+mechanism is the shipped Atian menu's func_spawn_vehicle: `spawnvehicle( type, ahead, flat )` +
+`makeusable()`, `setbrake(1)` for physics vehicles, `setrotorspeed(1)` if airborne; `veh_enter`
+bullettraces and `usevehicle( self, 0 )`. **Safety net (already present):** each item gates on
+`isassetloaded( "vehicle", type )` and says "no vehicle assets on this map" rather than failing, and
+bails if `spawnvehicle` returns undefined - so the full list is safe on any map. UNTESTED which
+names actually spawn; the census M= line predicts it per map (only the Chopper Gunner on the 6v6/
+Fireteam maps measured so far, so expect most to report "no assets" until a 12v12-layout map).
+
 ### Run 5 — Fireteam maps (wz_forest/Ruka, wz_duga) under TDM: still just the Chopper Gunner
 
 ```
