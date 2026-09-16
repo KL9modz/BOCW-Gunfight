@@ -38,37 +38,30 @@
 //    the call form is wrong and the run says nothing about residency.
 //
 // ── HOW TO READ THE OUTPUT ────────────────────────────────────────────────────
-// Retail renders NUMBERS ONLY (see ../mp_probe/scripts/mp_probe.gsc), so every
-// answer is a digit. THREE LINES, printed back-to-back with no wait, via iprintln
-// (the STACKING feed) rather than iprintlnbold (which replaces). One screenshot
-// captures the whole run — no transcribing seven scrolling values, which is what
-// cost mp_probe five of its seven readings on the first attempt.
+// ONE labelled feed line, re-printed every 3 s for the whole round (the debug-feed
+// convention: if it is not in the screenshot it is not there). Text renders fine
+// once the payload has been through tools/strip-strhdr.ps1 (toolchain.md - the old
+// "numbers only" finding WAS the unstripped string header; mp_probe predates the fix).
 //
-// Each line is  <LINE-ID><3 digits><3 digits><3 digits>  — fields are FIXED WIDTH
-// and zero-padded, so a leading zero never collapses and the line always has the
-// same length. Read it in 3-digit groups after the first digit.
+//   VPROBE <map> A=nnn B=nnn H=nnn T=nnn G=n S=nnn N=202
 //
-//   1 AAA BBB HHH    A = MODELS resident, form A (#"vehicle")   ⬅ THE ANSWER
-//                    B = MODELS resident, form B ("vehicle")
-//                    H = HASHES resident (campaign scene vehicles)
-//
-//   2 YYY GGG SSS    Y = TYPES resident        expected 0
-//                    G = bogus-asset control   MUST BE 0 — see below
-//                    S = veh_spawn_point structs on this map
-//
-//   3 TTT            T = total candidates tested. BUILD CONTROL, must read 202.
-//                        Anything else means a different build is running than
-//                        the one this comment describes.
-//
-// So `1000000000` is the all-zero result and `1105098068` would be A=105 B=98 H=68.
+//   A  MODELS resident, form A (#"vehicle")     <- THE ANSWER
+//   B  MODELS resident, form B ("vehicle")      <- the form stock uses (scene_vehicle_shared.gsc:43)
+//   H  HASHES resident (campaign scene vehicles)
+//   T  TYPES resident                            expected 0
+//   G  bogus-asset control                       MUST BE 0 - see below
+//   S  veh_spawn_point structs on this map
+//   N  total candidates tested. BUILD CONTROL, must read 202. Anything else means a
+//      different build is running than the one this comment describes.
 //
 // ⚠ READ FIELD G FIRST. It tests a name no asset can have, in both call forms
 //    (+1 = form A claimed it is loaded, +2 = form B did). Non-zero means
 //    isassetloaded is not answering the question we think it is and the ENTIRE RUN
 //    IS VOID. All-zero counts are only meaningful once G reads 0.
 //
-// ⚠ A vs B is the CALL-FORM discriminator. If they disagree, the type argument's
-//    form matters and every future isassetloaded call must use the winning one.
+// ⚠ A vs B is the CALL-FORM discriminator. If they disagree, the type argument form
+//    matters and every future isassetloaded call must use the winning one. Stock only
+//    ever passes the plain string ("vehicle", "xanim", "aitype", "stringtable").
 //
 // ⚠ Field A is the decision:
 //       >0  the model# and vehicle# namespaces share names. The candidate list is
@@ -80,21 +73,14 @@
 //    reads these structs, and its entry point initvehiclemap() has ZERO callers in
 //    the whole dump. Expect 0. A non-zero would be a genuine surprise worth chasing.
 //
-// ── ONCE PER MAP, NOT ONCE PER ROUND ─────────────────────────────────────────
-// callback::on_start_gametype fires EVERY ROUND, not just every map load —
-// mp_probe measured exactly that (its probe 6 reads 1 every round because `level`
-// is rebuilt). Left alone this probe would redump its three lines mid-match, every
-// round, and nothing in the output would distinguish "new map" from "next round".
-//
-// So the last reported map is stashed in the dvar `gf_vprobe_map`. Dvars survive
-// rounds AND matches (the same property gunfight_menu relies on for its config),
-// while `level` does not — so a dvar is the only thing that can carry this.
-//
-// ⚠ This means ONE PAYLOAD COVERS MANY MAPS. on_start_gametype re-fires on a map
-//    change, so a single injection plus in-game map switches reports once per map,
-//    cleanly, without relinking. That is what collapses a 40-map matrix into a
-//    handful of game launches.
-// ⚠ To force a re-read of a map already seen, set gf_vprobe_map to anything else.
+// ── EVERY ROUND, EVERY MAP ────────────────────────────────────────────────────
+// callback::on_start_gametype fires EVERY ROUND (mp_probe measured it: `level` is
+// rebuilt, so this thread dies at the round end and starts again). The counts are
+// per map, not per round, so re-reporting is harmless - and the map name is in the
+// line, so a mid-match map switch is its own report. ONE PAYLOAD COVERS MANY MAPS:
+// inject once, switch maps in game, read the line on each.
+// (An earlier revision gated on the `mapname` dvar, which does not exist in CW -
+// lobby_state LS2 measured it - so the gate never engaged anyway.)
 // ─────────────────────────────────────────────────────────────────────────────
 
 #using scripts\core_common\callbacks_shared;
@@ -381,23 +367,6 @@ function private report()
     // on_start_gametype fires before players are in the match.
     wait( 8 );
 
-    // ── once per MAP, not once per round ─────────────────────────────────────
-    // `level` is wiped every round (mp_probe probe 6 measured it), so the marker
-    // has to live somewhere that survives — a dvar. Empty mapname would make every
-    // round look like a new map, so treat that as "cannot gate" and report anyway
-    // rather than going silent.
-    curmap = getdvarstring( #"mapname", "" );
-
-    if ( curmap != "" )
-    {
-        if ( curmap == getdvarstring( #"gf_vprobe_map", "" ) )
-        {
-            return;
-        }
-
-        setdvar( #"gf_vprobe_map", curmap );
-    }
-
     m = models();
     h = scenehashes();
     t = typenames();
@@ -427,68 +396,26 @@ function private report()
         spawnpoints = nodes.size;
     }
 
-    // Three lines, no waits between them, so they land in the feed together and a
-    // single screenshot captures the run.
-    line( 1, count_a( m ), count_b( m ), count_a( h ) );
-    line( 2, count_a( t ), bogus, spawnpoints );
+    line = "^3VPROBE ^7" + getdvarstring( #"sv_mapname", "?" )
+        + " A=" + count_a( m ) + " B=" + count_b( m ) + " H=" + count_a( h )
+        + " T=" + count_a( t ) + " G=" + bogus + " S=" + spawnpoints
+        + " N=" + ( m.size + h.size + t.size );
 
-    // ⚠ Line 3 is deliberately SHORT (4 digits, e.g. 3202). The 10-digit packing
-    //    used above tops out at 1,105,105,068 for line 1 and 2,029,003,999 for
-    //    line 2, both inside signed 32-bit range — but a leading 3 would make
-    //    3,202,000,000 and OVERFLOW. Do not "make it consistent".
-    emitraw( 3000 + clamp999( m.size + h.size + t.size ) );
-}
-
-// Pack three fixed-width zero-padded fields behind a line id:  <id>AAABBBCCC.
-// Fixed width is what makes a leading zero survive — a value of 0 in the first
-// field must not collapse the line to fewer digits, or the groups misalign and
-// the screenshot is unreadable.
-//
-// ⚠⚠ SIGNED 32-BIT CEILING — an invariant for anyone growing a candidate list.
-//    Max is 2,147,483,647. Worst cases as shipped:
-//        line 1   1,105,105,068   (id 1, fields ≤ 105 / 105 / 68)   headroom ~1.04e9
-//        line 2   2,029,003,999   (id 2, fields ≤  29 /   3 / 999)  headroom ~1.18e8
-//    Line 2 is the tight one: with id 2, FIELD A MAY NOT EXCEED 146 before the
-//    line overflows and silently reports a wrong number. Field A on line 2 is the
-//    TYPES count, bounded by typenames().size — currently 29. **If that list ever
-//    grows past ~146, this packing breaks.** Line 1's fields are bounded by
-//    models()/scenehashes() sizes and have far more room, but the same logic applies.
-//    There is no runtime guard for this: clamp999 protects each FIELD, not the SUM.
-function private line( id, a, b, c )
-{
-    emitraw( id * 1000000000 + clamp999( a ) * 1000000 + clamp999( b ) * 1000 + clamp999( c ) );
-}
-
-// Every field is 3 digits wide. A value that cannot fit would shift every field to
-// its left and silently corrupt the whole line, so clamp rather than overflow —
-// 999 is visibly wrong, a shifted line is not.
-function private clamp999( v )
-{
-    if ( !isdefined( v ) )
+    // Computed once, shown for the whole round: the feed fades in seconds, so a
+    // single print is only readable if someone is staring at it 8 s into the round.
+    for ( ;; )
     {
-        return 999;
+        emit( line );
+        wait( 3 );
     }
-
-    if ( v > 999 )
-    {
-        return 999;
-    }
-
-    if ( v < 0 )
-    {
-        return 999;
-    }
-
-    return v;
 }
 
 // iprintln, NOT iprintlnbold: the bold window holds one message and each print
-// replaces the previous, so three bold lines would leave only the last on screen.
-// iprintln stacks in the feed, which is the whole point of packing into 3 lines.
-function private emitraw( value )
+// replaces the previous; iprintln stacks in the feed, where the mod menu prints too.
+function private emit( text )
 {
     foreach ( player in getplayers() )
     {
-        player iprintln( value );
+        player iprintln( text );
     }
 }

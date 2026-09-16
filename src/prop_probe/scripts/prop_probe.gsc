@@ -104,7 +104,7 @@ function private report()
     // on_start_gametype fires before players are in the match.
     wait( 8 );
 
-    curmap = getdvarstring( #"mapname", "" );
+    curmap = getdvarstring( #"sv_mapname", "" );
 
     // Empty mapname means the gate cannot work; report anyway rather than going
     // silent. A probe that quietly does nothing is the worst failure mode here.
