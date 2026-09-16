@@ -3,7 +3,7 @@
 Goal: a prop page in the menu — spawn static props, ideally a set that works on **most** maps plus a
 few map-specific ones. Read out of the T9 dump; **nothing measured in-game yet.**
 
-**Status: RESEARCH ONLY. The headline is that Treyarch already solved the per-map list problem and
+**Status 2026-09-15: MEASURED on mp_sm_gas_station (bottom of this note) — the table exists there, 13 rows, row 0 resident. The headline is that Treyarch already solved the per-map list problem and
 the answer is readable at RUNTIME, so unlike [[vehicles]] this does not need an offline asset dump.**
 
 ---
@@ -184,3 +184,26 @@ same `gf_vprobe_map` dvar trick:
 
 ⚠ Do not carry model names into the payload as literals when the table can be read at runtime. That
 is the mistake [[vehicles]] was forced into by a hashed namespace, and props do not have that problem.
+
+---
+
+## MEASURED — 2026-09-15, `prop_probe` ran (inside the `vehicle_probe` payload, mp_sm_gas_station)
+
+```
+PPROBE mp_sm_gas_station tbl=1 rows=13 xs=0 s=4 m=5 l=4 xl=0 other=0 first=p8_wz_foliage_cactus_cardon_lrg_optimized res=1 G=0
+```
+
+- **Gas Station ships a curated Prop Hunt table**: `gamedata/tables/mp/mp_sm_gas_station_ph.csv`
+  exists (`tbl=1` = `isassetloaded( "stringtable", path )`, the guard stock uses at
+  `scoreevents_shared.gsc:502`), **13 rows**: 4 small, 5 medium, 4 large, no xsmall/xlarge, every
+  size cell matched one of the five stock buckets (`other=0`).
+- Row 0 is `p8_wz_foliage_cactus_cardon_lrg_optimized` (a BO4 Blackout foliage model, read live off
+  the table) and it **is a resident xmodel** (`res=1`; the bogus-asset control read 0). So the
+  runtime read works end to end: table → row → model name → residency.
+- The read is per map and free; the same payload re-links on every map load, so the per-map
+  `rows` census is a walk through the map list with no re-inject.
+
+⚠ Two of the calls copied from `prop.gsc:1850` — `getmapname()` and `tablelookupbyrow()` — are
+**script functions defined in prop.gsc**, not builtins; calling them bare crashed the game at link
+time twice ([[vehicles]] §5, runs 2–3). The probe now uses `level.script` and a local wrapper over
+the real builtin `tablelookuprow( table, row )`. `tools/check-gsc.ps1` catches the class now.

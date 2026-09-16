@@ -9,7 +9,7 @@ is *not answerable from the dump at all*. The probe that answers it is specified
 everything); by the plain-string form **one** of the 105 `veh_t9_*` model names IS a resident vehicle
 asset on `mp_sm_gas_station` — the namespaces share names. Runs 2–3 crashed the game at link time —
 our bug (two prop.gsc *script* functions called as builtins; the validator hole that let it through
-is fixed). v4 built, not yet run. Two spawn paths identified, one of them dead in stock MP; 30
+is fixed). v4 RAN CLEAN: the resident vehicle is the Chopper Gunner streak vehicle by name. Two spawn paths identified, one of them dead in stock MP; 30
 vehicle behaviour types enumerated; the gate is asset residency + clientfield symmetry.**
 
 ---
@@ -336,4 +336,31 @@ reason and can go back in — one set per run, so a real finding stays attributa
 
 **v4** (built as `payloads/vehicle_probe.gscc`, 16,207 B): v3 with `level.script` in place of
 `getmapname()` and a local `table_cell()` over `tablelookuprow`. Prints `VPROBE3 <map> G= M=[i:name]
-S= N=105` + the guarded `PPROBE` line. Not yet run.
+S= N=105` + the guarded `PPROBE` line.
+
+### Run 4 — v4 ran clean (mp_sm_gas_station). The diagnosis holds, and the hit has a name
+
+```
+VPROBE3 mp_sm_gas_station G=0 M=1[82:veh_t9_mil_us_helicopter_large_chopper_gunner] S=0 N=105
+PPROBE  mp_sm_gas_station tbl=1 rows=13 xs=0 s=4 m=5 l=4 xl=0 other=0 first=p8_wz_foliage_cactus_cardon_lrg_optimized res=1 G=0
+```
+
+- v4 is v3 minus the two script-function calls, and it **linked and ran** — the crash was those
+  calls, nothing else. (The `PPROBE` line is [[static-props]]' result; recorded there.)
+- **The one resident vehicle on Gas Station is the Chopper Gunner streak vehicle**, found by its
+  xmodel-style name `veh_t9_mil_us_helicopter_large_chopper_gunner` through
+  `isassetloaded( "vehicle", #"…" )`. Step 1 is closed with a name: the 105 `model#` names are a
+  working candidate list for `vehicle#`, and the residency census (step 2) is just this probe
+  run per map.
+- `S=0` again: no `veh_spawn_point` structs — stock Path A is unreachable here.
+- The hit is a **scorestreak** vehicle, and none of the other streak vehicles in the list (spy
+  plane, counter-spy plane, gunship, VTOL…) read resident. The obvious explanation is that T9
+  streams streak assets per the loadouts present in the match, so **what is resident is partly
+  decided by the players' classes**. Untested; the test is free: swap Chopper Gunner out of every
+  class for Spy Plane / RC-XD, restart, re-read `M`. If `M` follows the loadouts, the feature can
+  *choose* what to make spawnable by what the host equips.
+
+**Next runs, in order:** (1) the loadout test above; (2) a multi-map walk with the same payload —
+it re-links on every map load, so no re-inject — to settle common-set vs per-map for both lines;
+(3) the sets v2 dropped, one per run: campaign hashes (`H`), type strings (`T`), plain-string names
+(`Ms` vs `Mh`).
