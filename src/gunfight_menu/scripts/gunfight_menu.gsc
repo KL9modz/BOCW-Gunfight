@@ -8687,7 +8687,12 @@ function private veh_master()
     m = veh_def( m, "vehicle_boct_mil_boat_pbr", "PBR boat (boct)", 0 );
     // other resident vehicles: streaks, turrets, the map's intro cinematic. Untested; may not be enterable.
     m = veh_def( m, "veh_t9_mil_us_helicopter_large_chopper_gunner", "Chopper Gunner (streak)", 1 );
-    m = veh_def( m, "vehicle_t9_mil_helicopter_care_package", "Care package heli (streak)", 1 );
+    // ⭐ MEASURED FLYABLE ON EVERY MAP (klaze, 2026-09-16). It is in core_common, so it is resident
+    // on all 36 MP maps, and it has NO vehiclecustomsettings bundle - which is why it sat at kind=1
+    // ("untested, may not be enterable") until it was flown. See vehicles.md §7: the settings-bundle
+    // signal is one-directional, and absence is not evidence against drivability. The other universal
+    // streak vehicles below are untested candidates for the same promotion.
+    m = veh_def( m, "vehicle_t9_mil_helicopter_care_package", "Care package heli - FLIES ON EVERY MAP", 0 );
     m = veh_def( m, #"hash_4209c5ff3b969c7a", "Vehicle-drop heli (streak)", 1, "vehicle_t9_mil_ru_heli_transport_vehicle_drop" );
     m = veh_def( m, "vehicle_t9_rcxd_racing", "RC-XD", 1 );
     m = veh_def( m, "vehicle_t9_rcxd_racing_alt", "RC-XD alt", 1 );

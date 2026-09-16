@@ -503,3 +503,116 @@ All 147 hashed vehicle names through the ACTS index (§2's runbook): **1 of 147*
 (`3effd1dd89ee3d36` = `flying_camera_drone_wz_escape_infil`). The community index does not carry
 BOCW vehicle names. The 58 plaintext names are what we have, and per the matrix above they are
 enough for every MP map.
+
+---
+
+## 7. ⭐ Which vehicles are actually DRIVABLE — offline, per map. 2026-09-16
+
+Asset residency (§6) says a vehicle *exists* on a map. It does not say a player can drive it. The
+discriminator is also in `bgcache`: a **settings scriptbundle**.
+
+`scriptbundle/vehiclecustomsettings/` (45 files) is the tuning data a *player-controlled* vehicle
+needs — handling, damage states, light groups. A zone that carries
+`player_ground_vehicle_settings_<x>` or `<x>_bundle_settings` alongside its vehicle rows is a zone
+where that vehicle is meant to be driven. **Nuketown carries none, and has zero extra vehicles** —
+the two signals agree.
+
+### The 14 maps with drivable/controllable vehicles
+
+| map | drivable |
+|---|---|
+| `mp_amerika` | ⭐ **BTR-40, M1A1 Abrams** |
+| `mp_black_sea` | jetski, PBR boat, zodiac boat, tactical raft (+ passenger / turret anim sets) |
+| `mp_dune` | ATV, HEMTT, truck transport, motorcycle, Hind gunship |
+| `mp_tundra` | snowmobile, UAZ, ⭐ **T-72** |
+| `mp_tank` | ⭐ **M1A1**, zodiac boat, transport heli |
+| `mp_cartel` | motorcycle, UAZ (+ gunship streak) |
+| `mp_mall` | BTR-40, transport heli |
+| `mp_miami` | van, zodiac boat |
+| `mp_moscow` | light helicopter, van |
+| `mp_apocalypse` | light helicopter |
+| `mp_cliffhanger` | transport helicopter |
+| `mp_sm_gas_station` | motorcycle |
+| `mp_echelon` | (gunship streak only) |
+| `mp_common` | ⚠ **universal**: gunship, comlink heli, VTOL Forger, transport heli |
+
+**24 MP maps carry no vehicle settings at all** — Nuketown, Hijacked, Raid, Zoo, Village, Slums,
+Drive-In, Express, Firebase, Jungle, Paintball, Russian Base, Satellite, KGB, Miami Strike and every
+`mp_sm_*` except Gas Station. On those, only the universal streak vehicles exist.
+
+### ⭐ This resolves hashed vehicle rows by inference
+
+§6 lists several maps as "N extra (hashed only)" — the settings bundle **names them**:
+
+| map | §6 said | the bundle says it is |
+|---|---|---|
+| `mp_amerika` | 2 hashed | BTR-40 + M1A1 |
+| `mp_mall` | 2 hashed | BTR-40 (+ transport heli) |
+| `mp_moscow` | 2 hashed | van (+ light heli) |
+| `mp_cliffhanger` | 1 hashed | transport helicopter |
+| `mp_apocalypse` | 1 hashed | light helicopter |
+
+⚠ `mp_kgb`'s 3 hashed rows stay unidentified — it carries **no** settings bundle, so whatever they
+are, they are not player-driven.
+
+That is a better yield than hash cracking managed (1 of 147, §6) and it cost nothing: the bundle
+name is plaintext even when the vehicle row is a hash.
+
+### ⚠⚠ MEASURED COUNTER-EXAMPLE — the heuristic is ONE-DIRECTIONAL
+
+**klaze has flown `vehicle_t9_mil_helicopter_care_package` on every map (confirmed in game,
+2026-09-16), and it has NO settings bundle anywhere.** Checked: it appears in `core_common.csv` as a
+single `vehicle,` row, and `scriptbundle/vehiclecustomsettings/` contains no care-package file (11
+helicopter bundles exist; none is this one).
+
+So read the signal in one direction only:
+
+- settings bundle **present** → strongly implies player-drivable ✅
+- settings bundle **absent** → says **nothing**. ❌ Not evidence against.
+
+The likely reason: the bundles tune *handling and damage states* for bespoke player vehicles. A
+vehicle with none simply falls back to defaults (`vehicle/default_engine.graph` is the only file in
+the dump's `vehicle/` tree) and is still enterable.
+
+⭐ **This makes the 20 UNIVERSAL vehicles (§6) the most valuable set in this note, not the least.**
+The care package heli is one of them, it is resident on every MP map by construction, and it flies.
+The others in that list — `veh_t8_helicopter_gunship_mp`, `vehicle_t9_mil_ru_air_vtol_forger`,
+`heli_ai_mp`, `veh_t8_ac130_gunship_mp`, `vehicle_straferun_mp` — are now **untested candidates for
+the same treatment**, and a hit on any of them is a vehicle that works on all 36 maps with no
+per-map gating at all. That is exactly the "works everywhere" outcome the feature wanted, and §7's
+table was pointing away from it.
+
+⚠ **`veh_master()` classifies the care package heli `kind = 1`** ("other — streak / intro / turret,
+untested, may not be enterable"), which is now known wrong. It belongs on the drivables page.
+
+### ⚠ Remaining caveats — inference, not measurement
+
+1. **A settings bundle implies intent, not reach.** It proves Treyarch tuned that vehicle for player
+   control *somewhere* in that zone's content. It does not prove the asset is enterable under
+   Gunfight, or that `usevehicle( player, 0 )` succeeds. And per the counter-example above, its
+   absence proves nothing at all.
+2. **Residency ≠ an entity in the match.** Maps place their vehicles in Radiant per gametype
+   ([[map-data]]), so under TDM/Gunfight a map's own vehicles may not exist as entities even where the
+   assets are resident. That does not block us — we *spawn* them — but it explains why a map with
+   drivables looks empty in a normal match.
+3. **Some rows are anim/list bundles, not vehicles** — `player_turret_zodiac_driver_anims`,
+   `vehicle_list_zodiac_wz`, `wz_russia_jetski_sr`. They corroborate the vehicle but are not
+   spawnable themselves.
+4. `gunshipsettings_mp` is a **streak**, not a drivable.
+
+### Master-list coverage, cross-checked against §6
+
+`veh_master()` carries **73 keys**. Against the 205-name universe:
+
+- **6 dead rows — present in NO zone**, so they can never resolve anywhere:
+  `veh_boct_mil_jetski`, `veh_quad_player_wz_tan`, `vehicle_boct_mil_boat_pbr`,
+  `vehicle_t8_mil_tank_wz_base_mg`, `vehicle_t9_mil_ru_heli_gunship_hind_wz`,
+  `vehicle_t9_plane_flyable_prototype`. Harmless (the `isassetloaded` filter hides them) but they are
+  noise, and the last one is a tempting name that will never work.
+- **15 resident names not in the master**, mostly turrets (`veh_ultimate_turret`,
+  `veh_missile_turret`), campaign `_cp` gunships and RC-XD variants. Two worth adding:
+  **`vehicle_t9_mil_snowmobile_alt_single_seat`** and **`vehicle_t8_mil_air_transport_infiltration`**.
+
+⚠ **The page's build-time `isassetloaded` filter is the right design and should stay.** It is
+self-correcting across content patches in a way a baked per-map table is not. These tables are for
+*authoring* the master list and for predicting what a map will show — not for replacing the filter.
