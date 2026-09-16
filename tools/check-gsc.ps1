@@ -146,7 +146,18 @@ $bare = [regex]::Matches($code, '(?<![\w:.\\&])([a-z_][a-z0-9_]*)\s*\(') |
 # the dump says; a name NOT in it that the dump DEFINES as a script function is the
 # prop.gsc trap below.
 $engine = $null
+# ⚠ TWO paths have been used for this one file and neither is in the repo (`/reference/` is
+# gitignored, .gitignore:6). check-args.py looks in the t8-atian-menu sibling clone
+# (docs/notes/funcs_cw.csv, see setup-new-pc.md:220); this script's -Table default is
+# ..\..\reference\. Search BOTH so one download satisfies both tools.
 $tablePath = (Resolve-Path $Table -ErrorAction SilentlyContinue).Path
+if (-not $tablePath) {
+    foreach ($alt in @("$PSScriptRoot\..\..\t8-atian-menu\docs\notes\funcs_cw.csv",
+                       "$PSScriptRoot\..\docs\notes\funcs_cw.csv")) {
+        $p = (Resolve-Path $alt -ErrorAction SilentlyContinue).Path
+        if ($p) { $tablePath = $p; break }
+    }
+}
 if ($tablePath) {
     $engine = @{}
     $devonly = @{}
@@ -162,7 +173,17 @@ if ($tablePath) {
     }
     Write-Host ("  engine table: {0} builtins ({1} dev-only)" -f $engine.Count, $devonly.Count) -ForegroundColor DarkGray
 } else {
-    Write-Host "  (no engine table at $Table - falling back to called-in-dump only)" -ForegroundColor DarkYellow
+    # ⚠⚠ THE FALLBACK PRODUCES FALSE FAILURES, NOT JUST A WEAKER CHECK. Without the table,
+    # the script-function rule below cannot tell a real builtin from a stock local that happens
+    # to share its name, so it reports SCRIPT FUNCTION (fatal) for spawn(), delete(), kick(),
+    # getspawnlists() and friends - spawn() is obviously a builtin. gunfight_menu.gsc "failed"
+    # with 8 such calls on a box missing this file (2026-09-16) while passing cleanly on the
+    # dev machine. A run without the table CANNOT be used to judge a script.
+    Write-Host "  (no engine table - stage 4 DEGRADED: expect FALSE 'SCRIPT FUNCTION' failures" -ForegroundColor Red
+    Write-Host "   for real builtins like spawn()/delete()/kick(). Do not trust a FAIL from this run.)" -ForegroundColor Red
+    Write-Host "   Looked in: $Table" -ForegroundColor DarkYellow
+    Write-Host "              ..\..\t8-atian-menu\docs\notes\funcs_cw.csv   (check-args.py's path)" -ForegroundColor DarkYellow
+    Write-Host "   Get it from the t8-atian-menu repo - setup-new-pc.md:220." -ForegroundColor DarkYellow
 }
 
 $dumpFiles = @("$Source\scripts\*.gsc","$Source\scripts\*\*.gsc","$Source\scripts\*\*\*.gsc")
