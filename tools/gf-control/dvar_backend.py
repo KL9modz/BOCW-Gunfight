@@ -575,6 +575,14 @@ class DvarBackend:
             if k == "gf_cmd_go":
                 go = v
                 continue
+            # Bridge slot safety: run_console_command restores only 48 bytes around the game's
+            # command slot, so a `set` line over 47 bytes overflows into adjacent memory and
+            # HARD-crashes the game (klaze 2026-09-15, gf_bot at 54 B). Drop it, never send it.
+            # This is the single choke point - every path (_write commands + _apply_config) lands
+            # here, so guarding here closes the class for all of them.
+            if len("set " + str(k) + " " + str(v)) > 47:
+                self._log(f"set {k} {v}  SKIPPED - >47 B would overflow the bridge command slot")
+                continue
             if not self.set_dvar(k, v):
                 failures += 1
         if go is not None:

@@ -5,7 +5,7 @@
 #   pyinstaller gf-control.spec           # -> dist/gf-control/  (onedir; zip + share)
 #
 # Bundles the PREBUILT runtime artifacts so the target machine needs only the game:
-#   - the control app (this + gf_native + bridge_channel)
+#   - the control app (this + gf_native + roster_scan + bridge_channel)
 #   - gunfight_menu.gscc   (prebuilt payload)      -> payloads/
 #   - gf_bridge.dll        (prebuilt native bridge)-> gf-bridge/
 #   - cwpatch DLL          (irreplaceable binary)  -> vendor/
@@ -40,7 +40,7 @@ a = Analysis(
     pathex=[HERE],
     binaries=[],
     datas=datas,
-    hiddenimports=['gf_native'],
+    hiddenimports=['gf_native', 'roster_scan'],   # roster_scan: the Connected-players sweep
     hookspath=[],
     excludes=['dvar_backend'],   # optional dev-only backend; app runs on BridgeBackend
     noarchive=False,

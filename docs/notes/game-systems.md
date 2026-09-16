@@ -377,6 +377,13 @@ setting), the first-round forfeit clock (`function_67ed6c46` `:875`, reads the l
 - **Broadcast** = `player iprintlnbold( msg )` per player (centre) / `iprintln` (feed). Presets + a `gf_cmd_say`
   dvar channel for the bridge; "BLINKER CHECKPOINT" is re-sent every 3 s while paused because the centre print fades.
 - **Weapons**: all 64 MP loadout names — `docs/reference/bocw-weapons.md` (and why there is no gulag rock in T9).
+- **Teleport** (2026-09-15, [[teleport]]) = stock's fast-travel idiom on a live player, `red_door.gsc:492`
+  (`dontinterpolate` → `setorigin` → `setvelocity( (0,0,0) )` → `setplayerangles`); destinations floored with
+  `playerphysicstrace` (`_prop_controls.gsc:1260`); the gun = the `weapon_fired` player notify
+  (`weapons.gsc:1034` → `placeables.gsc:215` waits on it), the grenade = `grenade_fire` → `explode`
+  `res.position` (`_prop_controls.gsc:1820/1836`). A flying player is moved by his fly anchor (the link owns
+  the origin). Everyone / team / enemy to me / crosshair / saved point / map centre, per-player to-me /
+  me-to-them / swap, gun + grenade host or everyone (never bots).
 
 ### Match-end / limits (globallogic)
 - Match ends when `util::hitroundlimit()` OR `util::hitroundwinlimit()` (globallogic.gsc:1987).
@@ -420,6 +427,13 @@ A Gunfight loadout is a struct. Fields (from the bundle + `function_44244433`/`f
 at minimum a `primary`; everything else is optional.
 
 ### The build primitive (script-buildable — no bundle needed)
+- **Spawn keys / per-map data** (2026-09-15, [[map-data]]): the engine's spawn build (`spawning::addspawns`,
+  hashed `script_335d0650ed05d36d.gsc:194`) keeps an `mp_spawn_point` struct when a registered mode's flag field
+  is true (`.tdm` `.sd` `.ctf` `.control` `.domination` `.hardpoint` `.ffa`, `script_44b0b8420eabacad.gsc:306`),
+  teams it by `.group_index` (1 allies / 2 axis, swapped on `game.switchedsides`) and lists it as a START when
+  field 0xa3c53936 (ACTS alias `_human_were`) is set — the authored team starts. Vehicle assets per map are in
+  `tables/bgcache/<zone>.csv` (core_bootstrap + core_common + mp_common + the map); Prop Hunt tables are not in
+  the dump (in-game read only). `dev_spawn.gsc:110` is stock's runtime re-registration of spawn types (untried).
 - **`getweapon( weaponref, attachmentsArray )`** — the one call that turns a ref + attachment-hash array into
   a weapon object. `function_8fdeea14(loadoutattachments)` resolves the ref array to hashes; `#"dw"` in it
   means dual-wield (`weaponref + "_dw"`). Then `self giveweapon( weapon, undefined, … )`.

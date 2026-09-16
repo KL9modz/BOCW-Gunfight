@@ -348,3 +348,50 @@ each axis the per_side markers nearest the two outermost projections, scored tig
 openings rebuilt from markers, so it also works where the engine has none. Spawns page *Pick: near /
 far ends*; app Spawns; FAMILIES shows `pick=`. Payload 217,491 B / 1,316 strings, never run.
 
+
+## Human-joiner test 2026-09-15 (observations during play)
+
+- ⚠ **"sometimes people spawn on the wrong side of the map"** (klaze, humans in the lobby). Default
+  guard is AUTO (gf_spawn_guard 2): it only anchors when the engine picker returns empty, otherwise
+  it lets TDM's scored selector place the player ("away from enemies" = anywhere), so with humans
+  some land cross-map. Immediate lever offered: **gf_spawn_guard 1 (FORCE)** = always use the two
+  fixed anchors, every player on their team's side. To disambiguate the remaining cause, need:
+  whole-team-wrong (side-swap / game.switchedsides) vs some-players-wrong (engine scored spawns
+  leaking through AUTO). PENDING klaze's read after trying FORCE.
+
+## Replicating S&D match-start spawns — the mechanism (dump, 2026-09-15)
+
+klaze: "nothing replicates normal match-start S&D spawns. that's all we need." Found how S&D spawns:
+- `sd.gsc:90` = `spawning::addsupportedspawnpointtype( "sd" )` + the shared `spawning::onspawnplayer`.
+  No custom selector (function_a800815 is just a planting predicate). So S&D's fixed sides come from
+  the "sd" spawn set + `usestartspawns` (Gunfight already has `alwaysusestartspawns=1`).
+- Gunfight instead registers `"tdm"` (`gunfight.gsc:77`) + TDM's selector callbacks (78-79), so its
+  start spawns are TDM's spread ones - exactly what klaze sees.
+- The start picker is the engine builtin `function_77b7335( team, "start_spawn" )` (spawning_shared:470),
+  keyed to the REGISTERED type. So the lever is the registered type.
+- **Per-gametype spawn ENTITIES exist by classname**: `mp_sd_spawn_attacker` / `mp_sd_spawn_defender`
+  (also `mp_tdm_spawn_{allies,axis}_start`, `mp_dom_*`, `mp_ctf_*`, `mp_dm_spawn`), read via
+  `getspawnpointarray(cn) = getentarray(cn, "classname")` (zm spawnlogic:317). These are SEPARATE from
+  the `mp_spawn_point` struct family (whose FLAGS census found tdm/ctf/control/ffa, no sd). ⭐ **MP has
+  NO `remove_unused_spawn_entities`** (only ZM deletes unused-gametype spawns), so a map's `mp_sd_*`
+  bases survive a Gunfight match and can be read + used mid-match.
+
+**Two implementation paths, chosen by measurement (gf_dbg_structs ENT line, added 2026-09-15):**
+klaze 2026-09-15: "if a map doesn't have sd spawns we should use tdm spawns; however we do it now
+isn't proper." The current guard builds GEOMETRIC anchors from the shared marker family (a guess) -
+that is the "not proper" part. Proper = use the map's AUTHORED team start-spawn entities:
+
+**Spawn source priority (all authored/fixed):**
+1. S&D bases `mp_sd_spawn_attacker` / `mp_sd_spawn_defender` (one team per cluster; swap for sides).
+2. TDM starts `mp_tdm_spawn_allies_start` / `mp_tdm_spawn_axis_start` (the REAL fixed team starts,
+   not the spread `mp_tdm_spawn` respawns the geometric guard approximated).
+3. Only if neither exists: the geometric fallback.
+
+The gf_dbg_structs ENT line measures counts for sd AND tdm-start (and dom/ctf/dm) per map, so one read
+decides the path per map. PENDING the ENT read on Hijacked + one other. Payload 265,887 B.
+
+▶ **Superseded the same evening by the dump read in [[map-data]]:** the authored starts are not
+entities but `mp_spawn_point` STRUCTS carrying a mode flag, `.group_index` (team) and a start flag
+(field hash 0xa3c53936, ACTS alias `_human_were`), so the ENT counts will read 0 on modern maps. Built:
+Family AUTO (`gf_spawn_family 8`, the new default) arms the guard with the map's authored S&D starts, else
+its TDM starts; the FAMILIES line ends with a `STARTS` tally per mode. Payload 283,546 B, untested.

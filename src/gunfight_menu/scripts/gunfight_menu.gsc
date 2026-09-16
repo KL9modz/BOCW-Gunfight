@@ -78,6 +78,11 @@
 //     gf_dbg_families   1 = one feed line: spawn-struct family counts, legacy detector numbers,
 //                       what the guard built.
 //     gf_dbg_match      1 = one feed line: the Show-match-info readout.
+//     gf_dbg_assets     1 = two feed lines. VEHICLES: which of 105 veh_t9_* names are resident
+//                       vehicle assets on this map, by index:name, + the veh_spawn_point count.
+//                       PROPS: this map's Prop Hunt table (tbl/rows/size buckets/row-0 model +
+//                       residency). src/vehicle_probe + src/prop_probe as a menu tool, so the
+//                       per-map census is a map walk with the menu in. docs/notes/vehicles.md §5
 //     gf_camo           camo forced onto every loadout-pool weapon, every player, every spawn.
 //                       -2 random each round (DEFAULT: one roll per weapon, shared by everyone)
 //                       -3 random per player-spawn / -1 stock (the pool's own look - bare,
@@ -389,96 +394,297 @@ function private __init__()
 // SETTINGS — dvar-backed, so they survive rounds and matches
 // ═════════════════════════════════════════════════════════════════════════════
 
-function private cfg_team_size()     { return getdvarint( #"gf_team_size", 4 ); }
-function private cfg_spec_slots()    { return getdvarint( #"gf_spec_slots", 2 ); }
-function private cfg_timer_seconds() { return getdvarint( #"gf_timer_seconds", 60 ); }
+function private cfg_team_size()     { return cfg_geti( #"gf_team_size", 4 ); }
+function private cfg_spec_slots()    { return cfg_geti( #"gf_spec_slots", 2 ); }
+function private cfg_timer_seconds() { return cfg_geti( #"gf_timer_seconds", 60 ); }
 // "60s", or "inf" when the timer is off - shared by the state line and the compact
 // header so neither ever reads "0s" for unlimited.
 function private cfg_timer_label()   { secs = cfg_timer_seconds(); return secs > 0 ? ( secs + "s" ) : "inf"; }
-function private cfg_prematch()      { return getdvarint( #"gf_prematch", 15 ); }
-function private cfg_preround()      { return getdvarint( #"gf_preround", 7 ); }
-function private cfg_loadout()       { return getdvarint( #"gf_loadout", 0 ); }
-function private cfg_customcac()     { return getdvarint( #"gf_customcac", 0 ); }
-function private cfg_profile()       { return getdvarint( #"gf_profile", 1 ); }
+function private cfg_prematch()      { return cfg_geti( #"gf_prematch", 15 ); }
+function private cfg_preround()      { return cfg_geti( #"gf_preround", 7 ); }
+function private cfg_loadout()       { return cfg_geti( #"gf_loadout", 0 ); }
+function private cfg_customcac()     { return cfg_geti( #"gf_customcac", 0 ); }
+function private cfg_profile()       { return cfg_geti( #"gf_profile", 1 ); }
 // Loadout-pool camo (docs/notes/loadout-camo.md). -2 (default) = random each round, one roll
 // per weapon that everyone shares. -3 = rolls per player-spawn. -1 = stock, the pool's own look.
 // >= 0 = force that camo index on every pool weapon at every spawn. The random modes draw from
 // gf_camo_pool: 0 = mastery + Pack-a-Punch (61-69, 116-121), 1 = every mapped index, 1-121;
 // gf_camo_split 1 = primary and secondary roll separately, 0 = one roll covers both.
-function private cfg_camo()          { return getdvarint( #"gf_camo", -2 ); }
-function private cfg_camo_pool()     { return getdvarint( #"gf_camo_pool", 0 ); }
-function private cfg_camo_split()    { return getdvarint( #"gf_camo_split", 1 ); }
-function private cfg_spyplane()      { return getdvarint( #"gf_spyplane", 0 ); }
-function private cfg_map_method()    { return getdvarint( #"gf_map_method", 1 ); }
-function private cfg_switch_wait()   { return getdvarint( #"gf_switch_wait", 25 ); }
-function private cfg_autoswitch()    { return getdvarint( #"gf_autoswitch", 0 ); }
+function private cfg_camo()          { return cfg_geti( #"gf_camo", -2 ); }
+function private cfg_camo_pool()     { return cfg_geti( #"gf_camo_pool", 0 ); }
+function private cfg_camo_split()    { return cfg_geti( #"gf_camo_split", 1 ); }
+function private cfg_spyplane()      { return cfg_geti( #"gf_spyplane", 0 ); }
+function private cfg_map_method()    { return cfg_geti( #"gf_map_method", 1 ); }
+// ═════════════════════════════════════════════════════════════════════════════
+// PACKED CONFIG STORE (dvar-pool budget, 2026-09-15). The 52 int config settings live in
+// 9 chunk dvars gf_c0..gf_c8 (6 per chunk, SORTED key order) instead of 52 individual
+// dvars - the GSC-VM dvar pool is only 4096 and heavy maps nearly fill it (dvar-pool-crash:
+// error 0xa370b5b4). cfg_geti / cfg_seti are the ONLY accessors and every gf_* read/write
+// was routed through them; a name NOT in the packed set (gf_cmd_*, gf_staged_*, gf_bot*,
+// gf_fd_*, gf_hint_*, gf_say_hint_indent) falls back to a real getdvarint/setdvar, so nothing
+// else changes. The app (gf_control.py) sorts the SAME 52 keys the SAME way and writes the
+// SAME chunks, so order cannot drift; a short/absent chunk falls back to the per-key default.
+// ═════════════════════════════════════════════════════════════════════════════
+function private cfg_add( c, name, def )
+{
+    st = spawnstruct();
+    st.n = name;
+    st.d = def;
+    c[ c.size ] = st;
+    return c;
+}
+
+function private cfg_spec()
+{
+    if ( isdefined( game.gf_cfg_spec ) )
+        return game.gf_cfg_spec;
+
+    c = [];
+    c = cfg_add( c, #"gf_autoswitch", 0 );
+    c = cfg_add( c, #"gf_bot_diff_allies", -1 );
+    c = cfg_add( c, #"gf_bot_diff_axis", -1 );
+    c = cfg_add( c, #"gf_bot_passive", 0 );
+    c = cfg_add( c, #"gf_camo", -2 );
+    c = cfg_add( c, #"gf_camo_pool", 0 );
+    c = cfg_add( c, #"gf_camo_split", 1 );
+    c = cfg_add( c, #"gf_caster_probe", 1 );
+    c = cfg_add( c, #"gf_census", 0 );
+    c = cfg_add( c, #"gf_customcac", 0 );
+    c = cfg_add( c, #"gf_dbg_assets", 0 );
+    c = cfg_add( c, #"gf_dbg_families", 0 );
+    c = cfg_add( c, #"gf_dbg_flags", 0 );
+    c = cfg_add( c, #"gf_dbg_match", 0 );
+    c = cfg_add( c, #"gf_dbg_spawn", 0 );
+    c = cfg_add( c, #"gf_dbg_structs", 0 );
+    c = cfg_add( c, #"gf_falldamage", 0 );
+    c = cfg_add( c, #"gf_feed_lines", 14 );
+    c = cfg_add( c, #"gf_fly_fast", 60 );
+    c = cfg_add( c, #"gf_fly_speed", 20 );
+    c = cfg_add( c, #"gf_gravity", 800 );
+    c = cfg_add( c, #"gf_jump", -1 );
+    c = cfg_add( c, #"gf_jump_boost", 0 );
+    c = cfg_add( c, #"gf_loadout", 0 );
+    c = cfg_add( c, #"gf_map_method", 1 );
+    c = cfg_add( c, #"gf_menu_hspan", 4 );
+    c = cfg_add( c, #"gf_menu_lines", 3 );
+    c = cfg_add( c, #"gf_menu_region", 2 );
+    c = cfg_add( c, #"gf_prematch", 15 );
+    c = cfg_add( c, #"gf_preround", 7 );
+    c = cfg_add( c, #"gf_profile", 1 );
+    c = cfg_add( c, #"gf_roundlimit", -1 );
+    c = cfg_add( c, #"gf_rounds_loadout", -1 );
+    c = cfg_add( c, #"gf_roundwinlimit", -1 );
+    c = cfg_add( c, #"gf_spawn_autospread", 2500 );
+    c = cfg_add( c, #"gf_spawn_diag", 1 );
+    c = cfg_add( c, #"gf_spawn_family", 8 );
+    c = cfg_add( c, #"gf_spawn_gap", 1800 );
+    c = cfg_add( c, #"gf_spawn_guard", 2 );
+    c = cfg_add( c, #"gf_spawn_pick", 0 );
+    c = cfg_add( c, #"gf_spec_slots", 2 );
+    c = cfg_add( c, #"gf_speed", 100 );
+    c = cfg_add( c, #"gf_spyplane", 0 );
+    c = cfg_add( c, #"gf_strike", 0 );
+    c = cfg_add( c, #"gf_switch_sides", 1 );
+    c = cfg_add( c, #"gf_switch_wait", 0 );
+    c = cfg_add( c, #"gf_team_size", 4 );
+    c = cfg_add( c, #"gf_timer_seconds", 60 );
+    c = cfg_add( c, #"gf_zone", 0 );
+    c = cfg_add( c, #"gf_zone_capture", 5 );
+    c = cfg_add( c, #"gf_zone_overtime", 20 );
+    c = cfg_add( c, #"gf_zone_radius", 128 );
+    game.gf_cfg_spec = c;
+    game.gf_cfg_idx = [];
+
+    for ( i = 0; i < c.size; i++ )
+        game.gf_cfg_idx[ c[ i ].n ] = i;
+
+    return c;
+}
+
+function private cfg_load()
+{
+    spec = cfg_spec();
+    game.gf_cfg = [];
+
+    for ( i = 0; i < spec.size; i++ )
+    {
+        chunk = i / 6;
+        pos = i % 6;
+        parts = strtok( getdvarstring( "gf_c" + int( chunk ), "" ), "," );
+
+        if ( isdefined( parts ) && pos < parts.size && parts[ pos ] != "" )
+            game.gf_cfg[ i ] = int( parts[ pos ] );
+        else
+            game.gf_cfg[ i ] = spec[ i ].d;
+    }
+}
+
+function private cfg_geti( name, def )
+{
+    cfg_spec();
+
+    if ( !isdefined( game.gf_cfg_idx[ name ] ) )
+        return getdvarint( name, def );
+
+    if ( !isdefined( game.gf_cfg ) )
+        cfg_load();
+
+    return game.gf_cfg[ game.gf_cfg_idx[ name ] ];
+}
+
+function private cfg_seti( name, val )
+{
+    cfg_spec();
+
+    if ( !isdefined( game.gf_cfg_idx[ name ] ) )
+    {
+        setdvar( name, val );
+        return;
+    }
+
+    if ( !isdefined( game.gf_cfg ) )
+        cfg_load();
+
+    idx = game.gf_cfg_idx[ name ];
+    game.gf_cfg[ idx ] = int( val );
+    cfg_write_chunk( idx / 6 );
+}
+
+function private cfg_write_chunk( chunk )
+{
+    spec = cfg_spec();
+    out = "";
+
+    for ( pos = 0; pos < 6; pos++ )
+    {
+        i = int( chunk ) * 6 + pos;
+
+        if ( i >= spec.size )
+            break;
+
+        out += ( pos > 0 ? "," : "" ) + game.gf_cfg[ i ];
+    }
+
+    setdvar( "gf_c" + int( chunk ), out );
+}
+
+function private cfg_switch_wait()   { return cfg_geti( #"gf_switch_wait", 0 ); }  // 0 = immediate switch (cp form); klaze default 2026-09-15
+function private cfg_autoswitch()    { return cfg_geti( #"gf_autoswitch", 0 ); }
 // ⚠ Clamped: menu_think primes `for(i=0;i<lines+1)` blanks, so a garbage-huge value here spins
 // the render and freezes the game (measured 2026-09-14). Bound both row counts to a sane range.
 function private cfg_clamp_lines( n ) { if ( n < 1 ) return 1; if ( n > 24 ) return 24; return n; }
-function private cfg_menu_lines()    { return cfg_clamp_lines( getdvarint( #"gf_menu_lines", 3 ) ); }
-function private cfg_menu_region()   { return getdvarint( #"gf_menu_region", 2 ); }
-function private cfg_menu_hspan()    { return getdvarint( #"gf_menu_hspan", 4 ); }
-function private cfg_feed_lines()    { return cfg_clamp_lines( getdvarint( #"gf_feed_lines", 14 ) ); }
-function private cfg_hint_lines()    { return getdvarint( #"gf_hint_lines", 8 ); }
-function private cfg_hint_newlines() { return getdvarint( #"gf_hint_newlines", 0 ); }
+function private cfg_menu_lines()    { return cfg_clamp_lines( cfg_geti( #"gf_menu_lines", 3 ) ); }
+function private cfg_menu_region()   { return cfg_geti( #"gf_menu_region", 2 ); }
+function private cfg_menu_hspan()    { return cfg_geti( #"gf_menu_hspan", 4 ); }
+function private cfg_feed_lines()    { return cfg_clamp_lines( cfg_geti( #"gf_feed_lines", 14 ) ); }
+function private cfg_hint_lines()    { return cfg_geti( #"gf_hint_lines", 8 ); }
+function private cfg_hint_newlines() { return cfg_geti( #"gf_hint_newlines", 0 ); }
 
 // #spawn_guard (ported from gunfight_mod, adapted to dvars). Default OFF - test solo first.
-function private cfg_spawn_guard()     { return getdvarint( #"gf_spawn_guard", 2 ); }
-function private cfg_spawn_diag()      { return getdvarint( #"gf_spawn_diag", 1 ); }
-function private cfg_spawn_autospread(){ return getdvarint( #"gf_spawn_autospread", 2500 ); }
-function private cfg_spawn_gap()       { return getdvarint( #"gf_spawn_gap", 1800 ); }
-function private cfg_spawn_pick()      { return getdvarint( #"gf_spawn_pick", 0 ); }
-function private cfg_strike()          { return getdvarint( #"gf_strike", 0 ); }
-function private cfg_caster_probe()   { return getdvarint( #"gf_caster_probe", 1 ); }
+function private cfg_spawn_guard()     { return cfg_geti( #"gf_spawn_guard", 2 ); }
+function private cfg_spawn_diag()      { return cfg_geti( #"gf_spawn_diag", 1 ); }
+function private cfg_spawn_autospread(){ return cfg_geti( #"gf_spawn_autospread", 2500 ); }
+function private cfg_spawn_gap()       { return cfg_geti( #"gf_spawn_gap", 1800 ); }
+function private cfg_spawn_pick()      { return cfg_geti( #"gf_spawn_pick", 0 ); }
+function private cfg_strike()          { return cfg_geti( #"gf_strike", 0 ); }
+function private cfg_caster_probe()   { return cfg_geti( #"gf_caster_probe", 1 ); }
 
 // Overtime zone (docs/notes/overtime-zone.md). Default OFF: a zone is a round-start
 // entity build, and the one failure that matters is fatal (a centre no trigger contains
 // is a map error -> abort_level). mod_zone_synthesize backs out before that can happen.
-function private cfg_zone()          { return getdvarint( #"gf_zone", 0 ); }
-function private cfg_zone_overtime() { return getdvarint( #"gf_zone_overtime", 20 ); }
-function private cfg_zone_capture()  { return getdvarint( #"gf_zone_capture", 5 ); }
-function private cfg_zone_radius()   { return getdvarint( #"gf_zone_radius", 128 ); }
+function private cfg_zone()          { return cfg_geti( #"gf_zone", 0 ); }
+function private cfg_zone_overtime() { return cfg_geti( #"gf_zone_overtime", 20 ); }
+function private cfg_zone_capture()  { return cfg_geti( #"gf_zone_capture", 5 ); }
+function private cfg_zone_radius()   { return cfg_geti( #"gf_zone_radius", 128 ); }
 
 // Match-length knobs. Sentinel -1 = leave the lobby's value untouched (only an explicit
 // menu pick asserts control). Keys verified against gunfight.gsc / globallogic.gsc.
-function private cfg_roundwinlimit()  { return getdvarint( #"gf_roundwinlimit", -1 ); }
-function private cfg_roundlimit()     { return getdvarint( #"gf_roundlimit", -1 ); }
-function private cfg_rounds_loadout() { return getdvarint( #"gf_rounds_loadout", -1 ); }
-function private cfg_switch_sides()   { return getdvarint( #"gf_switch_sides", 1 ); }
+function private cfg_roundwinlimit()  { return cfg_geti( #"gf_roundwinlimit", -1 ); }
+function private cfg_roundlimit()     { return cfg_geti( #"gf_roundlimit", -1 ); }
+function private cfg_rounds_loadout() { return cfg_geti( #"gf_rounds_loadout", -1 ); }
+function private cfg_switch_sides()   { return cfg_geti( #"gf_switch_sides", 1 ); }
 
 // Movement. bg_gravity is engine-consumed in MP (docs/notes/mp-dvars.md, verified
 // 2026-09-07; stock 800). Jump uses the setjumpheight BUILTIN - the jump_height DVAR
 // is a campaign/ZM dead end in MP - and -1 leaves the engine default untouched.
-function private cfg_gravity()  { return getdvarint( #"gf_gravity", 800 ); }
-function private cfg_jump()     { return getdvarint( #"gf_jump", -1 ); }
-function private cfg_jump_boost() { return getdvarint( #"gf_jump_boost", 0 ); }
-function private cfg_falldamage() { return getdvarint( #"gf_falldamage", 0 ); }
-function private cfg_speed()      { return getdvarint( #"gf_speed", 100 ); }
-function private cfg_fly_speed()  { return getdvarint( #"gf_fly_speed", 20 ); }
-function private cfg_fly_fast()   { return getdvarint( #"gf_fly_fast", 60 ); }
+function private cfg_gravity()  { return cfg_geti( #"gf_gravity", 800 ); }
+function private cfg_jump()     { return cfg_geti( #"gf_jump", -1 ); }
+function private cfg_jump_boost() { return cfg_geti( #"gf_jump_boost", 0 ); }
+function private cfg_falldamage() { return cfg_geti( #"gf_falldamage", 0 ); }
+function private cfg_speed()      { return cfg_geti( #"gf_speed", 100 ); }
+function private cfg_fly_speed()  { return cfg_geti( #"gf_fly_speed", 20 ); }
+function private cfg_fly_fast()   { return cfg_geti( #"gf_fly_fast", 60 ); }
 
 // Bots (docs/notes/bots.md). Difficulty per side: -1 leave the lobby's row alone, 0-3 the
 // stock levels, 4 = the custom struct built from the knobs below. Knob defaults are the
 // "Veteran+" profile - past the stock ceiling on every axis, since that is the one thing
 // the lobby cannot already give.
-function private cfg_bot_diff_allies() { return getdvarint( #"gf_bot_diff_allies", -1 ); }
-function private cfg_bot_diff_axis()   { return getdvarint( #"gf_bot_diff_axis", -1 ); }
-function private cfg_bot_hit()         { return getdvarint( #"gf_bot_hit", 100 ); }
-function private cfg_bot_head()        { return getdvarint( #"gf_bot_head", 50 ); }
-function private cfg_bot_react()       { return getdvarint( #"gf_bot_react", 100 ); }
-function private cfg_bot_fire()        { return getdvarint( #"gf_bot_fire", 1000 ); }
-function private cfg_bot_hip()         { return getdvarint( #"gf_bot_hip", 100 ); }
-function private cfg_bot_far()         { return getdvarint( #"gf_bot_far", 90 ); }
-function private cfg_bot_semi()        { return getdvarint( #"gf_bot_semi", 100 ); }
-function private cfg_bot_burst()       { return getdvarint( #"gf_bot_burst", 100 ); }
-function private cfg_bot_moveshoot()   { return getdvarint( #"gf_bot_moveshoot", 1 ); }
-function private cfg_bot_fastaim()     { return getdvarint( #"gf_bot_fastaim", 1 ); }
-function private cfg_bot_sprint()      { return getdvarint( #"gf_bot_sprint", 1 ); }
-function private cfg_bot_melee()       { return getdvarint( #"gf_bot_melee", 1 ); }
-function private cfg_bot_prone()       { return getdvarint( #"gf_bot_prone", 1 ); }
-function private cfg_bot_slide()       { return getdvarint( #"gf_bot_slide", 1 ); }
-function private cfg_bot_crouch()      { return getdvarint( #"gf_bot_crouch", 1 ); }
-function private cfg_bot_passive()     { return getdvarint( #"gf_bot_passive", 0 ); }
+function private cfg_bot_diff_allies() { return cfg_geti( #"gf_bot_diff_allies", -1 ); }
+function private cfg_bot_diff_axis()   { return cfg_geti( #"gf_bot_diff_axis", -1 ); }
+// The 15 numeric bot knobs are packed into ONE string dvar gf_bot ("hit,head,react,..."),
+// not 15 dvars - the GSC-VM dvar store is only 4096 and heavy maps nearly fill it
+// (dvar-pool-crash: error 0xa370b5b4 "Can't register more dvar"). Order is fixed; see
+// bot_num indices. passive/diff_allies/diff_axis stay separate (they are menu-highlight groups).
+function private bot_num( idx, def )
+{
+    // Split across gf_bot (fields 0-7) and gf_bot2 (8-14): a single `set gf_bot <all 15>` is
+    // ~54 bytes, and the bridge command slot only safely restores 48 - a longer `set` corrupts
+    // adjacent game memory and hard-crashes (klaze 2026-09-15). Each half's `set` is <40 bytes.
+    if ( idx < 8 )
+        parts = strtok( getdvarstring( #"gf_bot", "100,50,100,1000,100,90,100,100" ), "," );
+    else
+    {
+        parts = strtok( getdvarstring( #"gf_bot2", "1,1,1,1,1,1,1" ), "," );
+        idx = idx - 8;
+    }
+    if ( isdefined( parts ) && idx < parts.size && parts[ idx ] != "" )
+        return int( parts[ idx ] );
+    return def;
+}
+
+// Write one packed field of gf_bot without disturbing the others (knob cycle).
+function private bot_set_field( idx, val )
+{
+    if ( idx < 8 )
+    {
+        parts = strtok( getdvarstring( #"gf_bot", "100,50,100,1000,100,90,100,100" ), "," );
+        cfg_seti( #"gf_bot", bot_join( parts, 8, 0, idx, val ) );
+    }
+    else
+    {
+        parts = strtok( getdvarstring( #"gf_bot2", "1,1,1,1,1,1,1" ), "," );
+        cfg_seti( #"gf_bot2", bot_join( parts, 7, 8, idx, val ) );
+    }
+}
+
+function private bot_join( parts, count, base, idx, val )
+{
+    out = "";
+    for ( i = 0; i < count; i++ )
+    {
+        v = ( ( base + i ) == idx ) ? ( "" + val ) : ( ( isdefined( parts ) && i < parts.size && parts[ i ] != "" ) ? parts[ i ] : "0" );
+        out += ( i > 0 ? "," : "" ) + v;
+    }
+    return out;
+}
+
+function private cfg_bot_hit()         { return bot_num( 0, 100 ); }
+function private cfg_bot_head()        { return bot_num( 1, 50 ); }
+function private cfg_bot_react()       { return bot_num( 2, 100 ); }
+function private cfg_bot_fire()        { return bot_num( 3, 1000 ); }
+function private cfg_bot_hip()         { return bot_num( 4, 100 ); }
+function private cfg_bot_far()         { return bot_num( 5, 90 ); }
+function private cfg_bot_semi()        { return bot_num( 6, 100 ); }
+function private cfg_bot_burst()       { return bot_num( 7, 100 ); }
+function private cfg_bot_moveshoot()   { return bot_num( 8, 1 ); }
+function private cfg_bot_fastaim()     { return bot_num( 9, 1 ); }
+function private cfg_bot_sprint()      { return bot_num( 10, 1 ); }
+function private cfg_bot_melee()       { return bot_num( 11, 1 ); }
+function private cfg_bot_prone()       { return bot_num( 12, 1 ); }
+function private cfg_bot_slide()       { return bot_num( 13, 1 ); }
+function private cfg_bot_crouch()      { return bot_num( 14, 1 ); }
+
+function private cfg_bot_passive()     { return cfg_geti( #"gf_bot_passive", 0 ); }
 
 // ── Pre-register ─────────────────────────────────────────────────────────────
 // The cfg_* readers above need no dvar to exist - getdvarint( name, default ) - so until
@@ -521,7 +727,7 @@ function private dvars_register()
     dvar_reg( #"gf_camo_split", 1 );
     dvar_reg( #"gf_spyplane", 0 );
     dvar_reg( #"gf_map_method", 1 );
-    dvar_reg( #"gf_switch_wait", 25 );
+    dvar_reg( #"gf_switch_wait", 0 );
     dvar_reg( #"gf_autoswitch", 0 );
     dvar_reg( #"gf_menu_lines", 3 );
     dvar_reg( #"gf_menu_region", 2 );
@@ -557,34 +763,12 @@ function private dvars_register()
     // Bots (docs/notes/bots.md). Defaults = the cfg_bot_* lines above.
     dvar_reg( #"gf_bot_diff_allies", -1 );
     dvar_reg( #"gf_bot_diff_axis", -1 );
-    dvar_reg( #"gf_bot_hit", 100 );
-    dvar_reg( #"gf_bot_head", 50 );
-    dvar_reg( #"gf_bot_react", 100 );
-    dvar_reg( #"gf_bot_fire", 1000 );
-    dvar_reg( #"gf_bot_hip", 100 );
-    dvar_reg( #"gf_bot_far", 90 );
-    dvar_reg( #"gf_bot_semi", 100 );
-    dvar_reg( #"gf_bot_burst", 100 );
-    dvar_reg( #"gf_bot_moveshoot", 1 );
-    dvar_reg( #"gf_bot_fastaim", 1 );
-    dvar_reg( #"gf_bot_sprint", 1 );
-    dvar_reg( #"gf_bot_melee", 1 );
-    dvar_reg( #"gf_bot_prone", 1 );
-    dvar_reg( #"gf_bot_slide", 1 );
-    dvar_reg( #"gf_bot_crouch", 1 );
     dvar_reg( #"gf_bot_passive", 0 );
 
     // The app's command channel (cmd_dispatch) and the stage markers (stage_mark).
     dvar_reg( #"gf_cmd_go", 0 );
-    dvar_reg( #"gf_cmd_fillbots", 0 );
-    dvar_reg( #"gf_cmd_removebots", 0 );
-    dvar_reg( #"gf_cmd_addbot", 0 );      // 1 auto = smaller side / 2 allies / 3 axis
-    dvar_reg( #"gf_cmd_removebot", 0 );   // one bot, larger side first
-    dvar_reg( #"gf_cmd_evenbots", 0 );    // even up: fewest bots that make the sides equal
-    dvar_reg( #"gf_cmd_restart", 0 );
     dvar_reg( #"gf_cmd_stage", 0 );
     dvar_reg( #"gf_cmd_say", "" );
-    dvar_reg( #"gf_cmd_pause", 0 );      // 1 pause / 2 resume
     dvar_reg( #"gf_cmd_map", "" );
     dvar_reg( #"gf_cmd_gametype", "" );
     dvar_reg( #"gf_staged_map", "" );
@@ -643,6 +827,7 @@ function private mod_is_gunfight()
 
 function private mod_apply()
 {
+    cfg_load();
     // ⚠ dvars_register() DISABLED 2026-09-13 (bocw-e1). Force-registering all 72 gf_* dvars at
     // match start overflows the GSC-VM dvar store -> FATAL "Can't register more dvar" and the game
     // crashes (klaze's crash dump named it: err 0xa370b5b4, offending-dvar hash 1e61d7c5cd9329f7 =
@@ -659,6 +844,7 @@ function private mod_apply()
     census_snapshot();
     if ( debug_feed_any() )
         debug_feed_start();
+    level thread mapdata_publish();     // GAME->APP map census (mapdata_scan.py)
 
     // Movement mods apply in EVERY gametype, so they run before the Gunfight gate.
     mod_movement();
@@ -717,6 +903,13 @@ function private mod_apply()
     // Round timer. gettimelimit() returns MINUTES, range [0, 1440]; a carry resets the
     // rules-menu value, and this re-applying per round is what makes it stick.
     level.gettimelimit = &mod_gettimelimit;
+
+    // Cache the round's base limit HERE (round start). mod_gettimelimit returns this cache,
+    // not a live cfg read - so changing gf_timer_seconds mid-round (the app's "Next round" =
+    // config only) no longer ends the current round the instant the new limit drops below the
+    // elapsed time (klaze 2026-09-15: "next round instantly restarts"). It applies at the NEXT
+    // round when this re-caches. "Apply now" (cmd_apply_live) refreshes the cache on purpose.
+    level.gf_timelimit_cache = cfg_timer_seconds() / 60;
 
     // Team size. maxplayers = 2 x per side; L6 measured it survives the round boundary,
     // so this is belt-and-braces against the CARRY, which re-initialises settings.
@@ -885,8 +1078,8 @@ function private mod_falldamage_apply()
 
     if ( cfg_falldamage() )
     {
-        setdvar( #"bg_falldamageminheight", getdvarint( #"gf_fd_min_stock", 128 ) );
-        setdvar( #"bg_falldamagemaxheight", getdvarint( #"gf_fd_max_stock", 300 ) );
+        setdvar( #"bg_falldamageminheight", cfg_geti( #"gf_fd_min_stock", 128 ) );
+        setdvar( #"bg_falldamagemaxheight", cfg_geti( #"gf_fd_max_stock", 300 ) );
     }
     else
     {
@@ -939,7 +1132,8 @@ function private mod_spawn_movement()
 function private speed_apply()
 {
     base = isdefined( self.movementspeedmodifier ) ? self.movementspeedmodifier : 1;
-    self setmovespeedscale( base * cfg_speed() / 100 );
+    pct = isdefined( self.gf_speed_pct ) ? self.gf_speed_pct : cfg_speed();   // per-client override (Players page)
+    self setmovespeedscale( base * pct / 100 );
 }
 
 function private speed_apply_all()
@@ -995,6 +1189,7 @@ function private fly_think()
 
     anchor = spawn( "script_origin", self.origin );
     anchor.angles = self.angles;
+    self.gf_fly_anchor = anchor;   // a teleport moves THIS while flying (tp_place)
     self.gf_fly = 1;
     self playerlinkto( anchor );
     self val::set( #"gf_fly", "disable_oob", 1 );
@@ -1031,6 +1226,7 @@ function private fly_cleanup( anchor )
         self unlink();
         self val::reset( #"gf_fly", "disable_oob" );
         self.gf_fly = 0;
+        self.gf_fly_anchor = undefined;
     }
 
     if ( isdefined( anchor ) )
@@ -1242,7 +1438,7 @@ function private broadcast_hint_manager()
     while ( isdefined( level.gf_hint_msg ) )
     {
         indent = "";
-        pad = getdvarint( #"gf_say_hint_indent", 0 );
+        pad = cfg_geti( #"gf_say_hint_indent", 0 );
         for ( i = 0; i < pad; i++ )
             indent += " ";
 
@@ -1391,7 +1587,10 @@ function private mod_gettimelimit()
     // ontimelimit never fires, the clock hides, and the round ends only when a team
     // is wiped. Returned unclamped on purpose - the stock gunfight::gettimelimit
     // floors at level.timelimitmin, which would turn 0 back into a limit.
-    timelimit = cfg_timer_seconds() / 60;
+    // Cached at round start (mod_apply / cmd_apply_live), NOT read live here, so a mid-round
+    // gf_timer_seconds change from the app's "Next round" defers to the next round instead of
+    // ending this one instantly. Fallback to the live read before the first cache exists.
+    timelimit = isdefined( level.gf_timelimit_cache ) ? level.gf_timelimit_cache : ( cfg_timer_seconds() / 60 );
 
     // Overtime. overtime() (gunfight.gsc:951) sets the HUD clock to extratime, but
     // checktimelimit() (globallogic.gsc:3313) measures expiry against level.timelimit,
@@ -1522,7 +1721,7 @@ function private mod_layout_keep()
 
 function private act_strike( item, value )
 {
-    setdvar( #"gf_strike", value );
+    cfg_seti( #"gf_strike", value );
     self menu_say( value ? "^2Crossroads Strike layout under Gunfight ON - from the next match/round" : "^2Crossroads: full map under Gunfight - stock" );
     return true;
 }
@@ -1544,7 +1743,10 @@ function private act_strike( item, value )
 // were very good, they switched sides and lined up well for Gunfight." The 78 tdm markers,
 // two ends picked geometrically, facing each other, sides swapped by the guard. Family: none
 // hands a map back to the engine's own start spawns.
-function private cfg_spawn_family()   { return getdvarint( #"gf_spawn_family", 1 ); }
+//   8 AUTO - DEFAULT since 2026-09-15 (the spawn keys below): the map's authored S&D starts
+//     when it has them on both sides, else its authored TDM starts, else (nothing authored)
+//     exactly the tdm geometric split above. "Proper" S&D / TDM spawns, per map, no data.
+function private cfg_spawn_family()   { return cfg_geti( #"gf_spawn_family", 8 ); }
 
 function private family_name( f )
 {
@@ -1555,6 +1757,7 @@ function private family_name( f )
     if ( f == 5 ) return "koth";
     if ( f == 6 ) return "control";
     if ( f == 7 ) return "dm";
+    if ( f == 8 ) return "auto";
     return "none";
 }
 
@@ -1564,9 +1767,9 @@ function private mod_marker_has( s, f )
 {
     if ( f == 1 ) return isdefined( s.tdm );
     if ( f == 2 ) return isdefined( s.sd );
-    if ( f == 3 ) return isdefined( s.dom );
+    if ( f == 3 ) return isdefined( s.dom ) || isdefined( s.domination );   // engine: spawnpoint.domination
     if ( f == 4 ) return isdefined( s.ctf );
-    if ( f == 5 ) return isdefined( s.koth );
+    if ( f == 5 ) return isdefined( s.koth ) || isdefined( s.hardpoint );    // engine: spawnpoint.hardpoint
     if ( f == 6 ) return isdefined( s.control );
     if ( f == 7 ) return isdefined( s.dm ) || isdefined( s.ffa );
     return false;
@@ -1619,9 +1822,333 @@ function private mod_marker_side( s, f )
     return 0;
 }
 
+// ── The REAL spawn keys (dump, 2026-09-15) ───────────────────────────────────
+// The engine's own spawn build (hashed spawning scripts script_335d0650ed05d36d.gsc
+// function_beae80f9 :194 + script_44b0b8420eabacad.gsc function_82ca1565 :306) reads three
+// things off every mp_spawn_point struct: the MODE FLAGS as plain fields (.tdm .sd .ctf
+// .control .domination .hardpoint .ffa .base ...), the TEAM as .group_index (1 = allies,
+// 2 = axis, 0 = either; swapped by function_3ea24e49 when game.switchedsides), and a START
+// flag that sends the marker to the engine's "start_spawn" list - field hash 0xa3c53936,
+// which ACTS prints as `_human_were` (a dictionary alias: the name compiles back to the same
+// hash, so this reads exactly the field the engine reads; the Radiant KVP behind it is
+// unknown). HQ markers carry .ishqspawn. So a mode's AUTHORED team starts - the points stock
+// S&D / TDM open on - are: flag && start && group_index 1/2. No geometry, no guessed side
+// names, every one designer-placed. Hijacked's FLAGS census (no `sd` on any marker) means
+// the remasters ship no S&D set, which is why AUTO falls back to the TDM starts.
+function private mod_marker_is_start( s ) { return is_true( s._human_were ); }
+function private mod_marker_group( s )    { return isdefined( s.group_index ) ? int( s.group_index ) : 0; }
+
+// MEASURED Standoff 2026-09-15 (STARTS tdm=29/0 dom=16/0 ctf=92/0 control=66/0 dm=37/8(1+1+6),
+// and mp_tdm_spawn_team1_start=6 / team2_start=6 by targetname): on the remasters the team-mode
+// markers carry NO start flag at all - only the FFA set does - and the TDM starts survive under
+// their BO2 NAMES as separate structs the T9 engine never reads (gettdmstartspawnname has no
+// caller). So a family's authored starts come from two places: the flagged markers (the T9
+// way) and the legacy-named start structs (the remaster way), targetname -> side.
+function private mod_named_side( p, fam )
+{
+    tn = p.targetname;
+    if ( !isdefined( tn ) )
+        return 0;
+
+    if ( fam == 1 )
+    {
+        if ( tn == "mp_tdm_spawn_allies_start" || tn == #"mp_tdm_spawn_allies_start" || tn == "mp_tdm_spawn_team1_start" || tn == #"mp_tdm_spawn_team1_start" ) return 1;
+        if ( tn == "mp_tdm_spawn_axis_start" || tn == #"mp_tdm_spawn_axis_start" || tn == "mp_tdm_spawn_team2_start" || tn == #"mp_tdm_spawn_team2_start" ) return 2;
+    }
+    else if ( fam == 2 )
+    {
+        if ( tn == "mp_sd_spawn_attacker" || tn == #"mp_sd_spawn_attacker" ) return 1;
+        if ( tn == "mp_sd_spawn_defender" || tn == #"mp_sd_spawn_defender" ) return 2;
+    }
+    else if ( fam == 3 )
+    {
+        if ( tn == "mp_dom_spawn_allies_start" || tn == #"mp_dom_spawn_allies_start" ) return 1;
+        if ( tn == "mp_dom_spawn_axis_start" || tn == #"mp_dom_spawn_axis_start" ) return 2;
+    }
+    else if ( fam == 4 )
+    {
+        if ( tn == "mp_ctf_spawn_allies_start" || tn == #"mp_ctf_spawn_allies_start" || tn == "mp_ctf_spawn_allies" || tn == #"mp_ctf_spawn_allies" ) return 1;
+        if ( tn == "mp_ctf_spawn_axis_start" || tn == #"mp_ctf_spawn_axis_start" || tn == "mp_ctf_spawn_axis" || tn == #"mp_ctf_spawn_axis" ) return 2;
+    }
+
+    return 0;
+}
+
+// ── S&D spawn GROUPS (dump, userspawnselection.gsc:793-869) ─────────────────
+// MEASURED Standoff + Raid 2026-09-16: no `sd` flag on ANY mp_spawn_point marker, yet both run
+// S&D in retail. BOCW S&D does not open on flagged starts at all - it uses spawn_group_marker
+// ENTITIES (classname), one per selectable spawn group: .script_team = sidea / sideb (mapped
+// to attackers / defenders by util::get_team_mapping, swapped on game.switchedsides), .target
+// = the groupname of its point structs (struct::get_array( target, "groupname" )), .spawnlist
+// = the engine list it fills, .script_objective = the minimap label. The player picks a group
+// at round start (the spawnselectenabled / usespawngroups gametype settings - off under
+// Gunfight) and the engine scores a point inside it. The entities and their structs are in
+// the map under every gametype, so a map's authored S&D bases are readable here: one group a
+// side (the largest) = the classic fixed S&D opening.
+function private mod_group_side( g )
+{
+    tm = g.script_team;
+    if ( !isdefined( tm ) )
+        return 0;
+
+    if ( tm == "sidea" || tm == #"sidea" || tm == "allies" || tm == #"allies" || tm == "attackers" || tm == #"attackers" )
+        return 1;
+    if ( tm == "sideb" || tm == #"sideb" || tm == "axis" || tm == #"axis" || tm == "defenders" || tm == #"defenders" )
+        return 2;
+
+    return 0;
+}
+
+// The map's spawn groups: g1 / g2 = arrays of point arrays per side, n = marker count,
+// u = markers whose side could not be read. Built once per level.
+function private mod_spawn_groups()
+{
+    if ( isdefined( level.gf_spawn_groups ) )
+        return level.gf_spawn_groups;
+
+    out = spawnstruct();
+    out.g1 = [];
+    out.g2 = [];
+    out.n = 0;
+    out.u = 0;
+    markers = getentarray( "spawn_group_marker", "classname" );
+
+    if ( isdefined( markers ) )
+    {
+        out.n = markers.size;
+
+        foreach ( m in markers )
+        {
+            side = mod_group_side( m );
+
+            if ( side == 0 || !isdefined( m.target ) )
+            {
+                out.u++;
+                continue;
+            }
+
+            raw = struct::get_array( m.target, "groupname" );
+            pts = [];
+
+            if ( isdefined( raw ) )
+            {
+                foreach ( s in raw )
+                {
+                    if ( isdefined( s ) && isdefined( s.origin ) )
+                        pts[ pts.size ] = s;
+                }
+            }
+
+            if ( pts.size == 0 )
+            {
+                out.u++;
+                continue;
+            }
+
+            if ( side == 1 )
+                out.g1[ out.g1.size ] = pts;
+            else
+                out.g2[ out.g2.size ] = pts;
+        }
+    }
+
+    level.gf_spawn_groups = out;
+    return out;
+}
+
+// The largest group of a side (ties: first), or undefined.
+function private mod_group_largest( groups )
+{
+    best = undefined;
+
+    foreach ( g in groups )
+    {
+        if ( !isdefined( best ) || g.size > best.size )
+            best = g;
+    }
+
+    return best;
+}
+
+// ` | GROUPS n=6 a=3(6,5,4) b=3(6,6,5)` for the STARTS line.
+function private mod_groups_tally()
+{
+    gr = mod_spawn_groups();
+    out = " | GROUPS n=" + gr.n;
+
+    if ( gr.u > 0 )
+        out += " u=" + gr.u;
+
+    out += " a=" + gr.g1.size + "(";
+    for ( i = 0; i < gr.g1.size; i++ )
+        out += ( i > 0 ? "," : "" ) + gr.g1[ i ].size;
+    out += ") b=" + gr.g2.size + "(";
+    for ( i = 0; i < gr.g2.size; i++ )
+        out += ( i > 0 ? "," : "" ) + gr.g2[ i ].size;
+    out += ")";
+    return out;
+}
+
+// The authored starts of one family among `pts`, split by side: { #a1, #a2 } - for S&D the
+// map's spawn groups (largest group a side) when it has them, else the flagged markers (flag
+// + start + group_index) plus the legacy-named start structs.
+function private mod_family_starts( pts, fam )
+{
+    a1 = [];
+    a2 = [];
+
+    if ( fam == 2 )
+    {
+        gr = mod_spawn_groups();
+        b1 = mod_group_largest( gr.g1 );
+        b2 = mod_group_largest( gr.g2 );
+
+        if ( isdefined( b1 ) && isdefined( b2 ) && b1.size >= 2 && b2.size >= 2 )
+            return { #a1:b1, #a2:b2 };
+    }
+
+    foreach ( p in pts )
+    {
+        side = mod_named_side( p, fam );
+
+        if ( side == 0 && mod_marker_has( p, fam ) && mod_marker_is_start( p ) )
+            side = mod_marker_group( p );
+
+        if ( side == 1 )
+            a1[ a1.size ] = p;
+        else if ( side == 2 )
+            a2[ a2.size ] = p;
+    }
+
+    return { #a1:a1, #a2:a2 };
+}
+
+// The legacy-named start structs per family, as ` tdm=6/6 sd=0/0 dom=0/0 ctf=0/0`.
+function private mod_named_tally( pts )
+{
+    out = "";
+
+    for ( f = 1; f <= 4; f++ )
+    {
+        n1 = 0;
+        n2 = 0;
+
+        foreach ( p in pts )
+        {
+            side = mod_named_side( p, f );
+            if ( side == 1 )
+                n1++;
+            else if ( side == 2 )
+                n2++;
+        }
+
+        out += " " + family_name( f ) + "=" + n1 + "/" + n2;
+    }
+
+    return out;
+}
+
+// The STARTS feed line (spawn families toggle) - its own line so FAMILIES stays inside the
+// HUD width (Standoff's read was cut at "sep=" with the tally appended).
+function private starts_line()
+{
+    if ( isdefined( level.gf_starts_line ) )
+        return level.gf_starts_line;
+
+    level.gf_starts_line = "^3STARTS^7" + mod_starts_tally() + " | NAMED" + mod_named_tally( mod_gather_spawns() ) + mod_groups_tally();
+    return level.gf_starts_line;
+}
+
+// Family AUTO (8): the map's S&D starts when it authors them on both sides, else its TDM
+// starts (klaze, 2026-09-15: "if a map doesn't have sd spawns we should use tdm spawns").
+// A map with neither authored resolves to tdm and mod_spawn_build does what it always did
+// for tdm (the geometric two-sides search) - so AUTO can never do worse than the old default.
+function private mod_family_auto( pts )
+{
+    st = mod_family_starts( pts, 2 );
+    if ( st.a1.size >= 2 && st.a2.size >= 2 )
+        return 2;
+    return 1;
+}
+
+// Anchors that keep the marker's OWN angles: authored starts face where the designer aimed
+// them (mod_anchor_copies re-aims at the other side, right only for a geometric guess).
+function private mod_anchor_authored( markers )
+{
+    out = [];
+
+    foreach ( m in markers )
+    {
+        a = spawnstruct();
+        a.origin = m.origin;
+        a.angles = isdefined( m.angles ) ? m.angles : ( 0, 0, 0 );
+        out[ out.size ] = a;
+    }
+
+    return out;
+}
+
+// STARTS tally for the FAMILIES line: per mode flag `markers/starts(group1+group2+either)`,
+// then hq. `tdm=78/12(6+6+0)` = 78 tdm markers, 12 authored starts, 6 a side. Modes with no
+// marker are skipped. Built once per level.
+function private mod_starts_tally()
+{
+    if ( isdefined( level.gf_starts_tally ) )
+        return level.gf_starts_tally;
+
+    arr = struct::get_array( "mp_spawn_point", "targetname" );
+    if ( !isdefined( arr ) )
+        arr = [];
+
+    out = "";
+
+    for ( f = 1; f <= 7; f++ )
+    {
+        n = 0;
+        s0 = 0;
+        s1 = 0;
+        s2 = 0;
+
+        foreach ( s in arr )
+        {
+            if ( !mod_marker_has( s, f ) )
+                continue;
+
+            n++;
+
+            if ( !mod_marker_is_start( s ) )
+                continue;
+
+            g = mod_marker_group( s );
+            if ( g == 1 )
+                s1++;
+            else if ( g == 2 )
+                s2++;
+            else
+                s0++;
+        }
+
+        if ( n == 0 )
+            continue;
+
+        out += " " + family_name( f ) + "=" + n + "/" + ( s0 + s1 + s2 ) + "(" + s1 + "+" + s2 + "+" + s0 + ")";
+    }
+
+    hq = 0;
+    foreach ( s in arr )
+    {
+        if ( is_true( s.ishqspawn ) )
+            hq++;
+    }
+
+    out += " hq=" + hq;
+    level.gf_starts_tally = out;
+    return out;
+}
+
 function private act_spawn_family( item, value )
 {
-    setdvar( #"gf_spawn_family", value );
+    cfg_seti( #"gf_spawn_family", value );
     if ( cfg_spawn_guard() )
     {
         mod_spawn_build();
@@ -1860,8 +2387,521 @@ function private flags_line2()
     return line;
 }
 
-function private cfg_dbg_flags()    { return getdvarint( #"gf_dbg_flags", 0 ); }
+function private cfg_dbg_flags()    { return cfg_geti( #"gf_dbg_flags", 0 ); }
 function private act_dbg_flags( item ) { return self act_dbg( item, #"gf_dbg_flags", 1, "marker flags" ); }
+
+// ── ASSET CENSUS (gf_dbg_assets) — src/vehicle_probe + src/prop_probe as feed lines ─────
+// Measured 2026-09-15 (vehicles.md §5): isassetloaded( "vehicle", #"name" ) - the PLAIN-STRING
+// type argument, the only form stock uses - answers residency per map; the hashed-type form
+// (#"vehicle") says yes to everything and is void. The 105 names are the dump's veh_t8/t9_*
+// xmodel names; on mp_sm_gas_station exactly one is a resident vehicle asset (#82, the
+// Chopper Gunner), so the model# names are a working candidate list for vehicle#.
+// Computed once per round (level is rebuilt each round), then re-printed every tick.
+//
+//   VEHICLES <map> G=n E=n{type:count,...} M=n[i:name,...] S=n N=154
+//     G  bogus-asset control - MUST BE 0 or the line is void
+//     E  vehicle ENTITIES present in the level now (getvehiclearray) - the direct answer to
+//        "which vehicles does this map have IN THIS MODE" - as index:namexcount for types in our
+//        candidate list, u=n for types outside it. (No function_9e72a96: it is DEV-ONLY, crashes retail.)
+//     M  resident vehicle ASSETS among the candidates, as index:name (index = list order below;
+//        0-104 the veh_t9_* streak/xmodel style, 105+ the real vehicle_t9_*/wz names)
+//     S  veh_spawn_point structs on this map (stock Path A, initvehiclemap - expect 0)
+//   PROPS <map> tbl=n rows=n xs= s= m= l= xl= other= first=<model> res=n G=n
+//     tbl  isassetloaded( "stringtable", gamedata/tables/mp/<map>_ph.csv ) - stock's own guard
+//          before a table it is not sure of (scoreevents_shared.gsc:502). 0 = no table here.
+//     rows the curated Prop Hunt props for this map (prop.gsc:1850), size buckets per column 1
+//     first/res  row-0 model name, read live, and whether it is a resident xmodel
+//
+// ⚠ getmapname() and tablelookupbyrow() in prop.gsc are SCRIPT functions, not builtins -
+//    calling them bare crashed the game twice at link time. level.script + tablelookuprow.
+function private assets_line_v()
+{
+    if ( isdefined( level.gf_assets_v ) )
+        return level.gf_assets_v;
+
+    names = assets_names();
+    m = assets_candidates();
+    n = 0;
+    txt = "";
+
+    for ( i = 0; i < m.size; i++ )
+    {
+        if ( isassetloaded( "vehicle", m[ i ] ) )
+        {
+            n++;
+
+            if ( n <= 24 )
+                txt += ( n > 1 ? "," : "" ) + i + ":" + names[ i ];
+        }
+    }
+
+    bogus = isassetloaded( "vehicle", #"veh_t9_gf_probe_nonexistent_asset" ) ? 1 : 0;
+    nodes = struct::get_array( "veh_spawn_point", "targetname" );
+    spawnpoints = isdefined( nodes ) ? nodes.size : 0;
+
+    // E = the vehicle ENTITIES present in the level right now. getvehiclearray() is a normal
+    // builtin (type 0). We identify each by matching its .vehicletype against our own candidate
+    // list by INDEX - NOT function_9e72a96(), which is a DEV-ONLY builtin (funcs_cw.csv type=1)
+    // and crashes retail with "Dev only calls must be wrapped in a devblock" (klaze, 2026-09-15,
+    // wz_duga + gas_station). Live types not in our list are counted in u=. Fireteam maps place
+    // their vehicles in Radiant and the engine spawns them for that gametype only, so under
+    // TDM/Gunfight the map's own vehicles do not exist as entities even where assets are resident.
+    vehs = getvehiclearray();
+    ecount = isdefined( vehs ) ? vehs.size : 0;
+    unknown = 0;
+    hit_i = [];
+    hit_n = [];
+
+    if ( isdefined( vehs ) )
+    {
+        foreach ( v in vehs )
+        {
+            vt = v.vehicletype;
+            idx = -1;
+
+            if ( isdefined( vt ) )
+            {
+                for ( k = 0; k < m.size; k++ )
+                {
+                    if ( m[ k ] == vt )
+                    {
+                        idx = k;
+                        break;
+                    }
+                }
+            }
+
+            if ( idx < 0 )
+            {
+                unknown++;
+                continue;
+            }
+
+            found = 0;
+
+            for ( k = 0; k < hit_i.size; k++ )
+            {
+                if ( hit_i[ k ] == idx )
+                {
+                    hit_n[ k ]++;
+                    found = 1;
+                    break;
+                }
+            }
+
+            if ( !found )
+            {
+                hit_i[ hit_i.size ] = idx;
+                hit_n[ hit_n.size ] = 1;
+            }
+        }
+    }
+
+    etxt = "";
+
+    for ( k = 0; k < hit_i.size && k < 16; k++ )
+        etxt += ( k > 0 ? "," : "" ) + hit_i[ k ] + ":" + names[ hit_i[ k ] ] + "x" + hit_n[ k ];
+
+    level.gf_assets_v = "^3VEHICLES^7 " + getdvarstring( #"sv_mapname", "?" ) + " G=" + bogus
+        + " E=" + ecount + "{" + etxt + ( hit_i.size > 16 ? ",..." : "" ) + " u=" + unknown + "}"
+        + " M=" + n + "[" + txt + ( n > 24 ? ",..." : "" ) + "] S=" + spawnpoints + " N=" + m.size;
+    return level.gf_assets_v;
+}
+
+function private assets_line_p()
+{
+    if ( isdefined( level.gf_assets_p ) )
+        return level.gf_assets_p;
+
+    mapname = level.script;
+
+    if ( !isdefined( mapname ) )
+        mapname = util::get_map_name();
+
+    path = "gamedata/tables/mp/" + mapname + "_ph.csv";
+    bogus = isassetloaded( "xmodel", #"p9_gf_probe_nonexistent_prop" ) ? 1 : 0;
+    head = "^3PROPS^7 " + getdvarstring( #"sv_mapname", "?" );
+
+    if ( !isassetloaded( "stringtable", path ) )
+    {
+        level.gf_assets_p = head + " tbl=0 G=" + bogus;
+        return level.gf_assets_p;
+    }
+
+    numrows = tablelookuprowcount( path );
+
+    if ( !isdefined( numrows ) )
+        numrows = 0;
+
+    xs = 0; sm = 0; md = 0; lg = 0; xl = 0; other = 0;
+
+    for ( i = 0; i < numrows; i++ )
+    {
+        switch ( assets_table_cell( path, i, 1 ) )
+        {
+            case #"xsmall": xs++; break;
+            case #"small": sm++; break;
+            case #"medium": md++; break;
+            case #"large": lg++; break;
+            case #"xlarge": xl++; break;
+            default: other++; break;
+        }
+    }
+
+    first = "-";
+    res = "-";
+
+    if ( numrows > 0 )
+    {
+        firstmodel = assets_table_cell( path, 0, 0 );
+
+        if ( isdefined( firstmodel ) && firstmodel != "" )
+        {
+            first = firstmodel;
+            res = isassetloaded( "xmodel", firstmodel ) ? 1 : 0;
+        }
+    }
+
+    level.gf_assets_p = head + " tbl=1 rows=" + numrows + " xs=" + xs + " s=" + sm + " m=" + md
+        + " l=" + lg + " xl=" + xl + " other=" + other + " first=" + first + " res=" + res + " G=" + bogus;
+    return level.gf_assets_p;
+}
+
+// prop.gsc:1834 as a local: the real builtin tablelookuprow( table, row ) returns the row as an array.
+function private assets_table_cell( table, row, col )
+{
+    columns = tablelookuprow( table, row );
+
+    if ( isdefined( columns ) && col < columns.size )
+        return columns[ col ];
+
+    return "";
+}
+
+// The 105 candidates, hashed (what the engine is asked). Same order as assets_names().
+function private assets_candidates()
+{
+    c = [];
+    c[c.size] = #"veh_t8_drone_hunter_mp_light";
+    c[c.size] = #"veh_t8_drone_raps";
+    c[c.size] = #"veh_t8_drone_recon_cp_light_small";
+    c[c.size] = #"veh_t8_drone_siege_arm_d";
+    c[c.size] = #"veh_t8_drone_siege_minigun_d";
+    c[c.size] = #"veh_t8_drone_siege_rocket_d";
+    c[c.size] = #"veh_t8_drone_wasp_piece_body_mp";
+    c[c.size] = #"veh_t8_drone_wasp_piece_wing_rocket_left_mp";
+    c[c.size] = #"veh_t8_drone_wasp_piece_wing_rocket_right_mp";
+    c[c.size] = #"veh_t8_mil_air_gunship";
+    c[c.size] = #"veh_t8_mil_air_jet_fighter_mp_dark";
+    c[c.size] = #"veh_t8_mil_air_jet_fighter_mp_light";
+    c[c.size] = #"veh_t8_mil_boat_tactical_raft";
+    c[c.size] = #"veh_t8_mil_helicopter_light_debris_fastrope_bar";
+    c[c.size] = #"veh_t8_mil_helicopter_light_debris_skids";
+    c[c.size] = #"veh_t8_mil_helicopter_light_debris_tail";
+    c[c.size] = #"veh_t8_mil_jet_cargo_gunship_pickup";
+    c[c.size] = #"veh_t8_soviet_civ_sedan_midsize_dest_vehicle";
+    c[c.size] = #"veh_t8_vintage_gaz66_troopbed";
+    c[c.size] = #"veh_t9_civ_eu_2dr_wagon_blue";
+    c[c.size] = #"veh_t9_civ_eu_2dr_wagon_red";
+    c[c.size] = #"veh_t9_civ_eu_bicycle";
+    c[c.size] = #"veh_t9_civ_eu_sedan_50s";
+    c[c.size] = #"veh_t9_civ_eu_van_work";
+    c[c.size] = #"veh_t9_civ_eu_wagon_50s";
+    c[c.size] = #"veh_t9_civ_hatchback_80s_tan";
+    c[c.size] = #"veh_t9_civ_hatchback_80s_tan_eu_tkd";
+    c[c.size] = #"veh_t9_civ_ru_bus_large";
+    c[c.size] = #"veh_t9_civ_ru_sedan_60s_vista";
+    c[c.size] = #"veh_t9_civ_ru_sedan_80s";
+    c[c.size] = #"veh_t9_civ_ru_sedan_80s_base";
+    c[c.size] = #"veh_t9_civ_ru_sedan_80s_cp";
+    c[c.size] = #"veh_t9_civ_ru_sedan_80s_cp_wet";
+    c[c.size] = #"veh_t9_civ_ru_sedan_80s_kgb_cp";
+    c[c.size] = #"veh_t9_civ_ru_sedan_80s_police_lit";
+    c[c.size] = #"veh_t9_civ_ru_truck_light_hardtop_cp";
+    c[c.size] = #"veh_t9_civ_us_station_wagon_vista_wht";
+    c[c.size] = #"veh_t9_civ_us_truck_4x4_cp_duga";
+    c[c.size] = #"veh_t9_civ_us_truck_4x4_cp_turkey";
+    c[c.size] = #"veh_t9_civ_us_van_vista_window";
+    c[c.size] = #"veh_t9_drone_rcxd_pickup";
+    c[c.size] = #"veh_t9_mil_air_flogger_fly_napalm";
+    c[c.size] = #"veh_t9_mil_air_flogger_pickup";
+    c[c.size] = #"veh_t9_mil_air_transport_cp";
+    c[c.size] = #"veh_t9_mil_gaz66_riders";
+    c[c.size] = #"veh_t9_mil_helicopter_gunship_riders";
+    c[c.size] = #"veh_t9_mil_remote_missile";
+    c[c.size] = #"veh_t9_mil_remote_missile_pickup";
+    c[c.size] = #"veh_t9_mil_ru_air_awacs_gear_down";
+    c[c.size] = #"veh_t9_mil_ru_air_counter_spyplane_mp";
+    c[c.size] = #"veh_t9_mil_ru_air_counter_spyplane_mp_friendly";
+    c[c.size] = #"veh_t9_mil_ru_air_counter_spyplane_pickup";
+    c[c.size] = #"veh_t9_mil_ru_air_flogger_flight";
+    c[c.size] = #"veh_t9_mil_ru_air_frogfoot_mp";
+    c[c.size] = #"veh_t9_mil_ru_air_frogfoot_pickup";
+    c[c.size] = #"veh_t9_mil_ru_air_spyplane_friendly_mp";
+    c[c.size] = #"veh_t9_mil_ru_air_spyplane_mp";
+    c[c.size] = #"veh_t9_mil_ru_air_spyplane_pickup";
+    c[c.size] = #"veh_t9_mil_ru_air_vtol_forger_cockpit";
+    c[c.size] = #"veh_t9_mil_ru_air_vtol_forger_flight";
+    c[c.size] = #"veh_t9_mil_ru_air_vtol_forger_pickup";
+    c[c.size] = #"veh_t9_mil_ru_heli_gunship_hind";
+    c[c.size] = #"veh_t9_mil_ru_heli_gunship_hind_yam";
+    c[c.size] = #"veh_t9_mil_ru_truck_50s_cargo_delivery_tenla_market";
+    c[c.size] = #"veh_t9_mil_ru_truck_light_base";
+    c[c.size] = #"veh_t9_mil_ru_truck_light_mp_tundra";
+    c[c.size] = #"veh_t9_mil_ru_truck_transport";
+    c[c.size] = #"veh_t9_mil_snowmobile_spawn_medpack";
+    c[c.size] = #"veh_t9_mil_snowmobile_spawn_ski";
+    c[c.size] = #"veh_t9_mil_us_air_aurora_spyplane_friendly";
+    c[c.size] = #"veh_t9_mil_us_air_napalm_bomb_projectile";
+    c[c.size] = #"veh_t9_mil_us_air_napalm_bomb_projectile_lrg";
+    c[c.size] = #"veh_t9_mil_us_air_napalm_strike";
+    c[c.size] = #"veh_t9_mil_us_air_napalm_strike_pickup";
+    c[c.size] = #"veh_t9_mil_us_air_napalm_strike_vista";
+    c[c.size] = #"veh_t9_mil_us_air_snake";
+    c[c.size] = #"veh_t9_mil_us_air_snake_finish_move_vehicle";
+    c[c.size] = #"veh_t9_mil_us_air_snake_pickup";
+    c[c.size] = #"veh_t9_mil_us_air_snake_riders";
+    c[c.size] = #"veh_t9_mil_us_air_transport_hpc_intro";
+    c[c.size] = #"veh_t9_mil_us_air_transport_static_ground";
+    c[c.size] = #"veh_t9_mil_us_helicopter_large_armada_turret_base";
+    c[c.size] = #"veh_t9_mil_us_helicopter_large_chopper_gunner";
+    c[c.size] = #"veh_t9_mil_us_helicopter_large_cp_armada";
+    c[c.size] = #"veh_t9_mil_us_helicopter_large_cp_armada_02";
+    c[c.size] = #"veh_t9_mil_us_helicopter_large_cp_prisoner_dest";
+    c[c.size] = #"veh_t9_mil_us_helicopter_large_cp_takedown";
+    c[c.size] = #"veh_t9_mil_us_helicopter_large_pickup";
+    c[c.size] = #"veh_t9_mil_us_helicopter_large_riders";
+    c[c.size] = #"veh_t9_mil_us_helicopter_large_riders_armada_ai";
+    c[c.size] = #"veh_t9_mil_us_helicopter_large_riders_armada_player";
+    c[c.size] = #"veh_t9_mil_us_helicopter_large_static";
+    c[c.size] = #"veh_t9_mil_us_helicopter_large_vip_settings";
+    c[c.size] = #"veh_t9_mil_us_helicopter_light_zm_sv_intro_static";
+    c[c.size] = #"veh_t9_mil_us_turret_lmg_stationary_cp";
+    c[c.size] = #"veh_t9_mphd_uaz_riders";
+    c[c.size] = #"veh_t9_mphd_uaz_riders_amk";
+    c[c.size] = #"veh_t9_mphd_uaz_riders_takedown";
+    c[c.size] = #"veh_t9_rcxd_finish_prop_fin_move";
+    c[c.size] = #"veh_t9_sv_atv_payload";
+    c[c.size] = #"veh_t9_sv_truck_hemtt_payload_delivery";
+    c[c.size] = #"veh_t9_turret_m60_riders";
+    c[c.size] = #"veh_t9_turret_mg_riders";
+    c[c.size] = #"veh_t9_zm_arc_xd";
+    c[c.size] = #"veh_t9_zm_ndu_mil_tank_tiger";
+    // batch 2 (index 105+): the REAL vehicle namespace - Fireteam player vehicles, their
+    // hashed siblings, MP streak/insertion/supply vehicles - harvested from the dump 2026-09-15
+    // after klaze read "just the Chopper Gunner" on Ruka, a map with a dozen vehicle kinds.
+    c[c.size] = #"vehicle_t9_mil_fav_light";
+    c[c.size] = #"veh_mil_ru_fav_heavy";
+    c[c.size] = #"vehicle_t9_mil_snowmobile";
+    c[c.size] = #"vehicle_t9_mil_ru_truck_light_player";
+    c[c.size] = #"vehicle_t9_civ_ru_sedan_80s_player";
+    c[c.size] = #"vehicle_motorcycle_mil_us_offroad";
+    c[c.size] = #"veh_quad_player_wz_blk";
+    c[c.size] = #"veh_quad_player_wz_grn";
+    c[c.size] = #"veh_quad_player_wz_tan";
+    c[c.size] = #"vehicle_t9_mil_ru_truck_transport_player";
+    c[c.size] = #"vehicle_t9_mil_ru_truck_transport_player_obj_sr";
+    c[c.size] = #"vehicle_t9_mil_ru_tank_t72_sr";
+    c[c.size] = #"vehicle_t8_mil_tank_wz_base_mg";
+    c[c.size] = #"vehicle_t9_mil_ru_heli_gunship_hind_wz";
+    c[c.size] = #"vehicle_t9_plane_flyable_prototype";
+    c[c.size] = #"veh_boct_mil_jetski";
+    c[c.size] = #"vehicle_boct_mil_boat_pbr";
+    c[c.size] = #"vehicle_t9_mil_boat_tactical_raft_bundle_settings";
+    c[c.size] = #"hash_17e868e0ebf3c1d6";
+    c[c.size] = #"hash_232abda4e81275f4";
+    c[c.size] = #"hash_28d512b739c9d9c1";
+    c[c.size] = #"hash_2a245bf3738fed8b";
+    c[c.size] = #"hash_2c0e11a1e87bbcd5";
+    c[c.size] = #"hash_2d32c08b862baa46";
+    c[c.size] = #"hash_2f8d60a5381870ee";
+    c[c.size] = #"hash_42b91f3544c1a9e1";
+    c[c.size] = #"hash_6595f5efe62a4ec";
+    c[c.size] = #"hash_985b7e40ee02aa2";
+    c[c.size] = #"hash_dd63f34c77a725e";
+    c[c.size] = #"vehicle_t9_mil_helicopter_care_package";
+    c[c.size] = #"vehicle_t9_mil_ru_heli_transport_vehicle_drop";
+    c[c.size] = #"vehicle_t8_mil_air_transport_infiltration";
+    c[c.size] = #"vehicle_t8_mil_helicopter_transport_dark_wz_infiltration";
+    c[c.size] = #"vehicle_t8_mil_helicopter_gunship_wz_infiltration";
+    c[c.size] = #"vehicle_t8_mil_helicopter_light_transport_wz_infil";
+    c[c.size] = #"vehicle_t9_mil_air_transport_hpc_intro";
+    c[c.size] = #"vehicle_t9_mil_us_helicopter_large_mp_intro";
+    c[c.size] = #"vehicle_t9_mil_us_helicopter_large_vip_extract_anims";
+    c[c.size] = #"vehicle_t9_rcxd_racing";
+    c[c.size] = #"veh_t7_mil_vtol_fighter_mp";
+    c[c.size] = #"veh_t6_air_a10f";
+    c[c.size] = #"veh_t7_drone_hunter";
+    c[c.size] = #"veh_flak_drone_mp";
+    c[c.size] = #"vehicle_ac130";
+    c[c.size] = #"vehicle_t9_mil_us_helicopter_large_cp_armada_player";
+    c[c.size] = #"vehicle_t9_mil_us_truck_m35_canvas_cp";
+    c[c.size] = #"vehicle_t9_mil_us_truck_m35_cargo_cp";
+    c[c.size] = #"vehicle_t9_mil_us_truck_m35_tanker_cp";
+    c[c.size] = #"vehicle_t9_mil_ru_truck_light_cp_canvas_top";
+    return c;
+}
+
+// The same 105 as display strings, SAME ORDER - never handed to the engine.
+function private assets_names()
+{
+    c = [];
+    c[c.size] = "veh_t8_drone_hunter_mp_light";
+    c[c.size] = "veh_t8_drone_raps";
+    c[c.size] = "veh_t8_drone_recon_cp_light_small";
+    c[c.size] = "veh_t8_drone_siege_arm_d";
+    c[c.size] = "veh_t8_drone_siege_minigun_d";
+    c[c.size] = "veh_t8_drone_siege_rocket_d";
+    c[c.size] = "veh_t8_drone_wasp_piece_body_mp";
+    c[c.size] = "veh_t8_drone_wasp_piece_wing_rocket_left_mp";
+    c[c.size] = "veh_t8_drone_wasp_piece_wing_rocket_right_mp";
+    c[c.size] = "veh_t8_mil_air_gunship";
+    c[c.size] = "veh_t8_mil_air_jet_fighter_mp_dark";
+    c[c.size] = "veh_t8_mil_air_jet_fighter_mp_light";
+    c[c.size] = "veh_t8_mil_boat_tactical_raft";
+    c[c.size] = "veh_t8_mil_helicopter_light_debris_fastrope_bar";
+    c[c.size] = "veh_t8_mil_helicopter_light_debris_skids";
+    c[c.size] = "veh_t8_mil_helicopter_light_debris_tail";
+    c[c.size] = "veh_t8_mil_jet_cargo_gunship_pickup";
+    c[c.size] = "veh_t8_soviet_civ_sedan_midsize_dest_vehicle";
+    c[c.size] = "veh_t8_vintage_gaz66_troopbed";
+    c[c.size] = "veh_t9_civ_eu_2dr_wagon_blue";
+    c[c.size] = "veh_t9_civ_eu_2dr_wagon_red";
+    c[c.size] = "veh_t9_civ_eu_bicycle";
+    c[c.size] = "veh_t9_civ_eu_sedan_50s";
+    c[c.size] = "veh_t9_civ_eu_van_work";
+    c[c.size] = "veh_t9_civ_eu_wagon_50s";
+    c[c.size] = "veh_t9_civ_hatchback_80s_tan";
+    c[c.size] = "veh_t9_civ_hatchback_80s_tan_eu_tkd";
+    c[c.size] = "veh_t9_civ_ru_bus_large";
+    c[c.size] = "veh_t9_civ_ru_sedan_60s_vista";
+    c[c.size] = "veh_t9_civ_ru_sedan_80s";
+    c[c.size] = "veh_t9_civ_ru_sedan_80s_base";
+    c[c.size] = "veh_t9_civ_ru_sedan_80s_cp";
+    c[c.size] = "veh_t9_civ_ru_sedan_80s_cp_wet";
+    c[c.size] = "veh_t9_civ_ru_sedan_80s_kgb_cp";
+    c[c.size] = "veh_t9_civ_ru_sedan_80s_police_lit";
+    c[c.size] = "veh_t9_civ_ru_truck_light_hardtop_cp";
+    c[c.size] = "veh_t9_civ_us_station_wagon_vista_wht";
+    c[c.size] = "veh_t9_civ_us_truck_4x4_cp_duga";
+    c[c.size] = "veh_t9_civ_us_truck_4x4_cp_turkey";
+    c[c.size] = "veh_t9_civ_us_van_vista_window";
+    c[c.size] = "veh_t9_drone_rcxd_pickup";
+    c[c.size] = "veh_t9_mil_air_flogger_fly_napalm";
+    c[c.size] = "veh_t9_mil_air_flogger_pickup";
+    c[c.size] = "veh_t9_mil_air_transport_cp";
+    c[c.size] = "veh_t9_mil_gaz66_riders";
+    c[c.size] = "veh_t9_mil_helicopter_gunship_riders";
+    c[c.size] = "veh_t9_mil_remote_missile";
+    c[c.size] = "veh_t9_mil_remote_missile_pickup";
+    c[c.size] = "veh_t9_mil_ru_air_awacs_gear_down";
+    c[c.size] = "veh_t9_mil_ru_air_counter_spyplane_mp";
+    c[c.size] = "veh_t9_mil_ru_air_counter_spyplane_mp_friendly";
+    c[c.size] = "veh_t9_mil_ru_air_counter_spyplane_pickup";
+    c[c.size] = "veh_t9_mil_ru_air_flogger_flight";
+    c[c.size] = "veh_t9_mil_ru_air_frogfoot_mp";
+    c[c.size] = "veh_t9_mil_ru_air_frogfoot_pickup";
+    c[c.size] = "veh_t9_mil_ru_air_spyplane_friendly_mp";
+    c[c.size] = "veh_t9_mil_ru_air_spyplane_mp";
+    c[c.size] = "veh_t9_mil_ru_air_spyplane_pickup";
+    c[c.size] = "veh_t9_mil_ru_air_vtol_forger_cockpit";
+    c[c.size] = "veh_t9_mil_ru_air_vtol_forger_flight";
+    c[c.size] = "veh_t9_mil_ru_air_vtol_forger_pickup";
+    c[c.size] = "veh_t9_mil_ru_heli_gunship_hind";
+    c[c.size] = "veh_t9_mil_ru_heli_gunship_hind_yam";
+    c[c.size] = "veh_t9_mil_ru_truck_50s_cargo_delivery_tenla_market";
+    c[c.size] = "veh_t9_mil_ru_truck_light_base";
+    c[c.size] = "veh_t9_mil_ru_truck_light_mp_tundra";
+    c[c.size] = "veh_t9_mil_ru_truck_transport";
+    c[c.size] = "veh_t9_mil_snowmobile_spawn_medpack";
+    c[c.size] = "veh_t9_mil_snowmobile_spawn_ski";
+    c[c.size] = "veh_t9_mil_us_air_aurora_spyplane_friendly";
+    c[c.size] = "veh_t9_mil_us_air_napalm_bomb_projectile";
+    c[c.size] = "veh_t9_mil_us_air_napalm_bomb_projectile_lrg";
+    c[c.size] = "veh_t9_mil_us_air_napalm_strike";
+    c[c.size] = "veh_t9_mil_us_air_napalm_strike_pickup";
+    c[c.size] = "veh_t9_mil_us_air_napalm_strike_vista";
+    c[c.size] = "veh_t9_mil_us_air_snake";
+    c[c.size] = "veh_t9_mil_us_air_snake_finish_move_vehicle";
+    c[c.size] = "veh_t9_mil_us_air_snake_pickup";
+    c[c.size] = "veh_t9_mil_us_air_snake_riders";
+    c[c.size] = "veh_t9_mil_us_air_transport_hpc_intro";
+    c[c.size] = "veh_t9_mil_us_air_transport_static_ground";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_armada_turret_base";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_chopper_gunner";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_cp_armada";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_cp_armada_02";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_cp_prisoner_dest";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_cp_takedown";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_pickup";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_riders";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_riders_armada_ai";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_riders_armada_player";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_static";
+    c[c.size] = "veh_t9_mil_us_helicopter_large_vip_settings";
+    c[c.size] = "veh_t9_mil_us_helicopter_light_zm_sv_intro_static";
+    c[c.size] = "veh_t9_mil_us_turret_lmg_stationary_cp";
+    c[c.size] = "veh_t9_mphd_uaz_riders";
+    c[c.size] = "veh_t9_mphd_uaz_riders_amk";
+    c[c.size] = "veh_t9_mphd_uaz_riders_takedown";
+    c[c.size] = "veh_t9_rcxd_finish_prop_fin_move";
+    c[c.size] = "veh_t9_sv_atv_payload";
+    c[c.size] = "veh_t9_sv_truck_hemtt_payload_delivery";
+    c[c.size] = "veh_t9_turret_m60_riders";
+    c[c.size] = "veh_t9_turret_mg_riders";
+    c[c.size] = "veh_t9_zm_arc_xd";
+    c[c.size] = "veh_t9_zm_ndu_mil_tank_tiger";
+    c[c.size] = "vehicle_t9_mil_fav_light";
+    c[c.size] = "veh_mil_ru_fav_heavy";
+    c[c.size] = "vehicle_t9_mil_snowmobile";
+    c[c.size] = "vehicle_t9_mil_ru_truck_light_player";
+    c[c.size] = "vehicle_t9_civ_ru_sedan_80s_player";
+    c[c.size] = "vehicle_motorcycle_mil_us_offroad";
+    c[c.size] = "veh_quad_player_wz_blk";
+    c[c.size] = "veh_quad_player_wz_grn";
+    c[c.size] = "veh_quad_player_wz_tan";
+    c[c.size] = "vehicle_t9_mil_ru_truck_transport_player";
+    c[c.size] = "vehicle_t9_mil_ru_truck_transport_player_obj_sr";
+    c[c.size] = "vehicle_t9_mil_ru_tank_t72_sr";
+    c[c.size] = "vehicle_t8_mil_tank_wz_base_mg";
+    c[c.size] = "vehicle_t9_mil_ru_heli_gunship_hind_wz";
+    c[c.size] = "vehicle_t9_plane_flyable_prototype";
+    c[c.size] = "veh_boct_mil_jetski";
+    c[c.size] = "vehicle_boct_mil_boat_pbr";
+    c[c.size] = "vehicle_t9_mil_boat_tactical_raft_bundle_settings";
+    c[c.size] = "hash_17e868e0ebf3c1d6";
+    c[c.size] = "hash_232abda4e81275f4";
+    c[c.size] = "hash_28d512b739c9d9c1";
+    c[c.size] = "hash_2a245bf3738fed8b";
+    c[c.size] = "hash_2c0e11a1e87bbcd5";
+    c[c.size] = "hash_2d32c08b862baa46";
+    c[c.size] = "hash_2f8d60a5381870ee";
+    c[c.size] = "hash_42b91f3544c1a9e1";
+    c[c.size] = "hash_6595f5efe62a4ec";
+    c[c.size] = "hash_985b7e40ee02aa2";
+    c[c.size] = "hash_dd63f34c77a725e";
+    c[c.size] = "vehicle_t9_mil_helicopter_care_package";
+    c[c.size] = "vehicle_t9_mil_ru_heli_transport_vehicle_drop";
+    c[c.size] = "vehicle_t8_mil_air_transport_infiltration";
+    c[c.size] = "vehicle_t8_mil_helicopter_transport_dark_wz_infiltration";
+    c[c.size] = "vehicle_t8_mil_helicopter_gunship_wz_infiltration";
+    c[c.size] = "vehicle_t8_mil_helicopter_light_transport_wz_infil";
+    c[c.size] = "vehicle_t9_mil_air_transport_hpc_intro";
+    c[c.size] = "vehicle_t9_mil_us_helicopter_large_mp_intro";
+    c[c.size] = "vehicle_t9_mil_us_helicopter_large_vip_extract_anims";
+    c[c.size] = "vehicle_t9_rcxd_racing";
+    c[c.size] = "veh_t7_mil_vtol_fighter_mp";
+    c[c.size] = "veh_t6_air_a10f";
+    c[c.size] = "veh_t7_drone_hunter";
+    c[c.size] = "veh_flak_drone_mp";
+    c[c.size] = "vehicle_ac130";
+    c[c.size] = "vehicle_t9_mil_us_helicopter_large_cp_armada_player";
+    c[c.size] = "vehicle_t9_mil_us_truck_m35_canvas_cp";
+    c[c.size] = "vehicle_t9_mil_us_truck_m35_cargo_cp";
+    c[c.size] = "vehicle_t9_mil_us_truck_m35_tanker_cp";
+    c[c.size] = "vehicle_t9_mil_ru_truck_light_cp_canvas_top";
+    return c;
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // SPAWN GUARD — ported from gunfight_mod (game-systems sec 16b), dvar-driven here.
@@ -1893,6 +2933,8 @@ function private mod_spawn_build()
 
     // A spawn FAMILY: only that mode's markers, and its own sides when the markers name them.
     fam = cfg_spawn_family();
+    if ( fam == 8 )
+        fam = mod_family_auto( pts );   // S&D starts when authored on both sides, else TDM
     if ( fam != 0 )
     {
         fpts = [];
@@ -1900,6 +2942,23 @@ function private mod_spawn_build()
         {
             if ( mod_marker_has( p, fam ) )
                 fpts[ fpts.size ] = p;
+        }
+
+        // The map's AUTHORED team starts for this mode - the exact points the engine's own
+        // start_spawn list holds (mode flag + start flag + group_index, see the spawn keys
+        // above) plus the legacy-named start structs the remasters keep: use them as they
+        // are, own angles, no geometry. What "proper S&D / TDM spawns" means (klaze,
+        // 2026-09-15). Read from the FULL pool - a named start carries no mode flag. A side
+        // with fewer than 2 authored falls through to the older side-field / geometric search.
+        st = mod_family_starts( pts, fam );
+        if ( st.a1.size >= 2 && st.a2.size >= 2 )
+        {
+            level.gf_family_note = family_name( fam ) + ":" + fpts.size + ( ( fam == 2 && mod_spawn_groups().g1.size > 0 ) ? " group " : " starts " ) + st.a1.size + "/" + st.a2.size;
+            rp0 = isdefined( game.roundsplayed ) ? game.roundsplayed : 0;
+            level.gfmenu_spawn = { #team1:mod_shuffle( mod_anchor_authored( st.a1 ) ), #team2:mod_shuffle( mod_anchor_authored( st.a2 ) ), #next1:0, #next2:0, #round:rp0 };
+            if ( cfg_spawn_diag() )
+                mod_gf_emit( 60, st.a1.size + st.a2.size );
+            return;
         }
 
         if ( fpts.size < 4 )
@@ -2325,6 +3384,9 @@ function private mod_spawn_place()
         self enableinvulnerability();
     if ( isdefined( self.gf_tp ) && self.gf_tp )
         self setclientthirdperson( 1 );
+
+    // Teleport gun / grenade are per-life threads (endon death): re-arm for whoever wants them.
+    self tp_spawn_rearm();
 
     // Loadout-pool camo: the stock give is done by now (give_loadout ran at
     // globallogic_spawn.gsc:637, this callback fires at :758), so repaint on top of it.
@@ -3326,6 +4388,7 @@ function private on_player_connect()
     self thread menu_think();
     self thread cmd_poll();
     self thread caster_probe();
+    level thread roster_publish();     // the app's Players panel reads this (roster_publish)
 }
 
 // ── CoD Caster support ───────────────────────────────────────────────────────
@@ -3349,7 +4412,7 @@ function private caster_probe()
 
     for ( ;; )
     {
-        if ( !getdvarint( #"gf_caster_probe", 1 ) || !( self iscodcaster() ) )
+        if ( !cfg_geti( #"gf_caster_probe", 1 ) || !( self iscodcaster() ) )
         {
             wait( 1 );
             continue;
@@ -3395,9 +4458,9 @@ function private cmd_poll()
 
     for ( ;; )
     {
-        if ( getdvarint( #"gf_cmd_go", 0 ) == 1 )
+        if ( cfg_geti( #"gf_cmd_go", 0 ) == 1 )
         {
-            setdvar( #"gf_cmd_go", 0 );   // clear FIRST so a slow action cannot re-fire
+            cfg_seti( #"gf_cmd_go", 0 );   // clear FIRST so a slow action cannot re-fire
             self cmd_dispatch();
         }
 
@@ -3411,44 +4474,15 @@ function private cmd_poll()
 // the lobby to show when the match ends. Each trigger is cleared as it is consumed.
 function private cmd_dispatch()
 {
+    cfg_load();
     // Broadcast + pause channels (Host page verbs, for the app / in-context bridge).
     say = getdvarstring( #"gf_cmd_say", "" );
     if ( say != "" )
     {
-        setdvar( #"gf_cmd_say", "" );
-        loc = getdvarint( #"gf_cmd_say_loc", 0 );   // 0 centre (iprintlnbold), 1 feed (iprintln)
-        dur = getdvarint( #"gf_cmd_say_dur", 0 );   // 0 once; > 0 hold N s; < 0 fixed until Clear
+        cfg_seti( #"gf_cmd_say", "" );
+        loc = cfg_geti( #"gf_cmd_say_loc", 0 );   // 0 centre (iprintlnbold), 1 feed (iprintln)
+        dur = cfg_geti( #"gf_cmd_say_dur", 0 );   // 0 once; > 0 hold N s; < 0 fixed until Clear
         level thread broadcast_hold( say, loc, dur );   // no prefix - shows exactly what was typed
-        return;
-    }
-
-    if ( getdvarint( #"gf_cmd_say_clear", 0 ) )
-    {
-        setdvar( #"gf_cmd_say_clear", 0 );
-        level notify( #"gf_say_stop" );
-        broadcast_hint_stop();              // also clear a held hint banner
-        self menu_say( "^2app: broadcast cleared" );
-        return;
-    }
-
-    pause = getdvarint( #"gf_cmd_pause", 0 );
-    if ( pause )
-    {
-        setdvar( #"gf_cmd_pause", 0 );
-        if ( pause == 1 )
-            match_pause();
-        else
-            self thread match_resume();
-        return;
-    }
-
-    // Apply config live (no restart): re-run the safe, idempotent subset of mod_apply,
-    // for the app's "Apply now". A config change lands this round instead of next.
-    if ( getdvarint( #"gf_cmd_apply", 0 ) )
-    {
-        setdvar( #"gf_cmd_apply", 0 );
-        self cmd_apply_live();
-        self menu_say( "^2app: config applied live" );
         return;
     }
 
@@ -3457,62 +4491,10 @@ function private cmd_dispatch()
     action = getdvarstring( #"gf_cmd_action", "" );
     if ( action != "" )
     {
-        setdvar( #"gf_cmd_action", "" );
+        cfg_seti( #"gf_cmd_action", "" );
         arg = getdvarstring( #"gf_cmd_arg", "" );
-        setdvar( #"gf_cmd_arg", "" );
+        cfg_seti( #"gf_cmd_arg", "" );
         self cmd_action( action, arg );
-        return;
-    }
-
-    if ( getdvarint( #"gf_cmd_fillbots", 0 ) )
-    {
-        setdvar( #"gf_cmd_fillbots", 0 );
-        self thread fill_bots();
-        return;
-    }
-
-    if ( getdvarint( #"gf_cmd_removebots", 0 ) )
-    {
-        setdvar( #"gf_cmd_removebots", 0 );
-        bot::remove_bots( #"allies" );
-        bot::remove_bots( #"axis" );
-        self menu_say( "^2app: bots removed" );
-        return;
-    }
-
-    // Single-bot verbs (docs/notes/bots.md). gf_cmd_addbot: 1 auto / 2 allies / 3 axis.
-    which = getdvarint( #"gf_cmd_addbot", 0 );
-    if ( which )
-    {
-        setdvar( #"gf_cmd_addbot", 0 );
-        team = undefined;
-        if ( which == 2 )
-            team = #"allies";
-        else if ( which == 3 )
-            team = #"axis";
-        self thread add_one_bot( team );
-        return;
-    }
-
-    if ( getdvarint( #"gf_cmd_removebot", 0 ) )
-    {
-        setdvar( #"gf_cmd_removebot", 0 );
-        self thread remove_one_bot( undefined );
-        return;
-    }
-
-    if ( getdvarint( #"gf_cmd_evenbots", 0 ) )
-    {
-        setdvar( #"gf_cmd_evenbots", 0 );
-        self thread even_up_bots();
-        return;
-    }
-
-    if ( getdvarint( #"gf_cmd_restart", 0 ) )
-    {
-        setdvar( #"gf_cmd_restart", 0 );
-        self menu_say( "^3app: restarting..." );
-        map_restart();
         return;
     }
 
@@ -3526,11 +4508,11 @@ function private cmd_dispatch()
 
     // gf_cmd_stage=1 alongside the map/gametype = the menu's "Stage for lobby" verb:
     // load only, the lobby shows it when the match ends. 0 (default) = switch NOW.
-    stage = getdvarint( #"gf_cmd_stage", 0 );
+    stage = cfg_geti( #"gf_cmd_stage", 0 );
 
-    setdvar( #"gf_cmd_map", "" );
-    setdvar( #"gf_cmd_gametype", "" );
-    setdvar( #"gf_cmd_stage", 0 );
+    cfg_seti( #"gf_cmd_map", "" );
+    cfg_seti( #"gf_cmd_gametype", "" );
+    cfg_seti( #"gf_cmd_stage", 0 );
 
     if ( map == "" )
     {
@@ -3579,28 +4561,16 @@ function private cmd_apply_live()
     mod_bots();
     mod_periods();
 
-    if ( !mod_is_gunfight() )
-        return;
+    // "Apply now" is the LIVE button: refresh the round-timer cache so a timer change takes
+    // effect this round (the gettimelimit hook reads the cache). "Next round" skips this.
+    level.gf_timelimit_cache = cfg_timer_seconds() / 60;
 
-    setgametypesetting( #"maxplayers", maxplayers_value( clamp_team_size( cfg_team_size() ) ) );
-
-    dcc = cfg_customcac() ? 0 : 1;
-    setgametypesetting( #"disablecustomcac", dcc );
-    level.disablecustomcac = dcc;
-    mode_profile_gunfight( 1 );             // idempotent; same as match start
-
-    setgametypesetting( #"gunfightloadoutindex", cfg_loadout() );
-    setgametypesetting( #"gunfightspyplane", cfg_spyplane() );
-
-    if ( cfg_roundwinlimit() >= 0 )
-        setgametypesetting( #"roundwinlimit", cfg_roundwinlimit() );
-    if ( cfg_roundlimit() >= 0 )
-        setgametypesetting( #"roundlimit", cfg_roundlimit() );
-    if ( cfg_rounds_loadout() >= 0 )
-    {
-        setgametypesetting( #"gunfightroundsperloadout", cfg_rounds_loadout() );
-        level.gunfightroundsperloadout = cfg_rounds_loadout();
-    }
+    // ⚠ Apply-now applies ONLY the things that are safe to change mid-match: movement, bots,
+    // periods, timer (above). It deliberately does NOT setgametypesetting maxplayers / customcac /
+    // profile / loadout / spyplane / round limits - re-applying those mid-match makes the engine
+    // RELOAD the match (klaze 2026-09-15: "apply now always restarts; it used to apply some things
+    // without a restart"). Those are gametype settings: mod_apply re-applies them every round from
+    // the dvars, so a change lands on the NEXT round with no restart; + Restart applies them now.
 }
 
 // Run a menu act_* verb by name on the host, for the app's Actions (gf_cmd_action + gf_cmd_arg).
@@ -3620,10 +4590,12 @@ function private cmd_action( action, arg )
         case "dropweapon":  self act_dropweapon( it );           break;
         case "unlockall":   self act_unlockall( it );            break;
         case "freeze":      self act_freeze_all( it );           break;
-        case "giveweapon":  self act_giveweapon( it, arg, arg ); break;
-        case "camo":        self act_camo( it, int( arg ) );     break;
-        case "operator":    self act_skin( it, int( arg ) );     break;
-        case "outfit":      self act_outfit( it, int( arg ) );   break;
+        // The four hub verbs go through cmd_hub_verb pinned to the HOST, so an app command
+        // never lands on a client the in-game menu happens to have targeted at that moment.
+        case "giveweapon":  self cmd_hub_verb( self, &act_giveweapon, arg, arg ); break;
+        case "camo":        self cmd_hub_verb( self, &act_camo, int( arg ) );     break;
+        case "operator":    self cmd_hub_verb( self, &act_skin, int( arg ) );     break;
+        case "outfit":      self cmd_hub_verb( self, &act_outfit, int( arg ) );   break;
         case "announce":    self act_announce( it );             break;
         case "countdown":   self act_countdown( it );            break;
         // Per-player verbs (2026-09-15, app parity): gf_cmd_target names the player as shown
@@ -3631,6 +4603,44 @@ function private cmd_action( action, arg )
         case "move":        self act_move( it, cmd_target(), ( tolower( arg ) == "axis" ) ? #"axis" : #"allies" ); break;
         case "spectate":    self act_spectate( it, cmd_target() ); break;
         case "freezeone":   self act_freeze_player( it, cmd_target() ); break;
+        // Per-client verbs (2026-09-15, the Players page): same target rule; arg = weapon
+        // name / camo-operator-outfit id / speed percent (0 = back to global) where taken.
+        case "godone":      self act_c_god( it, cmd_target() );                     break;
+        case "ammoone":     self act_c_ammo( it, cmd_target() );                    break;
+        case "thirdone":    self act_c_thirdperson( it, cmd_target() );             break;
+        case "flyone":      self act_c_fly( it, cmd_target() );                     break;
+        case "killone":     self act_c_kill( it, cmd_target() );                    break;
+        case "kickone":     self act_c_kick( it, cmd_target() );                    break;
+        case "takeone":     self act_c_takeweapon( it, cmd_target() );              break;
+        case "stripone":    self act_c_strip( it, cmd_target() );                   break;
+        case "speedone":    self act_c_speed_set( it, cmd_target(), int( arg ) );   break;
+        case "giveone":     self cmd_hub_verb( cmd_target(), &act_giveweapon, arg, arg ); break;
+        case "camoone":     self cmd_hub_verb( cmd_target(), &act_camo, int( arg ) );     break;
+        case "operatorone": self cmd_hub_verb( cmd_target(), &act_skin, int( arg ) );     break;
+        case "outfitone":   self cmd_hub_verb( cmd_target(), &act_outfit, int( arg ) );   break;
+        // Teleport (docs/notes/teleport.md): arg = where (me|aim|saved|centre) for tpall /
+        // tpteam / tpenemy, (aim|saved|centre) for tpme, host|all for the gun / grenade
+        // toggles, tome|metothem|swap with gf_cmd_target for tpplayer.
+        case "tpall":       self act_tp_all( it, tolower( arg ), "all" );                 break;
+        case "tpteam":      self act_tp_all( it, tolower( arg ), "team" );                break;
+        case "tpenemy":     self act_tp_all( it, tolower( arg ), "enemy" );               break;
+        case "tpme":        self act_tp_me( it, tolower( arg ) );                         break;
+        case "tpsave":      self act_tp_save( it );                                       break;
+        case "tpgun":       self act_tpgun( it, tolower( arg ) );                         break;
+        case "tpnade":      self act_tpnade( it, tolower( arg ) );                        break;
+        case "tpplayer":    self act_tp_player( it, cmd_target(), tolower( arg ) );       break;
+        // Folded from dedicated gf_cmd_* trigger dvars into this verb channel (dvar-pool
+        // budget, 2026-09-15): the app writes gf_cmd_action instead of a dvar per command.
+        case "fillbots":    self thread fill_bots();                                      break;
+        case "removebots":  bot::remove_bots( #"allies" ); bot::remove_bots( #"axis" ); self menu_say( "^2app: bots removed" ); break;
+        case "addbot":      self thread add_one_bot( ( tolower( arg ) == "allies" ) ? #"allies" : ( ( tolower( arg ) == "axis" ) ? #"axis" : undefined ) ); break;
+        case "removebot":   self thread remove_one_bot( undefined );                      break;
+        case "evenbots":    self thread even_up_bots();                                   break;
+        case "restart":     self menu_say( "^3app: restarting..." ); map_restart();       break;
+        case "pause":       match_pause();                                                break;
+        case "resume":      self thread match_resume();                                   break;
+        case "apply":       self cmd_apply_live(); self menu_say( "^2app: config applied live" ); break;
+        case "sayclear":    level notify( #"gf_say_stop" ); broadcast_hint_stop(); self menu_say( "^2app: broadcast cleared" ); break;
         default:            self menu_say( "^1app: unknown action '" + action + "'" ); break;
     }
 }
@@ -3641,7 +4651,7 @@ function private cmd_action( action, arg )
 function private cmd_target()
 {
     want = getdvarstring( #"gf_cmd_target", "" );
-    setdvar( #"gf_cmd_target", "" );
+    cfg_seti( #"gf_cmd_target", "" );
 
     if ( want == "" )
     {
@@ -3666,6 +4676,25 @@ function private cmd_target()
         self menu_say( "^1app: no player named '" + want + "'" );
 
     return hit;
+}
+
+// Run a shared-hub verb (act_giveweapon / act_camo / act_skin / act_outfit) against one
+// player for the app: pin the target for the call, then restore whatever the open menu
+// had. player undefined (no such name) was already reported by cmd_target.
+function private cmd_hub_verb( player, fn, a, b )
+{
+    if ( !isdefined( player ) || !isplayer( player ) )
+        return;
+
+    saved = self.gfmenu.target;
+    self.gfmenu.target = player;
+
+    if ( isdefined( b ) )
+        self [[ fn ]]( spawnstruct(), a, b );
+    else
+        self [[ fn ]]( spawnstruct(), a );
+
+    self.gfmenu.target = saved;
 }
 
 function private menu_restart()
@@ -3881,6 +4910,74 @@ function private menu_run_item( item )
     return self [[ item.action ]]( item );
 }
 
+// ── Target context (2026-09-15, klaze: "a client menu that can control connected clients").
+// The Weapons / Camo / Operator / Outfit hubs are shared: opened from the root they act on
+// the host as before; opened from a client's page (act_c_hub) they act on that client, and
+// the hub's parent_id is pointed back at the client page so V returns there. The target is
+// dropped the moment the current page leaves that family (menu_target_sync, first thing in
+// menu_render), which also restores the hubs' parents - so the root Weapons page can never
+// silently keep giving to the last client picked. ─────────────────────────────────────────
+function private menu_target_in_scope( id )
+{
+    if ( id == "weapons" || id == "camo" || id == "camo_byid" || id == "operator" || id == "outfit" )
+        return true;
+
+    return id.size > 3 && getsubstr( id, 0, 3 ) == "wp_";
+}
+
+function private menu_target_sync()
+{
+    if ( !isdefined( self.gfmenu.target ) && !is_true( self.gfmenu.target_set ) )
+        return;
+
+    if ( menu_target_in_scope( self.gfmenu.current ) )
+        return;
+
+    self menu_target_clear();
+}
+
+function private menu_target_clear()
+{
+    self.gfmenu.target = undefined;
+    self.gfmenu.target_set = 0;
+    self.gfmenu.menus[ "weapons" ].parent_id = "start_menu";
+    self.gfmenu.menus[ "camo" ].parent_id = "start_menu";
+    self.gfmenu.menus[ "operator" ].parent_id = "start_menu";
+    self.gfmenu.menus[ "outfit" ].parent_id = "start_menu";
+}
+
+// Who the shared hubs act on: the targeted client while one is set and still in the
+// match (entity refs go undefined on disconnect), else the host.
+function private menu_target()
+{
+    t = self.gfmenu.target;
+
+    if ( isdefined( t ) && isplayer( t ) )
+        return t;
+
+    return self;
+}
+
+// " -> <name>" for a confirmation when a hub verb landed on a client rather than the host.
+function private target_tail( p )
+{
+    if ( p == self || !isdefined( p.name ) )
+        return "";
+
+    return " -> " + p.name;
+}
+
+// Page name for the headers: "Weapons @name" while a client is targeted.
+function private menu_page_title( menu )
+{
+    t = self.gfmenu.target;
+
+    if ( isdefined( t ) && isplayer( t ) && isdefined( t.name ) && menu_target_in_scope( menu.id ) )
+        return menu.name + " @" + t.name;
+
+    return menu.name;
+}
+
 function private menu_think()
 {
     self endon( #"disconnect" );
@@ -4002,12 +5099,18 @@ function private menu_think()
         }
         else
         {
-            // Nothing pressed: redraw every 5s so iprintln does not fade the menu.
+            // Nothing pressed: redraw every 2s so iprintln does not fade the menu.
             nts = gettime();
 
             if ( nts > ts )
             {
                 ts = nts + 2000;
+
+                // The Players list follows joins / leaves / team moves while it is open
+                // (klaze 2026-09-15), cursor kept on the same player.
+                if ( m.current == "players" )
+                    self players_refresh();
+
                 render = 1;
             }
             else
@@ -4039,6 +5142,10 @@ function private menu_think()
 // footer of the tall version is gone - it pushed the list off the top of the feed.
 function private menu_render( lines )
 {
+    // Drop a client target the moment we are outside the Weapons/Camo/Operator/Outfit
+    // family (menu_target_sync) - before any header below is painted.
+    self menu_target_sync();
+
     // SPLIT: status and the navigable list in separate regions, both at once.
     //  region 2 = status in the lower-left feed, list in the centre (⚠ the centre caps at
     //             ONE visible line, so the list shows only the current item there);
@@ -4096,7 +5203,7 @@ function private menu_render( lines )
     if ( menu.id == "start_menu" )
         self menu_draw( self menu_state_line() );
     else
-        self menu_draw( "^2" + menu.name + " " + pos + "  > " + self menu_state_compact() );
+        self menu_draw( "^2" + self menu_page_title( menu ) + " " + pos + "  > " + self menu_state_compact() );
 
     if ( n == 0 )
     {
@@ -4146,7 +5253,7 @@ function private menu_render_split( lines, list_center )
         if ( isdefined( menu ) )
         {
             n = menu.items.size;
-            info = "^2" + menu.name + " " + ( ( n == 0 ) ? "-/-" : ( "" + ( menu.cursor + 1 ) + "/" + n ) ) + " | " + self menu_state_compact();
+            info = "^2" + self menu_page_title( menu ) + " " + ( ( n == 0 ) ? "-/-" : ( "" + ( menu.cursor + 1 ) + "/" + n ) ) + " | " + self menu_state_compact();
             if ( isdefined( self.gfmenu.lastmsg ) && self.gfmenu.lastmsg != "" )
                 info += " | " + self.gfmenu.lastmsg;
             trig = self menu_hint_trigger();
@@ -4188,7 +5295,7 @@ function private menu_render_split( lines, list_center )
 
     pos = ( n == 0 ) ? "-/-" : ( "" + ( menu.cursor + 1 ) + "/" + n );
 
-    self iprintln( "^5" + menu.name + " ^7" + pos );
+    self iprintln( "^5" + self menu_page_title( menu ) + " ^7" + pos );
 
     if ( n == 0 )
     {
@@ -4332,7 +5439,7 @@ function private menu_render_hint()
     if ( menu.id == "start_menu" )
         rows[ rows.size ] = self menu_state_line();
     else
-        rows[ rows.size ] = "^2" + menu.name + "  > " + self menu_state_compact();
+        rows[ rows.size ] = "^2" + self menu_page_title( menu ) + "  > " + self menu_state_compact();
 
     if ( n == 0 )
     {
@@ -4368,7 +5475,7 @@ function private menu_render_hint()
 function private menu_hline( menu )
 {
     n = menu.items.size;
-    head = "^2" + menu.name + " " + ( ( n == 0 ) ? "-/-" : ( "" + ( menu.cursor + 1 ) + "/" + n ) );
+    head = "^2" + self menu_page_title( menu ) + " " + ( ( n == 0 ) ? "-/-" : ( "" + ( menu.cursor + 1 ) + "/" + n ) );
 
     if ( n == 0 )
         return head + " (empty)";
@@ -4406,11 +5513,11 @@ function private menu_hitem( menu, i )
 
     active = 0;
     if ( isdefined( it.group ) && isdefined( it.gval ) )
-        active = ( getdvarint( it.group, -2147483647 ) == it.gval );
+        active = ( cfg_geti( it.group, -2147483647 ) == it.gval );
     else if ( menu.id == "gametype" && isdefined( it.data1 ) )
         active = ( tolower( getdvarstring( #"g_gametype", "" ) ) == it.data1 );
 
-    submenu = isdefined( it.data1 ) && isdefined( self.gfmenu.menus[ it.data1 ] );
+    submenu = isdefined( it.data1 ) && isstring( it.data1 ) && isdefined( self.gfmenu.menus[ it.data1 ] );
     body = it.name + ( active ? "*" : "" ) + ( submenu ? ">" : "" );
 
     // Same scheme as the vertical rows: red brackets = current, green = the rest. The
@@ -4601,11 +5708,11 @@ function private menu_item_line( menu, i )
 
     // menu_switch stores the target page id in data1, so data1 naming a real page
     // means this row opens a submenu.
-    submenu = isdefined( it.data1 ) && isdefined( self.gfmenu.menus[ it.data1 ] );
+    submenu = isdefined( it.data1 ) && isstring( it.data1 ) && isdefined( self.gfmenu.menus[ it.data1 ] );
 
     active = 0;
     if ( isdefined( it.group ) && isdefined( it.gval ) )
-        active = ( getdvarint( it.group, -2147483647 ) == it.gval );
+        active = ( cfg_geti( it.group, -2147483647 ) == it.gval );
     else if ( menu.id == "gametype" && isdefined( it.data1 ) )
         active = ( tolower( getdvarstring( #"g_gametype", "" ) ) == it.data1 );
 
@@ -4982,6 +6089,7 @@ function private build_tree()
     self menu_item( "spawns", "Debug: spawn families + guard state", &act_dbg_families, undefined, undefined, #"gf_dbg_families", 1 );
     self menu_item( "spawns", "Debug: marker flags census", &act_dbg_flags, undefined, undefined, #"gf_dbg_flags", 1 );
     // Which mode's markers the guard builds from (every spawn on them when set).
+    self menu_item( "spawns", "Family: AUTO - authored S&D starts, else TDM starts", &act_spawn_family, 8, undefined, #"gf_spawn_family", 8 );
     self menu_item( "spawns", "Family: none - engine / geometric", &act_spawn_family, 0, undefined, #"gf_spawn_family", 0 );
     self menu_item( "spawns", "Family: S&D markers", &act_spawn_family, 2, undefined, #"gf_spawn_family", 2 );
     self menu_item( "spawns", "Family: TDM markers", &act_spawn_family, 1, undefined, #"gf_spawn_family", 1 );
@@ -5028,6 +6136,7 @@ function private build_tree()
     self menu_item( "debug", "Spawn families + guard state", &act_dbg_families, undefined, undefined, #"gf_dbg_families", 1 );
     self menu_item( "debug", "Marker flags census", &act_dbg_flags, undefined, undefined, #"gf_dbg_flags", 1 );
     self menu_item( "debug", "Match info", &act_dbg_match, undefined, undefined, #"gf_dbg_match", 1 );
+    self menu_item( "debug", "Asset census: vehicles + props", &act_dbg_assets, undefined, undefined, #"gf_dbg_assets", 1 );
     self menu_item( "debug", "Everything off", &act_dbg_all_off );
     // Caster diagnosis: prints button/render probe lines while the host is a CoD Caster.
     self menu_item( "display", "Caster input probe ON", &act_caster_probe, 1, undefined, #"gf_caster_probe", 1 );
@@ -5132,13 +6241,9 @@ function private build_tree()
     self menu_item( "say", "Banner: waiting for host [held]", &act_banner, "^3Waiting for the host..." );
     self menu_item( "say", "Clear banner", &act_banner_clear, undefined );
 
-    // ── Vehicles — drivable, Combined-Arms/12v12-layout maps only ────────────
+    // ── Vehicles — built per map from what is resident (veh_page_build) ──────
     self menu_add( "vehicles", "Vehicles", "start_menu", 1 );
-    self menu_item( "vehicles", "Spawn snowmobile", &veh_spawn, "vehicle_t9_mil_snowmobile" );
-    self menu_item( "vehicles", "Spawn light truck", &veh_spawn, "vehicle_t9_mil_ru_truck_light_player" );
-    self menu_item( "vehicles", "Spawn sedan", &veh_spawn, "vehicle_t9_civ_ru_sedan_80s_player" );
-    self menu_item( "vehicles", "Spawn care-package heli", &veh_spawn, "vehicle_t9_mil_helicopter_care_package" );
-    self menu_item( "vehicles", "Enter vehicle I am aiming at", &veh_enter );
+    self veh_page_build();          // rows = what THIS map has resident (veh_master)
 
     // ── Player tools — host only ─────────────────────────────────────────────
     self menu_add( "player", "Player", "start_menu", 1 );
@@ -5147,6 +6252,32 @@ function private build_tree()
     self menu_item( "player", "Give max ammo", &act_maxammo );
     self menu_item( "player", "Drop weapon", &act_dropweapon );
     self menu_item( "player", "Unlock all (best-effort)", &act_unlockall );
+
+    // ── Teleport — a hub (docs/notes/teleport.md): everyone / a side to a point, me to a
+    // point, and the teleport gun / grenade toggles. The per-player rows (to me / me to
+    // them / swap) live on the Players page. "Crosshair" = where the host aims, floored;
+    // "saved point" = Save point below (game., survives rounds); "map centre" =
+    // level.mapcenter. Nothing here has run in-game yet (2026-09-15). ────────────────
+    self menu_add( "teleport", "Teleport", "start_menu", 1 );
+    self menu_add( "tp_all", "Everyone to...", "teleport", 1 );
+    self menu_item( "tp_all", "All to me", &act_tp_all, "me", "all" );
+    self menu_item( "tp_all", "All to my crosshair", &act_tp_all, "aim", "all" );
+    self menu_item( "tp_all", "All to saved point", &act_tp_all, "saved", "all" );
+    self menu_item( "tp_all", "All to map centre", &act_tp_all, "centre", "all" );
+    self menu_item( "tp_all", "My team to me", &act_tp_all, "me", "team" );
+    self menu_item( "tp_all", "Other team to me", &act_tp_all, "me", "enemy" );
+    self menu_item( "tp_all", "My team to crosshair", &act_tp_all, "aim", "team" );
+    self menu_item( "tp_all", "Other team to crosshair", &act_tp_all, "aim", "enemy" );
+    self menu_add( "tp_me", "Me to...", "teleport", 1 );
+    self menu_item( "tp_me", "Me to crosshair", &act_tp_me, "aim" );
+    self menu_item( "tp_me", "Me to saved point", &act_tp_me, "saved" );
+    self menu_item( "tp_me", "Me to map centre", &act_tp_me, "centre" );
+    self menu_item( "tp_me", "Save point = where I stand", &act_tp_save );
+    self menu_add( "tp_gun", "Teleport gun / grenade", "teleport", 1 );
+    self menu_item( "tp_gun", "Teleport gun - host", &act_tpgun, "host" );
+    self menu_item( "tp_gun", "Teleport gun - everyone", &act_tpgun, "all" );
+    self menu_item( "tp_gun", "Teleport grenade - host", &act_tpnade, "host" );
+    self menu_item( "tp_gun", "Teleport grenade - everyone", &act_tpnade, "all" );
 
     // ── Weapons — every MP loadout weapon, by class. The 64 names are the complete set
     // gamedata/weapons/mp/mp_gunlevels.csv levels (= the custom-games restriction enum,
@@ -5457,7 +6588,7 @@ function private build_tree()
 
 function private act_spec_slots( item, value )
 {
-    setdvar( #"gf_spec_slots", value );
+    cfg_seti( #"gf_spec_slots", value );
     setgametypesetting( #"maxplayers", maxplayers_value( clamp_team_size( cfg_team_size() ) ) );
     self menu_say( "^2spectator slots " + value + " - maxplayers now " + census_v( getgametypesetting( #"maxplayers" ) ) + " (budget " + getdvarint( #"com_maxclients", 0 ) + ")" );
     return true;
@@ -5466,7 +6597,7 @@ function private act_spec_slots( item, value )
 function private act_team_size( item, per_side )
 {
     clamped = clamp_team_size( per_side );
-    setdvar( #"gf_team_size", clamped );
+    cfg_seti( #"gf_team_size", clamped );
     setgametypesetting( #"maxplayers", maxplayers_value( clamped ) );
 
     if ( clamped < per_side )
@@ -5916,7 +7047,7 @@ function private act_bot_even( item )
 
 function private act_bot_passive( item )
 {
-    setdvar( #"gf_bot_passive", cfg_bot_passive() ? 0 : 1 );
+    cfg_seti( #"gf_bot_passive", cfg_bot_passive() ? 0 : 1 );
     n = bot_passive_apply();
     self menu_say( cfg_bot_passive() ? ( "^2bots passive - " + n + " ignoring everyone" ) : ( "^2bots active again - " + n + " re-armed" ) );
     return true;
@@ -5933,8 +7064,8 @@ function private bot_diff_enter( menu )
 
 function private act_bot_diff( item, d )
 {
-    setdvar( #"gf_bot_diff_allies", d );
-    setdvar( #"gf_bot_diff_axis", d );
+    cfg_seti( #"gf_bot_diff_allies", d );
+    cfg_seti( #"gf_bot_diff_axis", d );
     n = bot_diff_apply();
     self menu_say( "^2bots: " + bot_diff_label( d ) + " both sides - " + n + " re-assigned now" );
     return true;
@@ -5943,9 +7074,9 @@ function private act_bot_diff( item, d )
 function private act_bot_diff_team( item, team_str, d )
 {
     if ( team_str == "axis" )
-        setdvar( #"gf_bot_diff_axis", d );
+        cfg_seti( #"gf_bot_diff_axis", d );
     else
-        setdvar( #"gf_bot_diff_allies", d );
+        cfg_seti( #"gf_bot_diff_allies", d );
 
     n = bot_diff_apply();
     self menu_say( "^2bots: " + team_str + " " + bot_diff_label( d ) + " - " + n + " re-assigned now" );
@@ -5972,10 +7103,10 @@ function private ring( a, b, c, d, e, f, g, h, i )
     return r;
 }
 
-function private bot_knob( dvar, label, values, unit, labels = undefined )
+function private bot_knob( idx, label, values, unit, labels = undefined )
 {
     k = spawnstruct();
-    k.dvar = dvar;
+    k.idx = idx;   // packed-field index into gf_bot (dvar-pool budget), was a dvar hash
     k.label = label;
     k.values = values;
     k.unit = unit;
@@ -5987,21 +7118,21 @@ function private bot_knobs()
 {
     onoff = ring( "OFF", "ON" );
     ks = [];
-    ks[ ks.size ] = bot_knob( #"gf_bot_hit",       "Hit chance",          ring( 10, 25, 40, 50, 60, 75, 90, 100 ), "%" );
-    ks[ ks.size ] = bot_knob( #"gf_bot_head",      "Headshot chance",     ring( 0, 3, 10, 20, 35, 50, 75, 100 ), "%" );
-    ks[ ks.size ] = bot_knob( #"gf_bot_react",     "Aim delay",           ring( 0, 100, 200, 300, 500, 700, 1100, 1400, 2000 ), "ms" );
-    ks[ ks.size ] = bot_knob( #"gf_bot_fire",      "Fire window",         ring( 300, 400, 500, 700, 1000, 1500, 2000 ), "ms" );
-    ks[ ks.size ] = bot_knob( #"gf_bot_hip",       "Hipfire accuracy",    ring( 25, 50, 60, 70, 85, 100 ), "%" );
-    ks[ ks.size ] = bot_knob( #"gf_bot_far",       "Long-range accuracy", ring( 25, 50, 66, 80, 90, 100 ), "%" );
-    ks[ ks.size ] = bot_knob( #"gf_bot_semi",      "Semi-auto tap delay", ring( 50, 100, 150, 250, 400, 600, 800 ), "ms" );
-    ks[ ks.size ] = bot_knob( #"gf_bot_burst",     "Burst delay",         ring( 50, 100, 250, 500, 700, 900, 1200 ), "ms" );
-    ks[ ks.size ] = bot_knob( #"gf_bot_moveshoot", "Move while shooting", ring( 0, 1 ), "", onoff );
-    ks[ ks.size ] = bot_knob( #"gf_bot_fastaim",   "Look speed",          ring( 0, 1, 2 ), "", ring( "slow - recruit", "fast - veteran", "max" ) );
-    ks[ ks.size ] = bot_knob( #"gf_bot_sprint",    "Sprint",              ring( 0, 1 ), "", onoff );
-    ks[ ks.size ] = bot_knob( #"gf_bot_melee",     "Melee",               ring( 0, 1 ), "", onoff );
-    ks[ ks.size ] = bot_knob( #"gf_bot_prone",     "Prone",               ring( 0, 1 ), "", onoff );
-    ks[ ks.size ] = bot_knob( #"gf_bot_slide",     "Slide",               ring( 0, 1 ), "", onoff );
-    ks[ ks.size ] = bot_knob( #"gf_bot_crouch",    "Crouch",              ring( 0, 1 ), "", onoff );
+    ks[ ks.size ] = bot_knob( 0,                 "Hit chance",          ring( 10, 25, 40, 50, 60, 75, 90, 100 ), "%" );
+    ks[ ks.size ] = bot_knob( 1,                "Headshot chance",     ring( 0, 3, 10, 20, 35, 50, 75, 100 ), "%" );
+    ks[ ks.size ] = bot_knob( 2,               "Aim delay",           ring( 0, 100, 200, 300, 500, 700, 1100, 1400, 2000 ), "ms" );
+    ks[ ks.size ] = bot_knob( 3,                "Fire window",         ring( 300, 400, 500, 700, 1000, 1500, 2000 ), "ms" );
+    ks[ ks.size ] = bot_knob( 4,                 "Hipfire accuracy",    ring( 25, 50, 60, 70, 85, 100 ), "%" );
+    ks[ ks.size ] = bot_knob( 5,                 "Long-range accuracy", ring( 25, 50, 66, 80, 90, 100 ), "%" );
+    ks[ ks.size ] = bot_knob( 6,                "Semi-auto tap delay", ring( 50, 100, 150, 250, 400, 600, 800 ), "ms" );
+    ks[ ks.size ] = bot_knob( 7,               "Burst delay",         ring( 50, 100, 250, 500, 700, 900, 1200 ), "ms" );
+    ks[ ks.size ] = bot_knob( 8,           "Move while shooting", ring( 0, 1 ), "", onoff );
+    ks[ ks.size ] = bot_knob( 9,             "Look speed",          ring( 0, 1, 2 ), "", ring( "slow - recruit", "fast - veteran", "max" ) );
+    ks[ ks.size ] = bot_knob( 10,             "Sprint",              ring( 0, 1 ), "", onoff );
+    ks[ ks.size ] = bot_knob( 11,              "Melee",               ring( 0, 1 ), "", onoff );
+    ks[ ks.size ] = bot_knob( 12,              "Prone",               ring( 0, 1 ), "", onoff );
+    ks[ ks.size ] = bot_knob( 13,              "Slide",               ring( 0, 1 ), "", onoff );
+    ks[ ks.size ] = bot_knob( 14,             "Crouch",              ring( 0, 1 ), "", onoff );
     return ks;
 }
 
@@ -6018,7 +7149,7 @@ function private ring_index( values, v )
 
 function private bot_knob_text( k )
 {
-    v = getdvarint( k.dvar, k.values[ 0 ] );
+    v = bot_num( k.idx, k.values[ 0 ] );
 
     if ( isdefined( k.labels ) )
     {
@@ -6061,13 +7192,13 @@ function private act_bot_cycle( item, ki )
 {
     ks = bot_knobs();
     k = ks[ ki ];
-    cur = getdvarint( k.dvar, k.values[ 0 ] );
+    cur = bot_num( k.idx, k.values[ 0 ] );
     next = ring_index( k.values, cur ) + 1;
 
     if ( next >= k.values.size )
         next = 0;
 
-    setdvar( k.dvar, k.values[ next ] );
+    bot_set_field( k.idx, k.values[ next ] );
     n = bot_diff_apply();
     self bot_custom_refresh();
     self menu_say( "^2" + k.label + " " + bot_knob_text( k ) + " - " + n + " bots re-assigned" );
@@ -6096,23 +7227,11 @@ function private act_bot_preset( item, id )
         moveshoot = 0; fastaim = 0; sprint = 0; melee = 0; prone = 0; slide = 0; crouch = 0;
     }
 
-    setdvar( #"gf_bot_hit", hit );
-    setdvar( #"gf_bot_head", head );
-    setdvar( #"gf_bot_react", react );
-    setdvar( #"gf_bot_fire", fire );
-    setdvar( #"gf_bot_hip", hip );
-    setdvar( #"gf_bot_far", far );
-    setdvar( #"gf_bot_semi", semi );
-    setdvar( #"gf_bot_burst", burst );
-    setdvar( #"gf_bot_moveshoot", moveshoot );
-    setdvar( #"gf_bot_fastaim", fastaim );
-    setdvar( #"gf_bot_sprint", sprint );
-    setdvar( #"gf_bot_melee", melee );
-    setdvar( #"gf_bot_prone", prone );
-    setdvar( #"gf_bot_slide", slide );
-    setdvar( #"gf_bot_crouch", crouch );
-    setdvar( #"gf_bot_diff_allies", 4 );
-    setdvar( #"gf_bot_diff_axis", 4 );
+    // one packed string, same field order as bot_num (dvar-pool budget)
+    cfg_seti( #"gf_bot", hit + "," + head + "," + react + "," + fire + "," + hip + "," + far + "," + semi + "," + burst );
+    cfg_seti( #"gf_bot2", moveshoot + "," + fastaim + "," + sprint + "," + melee + "," + prone + "," + slide + "," + crouch );
+    cfg_seti( #"gf_bot_diff_allies", 4 );
+    cfg_seti( #"gf_bot_diff_axis", 4 );
 
     n = bot_diff_apply();
     self bot_custom_refresh();
@@ -6128,16 +7247,61 @@ function private players_enter( menu )
 {
     self menu_clear_items( "players" );
 
-    foreach ( player in getplayers() )
+    // Humans first, then bots (same verbs - handy for a solo test), the host tagged so
+    // his own row is obvious.
+    for ( pass = 0; pass < 2; pass++ )
     {
-        if ( isbot( player ) )
+        foreach ( player in getplayers() )
         {
-            continue;
-        }
+            bot = isbot( player ) ? 1 : 0;
 
-        label = player.name + "  ^0" + team_tag( player );
-        self menu_item( "players", label, &act_player_page, player );
+            if ( bot != pass )
+                continue;
+
+            tag = team_tag( player );
+
+            if ( bot )
+                tag = "bot " + tag;
+            else if ( player ishost() )
+                tag = "host " + tag;
+
+            self menu_item( "players", player.name + "  ^0" + tag, &act_player_page, player );
+        }
     }
+}
+
+// Rebuild the list in place while it is open: same rows as players_enter, but the cursor
+// stays on the player it was on (found again by entity), or is clamped if that player
+// left - a join or leave never yanks the selection to the top.
+function private players_refresh()
+{
+    menu = self.gfmenu.menus[ "players" ];
+
+    if ( !isdefined( menu ) )
+        return;
+
+    keep = undefined;
+    cursor = menu.cursor;
+
+    if ( cursor >= 0 && cursor < menu.items.size && isdefined( menu.items[ cursor ] ) )
+        keep = menu.items[ cursor ].data1;          // the row's player; undefined once gone
+
+    self players_enter( menu );                      // clears + rebuilds, cursor -> 0
+
+    if ( isdefined( keep ) )
+    {
+        for ( i = 0; i < menu.items.size; i++ )
+        {
+            if ( isdefined( menu.items[ i ].data1 ) && menu.items[ i ].data1 == keep )
+            {
+                menu.cursor = i;
+                return;
+            }
+        }
+    }
+
+    if ( menu.items.size > 0 )
+        menu.cursor = int( min( cursor, menu.items.size - 1 ) );
 }
 
 function private team_tag( player )
@@ -6167,21 +7331,75 @@ function private team_tag( player )
     return "?";
 }
 
+// ── Roster publisher (2026-09-15, klaze: "can't we pull client names ... for the app").
+// The app cannot READ game state - the bridge is app -> game only, and the dvar store is
+// unreadable from outside (hud-and-control-app memory) - but a read-only memory scan of
+// the game from outside IS proven safe mid-match (dvar_backend --finddvar: pure
+// ReadProcessMemory, no thread, no write). So the mod keeps ONE marked string alive in
+// level.gf_roster - the script string heap holds it in plain ASCII while it is referenced -
+// and the app's Players panel (tools/gf-control/roster_scan.py) scans the game's private
+// writable memory for the marker and parses it. Rebuilt only when the roster CHANGES, so
+// the string sits at one address for long stretches and the app's cached re-read hits;
+// the tick lets the app prefer the newest of any stale copies the pool has not reused.
+// The marker is assembled at runtime ("GFRO" + "STER") so the payload's own string table
+// never carries a decoy. Format, one line:
+//   GFROSTER|<gettime>|<count>|<name>;<team>;<host|bot|human>;<xuid>|...|END
+// ⚠ Built 2026-09-15, never run. Unmeasured: whether the VM keeps the concatenated string
+// contiguous and plain in memory (expected - it is what iprintln renders from).
+function private roster_publish()
+{
+    if ( isdefined( level.gf_roster_on ) && level.gf_roster_on )
+        return;
+
+    level.gf_roster_on = 1;
+
+    for ( ;; )
+    {
+        body = roster_build();
+
+        if ( !isdefined( level.gf_roster_body ) || level.gf_roster_body != body )
+        {
+            level.gf_roster_body = body;
+            level.gf_roster = "GFRO" + "STER|" + gettime() + "|" + body + "|END";
+        }
+
+        wait 2;
+    }
+}
+
+function private roster_build()
+{
+    players = getplayers();
+    s = "" + players.size;
+
+    foreach ( p in players )
+    {
+        if ( !isdefined( p.name ) )
+            continue;
+
+        kind = "human";
+
+        if ( isbot( p ) )
+            kind = "bot";
+        else if ( p ishost() )
+            kind = "host";
+
+        xuid = isbot( p ) ? "" : p getxuid();
+        s += "|" + p.name + ";" + team_tag( p ) + ";" + kind + ";" + ( isdefined( xuid ) ? ( "" + xuid ) : "" );
+    }
+
+    return s;
+}
+
 function private act_player_page( item, player )
 {
-    if ( !isdefined( player ) )
-    {
-        self menu_say( "^1player left" );
+    if ( !client_ok( player ) )
         return true;
-    }
 
     id = "player_" + player getentitynumber();
     self menu_add( id, player.name, "players", 0 );
     self menu_clear_items( id );
-    self menu_item( id, "To Allies", &act_move, player, #"allies" );
-    self menu_item( id, "To Axis", &act_move, player, #"axis" );
-    self menu_item( id, "To Spectator", &act_spectate, player );
-    self menu_item( id, ( isdefined( player.gf_frozen ) && player.gf_frozen ) ? "Unfreeze" : "Freeze - can look, not move", &act_freeze_player, player );
+    self client_page_build( id, player );
 
     return self menu_switch( undefined, id );
 }
@@ -6238,11 +7456,285 @@ function private act_spectate( item, player )
     return true;
 }
 
+// ── Client control (2026-09-15) — the per-player page. klaze: "a client menu that can
+// control connected clients - give god mode, ammo, weapon, etc". Every verb runs on the
+// HOST (self) against `player`, so the confirmations land on the host's feed and the
+// client just gets the effect. All of it is server-side builtins on the player entity
+// (enableinvulnerability, givemaxammo, giveweapon, setclientthirdperson, setmovespeedscale,
+// setcamo / setspecialistindex / setcharacteroutfit, takeweapon, kick) - the joiner-safe
+// class of docs/notes/game-systems.md §10: the host is the server and owns the entity, a
+// vanilla joiner needs nothing installed. Godmode / third person / speed persist across
+// that player's respawns (mod_spawn_place re-asserts gf_god / gf_tp on whoever spawns;
+// speed_apply reads gf_speed_pct). Weapons / camo / operator / outfit reuse the shared hubs
+// through the target context (menu_target, above the menu engine). Fly is the host's
+// fly_think threaded on the client - it reads that player's own sprint/jump/crouch input.
+// ⚠ Built 2026-09-15, never run in-game: docs/notes/client-control.md has the test order.
+// ─────────────────────────────────────────────────────────────────────────────────────
+
+function private client_page_build( id, player )
+{
+    it = self menu_item( id, "Godmode", &act_c_god, player );
+    it.activated = is_true( player.gf_god );
+    self menu_item( id, "Max ammo - every weapon", &act_c_ammo, player );
+    self menu_item( id, "Give weapon", &act_c_hub, "weapons", player );
+    it = self menu_item( id, "Fly", &act_c_fly, player );
+    it.activated = is_true( player.gf_fly );
+    it = self menu_item( id, "Third person", &act_c_thirdperson, player );
+    it.activated = is_true( player.gf_tp );
+    self menu_item( id, "Speed: " + client_speed_label( player ), &act_c_speed, player );
+    self menu_item( id, "Kill", &act_c_kill, player );
+    // (bocw-8a: teleport rows)
+    self menu_item( id, "Teleport to me", &act_tp_player, player, "tome" );
+    self menu_item( id, "Teleport me to them", &act_tp_player, player, "metothem" );
+    self menu_item( id, "Swap places with me", &act_tp_player, player, "swap" );
+    self menu_item( id, "Camo", &act_c_hub, "camo", player );
+    self menu_item( id, "Operator", &act_c_hub, "operator", player );
+    self menu_item( id, "Outfit", &act_c_hub, "outfit", player );
+    self menu_item( id, "Take current weapon", &act_c_takeweapon, player );
+    self menu_item( id, "Strip all weapons", &act_c_strip, player );
+    self menu_item( id, is_true( player.gf_frozen ) ? "Unfreeze" : "Freeze - can look, not move", &act_freeze_player, player );
+    self menu_item( id, "To Allies", &act_move, player, #"allies" );
+    self menu_item( id, "To Axis", &act_move, player, #"axis" );
+    self menu_item( id, "To Spectator", &act_spectate, player );
+
+    // Kick: humans only (bots have the Bots page), never the host.
+    if ( !isbot( player ) && !( player ishost() ) )
+        self menu_item( id, "Kick from the match", &act_c_kick, player );
+}
+
+// A row's player may have left since the page was built: entity refs go undefined on
+// disconnect, so one check covers "left" and "never valid".
+function private client_ok( player )
+{
+    if ( isdefined( player ) && isplayer( player ) )
+        return true;
+
+    self menu_say( "^1player left" );
+    return false;
+}
+
+// Open a shared hub (weapons / camo / operator / outfit) aimed at this client: set the
+// target, point the hub back at this page for V, go. menu_target_sync drops it on the
+// way out. data1 is the page id so the row gets the submenu > marker.
+function private act_c_hub( item, page, player )
+{
+    if ( !client_ok( player ) )
+        return true;
+
+    self.gfmenu.target = player;
+    self.gfmenu.target_set = 1;
+    self.gfmenu.menus[ page ].parent_id = self.gfmenu.current;
+
+    return self menu_switch( undefined, page );
+}
+
+function private act_c_god( item, player )
+{
+    if ( !client_ok( player ) )
+        return true;
+
+    on = !is_true( player.gf_god );
+    player.gf_god = on;
+    item.activated = on;
+
+    if ( on )
+        player enableinvulnerability();
+    else
+        player disableinvulnerability();
+
+    self menu_say( "^2" + player.name + " godmode " + ( on ? "ON" : "OFF" ) );
+    return true;
+}
+
+// Every carried weapon incl. offhands (getweaponslist( 1 ), the scavenger's list -
+// ammo_shared.gsc:69), minus the base melee.
+function private act_c_ammo( item, player )
+{
+    if ( !client_ok( player ) )
+        return true;
+
+    if ( !isalive( player ) )
+    {
+        self menu_say( "^1" + player.name + " is not alive" );
+        return true;
+    }
+
+    n = 0;
+
+    foreach ( w in player getweaponslist( 1 ) )
+    {
+        if ( isdefined( level.weaponbasemelee ) && w == level.weaponbasemelee )
+            continue;
+
+        player givemaxammo( w );
+        n++;
+    }
+
+    self menu_say( "^2" + player.name + ": max ammo on " + n + " weapons" );
+    return true;
+}
+
+function private act_c_fly( item, player )
+{
+    if ( !client_ok( player ) )
+        return true;
+
+    if ( is_true( player.gf_fly ) )
+    {
+        player notify( #"gf_fly_stop" );
+        item.activated = 0;
+        self menu_say( "^2" + player.name + " fly OFF" );
+        return true;
+    }
+
+    if ( !isalive( player ) )
+    {
+        self menu_say( "^1" + player.name + " is not alive" );
+        return true;
+    }
+
+    player thread fly_think();
+    item.activated = 1;
+    self menu_say( "^2" + player.name + " fly ON - sprint fast, jump up, crouch down" );
+    return true;
+}
+
+function private act_c_thirdperson( item, player )
+{
+    if ( !client_ok( player ) )
+        return true;
+
+    on = !is_true( player.gf_tp );
+    player.gf_tp = on;
+    item.activated = on;
+    player setclientthirdperson( on );
+    self menu_say( "^2" + player.name + ( on ? " third person" : " first person" ) );
+    return true;
+}
+
+// Per-player move speed: the row cycles global -> 150 -> 200 -> 50 -> global. Held in
+// gf_speed_pct (undefined = follow gf_speed) and read by speed_apply, so it survives that
+// player's respawns until set back to global. act_c_speed_set is the app's form (pct).
+function private client_speed_label( player )
+{
+    return isdefined( player.gf_speed_pct ) ? ( "" + player.gf_speed_pct + "%" ) : "global";
+}
+
+function private act_c_speed( item, player )
+{
+    if ( !client_ok( player ) )
+        return true;
+
+    cur = isdefined( player.gf_speed_pct ) ? player.gf_speed_pct : 0;
+
+    if ( cur == 0 )
+        nxt = 150;
+    else if ( cur == 150 )
+        nxt = 200;
+    else if ( cur == 200 )
+        nxt = 50;
+    else
+        nxt = 0;
+
+    return self act_c_speed_set( item, player, nxt );
+}
+
+function private act_c_speed_set( item, player, pct )
+{
+    if ( !client_ok( player ) )
+        return true;
+
+    if ( !isdefined( pct ) || pct <= 0 )
+        player.gf_speed_pct = undefined;
+    else
+        player.gf_speed_pct = int( min( pct, 1000 ) );
+
+    if ( isalive( player ) )
+        player speed_apply();
+
+    item.name = "Speed: " + client_speed_label( player );
+    self menu_say( "^2" + player.name + " speed " + client_speed_label( player ) );
+    return true;
+}
+
+// Stock's own kill-a-player sequence (oob.gsc:869-873): the hurt-trigger damage, then
+// suicide() for a player - which is what actually lands on an invulnerable or frozen one.
+function private act_c_kill( item, player )
+{
+    if ( !client_ok( player ) )
+        return true;
+
+    if ( !isalive( player ) )
+    {
+        self menu_say( "^1" + player.name + " is already dead" );
+        return true;
+    }
+
+    player dodamage( player.health + 10000, player.origin, undefined, undefined, "none", "MOD_TRIGGER_HURT", 8192 | 16384 );
+
+    if ( isalive( player ) )
+        player suicide();
+
+    self menu_say( "^2" + player.name + " killed" );
+    return true;
+}
+
+function private act_c_takeweapon( item, player )
+{
+    if ( !client_ok( player ) )
+        return true;
+
+    w = player getcurrentweapon();
+
+    if ( isdefined( w ) && player hasweapon( w ) )
+    {
+        player takeweapon( w );
+        self menu_say( "^2weapon taken from " + player.name );
+    }
+    else
+    {
+        self menu_say( "^1" + player.name + " holds nothing to take" );
+    }
+
+    return true;
+}
+
+function private act_c_strip( item, player )
+{
+    if ( !client_ok( player ) )
+        return true;
+
+    player takeallweapons();
+    self menu_say( "^2" + player.name + " stripped of all weapons" );
+    return true;
+}
+
+// kick( entnum, reason ): the stock inactivity drop (challenges_shared.gsc:1208); the
+// reason is a localized key the vanilla client already carries. Back to the Players
+// page afterwards - this page's rows point at a leaving entity.
+function private act_c_kick( item, player )
+{
+    if ( !client_ok( player ) )
+        return true;
+
+    if ( player ishost() )
+    {
+        self menu_say( "^1not kicking the host" );
+        return true;
+    }
+
+    name = player.name;
+    kick( player getentitynumber(), "GAME/DROPPEDFORINACTIVITY" );
+    self menu_say( "^2kicked " + name );
+
+    return self menu_switch( undefined, "players" );
+}
+
 // ── Round ────────────────────────────────────────────────────────────────────
 
 function private act_timer( item, seconds )
 {
-    setdvar( #"gf_timer_seconds", seconds );
+    cfg_seti( #"gf_timer_seconds", seconds );
     // Lands within ~0.25s: updategametypedvars() re-reads gettimelimit every loop.
     if ( seconds > 0 )
         self menu_say( "^2round timer " + seconds + "s" );
@@ -6257,7 +7749,7 @@ function private act_timer( item, seconds )
 function private act_prematch( item, secs )
 {
     periods_snapshot();
-    setdvar( #"gf_prematch", secs );
+    cfg_seti( #"gf_prematch", secs );
     v = periods_value( secs, game.gf_lobby_prematch );
     if ( isdefined( v ) )
         setgametypesetting( #"prematchperiod", v );
@@ -6268,7 +7760,7 @@ function private act_prematch( item, secs )
 function private act_preround( item, secs )
 {
     periods_snapshot();
-    setdvar( #"gf_preround", secs );
+    cfg_seti( #"gf_preround", secs );
     v = periods_value( secs, game.gf_lobby_preround );
     if ( isdefined( v ) )
         setgametypesetting( #"preroundperiod", v );
@@ -6287,7 +7779,7 @@ function private act_restart( item )
 
 function private act_loadout( item, index )
 {
-    setdvar( #"gf_loadout", index );
+    cfg_seti( #"gf_loadout", index );
     setgametypesetting( #"gunfightloadoutindex", index );
 
     // gunfight.gsc:81 picks the loadout set only while game.var_96a8ff4a is
@@ -6303,7 +7795,7 @@ function private act_loadout( item, index )
 // assert it from the dvar at both.
 function private act_customcac( item, value )
 {
-    setdvar( #"gf_customcac", value );
+    cfg_seti( #"gf_customcac", value );
     dcc = value ? 0 : 1;
     setgametypesetting( #"disablecustomcac", dcc );
     self menu_say( value ? "^2custom classes ON - next match / switch" : "^2custom classes OFF - Gunfight loadouts next match / switch" );
@@ -6314,7 +7806,7 @@ function private act_customcac( item, value )
 
 function private act_poolcamo( item, value )
 {
-    setdvar( #"gf_camo", value );
+    cfg_seti( #"gf_camo", value );
     self mod_camo_repaint_all( value == -1 );
     self menu_say( "^2pool camo: " + camo_label( value ) + ( value == -1 ? " - bare until next round" : "" ) );
     return true;
@@ -6334,7 +7826,7 @@ function private mod_camo_repaint_all( strip )
 
 function private act_poolcamo_pool( item, value )
 {
-    setdvar( #"gf_camo_pool", value );
+    cfg_seti( #"gf_camo_pool", value );
     if ( cfg_camo() <= -2 )               // only a random mode has rolls to redo
         self mod_camo_repaint_all( 0 );
     self menu_say( "^2random camo pool: " + ( value == 1 ? "all 1-121" : "mastery + PaP" ) );
@@ -6343,7 +7835,7 @@ function private act_poolcamo_pool( item, value )
 
 function private act_poolcamo_split( item, value )
 {
-    setdvar( #"gf_camo_split", value );
+    cfg_seti( #"gf_camo_split", value );
     if ( cfg_camo() <= -2 )
         self mod_camo_repaint_all( 0 );
     self menu_say( "^2random camo: " + ( value ? "primary and secondary roll separately" : "one roll for both" ) );
@@ -6354,7 +7846,7 @@ function private act_poolcamo_split( item, value )
 
 function private act_spyplane( item, value )
 {
-    setdvar( #"gf_spyplane", value );
+    cfg_seti( #"gf_spyplane", value );
     setgametypesetting( #"gunfightspyplane", value );
     self menu_say( "^2spy plane " + value + " - next round" );
     return true;
@@ -6374,7 +7866,7 @@ function private act_spawn_report( item )
 // SPLIT this confirmation folds into the status block (menu_say), so it is visible there.
 function private act_menu_region( item, value )
 {
-    setdvar( #"gf_menu_region", value );
+    cfg_seti( #"gf_menu_region", value );
     msg = "^2layout: all in feed";
     if ( value == 1 )
         msg = "^2layout: all in centre";
@@ -6391,21 +7883,21 @@ function private act_menu_region( item, value )
 // ── HINT panel knobs (region 4) ───────────────────────────────────────────────
 function private act_hint_lines( item, value )
 {
-    setdvar( #"gf_hint_lines", value );
+    cfg_seti( #"gf_hint_lines", value );
     self menu_say( "^2hint panel shows " + value + " rows" );
     return true;
 }
 
 function private act_hint_newlines( item, value )
 {
-    setdvar( #"gf_hint_newlines", value );
+    cfg_seti( #"gf_hint_newlines", value );
     self menu_say( value ? "^2hint rows on newlines - one long line means the widget ignores them" : "^2hint rows packed on one line" );
     return true;
 }
 
 function private act_caster_probe( item, value )
 {
-    setdvar( #"gf_caster_probe", value );
+    cfg_seti( #"gf_caster_probe", value );
     self menu_say( value ? "^2caster probe ON - prints while you cast" : "^2caster probe OFF" );
     return true;
 }
@@ -6538,15 +8030,16 @@ function private census_hint_clear()
 // Display -> Debug feed page toggles them; the app's Display section carries the dvars.
 // The loop starts at every match start when any is on, and from every toggle.
 // ═════════════════════════════════════════════════════════════════════════════
-function private cfg_dbg_census()   { return getdvarint( #"gf_census", 0 ); }
-function private cfg_dbg_spawn()    { return getdvarint( #"gf_dbg_spawn", 0 ); }
-function private cfg_dbg_structs()  { return getdvarint( #"gf_dbg_structs", 0 ); }
-function private cfg_dbg_families() { return getdvarint( #"gf_dbg_families", 0 ); }
-function private cfg_dbg_match()    { return getdvarint( #"gf_dbg_match", 0 ); }
+function private cfg_dbg_census()   { return cfg_geti( #"gf_census", 0 ); }
+function private cfg_dbg_spawn()    { return cfg_geti( #"gf_dbg_spawn", 0 ); }
+function private cfg_dbg_structs()  { return cfg_geti( #"gf_dbg_structs", 0 ); }
+function private cfg_dbg_families() { return cfg_geti( #"gf_dbg_families", 0 ); }
+function private cfg_dbg_match()    { return cfg_geti( #"gf_dbg_match", 0 ); }
+function private cfg_dbg_assets()   { return cfg_geti( #"gf_dbg_assets", 0 ); }
 
 function private debug_feed_any()
 {
-    return cfg_dbg_census() || cfg_dbg_spawn() || cfg_dbg_structs() || cfg_dbg_families() || cfg_dbg_match() || cfg_dbg_flags();
+    return cfg_dbg_census() || cfg_dbg_spawn() || cfg_dbg_structs() || cfg_dbg_families() || cfg_dbg_match() || cfg_dbg_flags() || cfg_dbg_assets();
 }
 
 function private debug_feed_start()
@@ -6576,7 +8069,10 @@ function private debug_feed_loop()
             if ( cfg_dbg_structs() )
                 host iprintln( structs_line() );
             if ( cfg_dbg_families() )
+            {
                 host iprintln( families_line() );
+                host iprintln( starts_line() );
+            }
             if ( cfg_dbg_flags() )
             {
                 host iprintln( flags_line() );
@@ -6584,6 +8080,11 @@ function private debug_feed_loop()
             }
             if ( cfg_dbg_match() )
                 host iprintln( match_line() );
+            if ( cfg_dbg_assets() )
+            {
+                host iprintln( assets_line_v() );
+                host iprintln( assets_line_p() );
+            }
         }
 
         wait 3;
@@ -6618,15 +8119,17 @@ function private act_dbg_spawn( item )             { return self act_dbg( item, 
 function private act_dbg_structs( item )           { return self act_dbg( item, #"gf_dbg_structs", 1, "spawn structs" ); }
 function private act_dbg_families( item )          { return self act_dbg( item, #"gf_dbg_families", 1, "spawn families" ); }
 function private act_dbg_match( item )             { return self act_dbg( item, #"gf_dbg_match", 1, "match info" ); }
+function private act_dbg_assets( item )            { return self act_dbg( item, #"gf_dbg_assets", 1, "asset census (vehicles + props)" ); }
 
 function private act_dbg_all_off( item )
 {
-    setdvar( #"gf_census", 0 );
-    setdvar( #"gf_dbg_spawn", 0 );
-    setdvar( #"gf_dbg_structs", 0 );
-    setdvar( #"gf_dbg_families", 0 );
-    setdvar( #"gf_dbg_match", 0 );
-    setdvar( #"gf_dbg_flags", 0 );
+    cfg_seti( #"gf_census", 0 );
+    cfg_seti( #"gf_dbg_spawn", 0 );
+    cfg_seti( #"gf_dbg_structs", 0 );
+    cfg_seti( #"gf_dbg_families", 0 );
+    cfg_seti( #"gf_dbg_match", 0 );
+    cfg_seti( #"gf_dbg_flags", 0 );
+    cfg_seti( #"gf_dbg_assets", 0 );
     self menu_say( "^2debug feed: everything off" );
     return true;
 }
@@ -6701,8 +8204,26 @@ function private structs_line()
         line += " | lists: " + spawn_fv( lists );
     }
 
+    // Gametype spawn ENTITIES (getentarray by classname - getspawnpointarray's form,
+    // zm spawnlogic:317). MP never deletes unused-gametype spawns (only ZM does), so if a
+    // map ships dedicated S&D bases they persist through a Gunfight match and we can place
+    // players at them - EXACTLY S&D's fixed opposite-side spawns. This line says whether
+    // this map has them: sd=attacker/defender, tdm=allies/axis/generic, dom/ctf likewise.
+    line += " | ENT sd=" + spawn_ent_n( "mp_sd_spawn_attacker" ) + "/" + spawn_ent_n( "mp_sd_spawn_defender" )
+        + " tdm=" + spawn_ent_n( "mp_tdm_spawn_allies_start" ) + "/" + spawn_ent_n( "mp_tdm_spawn_axis_start" ) + "/" + spawn_ent_n( "mp_tdm_spawn" )
+        + " dom=" + spawn_ent_n( "mp_dom_spawn_allies_start" ) + "/" + spawn_ent_n( "mp_dom_spawn_axis_start" )
+        + " ctf=" + spawn_ent_n( "mp_ctf_spawn_allies_start" ) + "/" + spawn_ent_n( "mp_ctf_spawn_axis_start" )
+        + " dm=" + spawn_ent_n( "mp_dm_spawn" );
+
     level.gf_structs_line = line;
     return line;
+}
+
+// count spawn ENTITIES of a classname (getspawnpointarray's form, zm spawnlogic:317)
+function private spawn_ent_n( classname )
+{
+    a = getentarray( classname, "classname" );
+    return isdefined( a ) ? a.size : 0;
 }
 
 // Every spawn family this map places (non-zero only), the legacy detector's numbers, and
@@ -6781,7 +8302,7 @@ function private match_line()
 
 function private act_menu_hspan( item, value )
 {
-    setdvar( #"gf_menu_hspan", value );
+    cfg_seti( #"gf_menu_hspan", value );
     self menu_say( "^2centre bar shows " + value + " at once" );
     return true;
 }
@@ -6796,7 +8317,7 @@ function private act_zone_census( item )
 
 function private act_zone( item, value )
 {
-    setdvar( #"gf_zone", value );
+    cfg_seti( #"gf_zone", value );
 
     if ( value )
         self menu_say( "^3overtime zone ON from next round - run the census first" );
@@ -6808,7 +8329,7 @@ function private act_zone( item, value )
 
 function private act_zone_overtime( item, seconds )
 {
-    setdvar( #"gf_zone_overtime", seconds );
+    cfg_seti( #"gf_zone_overtime", seconds );
     level.extratime = seconds;   // overtime() reads it at expiry, so this round counts too
     self menu_say( "^2overtime " + seconds + "s" );
     return true;
@@ -6816,7 +8337,7 @@ function private act_zone_overtime( item, seconds )
 
 function private act_zone_capture( item, seconds )
 {
-    setdvar( #"gf_zone_capture", seconds );
+    cfg_seti( #"gf_zone_capture", seconds );
     level.capturetime = seconds;
     self menu_say( "^2zone capture " + seconds + "s" );
     return true;
@@ -6824,7 +8345,7 @@ function private act_zone_capture( item, seconds )
 
 function private act_spawn_pick( item, value )
 {
-    setdvar( #"gf_spawn_pick", value );
+    cfg_seti( #"gf_spawn_pick", value );
     if ( cfg_spawn_guard() )
         mod_spawn_build();
     self menu_say( value ? "^2spawn pick: far ends - the two outermost groups, like TDM openings" : "^2spawn pick: near - gap based, the closer-up version" );
@@ -6833,7 +8354,7 @@ function private act_spawn_pick( item, value )
 
 function private act_spawn_gap( item, value )
 {
-    setdvar( #"gf_spawn_gap", value );
+    cfg_seti( #"gf_spawn_gap", value );
     if ( cfg_spawn_guard() )
         mod_spawn_build();
     self menu_say( "^2guard gap " + value + "u between the sides" + ( isdefined( level.gfmenu_spawn ) ? ( " - rebuilt, next spawns use it" ) : "" ) );
@@ -6842,7 +8363,7 @@ function private act_spawn_gap( item, value )
 
 function private act_spawn_guard( item, value )
 {
-    setdvar( #"gf_spawn_guard", value );
+    cfg_seti( #"gf_spawn_guard", value );
 
     if ( value )
     {
@@ -6871,7 +8392,7 @@ function private act_spawn_guard( item, value )
 
 function private act_roundwinlimit( item, value )
 {
-    setdvar( #"gf_roundwinlimit", value );
+    cfg_seti( #"gf_roundwinlimit", value );
     setgametypesetting( #"roundwinlimit", value );
     self menu_say( "^2first to " + value + " rounds - applies next round" );
     return true;
@@ -6879,7 +8400,7 @@ function private act_roundwinlimit( item, value )
 
 function private act_roundlimit( item, value )
 {
-    setdvar( #"gf_roundlimit", value );
+    cfg_seti( #"gf_roundlimit", value );
     setgametypesetting( #"roundlimit", value );
     self menu_say( "^2round cap " + value + " - applies next round" );
     return true;
@@ -6887,7 +8408,7 @@ function private act_roundlimit( item, value )
 
 function private act_rounds_loadout( item, value )
 {
-    setdvar( #"gf_rounds_loadout", value );
+    cfg_seti( #"gf_rounds_loadout", value );
     setgametypesetting( #"gunfightroundsperloadout", value );
     // The live level var the round-end check actually reads (see mod_apply), plus the
     // side-switch gate - so a mid-match pick takes effect this match, not only next match.
@@ -6904,7 +8425,7 @@ function private act_rounds_loadout( item, value )
 // the generic path is re-armed from the setting.
 function private act_switch_sides( item, value )
 {
-    setdvar( #"gf_switch_sides", value );
+    cfg_seti( #"gf_switch_sides", value );
 
     if ( value )
     {
@@ -6926,7 +8447,7 @@ function private act_switch_sides( item, value )
 
 function private act_gravity( item, value )
 {
-    setdvar( #"gf_gravity", value );
+    cfg_seti( #"gf_gravity", value );
     setdvar( #"bg_gravity", value );
     self menu_say( "^2gravity " + value + ( value == 800 ? " (normal)" : "" ) );
     return true;
@@ -6934,7 +8455,7 @@ function private act_gravity( item, value )
 
 function private act_jump( item, value )
 {
-    setdvar( #"gf_jump", value );
+    cfg_seti( #"gf_jump", value );
 
     if ( value >= 0 )
     {
@@ -6951,7 +8472,7 @@ function private act_jump( item, value )
 
 function private act_jump_boost( item, value )
 {
-    setdvar( #"gf_jump_boost", value );
+    cfg_seti( #"gf_jump_boost", value );
 
     if ( value > 0 )
         self menu_say( "^2jump boost +" + value + " - everyone, next jump" );
@@ -6963,7 +8484,7 @@ function private act_jump_boost( item, value )
 
 function private act_speed( item, pct )
 {
-    setdvar( #"gf_speed", pct );
+    cfg_seti( #"gf_speed", pct );
     speed_apply_all();
     self menu_say( "^2move speed " + pct + "% - everyone, now" );
     return true;
@@ -6971,7 +8492,7 @@ function private act_speed( item, pct )
 
 function private act_falldamage( item, value )
 {
-    setdvar( #"gf_falldamage", value );
+    cfg_seti( #"gf_falldamage", value );
     mod_falldamage_apply();
     self menu_say( value ? "^2fall damage: stock" : "^2fall damage OFF" );
     return true;
@@ -6979,8 +8500,8 @@ function private act_falldamage( item, value )
 
 function private act_fly_speed( item, normal, fast )
 {
-    setdvar( #"gf_fly_speed", normal );
-    setdvar( #"gf_fly_fast", fast );
+    cfg_seti( #"gf_fly_speed", normal );
+    cfg_seti( #"gf_fly_fast", fast );
     self menu_say( "^2fly speed " + normal + " / sprint " + fast );
     return true;
 }
@@ -7093,6 +8614,215 @@ function private act_banner_clear( item, msg )
 // Combined-Arms / 12v12-layout maps - so isassetloaded() gates it and says so on a
 // Gunfight map instead of failing. ⚠ Whole feature UNTESTED in this project.
 
+// ── Vehicles page, built PER MAP (2026-09-15) ────────────────────────────────
+// The dump ships tables/bgcache/<zone>.csv - every asset a zone precaches - and a map runs
+// with core_bootstrap + core_common + mp_common + its own zone, so the union of their
+// `vehicle` rows is what isassetloaded( "vehicle", name ) says yes to. MEASURED: Standoff's
+// census (gf_dbg_assets) found exactly the four streak vehicles core_common / mp_common
+// carry, nothing else; drivables ship only with Armada (boats), Crossroads (T-72,
+// snowmobile), Collateral (FAV, motorcycle, quad, trucks, Hind), Cartel, Checkmate / Diesel
+// (APC) and the Fireteam maps. tools/mapdata-extract.py regenerates docs/data/map-assets.json
+// from those tables. Rather than carry a per-map table here, the page asks the engine at
+// build time over the MASTER list below (every vehicle row of every MP / Fireteam zone,
+// docs/notes/map-data.md) and shows only what is resident on THIS map: drivables on the
+// page, streaks / the map's intro-cinematic vehicle / turrets on a sub-page. Hashed keys
+// are names the dump could not resolve; spawnvehicle( #"hash_..." ) is stock syntax
+// (vip.gsc:125), so they are offered by hash, labelled by the scene that uses them.
+function private veh_def( m, key, label, kind, text )
+{
+    e = spawnstruct();
+    e.key = key;
+    e.label = label;
+    e.kind = kind;                         // 0 drivable, 1 other (streak / intro / turret)
+    e.text = isdefined( text ) ? text : key;
+    m[ m.size ] = e;
+    return m;
+}
+
+function private veh_master()
+{
+    if ( isdefined( level.gf_veh_master ) )
+        return level.gf_veh_master;
+
+    m = [];
+    // drivables (bgcache: mp_black_sea, mp_dune, mp_tundra, mp_cartel, mp_kgb, mp_sm_gas_station, wz_*)
+    m = veh_def( m, "vehicle_t9_mil_fav_light", "Light buggy (FAV)", 0 );
+    m = veh_def( m, "vehicle_t9_mil_fav_light_alt", "Light buggy (FAV) alt", 0 );
+    m = veh_def( m, "veh_mil_ru_fav_heavy", "Heavy buggy (FAV)", 0 );
+    m = veh_def( m, "vehicle_motorcycle_mil_us_offroad", "Motorcycle", 0 );
+    m = veh_def( m, "vehicle_motorcycle_mil_us_offroad_alt", "Motorcycle alt", 0 );
+    m = veh_def( m, #"hash_4b89aa566bff8383", "Motorcycle (slow)", 0, "vehicle_motorcycle_mil_us_offroad_slow" );
+    m = veh_def( m, "veh_quad_player_wz_pc", "Quad / ATV", 0 );
+    m = veh_def( m, "veh_quad_player_wz_tan", "Quad / ATV (tan)", 0 );
+    m = veh_def( m, "vehicle_t9_mil_snowmobile", "Snowmobile", 0 );
+    m = veh_def( m, "vehicle_t9_mil_snowmobile_alt", "Snowmobile alt", 0 );
+    m = veh_def( m, "vehicle_t9_civ_ru_sedan_80s_player", "Sedan", 0 );
+    m = veh_def( m, "vehicle_t9_civ_ru_sedan_80s_player_alt", "Sedan alt", 0 );
+    m = veh_def( m, #"hash_985b7e40ee02aa2", "Sedan (BO4 midsize)", 0, "vehicle_t8_soviet_civ_sedan_midsize" );
+    m = veh_def( m, "vehicle_t9_mil_ru_truck_light_player", "Light truck", 0 );
+    m = veh_def( m, "vehicle_t9_mil_ru_truck_light_player_alt", "Light truck alt", 0 );
+    m = veh_def( m, #"hash_1bdb534f1e8e23f5", "Light truck (base)", 0, "vehicle_t9_mil_ru_truck_light" );
+    m = veh_def( m, "vehicle_t9_mil_ru_truck_transport_player", "Transport truck", 0 );
+    m = veh_def( m, "vehicle_t9_mil_ru_truck_transport_player_alt", "Transport truck alt", 0 );
+    m = veh_def( m, "vehicle_t9_mil_ru_truck_transport_player_obj_sr", "Transport truck (objective)", 0 );
+    m = veh_def( m, "vehicle_t9_mil_ru_tank_t72_sr", "Tank T-72", 0 );
+    m = veh_def( m, "vehicle_t9_mil_ru_tank_t72_alt", "Tank T-72 alt", 0 );
+    m = veh_def( m, #"hash_28d512b739c9d9c1", "Tank T-72 (base)", 0, "vehicle_t9_mil_ru_tank_t72" );
+    m = veh_def( m, "vehicle_t8_mil_tank_wz_base_mg", "Tank (BO4 base, MG)", 0 );
+    m = veh_def( m, #"hash_1a60a087a340574b", "APC (heavy)", 0, "vehicle_t9_mil_ru_apc_heavy" );
+    m = veh_def( m, #"hash_7c54a264a26cb1eb", "APC (heavy, open turret)", 0, "vehicle_t9_mil_ru_apc_heavy_open_turret" );
+    m = veh_def( m, #"hash_6595f5efe62a4ec", "Hind gunship", 0, "vehicle_t9_mil_ru_heli_gunship_hind" );
+    m = veh_def( m, "vehicle_t9_mil_ru_heli_gunship_hind_wz", "Hind gunship (wz)", 0 );
+    m = veh_def( m, "vehicle_t9_mil_us_helicopter_large_cp_armada_player", "Armada heli (campaign)", 0 );
+    m = veh_def( m, "vehicle_t9_plane_flyable_prototype", "Plane (prototype)", 0 );
+    m = veh_def( m, "vehicle_t9_mil_boat_jetski", "Jetski", 0 );
+    m = veh_def( m, "vehicle_t9_mil_boat_jetski_alt", "Jetski alt", 0 );
+    m = veh_def( m, "veh_boct_mil_jetski", "Jetski (boct)", 0 );
+    m = veh_def( m, "vehicle_t9_mil_boat_tactical_raft", "Tactical raft", 0 );
+    m = veh_def( m, "vehicle_t9_mil_boat_tactical_raft_alt", "Tactical raft alt", 0 );
+    m = veh_def( m, "vehicle_boct_mil_boat_tactical_raft_gry_pc", "Tactical raft (grey)", 0 );
+    m = veh_def( m, #"hash_51c4f4dc2591b475", "Tactical raft (grey, base)", 0, "vehicle_boct_mil_boat_tactical_raft_gry" );
+    m = veh_def( m, "vehicle_t9_mil_us_boat_pgb_double_gun", "PBR gunboat", 0 );
+    m = veh_def( m, "vehicle_t9_mil_us_boat_pgb_double_gun_alt", "PBR gunboat alt", 0 );
+    m = veh_def( m, "vehicle_boct_mil_boat_pbr", "PBR boat (boct)", 0 );
+    // other resident vehicles: streaks, turrets, the map's intro cinematic. Untested; may not be enterable.
+    m = veh_def( m, "veh_t9_mil_us_helicopter_large_chopper_gunner", "Chopper Gunner (streak)", 1 );
+    m = veh_def( m, "vehicle_t9_mil_helicopter_care_package", "Care package heli (streak)", 1 );
+    m = veh_def( m, #"hash_4209c5ff3b969c7a", "Vehicle-drop heli (streak)", 1, "vehicle_t9_mil_ru_heli_transport_vehicle_drop" );
+    m = veh_def( m, "vehicle_t9_rcxd_racing", "RC-XD", 1 );
+    m = veh_def( m, "vehicle_t9_rcxd_racing_alt", "RC-XD alt", 1 );
+    m = veh_def( m, #"hash_58cc8ce25d32031f", "Exfil chopper (VIP escort)", 1, "hash_58cc8ce25d32031f" );      // vip.gsc:125
+    m = veh_def( m, #"hash_437293ae239af1ab", "Exfil helicopter (Fireteam)", 1, "hash_437293ae239af1ab" );     // zm_silver_main_quest.gsc:3031
+    m = veh_def( m, "veh_t8_ac130_gunship_mp", "AC-130 gunship (streak)", 1 );
+    m = veh_def( m, "veh_t8_helicopter_gunship_mp", "Attack helicopter (streak)", 1 );
+    m = veh_def( m, "veh_t8_helicopter_gunship_mp_guard", "Attack helicopter guard (streak)", 1 );
+    m = veh_def( m, "vehicle_t9_mil_ru_air_vtol_forger", "VTOL Forger (streak)", 1 );
+    m = veh_def( m, "vehicle_straferun_mp", "Strafe run plane (streak)", 1 );
+    m = veh_def( m, "vehicle_t9_mil_air_transport_hpc_intro", "Air transport (intro)", 1 );
+    m = veh_def( m, #"hash_536eec4bf6424551", "Mounted MG tripod", 1, "veh_boct_turret_manned_tripod_mp" );
+    m = veh_def( m, #"hash_5477254cf96259f4", "Express train", 1, "veh_boct_train" );
+    // the pre-match intro cinematic vehicle of a 6v6 map (scriptbundle/scene/cin_mp_<map>_intro_*)
+    m = veh_def( m, #"hash_60868aaa45d05ffe", "Intro cinematic vehicle (Checkmate / Satellite)", 1, "hash_60868aaa45d05ffe" );
+    m = veh_def( m, #"hash_550d303ee2de9a65", "Intro cinematic tank (Garrison / Amerika)", 1, "hash_550d303ee2de9a65" );
+    m = veh_def( m, #"hash_4dfaa11717f3881", "Intro cinematic vehicle (Garrison)", 1, "hash_4dfaa11717f3881" );
+    m = veh_def( m, #"hash_1e00d92ee0b1bf4c", "Intro cinematic vehicle (Miami)", 1, "hash_1e00d92ee0b1bf4c" );
+    m = veh_def( m, #"hash_4c21aec4081d030d", "Intro cinematic vehicle (Moscow cia)", 1, "hash_4c21aec4081d030d" );
+    m = veh_def( m, #"hash_62d385495a2ba813", "Intro cinematic vehicle (Moscow kgb)", 1, "hash_62d385495a2ba813" );
+    m = veh_def( m, #"hash_13c60e71eef46ebb", "Intro cinematic helicopter (The Pines)", 1, "hash_13c60e71eef46ebb" );
+    m = veh_def( m, #"hash_5405b8cdc93df2b4", "Intro cinematic APC (The Pines)", 1, "hash_5405b8cdc93df2b4" );
+    m = veh_def( m, #"hash_15e59336c36ee995", "Intro cinematic APC (Amerika)", 1, "hash_15e59336c36ee995" );
+    m = veh_def( m, #"hash_7c74af55b6caaaf5", "Intro cinematic vehicle (Echelon)", 1, "hash_7c74af55b6caaaf5" );
+    m = veh_def( m, #"hash_c07fec522db452c", "Intro cinematic vehicle (Yamantau)", 1, "hash_c07fec522db452c" );
+    m = veh_def( m, #"hash_1c5963188cf189df", "Intro cinematic vehicle (Apocalypse)", 1, "hash_1c5963188cf189df" );
+    m = veh_def( m, #"hash_20966d639ebe6604", "Intro cinematic vehicle (Cartel)", 1, "hash_20966d639ebe6604" );
+    m = veh_def( m, #"hash_4bfd80fe09072db3", "Intro cinematic vehicle (Collateral cia)", 1, "hash_4bfd80fe09072db3" );
+    m = veh_def( m, #"hash_3efa223f4a0bffcd", "Intro cinematic vehicle (Collateral kgb)", 1, "hash_3efa223f4a0bffcd" );
+    m = veh_def( m, #"hash_1f5c1aa7b1348d33", "Intro cinematic vehicle (Crossroads kgb)", 1, "hash_1f5c1aa7b1348d33" );
+    m = veh_def( m, #"hash_3463002d802c1a98", "Intro cinematic vehicle (Crossroads)", 1, "hash_3463002d802c1a98" );
+    m = veh_def( m, #"hash_581bb1b0fa4a3139", "Intro cinematic vehicle (Crossroads kgb 2)", 1, "hash_581bb1b0fa4a3139" );
+    m = veh_def( m, #"hash_61b8f8f61f4b9ce7", "Intro cinematic vehicle (Crossroads cia)", 1, "hash_61b8f8f61f4b9ce7" );
+    level.gf_veh_master = m;
+    return m;
+}
+
+// Rows for one page: every master entry of `kind` resident on this map. Returns the count.
+function private veh_page_rows( page, kind )
+{
+    n = 0;
+
+    foreach ( e in veh_master() )
+    {
+        if ( e.kind != kind || !isassetloaded( "vehicle", e.key ) )
+            continue;
+
+        self menu_item( page, "Spawn " + e.label, &veh_spawn, e.key );
+        n++;
+    }
+
+    return n;
+}
+
+// The Vehicles page + its "other" sub-page, from what THIS map has resident.
+function private veh_page_build()
+{
+    n = self veh_page_rows( "vehicles", 0 );
+
+    if ( n == 0 )
+        self menu_item( "vehicles", "(no drivable vehicle assets on this map)", undefined );
+
+    self menu_item( "vehicles", "Enter vehicle I am aiming at", &veh_enter );
+    self menu_add( "veh_other", "Other resident vehicles - streaks / intro, untested", "vehicles", 1 );
+
+    if ( self veh_page_rows( "veh_other", 1 ) == 0 )
+        self menu_item( "veh_other", "(none resident on this map)", undefined );
+}
+
+// The resident vehicle keys as one comma list (the GFMAPVEH channel); kind -1 = all.
+function private veh_resident_list( kind )
+{
+    out = "";
+
+    foreach ( e in veh_master() )
+    {
+        if ( ( kind >= 0 && e.kind != kind ) || !isassetloaded( "vehicle", e.key ) )
+            continue;
+
+        out += ( out == "" ? "" : "," ) + e.text;
+    }
+
+    return out;
+}
+
+// ── GAME->APP map census: three marked strings tools/gf-control/mapdata_scan.py sweeps ──
+// The roster channel's sibling (roster_publish): a marked string alive in a level field is
+// found by the app's read-only memory sweep. One line per subject so none grows past the
+// script string budget; markers assembled at runtime so the payload's own string table
+// carries no decoy. Built once the level has settled, held for the whole level; the app
+// files them per map (mapdata/<map>.json) - the per-map database fills itself as klaze
+// plays. Formats (docs/notes/map-data.md):
+//   GFMAPVEH|<map>|<gametype>|<key>,<key>,...|END          resident vehicles, drivables first
+//   GFMAPPROP|<map>|tbl=1|rows=13|<model>:<size>,...|END   the Prop Hunt table (first 48 rows)
+//   GFMAPSPAWN|<map>|<STARTS tally>|<family note>|END      the spawn keys read on this map
+function private mapdata_publish()
+{
+    if ( isdefined( level.gf_mapdata_v ) )
+        return;                            // this level already published
+
+    level endon( #"game_ended" );
+    wait 6;
+
+    map = getdvarstring( #"sv_mapname", "?" );
+    gt = tolower( getdvarstring( #"g_gametype", "?" ) );
+
+    level.gf_mapdata_v = "GFMAP" + "VEH|" + map + "|" + gt + "|" + veh_resident_list( 0 ) + "|" + veh_resident_list( 1 ) + "|END";
+
+    props = "tbl=0";
+    mapname = level.script;
+    if ( !isdefined( mapname ) )
+        mapname = util::get_map_name();
+    path = "gamedata/tables/mp/" + mapname + "_ph.csv";
+
+    if ( isassetloaded( "stringtable", path ) )
+    {
+        numrows = tablelookuprowcount( path );
+        if ( !isdefined( numrows ) )
+            numrows = 0;
+
+        props = "tbl=1|rows=" + numrows + "|";
+        for ( i = 0; i < numrows && i < 48; i++ )
+        {
+            model = assets_table_cell( path, i, 0 );
+            size = assets_table_cell( path, i, 1 );
+            props += ( i > 0 ? "," : "" ) + model + ":" + size;
+        }
+    }
+
+    level.gf_mapdata_p = "GFMAP" + "PROP|" + map + "|" + props + "|END";
+
+    note = isdefined( level.gf_family_note ) ? level.gf_family_note : "";
+    level.gf_mapdata_s = "GFMAP" + "SPAWN|" + map + "|" + mod_starts_tally() + " NAMED" + mod_named_tally( mod_gather_spawns() ) + mod_groups_tally() + "|" + note + "|END";
+}
+
 function private veh_spawn( item, type )
 {
     if ( !isassetloaded( "vehicle", type ) )
@@ -7204,13 +8934,22 @@ function private act_dropweapon( item )
 
 function private act_giveweapon( item, whash, label )
 {
+    // The host, or the client a Players page aimed this hub at (menu_target).
+    p = self menu_target();
+
+    if ( p != self && !isalive( p ) )
+    {
+        self menu_say( "^1" + p.name + " is not alive" );
+        return true;
+    }
+
     w = getweapon( whash );
 
     if ( isdefined( w ) )
     {
-        self giveweapon( w );
-        self switchtoweapon( w );
-        self menu_say( "^2gave " + label );
+        p giveweapon( w );
+        p switchtoweapon( w );
+        self menu_say( "^2gave " + label + self target_tail( p ) );
     }
     else
     {
@@ -7225,10 +8964,11 @@ function private act_giveweapon( item, whash, label )
 
 function private act_camo( item, id )
 {
-    w = self getcurrentweapon();
+    p = self menu_target();
+    w = p getcurrentweapon();
     if ( isdefined( w ) )
-        self setcamo( w, id );
-    self menu_say( "^2camo " + id + " on current weapon" );
+        p setcamo( w, id );
+    self menu_say( "^2camo " + id + " on current weapon" + self target_tail( p ) );
     return true;
 }
 
@@ -7248,20 +8988,22 @@ function private cos_clear()
 
 function private act_skin( item, id )
 {
-    self setspecialistindex( id );
-    self setcharacteroutfit( 0 );
-    self setcharacterwarpaintoutfit( 0 );
-    self cos_clear();
-    self menu_say( "^2operator " + id );
+    p = self menu_target();
+    p setspecialistindex( id );
+    p setcharacteroutfit( 0 );
+    p setcharacterwarpaintoutfit( 0 );
+    p cos_clear();
+    self menu_say( "^2operator " + id + self target_tail( p ) );
     return true;
 }
 
 function private act_outfit( item, id )
 {
-    self setcharacteroutfit( id );
-    self setcharacterwarpaintoutfit( 0 );
-    self cos_clear();
-    self menu_say( "^2outfit " + id );
+    p = self menu_target();
+    p setcharacteroutfit( id );
+    p setcharacterwarpaintoutfit( 0 );
+    p cos_clear();
+    self menu_say( "^2outfit " + id + self target_tail( p ) );
     return true;
 }
 
@@ -7276,6 +9018,562 @@ function private act_unlockall( item )
     self menu_say( "^3loot_fakeall=1 - best-effort; cwpatch does the real unlock" );
     return true;
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TELEPORT — docs/notes/teleport.md
+// ═════════════════════════════════════════════════════════════════════════════
+// Moving a player is three builtins in a fixed order, the shape stock's own retail MP
+// fast-travel uses on a live player (red_door.gsc:492 function_2aed1d83, :155): dontinterpolate()
+// so the client snaps instead of lerping across the map, setorigin(), setvelocity( (0,0,0) )
+// because the old momentum survives the move (:496), then setplayerangles(). Entity state on
+// the server, so a vanilla joiner is moved exactly like the host. The tools are the Atian
+// menu's tpgun / func_teleport and the (compiled-out) dev warp, dev.gsc:279 - a ring of
+// players in front of the target, each spot floored, all facing the target.
+//
+// Two things a bare setorigin gets wrong, both handled in tp_place / tp_floor:
+//   - a FLYING player is linked to the fly anchor and the link owns the origin: move the
+//     anchor instead (fly_think stores it as self.gf_fly_anchor; Atian's future_tp);
+//   - a point on a wall or in the air leaves the player half in the surface or falling:
+//     the aim point is pushed 12u out along the hit normal, then every destination is
+//     dropped onto the floor under it with playerphysicstrace, the capsule sweep Prop Hunt
+//     uses to re-materialise a prop as a player (_prop_controls.gsc:1260-1265).
+// A player in a vehicle is skipped (the seat owns him); dead players and spectators are
+// skipped; bots are moved like anyone else, so a solo host with bots can see it work.
+// The teleport GUN and GRENADE are per-life player threads re-armed on every spawn
+// (mod_spawn_place -> tp_spawn_rearm). "Everyone" flags live in game. so they survive the
+// round boundary and reset at match end, and never include bots (a bot fires constantly).
+// Nothing here has run in-game yet (2026-09-15); the note carries the test sheet.
+
+// One player to pos (feet origin), facing angles (undefined = keep the view). 0 = not moved.
+function private tp_place( player, pos, angles )
+{
+    if ( !isdefined( player ) || !isalive( player ) || !isdefined( pos ) )
+        return 0;
+
+    if ( isdefined( player getvehicleoccupied() ) )
+        return 0;
+
+    if ( isdefined( player.gf_fly ) && player.gf_fly && isdefined( player.gf_fly_anchor ) )
+    {
+        player.gf_fly_anchor.origin = pos;
+
+        if ( isdefined( angles ) )
+            player setplayerangles( angles );
+
+        return 1;
+    }
+
+    player dontinterpolate();
+    player setorigin( pos );
+    player setvelocity( ( 0, 0, 0 ) );
+
+    if ( isdefined( angles ) )
+        player setplayerangles( angles );
+
+    return 1;
+}
+
+// The floor under pos for a standing player: the capsule sweep from a hand above pos down
+// 2000u (stock's own span, _prop_controls.gsc:1263), which answers the feet origin, or
+// undefined / the bottom of the segment when it starts in solid or finds nothing; then a
+// plain bullettrace floor; then pos itself (mid-air: the player drops, like any menu's tp).
+function private tp_floor( pos )
+{
+    top = pos + ( 0, 0, 16 );
+    bottom = pos - ( 0, 0, 2000 );
+
+    p = playerphysicstrace( top, bottom );
+
+    if ( isdefined( p ) && p[ 2 ] > bottom[ 2 ] + 1 )
+        return p;
+
+    tr = bullettrace( top, bottom, 0, undefined );
+
+    if ( tr[ #"fraction" ] < 1 )
+        return tr[ #"position" ];
+
+    return pos;
+}
+
+// Where the host is aiming: eye + view forward, 10000u, characters count (the Atian
+// get_look_trace), pushed 12u back out of the surface along its normal so a wall shot lands
+// beside the wall. undefined on a miss (the sky) - nobody moves on a miss.
+function private tp_aim()
+{
+    eye = self geteye();
+    tr = bullettrace( eye, eye + vectorscale( anglestoforward( self getplayerangles() ), 10000 ), 1, self );
+
+    if ( tr[ #"fraction" ] >= 1 )
+        return undefined;
+
+    pos = tr[ #"position" ];
+
+    if ( isdefined( tr[ #"normal" ] ) )
+        pos += vectorscale( tr[ #"normal" ], 12 );
+
+    return pos;
+}
+
+function private tp_fmt( v )
+{
+    return int( v[ 0 ] ) + " " + int( v[ 1 ] ) + " " + int( v[ 2 ] );
+}
+
+// Spot i of n around centre: one ring, radius 80u (grows past six so nobody overlaps), each
+// spot floored. A spot whose floor is more than 128u off the centre's (off a ledge, through
+// a floor) or with no clear chest-height line from the centre (through a wall) falls back
+// to the centre itself - players overlap there and walk apart; MP does not telefrag.
+function private tp_ring_spot( centre, i, n )
+{
+    if ( n <= 0 )
+        return centre;
+
+    // 2026-09-15 (klaze: "everyone to me just restarts the match"): with the host in a tight
+    // spot every ring position failed its checks and EVERY player landed on the host's exact
+    // origin - a stack, enemies point-blank, the round over in a second. So a failed ring
+    // position now shrinks toward the host (80 -> 48 -> 24 u) before giving up, and the
+    // last resort is a 16 u nudge, never the same point twice.
+    a = 360 * i / n;
+    base = ( n > 6 ) ? ( 80 * n / 6 ) : 80;
+
+    for ( k = 0; k < 3; k++ )
+    {
+        radius = ( k == 0 ) ? base : ( ( k == 1 ) ? 48 : 24 );
+        spot = tp_floor( centre + ( radius * cos( a ), radius * sin( a ), 0 ) );
+
+        if ( abs( spot[ 2 ] - centre[ 2 ] ) > 128 )
+            continue;
+
+        if ( !bullettracepassed( centre + ( 0, 0, 40 ), spot + ( 0, 0, 40 ), 0, undefined ) )
+            continue;
+
+        return spot;
+    }
+
+    return centre + ( 16 * cos( a ), 16 * sin( a ), 0 );
+}
+
+// A short invulnerability after a mass teleport, so a group dropped point-blank (or onto
+// the host) does not decide the round in the same second. God mode is left as it was.
+function private tp_grace( secs )
+{
+    self endon( #"disconnect" );
+    self endon( #"death" );
+    self enableinvulnerability();
+    wait secs;
+
+    if ( !is_true( self.gf_god ) )
+        self disableinvulnerability();
+}
+
+// The spot 80u in front of origin (yaw), floored and checked the same way; origin when
+// the front is blocked. The per-player "to me" / "me to them" landing.
+function private tp_front( origin, yaw )
+{
+    spot = tp_floor( origin + vectorscale( anglestoforward( ( 0, yaw, 0 ) ), 80 ) );
+
+    if ( abs( spot[ 2 ] - origin[ 2 ] ) > 128 )
+        return origin;
+
+    if ( !bullettracepassed( origin + ( 0, 0, 40 ), spot + ( 0, 0, 40 ), 0, undefined ) )
+        return origin;
+
+    return spot;
+}
+
+// Everyone alive but the host (no spectators, no vehicle seats) in a ring around centre,
+// facing it. who = "all" | "team" (the host's side) | "enemy". Returns how many moved.
+function private tp_gather( centre, who )
+{
+    list = [];
+
+    foreach ( player in getplayers() )
+    {
+        if ( player == self || !isalive( player ) )
+            continue;
+
+        if ( !isdefined( player.team ) || player.team == #"spectator" )
+            continue;
+
+        if ( who == "team" && player.team != self.team )
+            continue;
+
+        if ( who == "enemy" && player.team == self.team )
+            continue;
+
+        list[ list.size ] = player;
+    }
+
+    moved = 0;
+
+    for ( i = 0; i < list.size; i++ )
+    {
+        spot = tp_ring_spot( centre, i, list.size );
+        face = ( distancesquared( centre, spot ) > 1 ) ? vectortoangles( centre - spot ) : self getplayerangles();
+
+        p = list[ i ];
+
+        if ( tp_place( p, spot, ( 0, face[ 1 ], 0 ) ) )
+        {
+            moved++;
+            p thread tp_grace( 1.5 );
+            p iprintln( "^3teleported by the host" );
+        }
+        else
+        {
+            self menu_say( "^3" + p.name + " is in a vehicle - skipped" );
+        }
+    }
+
+    return moved;
+}
+
+// A destination by name: "aim" (the crosshair, floored), "saved" (game.gf_tp_point, a spot
+// someone stood on), "centre" (level.mapcenter, the minimap box centre stock's fourth spawn
+// path piles players on - globallogic.gsc:5500 - floored). Struct { origin, angles, label },
+// or undefined after saying why.
+function private tp_dest( where )
+{
+    if ( where == "aim" )
+    {
+        pos = self tp_aim();
+
+        if ( !isdefined( pos ) )
+        {
+            self menu_say( "^1aim at something first (that was the sky)" );
+            return undefined;
+        }
+
+        return { #origin: tp_floor( pos ), #label: "crosshair" };
+    }
+
+    if ( where == "saved" )
+    {
+        if ( !isdefined( game.gf_tp_point ) )
+        {
+            self menu_say( "^1no saved point - Me to... > Save point first" );
+            return undefined;
+        }
+
+        return { #origin: game.gf_tp_point.origin, #angles: game.gf_tp_point.angles, #label: "saved point" };
+    }
+
+    if ( where == "centre" )
+    {
+        if ( !isdefined( level.mapcenter ) )
+        {
+            self menu_say( "^1no map centre on this map" );
+            return undefined;
+        }
+
+        return { #origin: tp_floor( level.mapcenter ), #label: "map centre" };
+    }
+
+    self menu_say( "^1teleport: unknown destination '" + where + "'" );
+    return undefined;
+}
+
+function private act_tp_save( item )
+{
+    if ( !isalive( self ) )
+    {
+        self menu_say( "^1spawn first" );
+        return true;
+    }
+
+    ang = self getplayerangles();
+    game.gf_tp_point = { #origin: self.origin, #angles: ang };
+    self menu_say( "^2point saved: " + tp_fmt( self.origin ) );
+    return true;
+}
+
+function private act_tp_me( item, where )
+{
+    if ( !isalive( self ) )
+    {
+        self menu_say( "^1spawn first" );
+        return true;
+    }
+
+    dest = self tp_dest( where );
+
+    if ( !isdefined( dest ) )
+        return true;
+
+    if ( tp_place( self, dest.origin, dest.angles ) )
+        self menu_say( "^2teleported to " + dest.label );
+    else
+        self menu_say( "^1get out of the vehicle first" );
+
+    return true;
+}
+
+// where = "me" | a tp_dest name; who = "all" | "team" | "enemy".
+function private act_tp_all( item, where, who )
+{
+    if ( !isalive( self ) )
+    {
+        self menu_say( "^1spawn first" );
+        return true;
+    }
+
+    if ( where == "me" )
+    {
+        centre = self.origin;
+        label = "you";
+    }
+    else
+    {
+        dest = self tp_dest( where );
+
+        if ( !isdefined( dest ) )
+            return true;
+
+        centre = dest.origin;
+        label = dest.label;
+    }
+
+    n = self tp_gather( centre, who );
+
+    if ( n > 0 && who != "team" && where == "me" )
+        self thread tp_grace( 1.5 );        // enemies just arrived in your face too
+
+    self menu_say( "^2" + n + " moved to " + label );
+    return true;
+}
+
+// Players page rows: "tome" (in front of me, facing me), "metothem" (in front of them,
+// facing them), "swap" (exchange positions and views; nobody moves if either is seated).
+function private act_tp_player( item, player, verb )
+{
+    if ( !isdefined( player ) )
+    {
+        self menu_say( "^1player left" );
+        return true;
+    }
+
+    if ( !isalive( self ) || !isalive( player ) )
+    {
+        self menu_say( "^1both must be alive" );
+        return true;
+    }
+
+    switch ( verb )
+    {
+        case "tome":
+            ang = self getplayerangles();
+            ok = tp_place( player, tp_front( self.origin, ang[ 1 ] ), ( 0, ang[ 1 ] + 180, 0 ) );
+            self menu_say( ok ? ( "^2" + player.name + " brought to you" ) : ( "^1" + player.name + " is in a vehicle" ) );
+            if ( ok )
+                player iprintln( "^3teleported by the host" );
+            break;
+        case "metothem":
+            ang = player getplayerangles();
+            ok = tp_place( self, tp_front( player.origin, ang[ 1 ] ), ( 0, ang[ 1 ] + 180, 0 ) );
+            self menu_say( ok ? ( "^2teleported to " + player.name ) : "^1get out of the vehicle first" );
+            break;
+        case "swap":
+            if ( isdefined( self getvehicleoccupied() ) || isdefined( player getvehicleoccupied() ) )
+            {
+                self menu_say( "^1one of you is in a vehicle - no swap" );
+                break;
+            }
+            a = self.origin;
+            aa = self getplayerangles();
+            b = player.origin;
+            ba = player getplayerangles();
+            tp_place( self, b, ba );
+            tp_place( player, a, aa );
+            player iprintln( "^3swapped places with the host" );
+            self menu_say( "^2swapped places with " + player.name );
+            break;
+        default:
+            self menu_say( "^1teleport: unknown verb '" + verb + "'" );
+            break;
+    }
+
+    return true;
+}
+
+// ── Teleport gun / grenade ───────────────────────────────────────────────────
+
+function private tpgun_wanted( player )
+{
+    if ( isdefined( player.gf_tpgun ) && player.gf_tpgun )
+        return true;
+
+    return isdefined( game.gf_tpgun_all ) && game.gf_tpgun_all && !isbot( player );
+}
+
+function private tpnade_wanted( player )
+{
+    if ( isdefined( player.gf_tpnade ) && player.gf_tpnade )
+        return true;
+
+    return isdefined( game.gf_tpnade_all ) && game.gf_tpnade_all && !isbot( player );
+}
+
+// (Re)start a player's gun / grenade thread to match what he wants right now; a stop is a
+// restart that finds nothing wanted. Called from every spawn and from the toggles.
+function private tpgun_rearm( player )
+{
+    player notify( #"gf_tpgun_restart" );
+
+    if ( isalive( player ) && tpgun_wanted( player ) )
+        player thread tpgun_think();
+}
+
+function private tpnade_rearm( player )
+{
+    player notify( #"gf_tpnade_restart" );
+
+    if ( isalive( player ) && tpnade_wanted( player ) )
+        player thread tpnade_think();
+}
+
+// mod_spawn_place: the per-life threads for whoever wants them (bots never do).
+function private tp_spawn_rearm()
+{
+    if ( !isplayer( self ) )
+        return;
+
+    tpgun_rearm( self );
+    tpnade_rearm( self );
+}
+
+// The host's menu is open: its next-item key is ATTACK (keys_init), so a shot fired while
+// navigating the menu is a menu press, not a teleport. Joiners have no gfmenu.
+function private tp_menu_open()
+{
+    return isdefined( self.gfmenu ) && isdefined( self.gfmenu.current ) && self.gfmenu.current != "";
+}
+
+// One shot = one move, to where the shot lands: the engine raises weapon_fired on the
+// player for every shot (weapons.gsc:1034 event_handler -> the notify placeables.gsc:215
+// waits on), so full-auto is a move per bullet - the classic feel. The view is kept.
+// Shots while the host's menu is open are menu navigation and ignored.
+function private tpgun_think()
+{
+    self notify( #"gf_tpgun_restart" );
+    self endon( #"gf_tpgun_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    for ( ;; )
+    {
+        self waittill( #"weapon_fired" );
+
+        if ( !tpgun_wanted( self ) )
+            return;
+
+        if ( self tp_menu_open() )
+            continue;
+
+        pos = self tp_aim();
+
+        if ( isdefined( pos ) )
+            tp_place( self, tp_floor( pos ), undefined );
+    }
+}
+
+// The thrown grenade's detonation point becomes the thrower's position: grenade_fire hands
+// over the projectile (weapons.gsc:1583; _prop_controls.gsc:1820 reads res.projectile),
+// explode carries res.position (_prop_controls.gsc:1836). A grenade that dies without
+// exploding (thrown back, fizzled) moves nobody - the empgrenade.gsc:252 _notify test.
+function private tpnade_think()
+{
+    self notify( #"gf_tpnade_restart" );
+    self endon( #"gf_tpnade_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    for ( ;; )
+    {
+        res = self waittill( #"grenade_fire" );
+
+        if ( !tpnade_wanted( self ) )
+            return;
+
+        if ( isdefined( res.projectile ) )
+            self thread tpnade_follow( res.projectile );
+    }
+}
+
+function private tpnade_follow( nade )
+{
+    self endon( #"gf_tpnade_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    res = nade waittill( #"explode", #"death" );
+
+    if ( res._notify != "explode" || !isdefined( res.position ) )
+        return;
+
+    tp_place( self, tp_floor( res.position + ( 0, 0, 8 ) ), undefined );
+}
+
+// who = "host" (self.gf_tpgun) | "all" (game.gf_tpgun_all, humans only). Toggles.
+function private act_tpgun( item, who )
+{
+    if ( who == "all" )
+    {
+        on = !( isdefined( game.gf_tpgun_all ) && game.gf_tpgun_all );
+        game.gf_tpgun_all = on;
+        item.activated = on;
+
+        foreach ( player in getplayers() )
+            tpgun_rearm( player );
+
+        broadcast_feed( on ? "^3teleport gun ON - shoot to go there" : "^3teleport gun OFF" );
+        self menu_say( on ? "^2teleport gun ON for everyone (not bots)" : "^2teleport gun OFF for everyone" );
+        return true;
+    }
+
+    if ( who != "host" )
+    {
+        self menu_say( "^1teleport gun: host or all" );
+        return true;
+    }
+
+    on = !( isdefined( self.gf_tpgun ) && self.gf_tpgun );
+    self.gf_tpgun = on;
+    item.activated = on;
+    tpgun_rearm( self );
+    self menu_say( on ? "^2teleport gun ON - shoot to go there" : "^2teleport gun OFF" );
+    return true;
+}
+
+function private act_tpnade( item, who )
+{
+    if ( who == "all" )
+    {
+        on = !( isdefined( game.gf_tpnade_all ) && game.gf_tpnade_all );
+        game.gf_tpnade_all = on;
+        item.activated = on;
+
+        foreach ( player in getplayers() )
+            tpnade_rearm( player );
+
+        broadcast_feed( on ? "^3teleport grenade ON - you appear where it blows" : "^3teleport grenade OFF" );
+        self menu_say( on ? "^2teleport grenade ON for everyone (not bots)" : "^2teleport grenade OFF for everyone" );
+        return true;
+    }
+
+    if ( who != "host" )
+    {
+        self menu_say( "^1teleport grenade: host or all" );
+        return true;
+    }
+
+    on = !( isdefined( self.gf_tpnade ) && self.gf_tpnade );
+    self.gf_tpnade = on;
+    item.activated = on;
+    tpnade_rearm( self );
+    self menu_say( on ? "^2teleport grenade ON - you appear where it blows" : "^2teleport grenade OFF" );
+    return true;
+}
+
 
 
 // ── Map ──────────────────────────────────────────────────────────────────────
@@ -7305,7 +9603,7 @@ function private act_unlockall( item )
 
 function private act_switch_wait( item, secs )
 {
-    setdvar( #"gf_switch_wait", secs );
+    cfg_seti( #"gf_switch_wait", secs );
     self menu_say( secs > 0 ? ( "^2switch waits up to " + secs + "s for the load notify" ) : "^2switch commits after one network frame - cp form" );
     return true;
 }
@@ -7313,7 +9611,7 @@ function private act_switch_wait( item, secs )
 function private act_map_method( item )
 {
     method = cfg_map_method() ? 0 : 1;
-    setdvar( #"gf_map_method", method );
+    cfg_seti( #"gf_map_method", method );
     item.activated = method;
     self menu_say( method ? "^2map method: SESSION - lobby follows, restart via lobby or F7" : "^3map method: CARRY - load-time only, lobby stays stale, F7 ONLY" );
     return true;
@@ -7379,8 +9677,8 @@ function private act_pick_now( item )
 // lobby launched IS the lobby's pick) and by any NOW switch, which supersedes a stage.
 function private stage_mark( map_name, gametype )
 {
-    setdvar( #"gf_staged_map", map_name );
-    setdvar( #"gf_staged_gt", gametype );
+    cfg_seti( #"gf_staged_map", map_name );
+    cfg_seti( #"gf_staged_gt", gametype );
 }
 
 // The load half of the session switch, never the switch half. Threaded off the menu
@@ -7399,7 +9697,7 @@ function private autoswitch_disarm_for( gametype )
     if ( gametype == "gunfight" || gametype == "gunfight_3v3" )
         return;
 
-    setdvar( #"gf_autoswitch", 0 );
+    cfg_seti( #"gf_autoswitch", 0 );
     self menu_say( "^3auto-Gunfight off - you picked " + gametype );
 }
 
@@ -7563,7 +9861,7 @@ function private mode_profile_gunfight( in_match )
 
 function private act_profile( item, value )
 {
-    setdvar( #"gf_profile", value );
+    cfg_seti( #"gf_profile", value );
     self menu_say( value ? "^2Gunfight profile ON - the real blob is asserted at every Gunfight match start" : "^3Gunfight profile OFF - a Case-B launch runs on the lobby config's raw blob" );
     return true;
 }
@@ -7717,7 +10015,7 @@ function private do_session_switch( map_name, gametype )
 
 function private act_autoswitch( item, value )
 {
-    setdvar( #"gf_autoswitch", value );
+    cfg_seti( #"gf_autoswitch", value );
 
     // Re-arm: clear the once-per-session guard so enabling it again fires even if a previous
     // arm already switched this game session (game.gf_autoswitch_done would otherwise persist).

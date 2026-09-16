@@ -172,8 +172,26 @@ These are **not** auto-loaded. Open the one you need.
   `.csc`-only**, so Gate 2 blocks them for vanilla joiners. Carries the four real unknowns, incl.
   whether full-auto fire survives a `magicbullet` per shot.
 
+- [teleport](teleport.md) — **everyone to a point / to me, me to a point, and the classic teleport gun
+  and grenade — built 2026-09-15, never run.** A player moves with stock's own fast-travel idiom
+  (`red_door.gsc:492`: `dontinterpolate` → `setorigin` → `setvelocity( 0 )` → `setplayerangles`), so a
+  vanilla joiner moves like the host. Destinations are pushed out of the surface along the hit normal and
+  dropped onto the floor with `playerphysicstrace` (Prop Hunt's re-materialise sweep); "all to X" is a
+  floored ring around the point with a visibility check, the compiled-out dev warp's idea. The gun rides the
+  `weapon_fired` notify, the grenade `grenade_fire` → the projectile's `explode` position. A flying player
+  moves by his fly anchor; vehicle seats are skipped; "everyone" modes never include bots. Menu hub +
+  three per-player rows + app buttons; 16-line test sheet.
+
 **Risk and disclosure**
 
+- [map-data](map-data.md) — **per-map data: proper S&D / TDM spawns, and every map's vehicle + prop list —
+  built 2026-09-15, untested.** The engine sorts `mp_spawn_point` structs by mode flag (`.tdm`, `.sd`, …), team
+  (`.group_index` 1 / 2) and a start flag (hash 0xa3c53936, ACTS alias `_human_were`) — so a mode's authored
+  team starts are readable, and Family AUTO (the new default) arms the guard with the map's S&D starts, else
+  its TDM starts. The dump's `tables/bgcache/<zone>.csv` lists resident vehicle assets per zone (drivables
+  only on Armada / Crossroads / Collateral / Cartel / Checkmate / Diesel / Fireteam) → `docs/data/map-assets.json`
+  and a Vehicles page built per map; the in-game census (vehicles, Prop Hunt props, spawn keys) is published
+  to the app and filed per map by `tools/gf-control/mapdata_scan.py`.
 - [tac-risk-model](tac-risk-model.md) — threat model and **participant disclosure** for the mod: where
   TAC and server telemetry can observe it, host vs joiner. Risk identification, **not** evasion.
 

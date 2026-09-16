@@ -65,6 +65,11 @@ try:
 except Exception:
     gf_native = None
 
+try:
+    import roster_scan                       # read-only: the connected-player list out of the game
+except Exception:
+    roster_scan = None
+
 
 def _no_window() -> dict:
     """subprocess kwargs that hide the child's console window - otherwise every shell-out
@@ -272,8 +277,9 @@ CONFIG = {
         ("gf_strike", "Crossroads: Strike layout under Gunfight", "choice",
          [("Off (full map)", 0), ("On", 1)], 0),
         ("gf_spawn_family", "Spawn family (markers to build from)", "choice",
-         [("TDM (default - measured good)", 1), ("None - engine / geometric", 0), ("S&D", 2),
-          ("Domination", 3), ("CTF", 4), ("Hardpoint", 5), ("Control", 6), ("FFA", 7)], 1),
+         [("AUTO - authored S&D starts, else TDM starts (default)", 8), ("TDM (measured good)", 1),
+          ("None - engine / geometric", 0), ("S&D", 2),
+          ("Domination", 3), ("CTF", 4), ("Hardpoint", 5), ("Control", 6), ("FFA", 7)], 8),
         ("gf_spawn_pick", "Side pick", "choice",
          [("Near - gap based (closer up)", 0), ("Far ends - like TDM openings", 1)], 0),
         ("gf_spawn_gap", "Guard gap (units between sides)", "choice",
@@ -286,7 +292,7 @@ CONFIG = {
          [("Session (lobby follows)", 1), ("Carry (load-time)", 0)], 1),
         ("gf_autoswitch", "Auto-Gunfight on inject", "choice", [("Off", 0), ("On", 1)], 0),
         ("gf_switch_wait", "Switch wait (s)", "choice",
-         [("25 (proven)", 25), ("5", 5), ("0 (none)", 0)], 25),
+         [("0 (none)", 0), ("5", 5), ("25 (proven)", 25)], 0),
     ],
     "Display": [
         ("gf_menu_lines", "In-game rows", "int", (2, 12, 1), 3),
@@ -306,6 +312,7 @@ CONFIG = {
         ("gf_dbg_families", "Debug: spawn families + guard", "choice", [("Off", 0), ("On", 1)], 0),
         ("gf_dbg_match", "Debug: match info", "choice", [("Off", 0), ("On", 1)], 0),
         ("gf_dbg_flags", "Debug: marker flags census", "choice", [("Off", 0), ("On", 1)], 0),
+        ("gf_dbg_assets", "Debug: asset census (vehicles + props)", "choice", [("Off", 0), ("On", 1)], 0),
     ],
 }
 
@@ -343,7 +350,8 @@ TIPS = {
     "gf_zone_radius": "Capture-zone radius in units. Stock ~128.",
     "gf_spawn_guard": "Off / Auto (engine start spawns when it has them, the guard's anchors when it has none - e.g. Crossroads under Gunfight) / Force (anchors always).",
     "gf_strike": "Crossroads loads the full 12v12 map under Gunfight. On = keep the Strike clips server-side - but clients (joiners too) still draw the 12v12 minimap and bounds, so walls stand on open ground. Off by default. No-op on other maps.",
-    "gf_spawn_family": "Build the guard's anchors only from markers flagged for this mode (mp_spawn_point fields like tdm=1, sd=1), using their side fields when present; every spawn goes on them. S&D = Gunfight on the S&D spawn set.",
+    "gf_spawn_family": "Which markers the spawn guard builds from. AUTO = the map's AUTHORED team start spawns (mode flag + start flag + group_index on mp_spawn_point, the same points the engine's own start list holds): S&D's when the map has them on both sides, else TDM's, else the old geometric split. A named mode = that mode's markers (its authored starts when it has them, else geometric). Every spawn goes on them.",
+    "gf_dbg_assets": "Debug feed: two lines - VEHICLES (which veh_t9_* names are resident vehicle assets on this map, by index:name) and PROPS (this map's Prop Hunt table: rows, size buckets, row-0 model + residency).",
     "gf_dbg_flags": "Debug feed: one line - which mode/side flag fields the map's spawn markers carry, with value tallies.",
     "gf_spawn_pick": "Near = two groups around the map centre at the gap (TDM's respawn zone). Far ends = the two outermost marker groups (TDM's opening spawns), rebuilt from markers so it works where the engine has none.",
     "gf_fly_speed": "Fly mode speed (Player -> Fly). Sprint speed is the separate field.",
@@ -537,6 +545,12 @@ class App:
         # which has a hard cap - blasting all ~50 every apply helped overflow it (crash 2026-09-14).
         self._defaults = {dvar: default for fields in CONFIG.values()
                           for dvar, _l, _k, _s, default in fields}
+        self._labels = {dvar: _l for fields in CONFIG.values()
+                        for dvar, _l, _k, _s, default in fields}
+        # Last value we actually SENT for each dvar (seeded to the app defaults). A field is
+        # "pending" only when its current value differs from this - unlike _sent/_touched, this
+        # is NOT sticky, so a restart-required field stops prompting once applied or reverted.
+        self._applied = dict(self._defaults)
         self._sent: set = set()
         # Anything the user TOUCHES in the UI is sent on the next apply even when it sits at
         # the app default - the in-game menu (or a previous app run) may have left the dvar
@@ -592,7 +606,7 @@ class App:
         ttk.Button(bar, text="Apply now", style="Accent.TButton",
                    command=self._apply_live).pack(side="left")
         ttk.Button(bar, text="Next round",
-                   command=self._apply_config).pack(side="left", padx=6)
+                   command=self._apply_next_round).pack(side="left", padx=6)
         ttk.Button(bar, text="+ Restart",
                    command=self._apply_restart).pack(side="left")
         ttk.Button(bar, text="Reset",
@@ -601,7 +615,7 @@ class App:
         # on first click - ~60 `set gf_*` in one message registers that many dvars at once and
         # the store overflows ("Can't register more dvar", the 2026-09-14 crash class). The
         # touched-field rule above is the safe way to undo an in-game menu value.
-        ttk.Label(bar, text="Apply now = live this round (gf_cmd_apply, no restart)",
+        ttk.Label(bar, text="Apply now = live this round · Next round = defers round-safe settings",
                   foreground="#777").pack(side="left", padx=10)
 
         inner = self._scrollable(tab)
@@ -683,8 +697,11 @@ class App:
                 "runs them host-side.\nStage = the lobby shows the map when the match ends.   "
                 "Switch NOW = in-match session switch.")
         tk.Label(tab, text=note, fg="#8a5a00", justify="left").pack(anchor="w", padx=12, pady=(12, 8))
+        # The tab outgrew the 880 px window (per-client + teleport rows, 2026-09-15), so
+        # its boxes live in the same scrolling frame the Config tab uses.
+        body = self._scrollable(tab)
 
-        box = ttk.LabelFrame(tab, text="Session switch  (map + gametype)")
+        box = ttk.LabelFrame(body, text="Session switch  (map + gametype)")
         box.pack(fill="x", padx=12, pady=6)
         KEEP = "(keep current map)"      # switch gametype alone - no map needed
         self.map_var = tk.StringVar(value=KEEP)
@@ -717,7 +734,7 @@ class App:
         ttk.Button(btns, text="Switch NOW", style="Accent.TButton",
                    command=lambda: self._switch(stage=False)).pack(side="left")
 
-        box2 = ttk.LabelFrame(tab, text="Bots / match")
+        box2 = ttk.LabelFrame(body, text="Bots / match")
         box2.pack(fill="x", padx=12, pady=6)
         r2 = ttk.Frame(box2)
         r2.pack(anchor="w", padx=10, pady=10)
@@ -728,20 +745,20 @@ class App:
                        command=lambda c=cmd: self._cmd(c)).pack(side="left", padx=4)
         # Single-bot verbs (docs/notes/bots.md). gf_cmd_addbot carries WHICH side:
         # 1 auto (smaller side, tie -> opposite the host) / 2 allies / 3 axis.
-        box3 = ttk.LabelFrame(tab, text="Bots - one at a time")
+        box3 = ttk.LabelFrame(body, text="Bots - one at a time")
         box3.pack(fill="x", padx=12, pady=6)
         r3 = ttk.Frame(box3)
         r3.pack(anchor="w", padx=10, pady=10)
-        for text, settings in [("Add: auto", {"gf_cmd_addbot": 1}),
-                               ("Add: allies", {"gf_cmd_addbot": 2}),
-                               ("Add: axis", {"gf_cmd_addbot": 3}),
-                               ("Remove one", {"gf_cmd_removebot": 1}),
-                               ("Even up", {"gf_cmd_evenbots": 1})]:
+        for text, settings in [("Add: auto", {"gf_cmd_action": "addbot", "gf_cmd_arg": "auto"}),
+                               ("Add: allies", {"gf_cmd_action": "addbot", "gf_cmd_arg": "allies"}),
+                               ("Add: axis", {"gf_cmd_action": "addbot", "gf_cmd_arg": "axis"}),
+                               ("Remove one", {"gf_cmd_action": "removebot"}),
+                               ("Even up", {"gf_cmd_action": "evenbots"})]:
             ttk.Button(r3, text=text, width=12,
                        command=lambda s=settings: self._write({**s, "gf_cmd_go": 1})
                        ).pack(side="left", padx=4)
 
-        box4 = ttk.LabelFrame(tab, text="Host")
+        box4 = ttk.LabelFrame(body, text="Host")
         box4.pack(fill="x", padx=12, pady=6)
         r4 = ttk.Frame(box4)
         r4.pack(anchor="w", padx=10, pady=(10, 4))
@@ -780,7 +797,7 @@ class App:
                   foreground="#777").pack(side="left", padx=6)
 
         # Player / weapons - the menu-only verbs, via the generic gf_cmd_action channel.
-        box5 = ttk.LabelFrame(tab, text="Player / weapons  (host)")
+        box5 = ttk.LabelFrame(body, text="Player / weapons  (host)")
         box5.pack(fill="x", padx=12, pady=6)
         r6 = ttk.Frame(box5)
         r6.pack(anchor="w", padx=10, pady=(10, 4))
@@ -810,12 +827,69 @@ class App:
                        command=lambda a=act: self._action(a, str(getattr(self, f"cos_{a}").get()))
                        ).pack(side="left", padx=(0, 14))
 
+        # Teleport (docs/notes/teleport.md): the menu's Teleport hub over gf_cmd_action.
+        # "crosshair" = wherever the host is aiming when the command lands; "saved point" =
+        # Save point (kept across rounds); "map centre" = level.mapcenter. The gun / grenade
+        # buttons are toggles like Fly / God mode; "everyone" never includes bots.
+        boxt = ttk.LabelFrame(body, text="Teleport  (host; everyone = every living player but you)")
+        boxt.pack(fill="x", padx=12, pady=6)
+        rt1 = ttk.Frame(boxt)
+        rt1.pack(anchor="w", padx=10, pady=(10, 2))
+        ttk.Label(rt1, text="Everyone", width=11).pack(side="left")
+        for text, arg in [("to me", "me"), ("to crosshair", "aim"), ("to saved point", "saved"),
+                          ("to map centre", "centre")]:
+            ttk.Button(rt1, text=text, width=14,
+                       command=lambda a=arg: self._action("tpall", a)).pack(side="left", padx=3)
+        rt2 = ttk.Frame(boxt)
+        rt2.pack(anchor="w", padx=10, pady=2)
+        ttk.Label(rt2, text="My team", width=11).pack(side="left")
+        for text, arg in [("to me", "me"), ("to crosshair", "aim")]:
+            ttk.Button(rt2, text=text, width=14,
+                       command=lambda a=arg: self._action("tpteam", a)).pack(side="left", padx=3)
+        ttk.Label(rt2, text="   Other team").pack(side="left")
+        for text, arg in [("to me", "me"), ("to crosshair", "aim")]:
+            ttk.Button(rt2, text=text, width=14,
+                       command=lambda a=arg: self._action("tpenemy", a)).pack(side="left", padx=3)
+        rt3 = ttk.Frame(boxt)
+        rt3.pack(anchor="w", padx=10, pady=2)
+        ttk.Label(rt3, text="Me", width=11).pack(side="left")
+        for text, arg in [("to crosshair", "aim"), ("to saved point", "saved"), ("to map centre", "centre")]:
+            ttk.Button(rt3, text=text, width=14,
+                       command=lambda a=arg: self._action("tpme", a)).pack(side="left", padx=3)
+        ttk.Button(rt3, text="Save point", width=14,
+                   command=lambda: self._action("tpsave")).pack(side="left", padx=3)
+        rt4 = ttk.Frame(boxt)
+        rt4.pack(anchor="w", padx=10, pady=(2, 10))
+        ttk.Label(rt4, text="Toggle", width=11).pack(side="left")
+        for text, act, arg in [("TP gun: host", "tpgun", "host"), ("TP gun: everyone", "tpgun", "all"),
+                               ("TP grenade: host", "tpnade", "host"), ("TP grenade: everyone", "tpnade", "all")]:
+            ttk.Button(rt4, text=text, width=20,
+                       command=lambda a=act, g=arg: self._action(a, g)).pack(side="left", padx=3)
+
         # Per-player verbs (the menu's Players page): gf_cmd_target names the player as shown
         # in game - exact name or a case-insensitive prefix; the GSC resolves it.
-        box6 = ttk.LabelFrame(tab, text="Player by name  (as shown in game; a prefix is enough)")
+        box6 = ttk.LabelFrame(body, text="Player by name  (as shown in game; a prefix is enough)")
         box6.pack(fill="x", padx=12, pady=6)
+        # Connected players, read OUT of the game (roster_scan.py: a read-only memory sweep for
+        # the roster line gunfight_menu keeps alive - the only game->app channel there is).
+        # Pick one to fill the Player box with the exact name. Refresh is a ~1 s read once the
+        # line has been found; the first find after a game launch can take a minute.
+        r8b = ttk.Frame(box6)
+        r8b.pack(fill="x", padx=10, pady=(10, 4))
+        ttk.Label(r8b, text="Connected").pack(side="left")
+        self.roster_var = tk.StringVar()
+        self._roster_lut = {}
+        self.roster_box = ttk.Combobox(r8b, state="readonly", width=36, textvariable=self.roster_var, values=[])
+        self.roster_box.pack(side="left", padx=6)
+        self.roster_box.bind("<<ComboboxSelected>>", self._roster_pick)
+        ttk.Button(r8b, text="Refresh", command=self._roster_refresh).pack(side="left", padx=3)
+        self.roster_auto = tk.BooleanVar(value=False)
+        ttk.Checkbutton(r8b, text="auto 5 s", variable=self.roster_auto,
+                        command=self._roster_auto_tick).pack(side="left", padx=6)
+        self.roster_status = ttk.Label(r8b, text="", foreground="#777")
+        self.roster_status.pack(side="left", padx=6)
         r9 = ttk.Frame(box6)
-        r9.pack(fill="x", padx=10, pady=(10, 10))
+        r9.pack(fill="x", padx=10, pady=(0, 10))
         ttk.Label(r9, text="Player").pack(side="left")
         self.target_var = tk.StringVar()
         ttk.Entry(r9, textvariable=self.target_var, width=22).pack(side="left", padx=6)
@@ -823,7 +897,93 @@ class App:
                                ("Spectator", "spectate", ""), ("Freeze / unfreeze", "freezeone", "")]:
             ttk.Button(r9, text=text, width=16,
                        command=lambda a=act, g=arg: self._target_action(a, g)).pack(side="left", padx=3)
+        # Per-client control (the Players page's per-player rows, 2026-09-15): same target
+        # rule, one verb per button; Give / Camo / Operator / Outfit reuse the pickers in
+        # the host box above. Kick is refused for the host by the GSC.
+        r10 = ttk.Frame(box6)
+        r10.pack(anchor="w", padx=10, pady=(0, 4))
+        for text, act in [("God mode", "godone"), ("Max ammo", "ammoone"), ("Third person", "thirdone"),
+                          ("Fly", "flyone"), ("Kill", "killone"), ("Take weapon", "takeone"),
+                          ("Strip weapons", "stripone"), ("Kick", "kickone")]:
+            ttk.Button(r10, text=text, width=12,
+                       command=lambda a=act: self._target_action(a)).pack(side="left", padx=3)
+        r11 = ttk.Frame(box6)
+        r11.pack(anchor="w", padx=10, pady=(0, 10))
+        ttk.Button(r11, text="Give picked weapon", width=18,
+                   command=self._give_weapon_to).pack(side="left", padx=3)
+        for text, act, var in [("Camo id", "camoone", "cos_camo"), ("Operator id", "operatorone", "cos_operator"),
+                               ("Outfit id", "outfitone", "cos_outfit")]:
+            ttk.Button(r11, text=text, width=11,
+                       command=lambda a=act, v=var: self._target_action(a, str(getattr(self, v).get()))
+                       ).pack(side="left", padx=3)
+        ttk.Label(r11, text="  Speed %").pack(side="left")
+        self.target_speed = tk.StringVar(value="150")
+        ttk.Combobox(r11, state="readonly", width=5, textvariable=self.target_speed,
+                     values=["0", "50", "100", "150", "200", "300"]).pack(side="left", padx=2)
+        ttk.Button(r11, text="Set",
+                   command=lambda: self._target_action("speedone", self.target_speed.get())).pack(side="left", padx=3)
+        ttk.Label(r11, text="(0 = back to the global speed)", foreground="#777").pack(side="left", padx=6)
+        # Teleport verbs for the named player (docs/notes/teleport.md): to me = in front of
+        # you facing you; me to them = in front of them; swap = exchange positions and views.
+        r12 = ttk.Frame(box6)
+        r12.pack(anchor="w", padx=10, pady=(0, 10))
+        ttk.Label(r12, text="Teleport").pack(side="left")
+        for text, arg in [("them to me", "tome"), ("me to them", "metothem"), ("swap places", "swap")]:
+            ttk.Button(r12, text=text, width=14,
+                       command=lambda g=arg: self._target_action("tpplayer", g)).pack(side="left", padx=3)
         return tab
+
+    # ---- Connected players (roster_scan: read-only sweep of the game's memory) ----------
+    def _roster_refresh(self, force_full: bool = False):
+        if roster_scan is None or gf_native is None:
+            self._say("roster: roster_scan / gf_native not importable")
+            return
+        if getattr(self, "_roster_busy", False):
+            return
+        self._roster_busy = True
+        self.roster_status.config(text="scanning...")
+
+        def worker():
+            try:
+                pid = gf_native.find_game_pid()
+                if not pid:
+                    raise roster_scan.RosterError("game not running")
+                sc = getattr(self, "_roster_scanner", None)
+                if sc is None or sc.pid != pid:
+                    if sc is not None:
+                        sc.close()
+                    sc = roster_scan.Scanner(pid)
+                    self._roster_scanner = sc
+                r = sc.read(force_full)
+                self.root.after(0, lambda: self._roster_done(r, None))
+            except Exception as e:                      # noqa: BLE001 - shown in the status label
+                self.root.after(0, lambda: self._roster_done(None, str(e)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _roster_done(self, r, err):
+        self._roster_busy = False
+        if err:
+            self.roster_status.config(text=err)
+            return
+        if r is None:
+            self.roster_status.config(text="no roster in memory (menu injected? match running?)")
+            return
+        self._roster_lut = {p.label(): p for p in r.players}
+        self.roster_box["values"] = list(self._roster_lut)
+        how = f"swept {r.scanned_s:.1f}s" if r.full_scan else "cached"
+        self.roster_status.config(text=f"{len(r.players)} in the match ({how})")
+
+    def _roster_pick(self, _event=None):
+        p = self._roster_lut.get(self.roster_var.get())
+        if p is not None:
+            self.target_var.set(p.name)
+
+    def _roster_auto_tick(self):
+        if not self.roster_auto.get():
+            return
+        self._roster_refresh()
+        self.root.after(5000, self._roster_auto_tick)
 
     def _target_action(self, name, arg=""):
         target = self.target_var.get().strip()
@@ -908,7 +1068,17 @@ class App:
             self._say(f"connect: {e}")
         self._drain()
 
-    def _apply_config(self, trailer=None, force=False):
+    # Structural settings the engine can only apply by RELOADING the match: changing a round
+    # limit the match has already passed ends it, and a team-size/maxplayers change resets it.
+    # "Next round" refuses to defer these (it would look like a surprise restart, klaze
+    # 2026-09-15) - it routes them to a restart choice instead. Adjust as we learn which of
+    # these actually defer cleanly on the current build.
+    RESTART_REQUIRED = {"gf_roundwinlimit", "gf_roundlimit", "gf_team_size", "gf_spec_slots"}
+
+    def _is_changed(self, dvar, val):
+        return (val != self._defaults.get(dvar) or dvar in self._sent or dvar in self._touched)
+
+    def _apply_config(self, trailer=None, force=False, exclude=None):
         # trailer (optional) rides in the SAME message so the config lands before the command
         # fires: {"gf_cmd_apply":1,"gf_cmd_go":1} (live) or {"gf_cmd_restart":1,"gf_cmd_go":1}.
         # Send CHANGED settings, ones sent before, and ones the user touched (even back to the
@@ -917,10 +1087,52 @@ class App:
         # (dvar store overflow) on 2026-09-15. Kept only for a deliberate, small CONFIG.
         settings = {}
         for dvar, v in self.vars.items():
+            if exclude and dvar in exclude:
+                continue
             val = v.get()
-            if force or val != self._defaults.get(dvar) or dvar in self._sent or dvar in self._touched:
+            if force or self._is_changed(dvar, val):
                 settings[dvar] = val
                 self._sent.add(dvar)
+        # Pack the 15 numeric bot knobs into ONE gf_bot dvar (the mod reads gf_bot, not the
+        # individual gf_bot_* - dvar-pool budget). Send it whenever any of them is in play.
+        BOT_PACK = ["gf_bot_hit", "gf_bot_head", "gf_bot_react", "gf_bot_fire", "gf_bot_hip",
+                    "gf_bot_far", "gf_bot_semi", "gf_bot_burst", "gf_bot_moveshoot",
+                    "gf_bot_fastaim", "gf_bot_sprint", "gf_bot_melee", "gf_bot_prone",
+                    "gf_bot_slide", "gf_bot_crouch"]
+        if any(k in settings for k in BOT_PACK):
+            for k in BOT_PACK:
+                settings.pop(k, None)
+            # TWO dvars, not one: a single `set gf_bot <15 fields>` is ~54 bytes and the bridge
+            # command slot only restores 48 - a longer `set` corrupts game memory and hard-crashes
+            # (klaze 2026-09-15). Fields 0-7 in gf_bot, 8-14 in gf_bot2; each `set` is <40 bytes.
+            settings["gf_bot"] = ",".join(str(self.vars[k].get()) for k in BOT_PACK[:8])
+            settings["gf_bot2"] = ",".join(str(self.vars[k].get()) for k in BOT_PACK[8:])
+        # Pack the 57 int config settings into chunk dvars gf_c0..gf_c9 (6 per chunk, SORTED
+        # key order) instead of 57 individual  - the game's dvar pool is only 4096
+        # and heavy maps nearly fill it (dvar-pool-crash). The GSC sorts the SAME 57 keys the
+        # SAME way and reads the SAME chunks (gunfight_menu.gsc cfg_spec/cfg_load). If ANY
+        # packed field changed, rebuild + send all 10 chunks from the current field values.
+        PACKED = ['gf_autoswitch', 'gf_bot_diff_allies', 'gf_bot_diff_axis', 'gf_bot_passive', 'gf_camo', 'gf_camo_pool', 'gf_camo_split', 'gf_caster_probe', 'gf_census', 'gf_customcac', 'gf_dbg_assets', 'gf_dbg_families', 'gf_dbg_flags', 'gf_dbg_match', 'gf_dbg_spawn', 'gf_dbg_structs', 'gf_falldamage', 'gf_feed_lines', 'gf_fly_fast', 'gf_fly_speed', 'gf_gravity', 'gf_jump', 'gf_jump_boost', 'gf_loadout', 'gf_map_method', 'gf_menu_hspan', 'gf_menu_lines', 'gf_menu_region', 'gf_prematch', 'gf_preround', 'gf_profile', 'gf_roundlimit', 'gf_rounds_loadout', 'gf_roundwinlimit', 'gf_spawn_autospread', 'gf_spawn_diag', 'gf_spawn_family', 'gf_spawn_gap', 'gf_spawn_guard', 'gf_spawn_pick', 'gf_spec_slots', 'gf_speed', 'gf_spyplane', 'gf_strike', 'gf_switch_sides', 'gf_switch_wait', 'gf_team_size', 'gf_timer_seconds', 'gf_zone', 'gf_zone_capture', 'gf_zone_overtime', 'gf_zone_radius']
+        packed_changed = [k for k in PACKED if k in settings]
+        if packed_changed:
+            # Send only the CHUNKS that contain a changed field, so an app apply does not
+            # clobber in-game menu changes to fields in other chunks. (Within a changed chunk,
+            # its other 5 fields carry the app's values - same as the old per-field behaviour
+            # for anything the app has ever shown.)
+            changed_chunks = set()
+            for k in packed_changed:
+                changed_chunks.add(PACKED.index(k) // 6)
+            for k in PACKED:
+                if PACKED.index(k) // 6 in changed_chunks:
+                    self._applied[k] = self.vars[k].get()   # sent inside its chunk
+                settings.pop(k, None)
+            vals = [str(self.vars[k].get()) for k in PACKED]
+            for ci in sorted(changed_chunks):
+                settings["gf_c" + str(ci)] = ",".join(vals[ci * 6: ci * 6 + 6])
+        # (Oversized-command safety lives in BridgeBackend.apply now - the single choke point
+        # for every send path, not just this one. See dvar_backend.py.)
+        for k, val in settings.items():
+            self._applied[k] = val
         changed = len(settings)
         if trailer:
             settings.update(trailer)
@@ -933,11 +1145,38 @@ class App:
                 self._say(f"  [no backend] set {k} {val}")
         self._drain()
 
+    def _apply_next_round(self):
+        # "Next round" = defer changed settings to the next round. Structural settings cannot
+        # defer (they reload the match), so pull those out and let the user decide: restart now
+        # to apply everything, or keep them pending and apply only the round-safe settings.
+        # Pending = changed since last applied (NOT the sticky _sent/_touched sets, which made
+        # a once-touched field prompt on every Next round - klaze 2026-09-15).
+        pending = [d for d in self.RESTART_REQUIRED
+                   if d in self.vars and self.vars[d].get() != self._applied.get(d)]
+        if pending:
+            from tkinter import messagebox
+            names = ", ".join(self._labels.get(d, d) for d in pending)
+            msg = ("These can't take effect next round - the match must reload:\n\n  "
+                   + names
+                   + "\n\nRestart the match now to apply everything?\n\n"
+                   + "No = apply only the round-safe settings now and keep these pending "
+                   + "(they apply on your next + Restart).")
+            if messagebox.askyesno("Restart needed for some settings", msg):
+                self._apply_restart()
+                return
+            # No: clear each pending field back to its applied value so it stops prompting and
+            # the user can keep applying other things next round (klaze 2026-09-15).
+            for d in pending:
+                self.vars[d].set(self._applied.get(d))
+                self._touched.discard(d)
+            self._say("next round: reverted " + names + " (use + Restart to change them)")
+        self._apply_config(exclude=self.RESTART_REQUIRED)
+
     def _apply_live(self):
-        self._apply_config(trailer={"gf_cmd_apply": 1, "gf_cmd_go": 1})
+        self._apply_config(trailer={"gf_cmd_action": "apply", "gf_cmd_go": 1})
 
     def _apply_restart(self):
-        self._apply_config(trailer={"gf_cmd_restart": 1, "gf_cmd_go": 1})
+        self._apply_config(trailer={"gf_cmd_action": "restart", "gf_cmd_go": 1})
 
     def _action(self, name, arg=""):
         s = {"gf_cmd_action": name}
@@ -953,6 +1192,13 @@ class App:
             return
         self._action("giveweapon", n)
 
+    def _give_weapon_to(self):
+        n = self._wpnlut.get(self.wpn_var.get())
+        if not n:
+            self._say("pick a weapon first")
+            return
+        self._target_action("giveone", n)
+
     def _switch(self, stage: bool = False):
         # Empty map = keep the current map (GSC falls back to sv_mapname), so you can switch
         # the gametype alone - e.g. to gunfight - without choosing a map. "" clears any stale value.
@@ -963,11 +1209,13 @@ class App:
                      "gf_cmd_stage": int(stage), "gf_cmd_go": 1})
 
     def _cmd(self, name):
-        self._write({"gf_cmd_" + name: 1, "gf_cmd_go": 1})
+        # Folded into the generic action channel (dvar-pool budget): one gf_cmd_action string
+        # instead of a dedicated gf_cmd_<name> dvar per command.
+        self._write({"gf_cmd_action": name, "gf_cmd_go": 1})
 
     def _pause(self, val):
-        # gf_cmd_pause: 1 = pause (match_pause), any other value = resume (match_resume).
-        self._write({"gf_cmd_pause": val, "gf_cmd_go": 1})
+        # folded into the action channel: 1 = pause, else resume.
+        self._write({"gf_cmd_action": "pause" if val == 1 else "resume", "gf_cmd_go": 1})
 
     def _broadcast(self):
         # Cap to ~28 chars: the bridge writes each command over cwpatch's 48-byte command blob.
@@ -987,7 +1235,7 @@ class App:
         self.say_var.set("")
 
     def _broadcast_clear(self):
-        self._write({"gf_cmd_say_clear": 1, "gf_cmd_go": 1})
+        self._write({"gf_cmd_action": "sayclear", "gf_cmd_go": 1})
 
     def _show_codes(self):
         win = tk.Toplevel(self.root)

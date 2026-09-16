@@ -169,7 +169,12 @@ not spawn names**, and the mapping between the two is exactly what is missing.
 ### Gate 1 — asset residency, and the runtime test for it
 
 `spawnvehicle()` needs the vehicle asset **loaded in the current map's zone**. The dump cannot answer
-which maps carry which vehicles: map `.ff` contents are not in it. But the engine can, and **stock
+which maps carry which vehicles: map `.ff` contents are not in it.
+
+🪦 **RETRACTED 2026-09-15 — it can, one directory over from the scripts.** `tables/bgcache/<zone>.csv` is
+each zone's precache list and `tables/data/assets/<zone>.csv` its full manifest; a map's resident vehicle
+assets = the `vehicle` rows of core_bootstrap + core_common + mp_common + the map's zone, and that
+reproduces Standoff's census exactly. The per-map table and the Vehicles page built from it: [[map-data]]. But the engine can, and **stock
 already performs this exact check**:
 
 ```gsc
