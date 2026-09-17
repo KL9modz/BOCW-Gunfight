@@ -195,6 +195,15 @@
 //                       0 = off. Stock's own shape (setvelocity( getvelocity() + push ), 16
 //                       uses): jump apex = v^2 / 2g, stock v ~250 at g 800 -> +150 ~100u apex,
 //                       +400 ~260u, +800 ~690u, +1300 ~1500u. jump_boost_think per player.
+//     gf_oob            1 (DEFAULT) = out-of-bounds OFF for everyone: no "restricted area" HUD
+//                       warning, no countdown, no death. 0 = stock. Stock's own switch: the
+//                       per-player value disable_oob (oob.gsc:81) - set, the trigger callback
+//                       returns before enter_oob (oob.gsc:640 via function_65b20), so the HUD
+//                       clientfield and the kill timer never start; set on someone already out,
+//                       resetoobtimer clears the HUD at once. Spy mode uses the same call
+//                       (spy.gsc:2411). ⚠ Stock NUKES every disable_oob layer on each spawn
+//                       (globallogic_spawn.gsc:612), so it is re-set per life in
+//                       mod_spawn_movement. A plain dvar, not in the packed store.
 //     gf_falldamage     1 stock / 0 off - bg_falldamageminheight/maxheight pushed out of reach
 //                       (the pair cp/zm "oldschool" mode raises, cp globallogic.gsc:184). The
 //                       stock values are captured once per process (gf_fd_min/max_stock) so
@@ -335,6 +344,9 @@
 //       rate-gated, optional missile_settarget homing                    Stock shapes (remotemissile
 //                                                                       :415, straferun.gsc:897-899);
 //                                                                       the per-shot rate is the test.
+//     out of bounds OFF via val::set( "disable_oob", 1 ) per spawn    ⚠ built 2026-09-17, never run.
+//                                                                       Stock's own switch (spy.gsc:2411);
+//                                                                       fly mode already uses it here.
 //     props: spawn( "script_model" ) + setmodel + setscale from the    ⚠ built 2026-09-17, never run.
 //       map's _ph.csv table + a universal p9_* set, isassetloaded-gated  Prop Hunt's recipe (prop.gsc
 //                                                                       :1946); "xmodel" residency
@@ -626,6 +638,7 @@ function private cfg_gravity()  { return cfg_geti( #"gf_gravity", 800 ); }
 function private cfg_jump()     { return cfg_geti( #"gf_jump", -1 ); }
 function private cfg_jump_boost() { return cfg_geti( #"gf_jump_boost", 0 ); }
 function private cfg_falldamage() { return cfg_geti( #"gf_falldamage", 0 ); }
+function private cfg_oob()        { return cfg_geti( #"gf_oob", 1 ); }          // 1 = OOB disabled (default)
 function private cfg_speed()      { return cfg_geti( #"gf_speed", 100 ); }
 function private cfg_fly_speed()  { return cfg_geti( #"gf_fly_speed", 20 ); }
 function private cfg_fly_fast()   { return cfg_geti( #"gf_fly_fast", 60 ); }
@@ -1074,6 +1087,45 @@ function private mod_movement()
         setjumpheight( cfg_jump() );
 
     mod_falldamage_apply();
+    mod_oob_apply_all();
+}
+
+// ── Out of bounds (gf_oob, default OFF = disabled) ───────────────────────────
+// oob.gsc drives the whole "restricted area" experience from one entry point, enter_oob
+// (:660): it is reached from the trigger_out_of_bounds callback (:603) and the vehicle
+// airspace loop (:269), and BOTH return first when function_65b20() (:703) sees
+// self.oobdisabled - which is what the registered value disable_oob sets (:81 -> :952
+// disableplayeroob: resetoobtimer + oobdisabled = 1). No enter_oob = no "out_of_bounds"
+// clientfield (the HUD warning + screen effect, :832), no watchforleave (the countdown,
+// :881) and no killentity (:840). Setting it while a player is already out runs
+// resetoobtimer (:547): HUD cleared, oob_exit notified, the watchers end. Layered with the
+// fly mode's own gf_fly layer (values_shared.gsc:275 - a reset only drops its own id).
+// ⚠ Not covered: the territory in-bounds volumes (oob.gsc:138, territory.gsc:151) - they call
+// enter_oob without the check. Fireteam's own gametype uses those; 6v6 / Gunfight maps
+// ship trigger_out_of_bounds.
+function private mod_oob_apply()
+{
+    if ( !isplayer( self ) )
+        return;
+
+    if ( cfg_oob() )
+        self val::set( #"gf_oob", "disable_oob", 1 );
+    else
+        self val::reset( #"gf_oob", "disable_oob" );
+}
+
+function private mod_oob_apply_all()
+{
+    foreach ( player in getplayers() )
+        player mod_oob_apply();
+}
+
+function private act_oob( item, value )
+{
+    cfg_seti( #"gf_oob", value );
+    mod_oob_apply_all();
+    self menu_say( value ? "^2out of bounds OFF - no warning, no death (everyone)" : "^2out of bounds: stock" );
+    return true;
 }
 
 // Fall damage on/off. bg_falldamageminheight / maxheight are the engine pair the campaign
@@ -1140,6 +1192,10 @@ function private mod_spawn_movement()
         self setperk( #"specialty_fallheight" );
     else if ( self hasperk( #"specialty_fallheight" ) )
         self unsetperk( #"specialty_fallheight" );
+
+    // Out of bounds: stock val::nuke()s every disable_oob layer at :612, before this
+    // callback (:758) - so the flag is re-set here, every life, for every player.
+    self mod_oob_apply();
 }
 
 // gf_speed percent -> setmovespeedscale, on top of the loadout's own modifier exactly the
@@ -5744,7 +5800,7 @@ function private match_info()
 
     gd = cfg_spawn_guard();
     self iprintln( "^7spawn ^3" + ( gd == 2 ? "AUTO" : ( gd == 1 ? "FORCE" : "off" ) ) + "  ^7zone ^3" + ( cfg_zone() ? ( "on ot" + cfg_zone_overtime() + " cap" + cfg_zone_capture() ) : "off" ) );
-    self iprintln( "^7gravity ^3" + cfg_gravity() + "  ^7jump ^3" + ( cfg_jump() >= 0 ? ( "" + cfg_jump() ) : "stock" ) + "  ^7boost ^3" + cfg_jump_boost() + "  ^7speed ^3" + cfg_speed() + "%  ^7fall ^3" + ( cfg_falldamage() ? "stock" : "off" ) );
+    self iprintln( "^7gravity ^3" + cfg_gravity() + "  ^7jump ^3" + ( cfg_jump() >= 0 ? ( "" + cfg_jump() ) : "stock" ) + "  ^7boost ^3" + cfg_jump_boost() + "  ^7speed ^3" + cfg_speed() + "%  ^7fall ^3" + ( cfg_falldamage() ? "stock" : "off" ) + "  ^7oob ^3" + ( cfg_oob() ? "off" : "stock" ) );
 }
 
 // Everything switched on beyond its default, one short line. Empty when nothing is on
@@ -6330,6 +6386,11 @@ function private build_tree()
     self menu_add( "mv_fall", "Fall damage", "movement", 1 );
     self menu_item( "mv_fall", "Fall damage: stock", &act_falldamage, 1, undefined, #"gf_falldamage", 1 );
     self menu_item( "mv_fall", "Fall damage: OFF", &act_falldamage, 0, undefined, #"gf_falldamage", 0 );
+    // The restricted-area warning + death, everyone. Default OFF (gf_oob 1). Applies now and
+    // re-applies every spawn (stock nukes the flag per life).
+    self menu_add( "mv_oob", "Out of bounds", "movement", 1 );
+    self menu_item( "mv_oob", "Out of bounds OFF - no warning, no death", &act_oob, 1, undefined, #"gf_oob", 1 );
+    self menu_item( "mv_oob", "Out of bounds: stock", &act_oob, 0, undefined, #"gf_oob", 0 );
     self menu_add( "mv_fly", "Fly speed", "movement", 1 );
     self menu_item( "mv_fly", "Fly 10 / sprint 30", &act_fly_speed, 10, 30, #"gf_fly_speed", 10 );
     self menu_item( "mv_fly", "Fly 20 / sprint 60", &act_fly_speed, 20, 60, #"gf_fly_speed", 20 );

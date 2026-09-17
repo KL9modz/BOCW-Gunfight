@@ -371,6 +371,19 @@ setting), the first-round forfeit clock (`function_67ed6c46` `:875`, reads the l
   Infected/Zombies-Turned use (no CW loadout perk exposes it); the dvars alone were "not always off". The
   `level.onplayerdamage` MOD_FALLING gate is the third layer.
   `setjumpheight` (exe+a03df20, no stock caller) stays on the Jump page as the untested alternative.
+- **Out of bounds OFF** (2026-09-17, `gf_oob`, default ON = disabled, never run) = the same `val::set(
+  #"gf_oob", "disable_oob", 1 )` the fly mode uses, on EVERY player at EVERY spawn. `oob.gsc` reaches the whole
+  "restricted area" experience through one entry, `enter_oob` (`:660`), and both callers — the
+  `trigger_out_of_bounds` callback (`:603`) and the vehicle airspace loop (`:269`) — return first when
+  `function_65b20()` (`:703`) sees `self.oobdisabled`, which is what the registered value sets (`:81` →
+  `disableplayeroob`, `:952`). No `enter_oob` = no `out_of_bounds` clientfield (the warning + screen effect,
+  `:832`), no `watchforleave` countdown (`:881`), no `killentity` (`:840`); setting it on someone already out
+  runs `resetoobtimer` (`:547`), which clears the HUD and ends the watchers at once. Spy mode is the stock
+  precedent (`spy.gsc:2411`). ⚠ Stock `val::nuke( "disable_oob" )`s every layer on each spawn
+  (`globallogic_spawn.gsc:612`, before the `:758` callback) — hence per spawn, in `mod_spawn_movement`. Not
+  covered: the territory in-bounds volumes (`oob.gsc:138`, `territory.gsc:151`) call `enter_oob` unchecked —
+  Fireteam's own gametype uses those; 6v6 / Gunfight maps ship `trigger_out_of_bounds`. Menu: Movement → Out of
+  bounds; app: Movement → Out of bounds. A plain dvar (not in the packed store).
 - **Speed** = `setmovespeedscale()` per player, re-applied on `on_spawned` because `give_loadout` resets it
   (`player_loadout.gsc:1883-1887`; spawn order `globallogic_spawn.gsc:637` loadout → `:758` callback). `g_speed`
   has zero references in the dump and cannot be verified from script — not used.
