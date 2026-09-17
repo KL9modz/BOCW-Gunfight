@@ -5,6 +5,11 @@ in-game.** Unlike [[vehicles]] and [[static-props]] this is a system nothing in 
 looked at, and it turns out to be one of the cheapest features available: **one call enumerates
 every destructible on a map, and one builtin destroys one.**
 
+**Status 2026-09-17: BUILT, never run (§8)** — the `DESTRUCT` census line (which also recovers the
+real destructible names the manifests hash), the Destructibles page (break aimed / near / all), and
+the radiant-exploder walker over a generated per-map table (`tools/exploders-gen.py`, 699 rows,
+34 named). Test sheet at the bottom.
+
 ---
 
 ## 1. Enumeration is a single call
@@ -148,3 +153,108 @@ against. Tundra's 71 and Black Sea's 46 are the maps to try it on.
 
 ⚠ Same caution as §6 — firing exploders is a **write** and changes the match. One per match, behind
 the never-run-in-game protocol.
+
+
+---
+
+## 8. BUILT 2026-09-17 — the census line, the Destructibles page, the exploder walker. Never run.
+
+Everything §6 and §7 asked for is in `gunfight_menu.gsc` (payload `gunfight_menu.gscc`, 362,812 B,
+2,078 strings; check-gsc PASS with zero notes, check-args 0 mismatches). Nothing has run in-game.
+
+### The read — `DESTRUCT`, the third `gf_dbg_assets` feed line
+
+```
+DESTRUCT <map> n=N kinds=K veh=V unnamed=U X=E [<def>x<count>,...]
+```
+
+`n` = destructible ENTITIES in the level (`getentarray( "destructible", "targetname" )`, §1),
+`kinds` = distinct `.destructibledef` names among them with the first 10 listed, `veh` = how many are
+cars (def starts `veh_`, stock's own test), `X` = how many radiant exploders the OFFLINE table
+(§7, below) lists for this map — a 0 there with exploders expected means the generator's map name
+does not match `sv_mapname`. Display → Debug feed → *Asset census*, or the row on the page itself.
+
+⭐ **This line is the answer to §4's hashing problem.** The manifests hash every destructible name;
+`.destructibledef` at runtime is the real string, so one census on each map recovers the plaintext
+names the dump lost — and it goes to the app too: a fourth GAME→APP channel,
+`GFMAPDEST|<map>|n=<count>|kinds=<k>|<def>x<count>,...|END`, filed by
+`tools/gf-control/mapdata_scan.py` into `mapdata/<map>.json` as `destructibles` next to the vehicles,
+props and spawn keys ([[map-data]]).
+
+### The write — Start menu → *Destructibles + exploders*
+
+Rebuilt on entry (the header row is the live count):
+
+| row | does |
+|---|---|
+| `(N destructibles here, K kinds, V cars)` | the census, on the page |
+| Break the one I am looking at | `bullettrace` → the hit entity if it carries `.destructibledef`, else the nearest destructible within 160 u of the impact point; `dodamage( 20000, origin + 5z, host )` — `simple_explosion`'s own shape (`destructible.gsc:227`), attacker = host so a kill by the blast credits |
+| Break everything within 600 u of me | the same, filtered by `distancesquared`, 6 per server frame |
+| Break EVERY destructible on the map | the whole array, 6 per frame |
+| Census line to the feed | the `gf_dbg_assets` toggle |
+| Radiant exploders (N listed) | the walker page |
+
+App: *Map toys* → Destructibles `break aimed` / `break near me` / `break ALL` (`gf_cmd_action destruct`,
+arg `aim` / `near` / `all`).
+
+### The exploder walker — Start menu → Destructibles → *Radiant exploders*
+
+`tools/exploders-gen.py` reads every `radiant_exploder` row of `tables/bgcache/mp_*.csv` and
+`wz_*.csv` and writes them INTO the GSC between `// [exploders-gen BEGIN]` / `END` markers — one
+`exp_rows_<map>()` per map, dispatched by `exp_table()` on `sv_mapname` — plus
+`docs/data/map-exploders.json`. **699 rows over 32 maps** (mp_common carries none, so nothing is
+universal; the nine `mp_sm_*` Gunfight maps other than Diesel and Game Show list none), in manifest
+order so an index is stable until the dump changes.
+
+**34 of the 699 have a name** — cracked against every string literal the mp / mp_common / core_common /
+wz / killstreaks scripts spell out (FNV1a64 & MASK63, `tools/crack-hash.py`'s algorithm):
+Nuketown's `fxexp_holiday` / `fxexp_halloween`, Crossroads' `fxexp_tundra_6v6` + `exp_lgt_12v12`,
+Armada's `fxexp_main_ship_oil_fire_level`, Express' 14 train debris / sparks / gate-dust triggers,
+WMD's 8 room light states + `fxexp_glass_shatter` + `fxexp_center_event`, Deprogram's two red-door
+enters, Game Show's `fxexp_flag_confetti`, Sanatorium's `lgtexp_lightstate2`. Those are passed as
+plain strings, the form every map script uses; the other 665 as `#"hash_..."` literals — the form
+`frontend.csc:3881` passes to the same function, and `"" + #"hash"` (the notify
+`activate_radiant_exploder` builds first) is a stock idiom (`archetype_avogadro.gsc:49`).
+
+| row | does |
+|---|---|
+| `(N radiant exploders listed for this map)` | the offline count |
+| Fire NEXT / Fire PREVIOUS / Fire the current one again | `exploder::exploder( key )`; the index lives on `level`, so the walk restarts at 1 each round; the feed prints `fired exploder 12/71 (unnamed - map-exploders.json #12)` or the cracked name |
+| Stop the current one | `deactivateclientradiantexploder( key )`, the builtin called direct — stock's `delete_exploder_on_clients` (`exploder_shared.gsc:858`) only reaches it for a string, ours are hashes |
+| Fire ALL, one every 0.5 s | a `level` thread; *Stop the walk* notifies it dead |
+| Fire 12: fxexp_holiday … | one row per NAMED exploder on this map |
+
+App: *Map toys* → Exploders `fire next` / `previous` / `again` / `stop current` / `fire all` /
+`stop walk` (`gf_cmd_action exploder`, arg = the verb).
+
+### ⚠ What is inferred, not measured
+
+1. **A hash into `activateclientradiantexploder`.** Stock's server side only ever passes strings
+   (map scripts); the hash form is proven on the CLIENT side (`frontend.csc:3881` →
+   `playradiantexploder( localclientnum, hash )`, and `stop_exploder` tests `ishash()` on its input).
+   The engine's radiant-exploder lookup is by name and the bgcache stores names as hashes, so a
+   pre-hashed argument is the expected shape — but the first *unnamed* row to fire is the
+   measurement. The 34 named rows use the proven string form, so **fire a named one first**
+   (Nuketown `fxexp_holiday`, Crossroads `fxexp_tundra_6v6`).
+2. **What an unnamed exploder does** — a light state, a sound, an FX burst, a brush swap. Many are
+   lighting (`exp_lgt_12v12` is one of the named ones); a walk through Crossroads' 71 will change
+   the map's look. *Stop the current one* is the undo; a round boundary resets everything.
+3. **`dodamage` on a destructible whose def is a vehicle (`veh_*`)** — stock's `car_death_think`
+   owns those; the damage should route through the same state machine, but the burning-car
+   sequence has its own timers and may not fire from a single hit.
+4. **`.destructibledef` as a hash** — if the census prints `unnamed=N` with `kinds=0`, the field is a
+   hash on this VM and `destruct_def()` needs `"" + def` instead of `isstring()`.
+
+### Test sheet — ONE write per match, lobby return after each
+
+| # | on | do | read |
+|---|---|---|---|
+| 1 | Nuketown '84 | Display → Debug feed → *Asset census* ON | `DESTRUCT mp_nuketown6 n=? kinds=? ... X=10` — `n` vs the manifest's 13 defs settles §4's def-vs-instance question; `kinds` names them |
+| 2 | Nuketown '84 | Destructibles → *Break the one I am looking at* on a car / barrel | it breaks; the feed names the def; a joiner (if present) sees the same explosion |
+| 3 | Diesel | *Break everything within 600 u of me* | only nearby ones go; count in the feed |
+| 4 | Miami | *Break EVERY destructible* (30 defs, the richest 6v6 map) | everything breaks over a few frames; no hitch worth noting |
+| 5 | Nuketown '84 | Exploders → *Fire 6: fxexp_holiday* (the string form) | Christmas lights / holiday dressing appears — proves the call path; then *Stop the current one* |
+| 6 | Nuketown '84 | *Fire NEXT* from 1 (a hash row) | ANY visible/audible change proves the hash form; nothing = go to inference 1 |
+| 7 | Crossroads | *Fire ALL* | a 35 s light-and-effects show; *Stop the walk* mid-way |
+
+Record on the row: `______`

@@ -159,8 +159,9 @@ These are **not** auto-loaded. Open the one you need.
   vs map-specific" stops being an offline question. Spawning is just
   `spawn( "script_model" )` + `setmodel` + `setscale`. ⭐ **Gate 2 does not apply** — the prop is a
   plain entity, so a vanilla joiner sees it (prop.gsc's 11 clientfields are all Prop Hunt gameplay,
-  none render the prop). ⚠ The dump's 3,324 `model#` names are NOT a prop catalogue — real static
-  props live in Radiant and are invisible to it.
+  none render the prop). ⚠ The dump's 3,324 `model#` names are NOT a prop catalogue — 🪦 retracted in
+  §5b: the per-zone asset manifests DO enumerate them (338 universal `p9_*` props, 12 `_prophunt`
+  models in `mp_common`). **Built 2026-09-17 as the Props page (§8), never run.**
 
 - [projectiles](projectiles.md) — **you do not override a weapon's projectile, you intercept the
   shot.** `callback::on_weapon_fired` (registered per player by core MP scoring, so it is live) gives
@@ -170,7 +171,18 @@ These are **not** auto-loaded. Open the one you need.
   `getweapon( x ) != level.weaponnone`. Effects split three ways: **FX are server-side and reachable**,
   **tracers have NO script API** (`setweapontracer` does not exist), and ⚠ **beams/lasers are
   `.csc`-only**, so Gate 2 blocks them for vanilla joiners. Carries the four real unknowns, incl.
-  whether full-auto fire survives a `magicbullet` per shot.
+  whether full-auto fire survives a `magicbullet` per shot. ⚠ `crossbow_special_t8` is in ZERO zones —
+  the real asset is `special_crossbow_t9`; §6 answers residency offline (331 universal weapons).
+  **Built 2026-09-17 as the Projectiles page (§7), never run.**
+
+- [destructibles](destructibles.md) — **the map's own breakables and its authored exploders — built
+  2026-09-17, never run.** One call enumerates every destructible (`getentarray( "destructible",
+  "targetname" )`, each with `.destructibledef`), one builtin breaks one (`dodamage`, stock's own
+  `breakafter` / `simple_explosion` shape), and the explosion visual rides stock's OWN clientfield so a
+  vanilla joiner draws it. Radiant exploders are per-map hashed names that `exploder::exploder` takes
+  as-is: `tools/exploders-gen.py` bakes all 699 (32 maps, 34 cracked to names) into the menu as a
+  walker. The `DESTRUCT` census line recovers the real destructible names the manifests hash.
+  Test sheet inside.
 
 - [teleport](teleport.md) — **everyone to a point / to me, me to a point, and the classic teleport gun
   and grenade — built 2026-09-15, never run.** A player moves with stock's own fast-travel idiom

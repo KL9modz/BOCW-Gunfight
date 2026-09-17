@@ -235,6 +235,7 @@ from `mod_apply`, every gametype, once per level, 6 s after start) keeps three m
 GFMAPVEH|<map>|<gametype>|<drivable keys>|<other keys>|END
 GFMAPPROP|<map>|tbl=1|rows=13|<model>:<size>,...|END        (first 48 rows; tbl=0 = no table)
 GFMAPSPAWN|<map>|<STARTS tally>|<family note>|END
+GFMAPDEST|<map>|n=<count>|kinds=<k>|<def>x<count>,...|END       (2026-09-17: the destructibles, REAL def names)
 ```
 
 `tools/gf-control/mapdata_scan.py` (roster_scan's sibling, same read-only sweep) finds them and
@@ -254,7 +255,7 @@ pools and options" — the next step is the consumer (per-map presets in the app
 | M3 | Standoff / Hijacked | as M2 | `family=tdm tdm:78 starts 6/6` | AUTO fell back to TDM starts (no `sd`) |
 | M4 | a map with `sd=` in M1 | as M2 | `family=sd sd:N starts a/b` | S&D's authored bases |
 | M5 | Crossroads / Collateral / Armada | Vehicles page | rows | the §2.2 prediction; spawn one, enter it |
-| M6 | any | `python tools/gf-control/mapdata_scan.py` with the game up | filed `mapdata/<map>.json` | all three kinds present |
+| M6 | any | `python tools/gf-control/mapdata_scan.py` with the game up | filed `mapdata/<map>.json` | all four kinds present (`destructibles` since 2026-09-17, [[destructibles]] §8) |
 | M7 | Standoff | Vehicles page | "(no drivable vehicle assets on this map)" + Other page: chopper gunner / care package / vehicle drop / RC-XD / exfil chopper |
 
 If M2 places people badly on some map, the row *Family: TDM (measured good)* is the 2026-09-15
@@ -274,7 +275,8 @@ A sweep of every offline source, to stop future work probing for things the dump
 |---|---|---|
 | Which **vehicles** are resident per map | ✅ **fully** | `tables/bgcache/<zone>.csv` `vehicle,` rows — see [[vehicles]] §6, all 36 MP maps |
 | Which **xmodels / props** are resident per map | ✅ **fully** | `tables/data/assets/<zone>.csv` `xmodel,` rows — see [[static-props]] §5b |
-| Which **weapons / characters / fx / destructibles** per map | ✅ | the same two manifests (`weapon,` `character,` `fx,` `destructible,` rows) |
+| Which **weapons / characters / fx / destructibles** per map | ✅ | the same two manifests (`weapon,` `character,` `fx,` `destructible,` rows) — ⚠ destructible NAMES are all hashed there; the `DESTRUCT` census / `GFMAPDEST` channel reads the real ones ([[destructibles]] §8) |
+| Which **radiant exploders** per map | ✅ **fully** | `tables/bgcache/<zone>.csv` `radiant_exploder,` rows → `tools/exploders-gen.py` → `docs/data/map-exploders.json` + the menu's generated table; hashed, and the API takes the hash ([[destructibles]] §7) |
 | Prop **scale / offset / rotation** | ❌ runtime | `gamedata/tables/mp/<map>_ph.csv` is not in the dump; `tablelookuprow` reads it live |
 | **Spawn points** — positions, mode flags, group_index, START flag | ❌ **runtime only** | map entity data, compiled into the map `.ff` |
 

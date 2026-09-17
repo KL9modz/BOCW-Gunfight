@@ -616,3 +616,8 @@ untested, may not be enterable"), which is now known wrong. It belongs on the dr
 ⚠ **The page's build-time `isassetloaded` filter is the right design and should stay.** It is
 self-correcting across content patches in a way a baked per-map table is not. These tables are for
 *authoring* the master list and for predicting what a map will show — not for replacing the filter.
+
+✅ **Done 2026-09-17:** `veh_master()` dropped the six no-zone rows and added
+`vehicle_t9_mil_snowmobile_alt_single_seat` (drivable) and `vehicle_t8_mil_air_transport_infiltration`
+(other, untested). The `gf_dbg_assets` candidate list (index 105+) keeps the dead names on purpose —
+its indices are the documented probe order.

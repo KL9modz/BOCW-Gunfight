@@ -1126,6 +1126,9 @@ chose 2 for MP and it is a dvar here for exactly this reason. Result: `______`
 | 9 | Match → round / win limit | ⚠ **page never drawn** | the round counter obeys it; `-1` sentinels mean only an explicit pick asserts control |
 | 10 | Map → Zoo (method: carry) | ✅ host-side | loads Zoo exactly like the Atian menu did. ⚠⚠ **SOLO ONLY — the carry crashes connected clients** (measured 2026-09-10) |
 | 11 | Loadout → Pool camo (**random is ON by default** — the first spawn already shows a mastery/PaP camo per weapon), then → Gold | ⚠ **never run** (built 2026-09-12) | the gun in hand turns gold **this round**, the secondary too; next round both spawn gold with no pick; a bot's gun is gold in the killcam. Full 9-step sheet in [`loadout-camo.md`](loadout-camo.md) §6 — a miss on the spawn frame is a *timing* result, the same builtin is the Atian Camo page |
+| 12 | Destructibles → *Break the one I am looking at* (Nuketown car / barrel) | ⚠ **never run** (built 2026-09-17) | it breaks, the feed names its def; the `DESTRUCT` census line first (read-only). [[destructibles]] §8 sheet |
+| 13 | Projectiles → *Fire mode – host*, ONE pistol shot at a far wall | ⚠ **never run** (built 2026-09-17) | a rocket leaves with the bullet. Rate *EVERY shot* is the full-auto measurement — last, solo. [[projectiles]] §7 sheet |
+| 14 | Props → *Universal props* → Snowman, looking at the floor | ⚠ **never run** (built 2026-09-17) | it appears there, facing you; *Remove the last prop* clears it. [[static-props]] §8 sheet |
 | 🪦 | ~~Map → method **session** → Zoo~~ | 🪦 **DO NOT RUN** | `switchmap_load` measured **inert in MP** (2026-09-11, two iterations). The SESSION row is a dead menu option; its removal was blocked by a safety classifier |
 
 ⚠ **Test a lobby return after 3, 8 and 10.** ⚠ Settings are dvars — they persist until the game is

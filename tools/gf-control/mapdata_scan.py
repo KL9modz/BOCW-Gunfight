@@ -6,6 +6,7 @@ roster_scan.py's sibling. gunfight_menu.gsc publishes three marked strings once 
     GFMAPVEH|<map>|<gametype>|<drivable keys>|<other keys>|END
     GFMAPPROP|<map>|tbl=1|rows=13|<model>:<size>,...|END        (or tbl=0)
     GFMAPSPAWN|<map>|<STARTS tally>|<family note>|END
+    GFMAPDEST|<map>|n=<count>|kinds=<k>|<def>x<count>,...|END    (the destructibles, real def names)
 
 Same read-only primitive as the roster (OpenProcess VM_READ + VirtualQueryEx + ReadProcessMemory,
 no thread, no write). Every hit is filed into mapdata/<map>.json next to this file, merged over
@@ -31,7 +32,7 @@ import roster_scan as rs
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "mapdata")
 
-MARK_RE = re.compile(rb"GFMAP(VEH|PROP|SPAWN)\|")
+MARK_RE = re.compile(rb"GFMAP(VEH|PROP|SPAWN|DEST)\|")
 END = b"|END"
 MAX_LEN = 6144
 
@@ -64,6 +65,22 @@ def parse(kind: str, body: str) -> tuple[str, dict] | None:
         if len(parts) != 3:
             return None
         return mapname, {"spawn": {"starts": parts[1].strip(), "family_note": parts[2].strip()}}
+    if kind == "DEST":
+        # The destructibles' .destructibledef names read live - the manifests hash every one
+        # (docs/notes/destructibles.md §4), so this channel is where the real names come from.
+        if len(parts) != 4 or not parts[1].startswith("n=") or not parts[2].startswith("kinds="):
+            return None
+        kinds = []
+        for cell in parts[3].split(","):
+            if not cell or cell == "...":
+                continue
+            name, _, count = cell.rpartition("x")
+            try:
+                kinds.append({"def": name, "count": int(count)})
+            except ValueError:
+                kinds.append({"def": cell, "count": 0})
+        return mapname, {"destructibles": {"entities": int(parts[1][2:] or 0),
+                                           "kinds": int(parts[2][6:] or 0), "list": kinds}}
     return None
 
 
@@ -143,8 +160,10 @@ def summary(mapname: str, d: dict) -> str:
     o = d.get("vehicles_other", [])
     p = d.get("props", {})
     s = d.get("spawn", {})
+    x = d.get("destructibles", {})
     return (f"{mapname} [{d.get('gametype', '?')}]  drivable: {', '.join(v) or '-'}  |  other: {len(o)}"
             f"  |  props: {'table ' + str(p.get('rows')) + ' rows' if p.get('table') else 'no table'}"
+            f"  |  destructibles: {x.get('entities', '?')} ({x.get('kinds', '?')} kinds)"
             f"  |  starts:{s.get('starts', ' ?')}  {s.get('family_note', '')}")
 
 

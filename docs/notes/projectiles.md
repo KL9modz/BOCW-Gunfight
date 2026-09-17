@@ -5,6 +5,8 @@ Read out of the T9 dump; **nothing measured in-game yet.**
 
 **Status: RESEARCH ONLY. The override path is clean and fully server-side. The EFFECTS half splits:
 FX are reachable, tracers have no script API at all, and beams/lasers are client-side only.**
+**2026-09-17: BUILT as the menu's Projectiles page (§7), never run** — weapon_fired → magicbullet,
+rate-gated, nine universal projectile weapons, optional homing and trail FX; test sheet in §7.
 
 ---
 
@@ -204,3 +206,74 @@ those 66 or resolving hashes (which the ACTS index cannot do for this game — [
 ⚠ This does not block the feature — `playfx` takes a hash literal exactly as `vip.gsc:688` does
 (`playfx( #"hash_6c0862bb0e561d0d", ... )`) — but choosing a *good-looking* trail from hashes is
 trial and error, not selection.
+
+
+---
+
+## 7. BUILT 2026-09-17 — the Projectiles page. Never run.
+
+§5's residency probe is moot (§6 answered it offline), so the staged write is what got built:
+Start menu → *Projectiles*, in `gunfight_menu.gsc` (payload 362,812 B; check-gsc PASS, zero notes).
+
+### The shape
+
+- **Hook:** the `weapon_fired` notify the engine raises on the player for every shot
+  (`weapons.gsc:1034`, the event_handler that also drives `callback::on_weapon_fired`) — the same
+  notify the teleport gun rides ([[teleport]]), with `.weapon` on the result (`placeables.gsc:215`
+  reads it). One per-life thread per player who wants it (`proj_think`, re-armed from
+  `mod_spawn_place` like the teleport threads), `endon death / disconnect`.
+- **Spawn:** `magicbullet( w, start, eye + fwd * 10000, self )` — the 4-arg form of
+  `remotemissile_shared.gsc:415` / `straferun.gsc:897`, owner = the shooter so the kill and the
+  killcam credit him. `start` = 32 u ahead of the eye, or the eye itself when a wall is closer than
+  64 u (§4 q2 — it will then go off in the shooter's face, RPG rules; God mode exists).
+- **Homing:** `p missile_settarget( target, ( 0, 0, 0 ) )` (`straferun.gsc:899`'s shape) on the
+  living enemy nearest the crosshair inside a ~45° cone (`vectordot` > 0.7), bots included;
+  teammates excluded unless the shooter's team is `#"free"`.
+- **Rate:** per-player minimum gap, `gettime()`-based, default **300 ms**; the Rate page walks it
+  1000 / 600 / 300 / 150 / **0 = every shot**. That last row IS §4's question 1 (an AR at ~700 RPM
+  = ~12 `magicbullet`s a second per player) — measure it last, solo first.
+- **No chaining:** a shot whose `.weapon` is the projectile weapon itself is ignored, so a rocket
+  launcher in hand does not double-fire.
+- **Weapons** (the Projectile page; every one universal by §6, and each pick is validated against
+  `level.weaponnone` before it lands): RPG rocket `launcher_freefire_t9` (default), Cigma missile
+  `launcher_standard_t9`, crossbow bolt `special_crossbow_t9`, M79 grenade
+  `special_grenadelauncher_t9`, combat bow arrow `sig_bow_flame`, strafe run rocket
+  `straferun_rockets`, cruise missile bomblet `remote_missile_bomblet`, jet fighter missile
+  `jetfighter_missile`, frag grenade `frag_grenade`.
+- **Trail FX (off by default, untested):** `playfxontag( "destruct/fx8_atk_chppr_smk_trail", p,
+  "tag_origin" )` — a plain path the way `infect.gsc:1229` passes one, universal by the `fx` rows.
+  The rocket weapons carry their own trails; this is the one line here stock never makes on a
+  magicbullet, hence the toggle.
+- **Scope:** *Fire mode – host* (`player.gf_proj`), *– everyone* (`game.gf_proj_all`, humans
+  only — bots never get it), *Everything OFF*. State is per match on `game.` / the player, not
+  dvars: the packed config store and the app's key list are untouched.
+
+App: *Map toys* → Projectiles `host` / `everyone` / `OFF` / `homing` / `trail FX`, a weapon picker
+(`gf_cmd_action projweapon`, arg = the asset name — `getweapon` takes the string form too,
+`remotemissile_shared.gsc:439`), a rate picker (`projrate`, ms).
+
+### ⚠ Still inferred
+
+1. **Does `magicbullet` itself raise `weapon_fired` on the owner?** If it does, the no-chaining
+   check above catches it (the fired weapon would be the projectile weapon); if it raises it with
+   the *held* weapon, the rate gate is the only thing between one shot and a runaway. The 300 ms
+   default is chosen so a runaway is visible and survivable, not fatal.
+2. **The bullet still fires** (§4 q4). This is "bullets plus rockets" until measured otherwise.
+3. **Grenade-class weapons through `magicbullet`** (`frag_grenade`, the M79) — stock only fires
+   rockets / missiles / bomblets this way; a grenade projectile may arc, sit, or not spawn (the
+   `!isdefined( p )` guard just returns).
+4. **The trail FX call** — never made on a magicbullet by stock.
+
+### Test sheet — ONE write per match, solo first
+
+| # | do | read |
+|---|---|---|
+| 1 | Projectiles → *Fire mode – host*, fire ONE shot of a pistol at a wall 20 m away | a rocket leaves with the bullet and detonates at the wall; the feed said `projectiles ON - your shots fire RPG rockets` |
+| 2 | fire once with a wall < 1 m away | it explodes on you (or does not damage you — record which) |
+| 3 | Projectile → *Crossbow bolt*, one shot | a bolt, not a rocket; then *M79 grenade* — does a grenade-class projectile spawn at all |
+| 4 | Fill with bots, *Homing* ON, aim near a bot, one shot | the rocket bends onto the bot; the kill credits you |
+| 5 | Rate → *One per 150 ms*, then *EVERY shot*, hold an AR for 2 s | frame rate / hitching; count rockets vs bullets in the killcam. This is §4 q1 |
+| 6 | *Fire mode – everyone* with a joiner | the joiner's shots fire rockets; the joiner sees his own rockets (server projectile, plain replication) |
+| 7 | *Smoke trail FX* ON, one shot | a second trail, or nothing (the FX call was a no-op), or a script error — record which |
+
+Record: `______`

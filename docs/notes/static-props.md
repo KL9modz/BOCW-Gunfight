@@ -5,6 +5,8 @@ few map-specific ones. Read out of the T9 dump; **nothing measured in-game yet.*
 
 **Status 2026-09-15: MEASURED on mp_sm_gas_station (bottom of this note) — the table exists there, 13 rows, row 0 resident. The headline is that Treyarch already solved the per-map list problem and
 the answer is readable at RUNTIME, so unlike [[vehicles]] this does not need an offline asset dump.**
+**2026-09-17: the Props page is BUILT (§8), never run** — this map's `_ph.csv` rows + a 48-model
+universal set, every row `isassetloaded`-gated, placed where the host looks.
 
 ---
 
@@ -276,3 +278,61 @@ the real builtin `tablelookuprow( table, row )`. `tools/check-gsc.ps1` catches t
 The same read is now the `PROPS` line of the mod's debug feed (`gf_dbg_assets`, Display → Debug
 feed → "Asset census: vehicles + props"), so the per-map `rows` census is a map walk with the menu
 in — see [[vehicles]] §5.
+
+
+---
+
+## 8. BUILT 2026-09-17 — the Props page. Never run.
+
+The goal at the top of this note — "a prop page in the menu: a set that works on most maps plus a
+few map-specific ones" — is Start menu → *Props* in `gunfight_menu.gsc` (payload 362,812 B;
+check-gsc PASS, zero notes). Both halves of §6 are on it, and both are self-configuring:
+
+| page | rows | source |
+|---|---|---|
+| *This map's Prop Hunt set (N)* | one `Place <model> (<size>)` row per table row, with the table's own `propscale` | `gamedata/tables/mp/<map>_ph.csv` read at runtime (§2), first 64 rows; the map-specific half, hand-tuned by Treyarch |
+| *Universal props* | 48 rows: the 12 `*_prophunt` models (§5b, all in `mp_common`) + 36 hand-picked `p9_*` scenery models from the universal 338 (bench, bicycle, couch, dumpster, mailbox, street light, soda machine, target dummy, arcade game, washing machine, fridge, snowman, kiddie rocket ride, scissor lift, phone booth, oil drum, server, concrete barrier, gas pump, sandbags, Czech hedgehog, ammo crate, hay bale, spool, water cooler, palm tree, pot of gold, dirty bomb, 155 mm gun…) | `tables/data/assets/{core_bootstrap,core_common,mp_common}.csv` — resident on every MP map by construction |
+| Remove the last prop I placed / Remove every prop | `delete()` over `level.gf_props` | — |
+
+**Every row is gated by `isassetloaded( "xmodel", model )` at page build**, so a model that is not
+resident is simply not offered — the guess §4 flagged is now a measurement: the 2026-09-15 census
+read `res=1` for Diesel's row-0 model with the bogus-name control at 0, so `"xmodel"` IS a valid
+type string for `isassetloaded`.
+
+The spawn is `setupprop()`'s recipe (`prop.gsc:1946`) minus the player linkage: `spawn(
+"script_model", spot )` → `setmodel( model )` → `setscale( scale )` when the table says so →
+`.angles` turned to face the host. `spot` is where the host is looking (the teleport's trace),
+pushed 24 u off the surface and dropped to the floor with `playerphysicstrace` (`tp_floor`); a shot
+into the sky puts it 200 u ahead. A plain replicated entity — Gate 2 does not apply (§4), a vanilla
+joiner sees it. Props are tracked on `level.gf_props` and die with the level, so a round boundary
+clears them (Gunfight rebuilds `level` per round — [[mp-dvars]]).
+
+App: *Map toys* → Props: a universal-prop picker (`gf_cmd_action prop`, arg = the label in quotes
+— the GSC matches label or model name, and a label stays inside the 47-byte bridge slot where a
+model name like `p9_ger_tank_computer_server_diagnostic_01_silver_prophunt` would not), `propundo`,
+`propclear`.
+
+### ⚠ Still inferred
+
+1. **Collision.** A bare `script_model` collides only if the xmodel ships collision; the `_prophunt`
+   twelve presumably do (that is what Prop Hunt needed them for), the scenery models may not — a
+   prop players walk through is cosmetic, not cover. `setcandamage(1)` is not set, so nothing shoots
+   it apart.
+2. **Scale from the table** applies the `_ph.csv` `propscale`; the table's offsets and rotations
+   (columns 3-8) are Prop Hunt's player-anchor tuning and are not applied to a free-standing prop.
+3. **`isassetloaded( "xmodel", … )` reading 1 for a model the CLIENT has not loaded.** The check is
+   host-side; residency is per zone and the zone is the same for everyone, so a joiner has it too —
+   inferred from the zone model, not measured with a joiner.
+
+### Test sheet — ONE write per match
+
+| # | on | do | read |
+|---|---|---|---|
+| 1 | Diesel (table measured: 13 rows) | Props → *This map's Prop Hunt set* | 13 rows offered (or fewer — each is a residency read); pick the cactus (row 0) | 
+| 2 | Diesel | *Place …* it while looking at the floor 5 m away | the model appears there, upright, facing you; feed says `placed … (1 this round)` |
+| 3 | any | *Universal props* → Snowman, then Park bench, then Target dummy | each appears; walk into one — does it collide |
+| 4 | any | *Remove the last prop*, then *Remove every prop* | they vanish in that order |
+| 5 | Ruka (measured tbl=0) | *This map's Prop Hunt set* | `(no Prop Hunt table on this map - use Universal)`; Universal still offers rows |
+| 6 | with a joiner | place one | the joiner sees it where you see it |
+
+Record: `______`

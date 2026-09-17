@@ -404,6 +404,48 @@ MAPS_12V12 = [
     ("Crossroads 12v12 - TDM 10v10", "mp_tundra"),
 ]
 # Fireteam / Multi-team maps (40-player dedicated-server modes; the menu marks them untested).
+# Projectile weapons (docs/notes/projectiles.md §6): every one resident on all 36 MP maps.
+PROJ_WEAPONS = [
+    ("RPG rocket", "launcher_freefire_t9"),
+    ("Cigma missile", "launcher_standard_t9"),
+    ("Crossbow bolt", "special_crossbow_t9"),
+    ("M79 grenade", "special_grenadelauncher_t9"),
+    ("Combat bow arrow", "sig_bow_flame"),
+    ("Strafe run rocket", "straferun_rockets"),
+    ("Cruise missile bomblet", "remote_missile_bomblet"),
+    ("Jet fighter missile", "jetfighter_missile"),
+    ("Frag grenade", "frag_grenade"),
+]
+
+# Universal props (docs/notes/static-props.md §5b): the menu's prop_universal() list, by label.
+# The GSC matches the label or the model name. ⚠ gf_cmd_arg rides a 47-byte bridge slot
+# ("set gf_cmd_arg " is 15 of them), so the value sent is the LABEL, never a long model name.
+PROP_UNIVERSAL = [
+    ("Park bench", "p9_usa_bench_01"), ("Bicycle", "p9_usa_bicycle_01"), ("Couch", "p9_usa_couch_04"),
+    ("Dumpster", "p9_usa_dumpster_01_full"), ("Mailbox", "p9_usa_mailbox_01"),
+    ("Street light", "p9_usa_street_light_01"), ("Soda machine", "p9_usa_vending_machine_soda_02"),
+    ("Target dummy", "p9_usa_kgb_target_dummy_01"), ("Beach chair", "p9_usa_chair_beach"),
+    ("Surfboard", "p9_usa_surf_longboard_01"), ("Arcade game", "p9_nt6_arcade_game"),
+    ("Washing machine", "p9_nt6_machine_washing_dirty"), ("Vintage fridge", "p9_nt6_refrigerator_vintage_closed_02"),
+    ("Wooden chair", "p9_nt6_chair_wood"), ("Tire barricade", "p9_nt6_barricade_tire_01"),
+    ("Snowman", "p9_nt6x_win_snowman"), ("Arcade cabinet", "p9_mal_arcade_cabinet_08"),
+    ("Kiddie rocket ride", "p9_mal_rocket_ride_01"), ("Scissor lift", "p9_mal_scissor_lift_01"),
+    ("Bean bag", "p9_mal_bean_bag_chair_sml"), ("Phone booth", "p9_rus_amk_telephonebooth_01_closed_v2_wet"),
+    ("Long park bench", "p9_rus_bench_park_long"), ("Oil drum", "p9_rus_oil_drum_01"),
+    ("Computer server", "p9_rus_computer_server_02"), ("Concrete barrier 144", "p9_ger_kgb_mount_barrier_concrete_144"),
+    ("Metal barrel", "p9_ger_tank_barrel_metal_01"), ("Gas pump", "p9_ger_tank_gas_pump_01"),
+    ("Sandbag cover", "p9_lat_sandbag_cover_02_grime"), ("Czech hedgehog", "p9_lat_hedgehog_metal_snow"),
+    ("Large ammo crate", "p9_usa_large_ammo_crate_01"), ("Hay bale", "p9_rm_zoo_hay_bale_sqr"),
+    ("Wooden spool", "p9_rm_pai_wooden_spool"), ("Water cooler", "p9_rm_rai_water_cooler_metal_full"),
+    ("Palm tree", "p9_foliage_tree_palm_coconut_lrg_01"), ("Pot of gold", "p9_pot_of_gold_pristine"),
+    ("Dirty bomb", "p9_wz_dirty_bomb_01"), ("155mm artillery gun", "p9_m114_155mm_artillery_gun_01_pickup"),
+    ("Rusted barrel (PH)", "p9_barrel_metal_rusted_01_prophunt"), ("Concrete K-rail (PH)", "p9_krail_concrete_worn_01_prophunt"),
+    ("Vase (PH)", "p9_rm_rai_dub_vase_prophunt"), ("Satellite panel (PH)", "p9_ang_satellite_panel_02_prophunt"),
+    ("Mattress (PH)", "p9_nt6_abandoned_mattress_01_prophunt"), ("Mannequin M1 (PH)", "p9_nt6_mannequin_clothes_male_01_dirty_full_prophunt"),
+    ("Server rack (PH)", "p9_ger_tank_computer_server_diagnostic_01_silver_prophunt"),
+    ("Tank tread rolls (PH)", "p9_ger_tank_tank_tread_rolls_01_prophunt"),
+]
+
 MAPS_FT = [
     ("Alpine", "wz_ski_slopes"), ("Duga", "wz_duga"), ("Golova", "wz_golova"),
     ("Ruka", "wz_forest"), ("Sanatorium", "wz_sanatorium"),
@@ -865,6 +907,61 @@ class App:
                                ("TP grenade: host", "tpnade", "host"), ("TP grenade: everyone", "tpnade", "all")]:
             ttk.Button(rt4, text=text, width=20,
                        command=lambda a=act, g=arg: self._action(a, g)).pack(side="left", padx=3)
+
+        # Map toys (2026-09-17, none run in-game yet): the menu's Destructibles + exploders /
+        # Projectiles / Props pages over gf_cmd_action. docs/notes/destructibles.md,
+        # projectiles.md, static-props.md. Every one is a WRITE that changes the match.
+        boxm = ttk.LabelFrame(body, text="Map toys  (destructibles, radiant exploders, projectiles, props - untested)")
+        boxm.pack(fill="x", padx=12, pady=6)
+        rm1 = ttk.Frame(boxm)
+        rm1.pack(anchor="w", padx=10, pady=(10, 2))
+        ttk.Label(rm1, text="Destructibles", width=13).pack(side="left")
+        for text, arg in [("break aimed", "aim"), ("break near me", "near"), ("break ALL", "all")]:
+            ttk.Button(rm1, text=text, width=14,
+                       command=lambda a=arg: self._action("destruct", a)).pack(side="left", padx=3)
+        rm2 = ttk.Frame(boxm)
+        rm2.pack(anchor="w", padx=10, pady=2)
+        ttk.Label(rm2, text="Exploders", width=13).pack(side="left")
+        for text, arg in [("fire next", "next"), ("fire previous", "prev"), ("again", "again"),
+                          ("stop current", "stop"), ("fire all", "all"), ("stop walk", "stopall")]:
+            ttk.Button(rm2, text=text, width=12,
+                       command=lambda a=arg: self._action("exploder", a)).pack(side="left", padx=3)
+        rm3 = ttk.Frame(boxm)
+        rm3.pack(anchor="w", padx=10, pady=2)
+        ttk.Label(rm3, text="Projectiles", width=13).pack(side="left")
+        for text, arg in [("host", "host"), ("everyone", "all"), ("OFF", "off")]:
+            ttk.Button(rm3, text=text, width=9,
+                       command=lambda a=arg: self._action("proj", a)).pack(side="left", padx=3)
+        ttk.Button(rm3, text="homing", width=9, command=lambda: self._action("projhoming")).pack(side="left", padx=3)
+        ttk.Button(rm3, text="trail FX", width=9, command=lambda: self._action("projtrail")).pack(side="left", padx=3)
+        rm4 = ttk.Frame(boxm)
+        rm4.pack(anchor="w", padx=10, pady=2)
+        ttk.Label(rm4, text="", width=13).pack(side="left")
+        self.proj_var = tk.StringVar(value="RPG rocket  [launcher_freefire_t9]")
+        self._projlut = {f"{d}  [{n}]": n for d, n in PROJ_WEAPONS}
+        ttk.Combobox(rm4, state="readonly", values=list(self._projlut), textvariable=self.proj_var,
+                     width=40).pack(side="left", padx=3)
+        ttk.Button(rm4, text="Set projectile", width=14,
+                   command=lambda: self._action("projweapon", self._projlut.get(self.proj_var.get(), ""))
+                   ).pack(side="left", padx=3)
+        ttk.Label(rm4, text="  rate ms").pack(side="left")
+        self.proj_rate = tk.StringVar(value="300")
+        ttk.Combobox(rm4, state="readonly", width=5, textvariable=self.proj_rate,
+                     values=["0", "150", "300", "600", "1000"]).pack(side="left", padx=2)
+        ttk.Button(rm4, text="Set",
+                   command=lambda: self._action("projrate", self.proj_rate.get())).pack(side="left", padx=3)
+        rm5 = ttk.Frame(boxm)
+        rm5.pack(anchor="w", padx=10, pady=(2, 10))
+        ttk.Label(rm5, text="Props", width=13).pack(side="left")
+        self.prop_var = tk.StringVar(value=PROP_UNIVERSAL[0][0])
+        self._proplut = {d: n for d, n in PROP_UNIVERSAL}
+        ttk.Combobox(rm5, state="readonly", values=[d for d, _ in PROP_UNIVERSAL], textvariable=self.prop_var,
+                     width=28).pack(side="left", padx=3)
+        ttk.Button(rm5, text="Place where I look", width=18,
+                   command=lambda: self._action("prop", f'"{self.prop_var.get()}"')
+                   ).pack(side="left", padx=3)
+        ttk.Button(rm5, text="Remove last", width=12, command=lambda: self._action("propundo")).pack(side="left", padx=3)
+        ttk.Button(rm5, text="Remove all", width=12, command=lambda: self._action("propclear")).pack(side="left", padx=3)
 
         # Per-player verbs (the menu's Players page): gf_cmd_target names the player as shown
         # in game - exact name or a case-insensitive prefix; the GSC resolves it.

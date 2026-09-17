@@ -78,11 +78,14 @@
 //     gf_dbg_families   1 = one feed line: spawn-struct family counts, legacy detector numbers,
 //                       what the guard built.
 //     gf_dbg_match      1 = one feed line: the Show-match-info readout.
-//     gf_dbg_assets     1 = two feed lines. VEHICLES: which of 105 veh_t9_* names are resident
+//     gf_dbg_assets     1 = three feed lines. VEHICLES: which of 154 candidate names are resident
 //                       vehicle assets on this map, by index:name, + the veh_spawn_point count.
 //                       PROPS: this map's Prop Hunt table (tbl/rows/size buckets/row-0 model +
-//                       residency). src/vehicle_probe + src/prop_probe as a menu tool, so the
-//                       per-map census is a map walk with the menu in. docs/notes/vehicles.md §5
+//                       residency). DESTRUCT: the map's destructible entities - count, kinds
+//                       (their .destructibledef names, the REAL names the manifests only hash),
+//                       veh_ cars, + X = the offline radiant-exploder count for this map.
+//                       src/vehicle_probe + src/prop_probe as a menu tool, so the per-map census
+//                       is a map walk with the menu in. docs/notes/vehicles.md §5, destructibles.md
 //     gf_camo           camo forced onto every loadout-pool weapon, every player, every spawn.
 //                       -2 random each round (DEFAULT: one roll per weapon, shared by everyone)
 //                       -3 random per player-spawn / -1 stock (the pool's own look - bare,
@@ -324,6 +327,18 @@
 //                                                                       selected. Now a menu verb; joiners,
 //                                                                       a natural match end and the round
 //                                                                       boundary still to be measured.
+//     destructibles: break aimed / near / all via dodamage on the     ⚠ built 2026-09-17, never run.
+//       map's own destructible entities; radiant exploders fired        Stock's own reads and writes
+//       by hash from the bgcache table (exploder::exploder)              (destructible.gsc:23/:613,
+//                                                                       exploder_shared.gsc:278).
+//     projectiles: weapon_fired -> magicbullet( w, eye, far, self ),   ⚠ built 2026-09-17, never run.
+//       rate-gated, optional missile_settarget homing                    Stock shapes (remotemissile
+//                                                                       :415, straferun.gsc:897-899);
+//                                                                       the per-shot rate is the test.
+//     props: spawn( "script_model" ) + setmodel + setscale from the    ⚠ built 2026-09-17, never run.
+//       map's _ph.csv table + a universal p9_* set, isassetloaded-gated  Prop Hunt's recipe (prop.gsc
+//                                                                       :1946); "xmodel" residency
+//                                                                       read measured 2026-09-15.
 //
 // ⚠ ONE CONTRADICTION THIS FILE HAD TO ROUTE AROUND. A4 diagnosed its map-switch
 //   failure as `level endon( #"game_ended" )` killing the thread inside wait(1).
@@ -2412,6 +2427,14 @@ function private act_dbg_flags( item ) { return self act_dbg( item, #"gf_dbg_fla
 //     rows the curated Prop Hunt props for this map (prop.gsc:1850), size buckets per column 1
 //     first/res  row-0 model name, read live, and whether it is a resident xmodel
 //
+//   DESTRUCT <map> n=N kinds=K veh=V unnamed=U X=E [<def>xcount,...]
+//     n     destructible ENTITIES in the level (getentarray "destructible" - destructible.gsc:23)
+//     kinds distinct .destructibledef names among them; the first 10 listed with their counts.
+//           These are the REAL asset names - the manifests hash every one (destructibles.md §4)
+//     veh   how many are cars (def starts veh_, stock's own test at :30)
+//     X     radiant exploders the OFFLINE table lists for this map (0 = the generator has no
+//           row for this map name - check sv_mapname against docs/data/map-exploders.json)
+//
 // ⚠ getmapname() and tablelookupbyrow() in prop.gsc are SCRIPT functions, not builtins -
 //    calling them bare crashed the game twice at link time. level.script + tablelookuprow.
 function private assets_line_v()
@@ -2565,6 +2588,85 @@ function private assets_line_p()
     level.gf_assets_p = head + " tbl=1 rows=" + numrows + " xs=" + xs + " s=" + sm + " m=" + md
         + " l=" + lg + " xl=" + xl + " other=" + other + " first=" + first + " res=" + res + " G=" + bogus;
     return level.gf_assets_p;
+}
+
+// One pass over the level's destructibles: per-def names[] / counts[], the veh_ count and the
+// unnamed count, cached on level for the round (a broken destructible is still an entity).
+function private destruct_tally()
+{
+    if ( isdefined( level.gf_destruct_tally ) )
+        return level.gf_destruct_tally;
+
+    t = spawnstruct();
+    t.n = 0;
+    t.veh = 0;
+    t.unnamed = 0;
+    t.names = [];
+    t.counts = [];
+
+    foreach ( e in destruct_list() )
+    {
+        t.n++;
+        d = destruct_def( e );
+
+        if ( d == "?" )
+        {
+            t.unnamed++;
+            continue;
+        }
+
+        if ( d.size >= 4 && getsubstr( d, 0, 4 ) == "veh_" )
+            t.veh++;
+
+        idx = -1;
+
+        for ( k = 0; k < t.names.size; k++ )
+        {
+            if ( t.names[ k ] == d )
+            {
+                idx = k;
+                break;
+            }
+        }
+
+        if ( idx < 0 )
+        {
+            t.names[ t.names.size ] = d;
+            t.counts[ t.counts.size ] = 1;
+        }
+        else
+        {
+            t.counts[ idx ]++;
+        }
+    }
+
+    level.gf_destruct_tally = t;
+    return t;
+}
+
+// "<def>x<count>,..." for the first max kinds.
+function private destruct_tally_text( t, max )
+{
+    txt = "";
+
+    for ( k = 0; k < t.names.size && k < max; k++ )
+        txt += ( k > 0 ? "," : "" ) + t.names[ k ] + "x" + t.counts[ k ];
+
+    if ( t.names.size > max )
+        txt += ",...";
+
+    return txt;
+}
+
+function private assets_line_d()
+{
+    if ( isdefined( level.gf_assets_d ) )
+        return level.gf_assets_d;
+
+    t = destruct_tally();
+    level.gf_assets_d = "^3DESTRUCT^7 " + getdvarstring( #"sv_mapname", "?" ) + " n=" + t.n + " kinds=" + t.names.size
+        + " veh=" + t.veh + " unnamed=" + t.unnamed + " X=" + exp_table().size + " [" + destruct_tally_text( t, 10 ) + "]";
+    return level.gf_assets_d;
 }
 
 // prop.gsc:1834 as a local: the real builtin tablelookuprow( table, row ) returns the row as an array.
@@ -3385,8 +3487,10 @@ function private mod_spawn_place()
     if ( isdefined( self.gf_tp ) && self.gf_tp )
         self setclientthirdperson( 1 );
 
-    // Teleport gun / grenade are per-life threads (endon death): re-arm for whoever wants them.
+    // Teleport gun / grenade and the projectile fire mode are per-life threads (endon death):
+    // re-arm for whoever wants them.
     self tp_spawn_rearm();
+    self proj_spawn_rearm();
 
     // Loadout-pool camo: the stock give is done by now (give_loadout ran at
     // globallogic_spawn.gsc:637, this callback fires at :758), so repaint on top of it.
@@ -4641,6 +4745,23 @@ function private cmd_action( action, arg )
         case "resume":      self thread match_resume();                                   break;
         case "apply":       self cmd_apply_live(); self menu_say( "^2app: config applied live" ); break;
         case "sayclear":    level notify( #"gf_say_stop" ); broadcast_hint_stop(); self menu_say( "^2app: broadcast cleared" ); break;
+        // Destructibles / exploders / projectiles / props (2026-09-17): arg = aim|near|all for
+        // destruct; next|prev|again|stop|all|stopall for exploder; host|all|off for proj;
+        // a weapon asset name for projweapon; ms for projrate; a model or label for prop.
+        case "destruct":
+            if ( tolower( arg ) == "aim" )       self act_destruct_aim( it );
+            else if ( tolower( arg ) == "near" ) self act_destruct_all( it, 1, 600 );
+            else                                 self act_destruct_all( it, 0, 0 );
+            break;
+        case "exploder":    self act_exp( it, tolower( arg ) );                                break;
+        case "proj":        self act_proj( it, tolower( arg ) );                               break;
+        case "projweapon":  self act_proj_weapon( it, tolower( arg ), tolower( arg ) );         break;
+        case "projrate":    self act_proj_rate( it, int( arg ) );                              break;
+        case "projhoming":  self act_proj_homing( it );                                        break;
+        case "projtrail":   self act_proj_trail( it );                                         break;
+        case "prop":        self cmd_prop( arg );                                              break;
+        case "propundo":    self act_prop_delete( it, 0 );                                     break;
+        case "propclear":   self act_prop_delete( it, 1 );                                     break;
         default:            self menu_say( "^1app: unknown action '" + action + "'" ); break;
     }
 }
@@ -6136,7 +6257,7 @@ function private build_tree()
     self menu_item( "debug", "Spawn families + guard state", &act_dbg_families, undefined, undefined, #"gf_dbg_families", 1 );
     self menu_item( "debug", "Marker flags census", &act_dbg_flags, undefined, undefined, #"gf_dbg_flags", 1 );
     self menu_item( "debug", "Match info", &act_dbg_match, undefined, undefined, #"gf_dbg_match", 1 );
-    self menu_item( "debug", "Asset census: vehicles + props", &act_dbg_assets, undefined, undefined, #"gf_dbg_assets", 1 );
+    self menu_item( "debug", "Asset census: vehicles + props + destructibles", &act_dbg_assets, undefined, undefined, #"gf_dbg_assets", 1 );
     self menu_item( "debug", "Everything off", &act_dbg_all_off );
     // Caster diagnosis: prints button/render probe lines while the host is a CoD Caster.
     self menu_item( "display", "Caster input probe ON", &act_caster_probe, 1, undefined, #"gf_caster_probe", 1 );
@@ -6244,6 +6365,42 @@ function private build_tree()
     // ── Vehicles — built per map from what is resident (veh_page_build) ──────
     self menu_add( "vehicles", "Vehicles", "start_menu", 1 );
     self veh_page_build();          // rows = what THIS map has resident (veh_master)
+
+    // ── Destructibles + radiant exploders — docs/notes/destructibles.md. Both pages are
+    //    rebuilt on entry (live counts, the map's own table). Nothing here has run in-game. ──
+    self menu_add( "destruct", "Destructibles + exploders", "start_menu", 1, &destruct_enter );
+    self menu_add( "exploders", "Radiant exploders", "destruct", 0, &exp_enter );
+
+    // ── Projectiles — docs/notes/projectiles.md: every shot also fires a projectile of the
+    //    chosen weapon down the aim line (magicbullet), rate-gated; optional homing. Per match. ──
+    self menu_add( "proj", "Projectiles", "start_menu", 1 );
+    self menu_item( "proj", "Fire mode - host", &act_proj, "host" );
+    self menu_item( "proj", "Fire mode - everyone", &act_proj, "all" );
+    self menu_item( "proj", "Everything OFF", &act_proj, "off" );
+    self menu_item( "proj", "Homing - lock the enemy I face", &act_proj_homing );
+    self menu_item( "proj", "Smoke trail FX (untested)", &act_proj_trail );
+    self menu_add( "proj_weapon", "Projectile", "proj", 1 );
+    self menu_item( "proj_weapon", "RPG rocket (free-fire launcher)", &act_proj_weapon, #"launcher_freefire_t9", "RPG rockets" );
+    self menu_item( "proj_weapon", "Cigma missile (lock-on launcher)", &act_proj_weapon, #"launcher_standard_t9", "Cigma missiles" );
+    self menu_item( "proj_weapon", "Crossbow bolt", &act_proj_weapon, #"special_crossbow_t9", "crossbow bolts" );
+    self menu_item( "proj_weapon", "M79 grenade", &act_proj_weapon, #"special_grenadelauncher_t9", "M79 grenades" );
+    self menu_item( "proj_weapon", "Combat bow arrow (explosive)", &act_proj_weapon, #"sig_bow_flame", "combat bow arrows" );
+    self menu_item( "proj_weapon", "Strafe run rocket", &act_proj_weapon, #"straferun_rockets", "strafe run rockets" );
+    self menu_item( "proj_weapon", "Cruise missile bomblet", &act_proj_weapon, #"remote_missile_bomblet", "cruise missile bomblets" );
+    self menu_item( "proj_weapon", "Jet fighter missile", &act_proj_weapon, #"jetfighter_missile", "jet fighter missiles" );
+    self menu_item( "proj_weapon", "Frag grenade", &act_proj_weapon, #"frag_grenade", "frag grenades" );
+    self menu_add( "proj_rate", "Rate", "proj", 1 );
+    self menu_item( "proj_rate", "One per 1000 ms", &act_proj_rate, 1000 );
+    self menu_item( "proj_rate", "One per 600 ms", &act_proj_rate, 600 );
+    self menu_item( "proj_rate", "One per 300 ms - default", &act_proj_rate, 300 );
+    self menu_item( "proj_rate", "One per 150 ms", &act_proj_rate, 150 );
+    self menu_item( "proj_rate", "EVERY shot (full-auto test)", &act_proj_rate, 0 );
+
+    // ── Props — docs/notes/static-props.md: this map's Prop Hunt table + a universal set,
+    //    placed where the host looks. Rebuilt on entry. ─────────────────────────────────────
+    self menu_add( "props", "Props", "start_menu", 1, &props_enter );
+    self menu_add( "props_map", "This map's Prop Hunt set", "props", 0, &props_map_enter );
+    self menu_add( "props_univ", "Universal props", "props", 0, &props_univ_enter );
 
     // ── Player tools — host only ─────────────────────────────────────────────
     self menu_add( "player", "Player", "start_menu", 1 );
@@ -8084,6 +8241,7 @@ function private debug_feed_loop()
             {
                 host iprintln( assets_line_v() );
                 host iprintln( assets_line_p() );
+                host iprintln( assets_line_d() );
             }
         }
 
@@ -8119,7 +8277,7 @@ function private act_dbg_spawn( item )             { return self act_dbg( item, 
 function private act_dbg_structs( item )           { return self act_dbg( item, #"gf_dbg_structs", 1, "spawn structs" ); }
 function private act_dbg_families( item )          { return self act_dbg( item, #"gf_dbg_families", 1, "spawn families" ); }
 function private act_dbg_match( item )             { return self act_dbg( item, #"gf_dbg_match", 1, "match info" ); }
-function private act_dbg_assets( item )            { return self act_dbg( item, #"gf_dbg_assets", 1, "asset census (vehicles + props)" ); }
+function private act_dbg_assets( item )            { return self act_dbg( item, #"gf_dbg_assets", 1, "asset census (vehicles + props + destructibles)" ); }
 
 function private act_dbg_all_off( item )
 {
@@ -8645,7 +8803,12 @@ function private veh_master()
         return level.gf_veh_master;
 
     m = [];
-    // drivables (bgcache: mp_black_sea, mp_dune, mp_tundra, mp_cartel, mp_kgb, mp_sm_gas_station, wz_*)
+    // drivables (bgcache: mp_black_sea, mp_dune, mp_tundra, mp_cartel, mp_kgb, mp_sm_gas_station, wz_*).
+    // 2026-09-16 cross-check against the 205-name universe (vehicles.md §7): six rows that sit in
+    // NO zone were dropped (veh_boct_mil_jetski, veh_quad_player_wz_tan, vehicle_boct_mil_boat_pbr,
+    // vehicle_t8_mil_tank_wz_base_mg, ..._hind_wz, vehicle_t9_plane_flyable_prototype - the
+    // isassetloaded filter hid them, but a tempting name that can never resolve is noise) and the
+    // two resident names the master lacked were added (snowmobile single seat, BO4 air transport).
     m = veh_def( m, "vehicle_t9_mil_fav_light", "Light buggy (FAV)", 0 );
     m = veh_def( m, "vehicle_t9_mil_fav_light_alt", "Light buggy (FAV) alt", 0 );
     m = veh_def( m, "veh_mil_ru_fav_heavy", "Heavy buggy (FAV)", 0 );
@@ -8653,9 +8816,9 @@ function private veh_master()
     m = veh_def( m, "vehicle_motorcycle_mil_us_offroad_alt", "Motorcycle alt", 0 );
     m = veh_def( m, #"hash_4b89aa566bff8383", "Motorcycle (slow)", 0, "vehicle_motorcycle_mil_us_offroad_slow" );
     m = veh_def( m, "veh_quad_player_wz_pc", "Quad / ATV", 0 );
-    m = veh_def( m, "veh_quad_player_wz_tan", "Quad / ATV (tan)", 0 );
     m = veh_def( m, "vehicle_t9_mil_snowmobile", "Snowmobile", 0 );
     m = veh_def( m, "vehicle_t9_mil_snowmobile_alt", "Snowmobile alt", 0 );
+    m = veh_def( m, "vehicle_t9_mil_snowmobile_alt_single_seat", "Snowmobile (single seat)", 0 );
     m = veh_def( m, "vehicle_t9_civ_ru_sedan_80s_player", "Sedan", 0 );
     m = veh_def( m, "vehicle_t9_civ_ru_sedan_80s_player_alt", "Sedan alt", 0 );
     m = veh_def( m, #"hash_985b7e40ee02aa2", "Sedan (BO4 midsize)", 0, "vehicle_t8_soviet_civ_sedan_midsize" );
@@ -8668,23 +8831,18 @@ function private veh_master()
     m = veh_def( m, "vehicle_t9_mil_ru_tank_t72_sr", "Tank T-72", 0 );
     m = veh_def( m, "vehicle_t9_mil_ru_tank_t72_alt", "Tank T-72 alt", 0 );
     m = veh_def( m, #"hash_28d512b739c9d9c1", "Tank T-72 (base)", 0, "vehicle_t9_mil_ru_tank_t72" );
-    m = veh_def( m, "vehicle_t8_mil_tank_wz_base_mg", "Tank (BO4 base, MG)", 0 );
     m = veh_def( m, #"hash_1a60a087a340574b", "APC (heavy)", 0, "vehicle_t9_mil_ru_apc_heavy" );
     m = veh_def( m, #"hash_7c54a264a26cb1eb", "APC (heavy, open turret)", 0, "vehicle_t9_mil_ru_apc_heavy_open_turret" );
     m = veh_def( m, #"hash_6595f5efe62a4ec", "Hind gunship", 0, "vehicle_t9_mil_ru_heli_gunship_hind" );
-    m = veh_def( m, "vehicle_t9_mil_ru_heli_gunship_hind_wz", "Hind gunship (wz)", 0 );
     m = veh_def( m, "vehicle_t9_mil_us_helicopter_large_cp_armada_player", "Armada heli (campaign)", 0 );
-    m = veh_def( m, "vehicle_t9_plane_flyable_prototype", "Plane (prototype)", 0 );
     m = veh_def( m, "vehicle_t9_mil_boat_jetski", "Jetski", 0 );
     m = veh_def( m, "vehicle_t9_mil_boat_jetski_alt", "Jetski alt", 0 );
-    m = veh_def( m, "veh_boct_mil_jetski", "Jetski (boct)", 0 );
     m = veh_def( m, "vehicle_t9_mil_boat_tactical_raft", "Tactical raft", 0 );
     m = veh_def( m, "vehicle_t9_mil_boat_tactical_raft_alt", "Tactical raft alt", 0 );
     m = veh_def( m, "vehicle_boct_mil_boat_tactical_raft_gry_pc", "Tactical raft (grey)", 0 );
     m = veh_def( m, #"hash_51c4f4dc2591b475", "Tactical raft (grey, base)", 0, "vehicle_boct_mil_boat_tactical_raft_gry" );
     m = veh_def( m, "vehicle_t9_mil_us_boat_pgb_double_gun", "PBR gunboat", 0 );
     m = veh_def( m, "vehicle_t9_mil_us_boat_pgb_double_gun_alt", "PBR gunboat alt", 0 );
-    m = veh_def( m, "vehicle_boct_mil_boat_pbr", "PBR boat (boct)", 0 );
     // other resident vehicles: streaks, turrets, the map's intro cinematic. Untested; may not be enterable.
     m = veh_def( m, "veh_t9_mil_us_helicopter_large_chopper_gunner", "Chopper Gunner (streak)", 1 );
     // ⭐ MEASURED FLYABLE ON EVERY MAP (klaze, 2026-09-16). It is in core_common, so it is resident
@@ -8704,6 +8862,7 @@ function private veh_master()
     m = veh_def( m, "vehicle_t9_mil_ru_air_vtol_forger", "VTOL Forger (streak)", 1 );
     m = veh_def( m, "vehicle_straferun_mp", "Strafe run plane (streak)", 1 );
     m = veh_def( m, "vehicle_t9_mil_air_transport_hpc_intro", "Air transport (intro)", 1 );
+    m = veh_def( m, "vehicle_t8_mil_air_transport_infiltration", "Air transport (infiltration, BO4)", 1 );
     m = veh_def( m, #"hash_536eec4bf6424551", "Mounted MG tripod", 1, "veh_boct_turret_manned_tripod_mp" );
     m = veh_def( m, #"hash_5477254cf96259f4", "Express train", 1, "veh_boct_train" );
     // the pre-match intro cinematic vehicle of a 6v6 map (scriptbundle/scene/cin_mp_<map>_intro_*)
@@ -8788,6 +8947,7 @@ function private veh_resident_list( kind )
 //   GFMAPVEH|<map>|<gametype>|<key>,<key>,...|END          resident vehicles, drivables first
 //   GFMAPPROP|<map>|tbl=1|rows=13|<model>:<size>,...|END   the Prop Hunt table (first 48 rows)
 //   GFMAPSPAWN|<map>|<STARTS tally>|<family note>|END      the spawn keys read on this map
+//   GFMAPDEST|<map>|n=<count>|kinds=<k>|<def>x<count>,...|END  the destructibles, by real def name
 function private mapdata_publish()
 {
     if ( isdefined( level.gf_mapdata_v ) )
@@ -8826,6 +8986,9 @@ function private mapdata_publish()
 
     note = isdefined( level.gf_family_note ) ? level.gf_family_note : "";
     level.gf_mapdata_s = "GFMAP" + "SPAWN|" + map + "|" + mod_starts_tally() + " NAMED" + mod_named_tally( mod_gather_spawns() ) + mod_groups_tally() + "|" + note + "|END";
+
+    dt = destruct_tally();
+    level.gf_mapdata_d = "GFMAP" + "DEST|" + map + "|n=" + dt.n + "|kinds=" + dt.names.size + "|" + destruct_tally_text( dt, 40 ) + "|END";
 }
 
 function private veh_spawn( item, type )
@@ -9579,6 +9742,1880 @@ function private act_tpnade( item, who )
     return true;
 }
 
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// DESTRUCTIBLES + RADIANT EXPLODERS — docs/notes/destructibles.md. Built 2026-09-17, never run.
+// ═════════════════════════════════════════════════════════════════════════════
+// The map's own breakables. One call enumerates them - getentarray( "destructible",
+// "targetname" ), the read stock's own preinit makes (destructible.gsc:23) - and each entity
+// carries .destructibledef, the asset name, as a plain string (stock getsubstr()s it, :30).
+// Breaking one is dodamage ON THE ENTITY: breakafter (destructible.gsc:613) is
+// `self dodamage( damage, self.origin )`, and simple_explosion (:210) passes the attacker as
+// arg 3 so a kill by the blast credits him. The explosion visual rides STOCK's own clientfield
+// (start_destructible_explosion, :23) down stock's own path, so a vanilla joiner draws it -
+// the favourable half of Gate 2 (vehicles.md §3). Nothing is spawned: no residency question,
+// no per-map gating; a map with none simply yields an empty array (Nuketown lists 13 defs,
+// Miami 30, the manifests say - counts of DEFINITIONS, the census reads the instances).
+//
+// Radiant exploders are the map's authored FX / light / sound triggers. exploder::exploder( id )
+// branches on the argument's type (exploder_shared.gsc:278): an int fires a SCRIPT exploder,
+// anything else the RADIANT one by name (:731 -> activateclientradiantexploder). The bgcache
+// lists every radiant name per map as a HASH, and the call takes one: frontend.csc:3881 passes
+// #"hash_..." to this very function, and "" + #"hash" (the notify it builds first) is a stock
+// idiom (archetype_avogadro.gsc:49). exp_table() is GENERATED from tables/bgcache/<map>.csv by
+// tools/exploders-gen.py - 699 rows over 32 maps, 34 with a name cracked against the strings
+// map scripts fire themselves, the rest by index. Firing an unnamed one is trial and error BY
+// DESIGN: the walker prints the index it fired so a good one can be written down
+// (docs/data/map-exploders.json is the index -> hash lookup). Stop is the builtin
+// deactivateclientradiantexploder( id ) called direct - stock's delete_exploder_on_clients
+// (:858) only reaches it for a string, and ours are hashes.
+//
+// ⚠ Both are WRITES that change the match (cover gone, effects playing). One per match on the
+//   first run, the src/README.md rule; nothing here has run in-game.
+
+function private destruct_list()
+{
+    ents = getentarray( "destructible", "targetname" );
+    return isdefined( ents ) ? ents : [];
+}
+
+// The asset name a destructible carries, or "?" - a string on every stock read of it.
+function private destruct_def( e )
+{
+    if ( isdefined( e.destructibledef ) && isstring( e.destructibledef ) )
+        return e.destructibledef;
+
+    return "?";
+}
+
+// simple_explosion's own shape: a damage no piece survives, at the entity, from the attacker.
+function private destruct_break( e, attacker )
+{
+    if ( !isdefined( e ) )
+        return;
+
+    if ( isdefined( attacker ) )
+        e dodamage( 20000, e.origin + ( 0, 0, 5 ), attacker );
+    else
+        e dodamage( 20000, e.origin + ( 0, 0, 5 ) );
+}
+
+// The destructible the host is looking at: the trace's own entity when it is one, else the
+// nearest destructible within 160 u of where the shot would land (a barrel behind a railing).
+function private destruct_aimed()
+{
+    eye = self geteye();
+    tr = bullettrace( eye, eye + vectorscale( anglestoforward( self getplayerangles() ), 4000 ), 0, self );
+    ent = tr[ #"entity" ];
+
+    if ( isdefined( ent ) && isdefined( ent.destructibledef ) )
+        return ent;
+
+    if ( tr[ #"fraction" ] >= 1 )
+        return undefined;
+
+    pos = tr[ #"position" ];
+    best = undefined;
+    bestd = 160 * 160;
+
+    foreach ( e in destruct_list() )
+    {
+        d = distancesquared( e.origin, pos );
+
+        if ( d < bestd )
+        {
+            bestd = d;
+            best = e;
+        }
+    }
+
+    return best;
+}
+
+function private act_destruct_aim( item )
+{
+    e = self destruct_aimed();
+
+    if ( !isdefined( e ) )
+    {
+        self menu_say( "^1no destructible where you are looking" );
+        return true;
+    }
+
+    name = destruct_def( e );
+    destruct_break( e, self );
+    self menu_say( "^2broke " + name );
+    return true;
+}
+
+// near = 1: only those within radius of the host. Spread over frames so a 100-barrel map
+// does not detonate in one server frame.
+function private act_destruct_all( item, near, radius )
+{
+    if ( !isdefined( near ) )
+        near = 0;
+
+    if ( !isdefined( radius ) )
+        radius = 600;
+
+    n = destruct_list().size;
+
+    if ( n == 0 )
+    {
+        self menu_say( "^1this map has no destructibles" );
+        return true;
+    }
+
+    self thread destruct_break_all_think( near, radius );
+    self menu_say( near ? ( "^3breaking every destructible within " + radius + " u..." ) : ( "^3breaking all " + n + " destructibles..." ) );
+    return true;
+}
+
+function private destruct_break_all_think( near, radius )
+{
+    level endon( #"game_ended" );
+    self endon( #"disconnect" );
+
+    n = 0;
+    r2 = radius * radius;
+
+    foreach ( e in destruct_list() )
+    {
+        if ( !isdefined( e ) )
+            continue;
+
+        if ( near && distancesquared( e.origin, self.origin ) > r2 )
+            continue;
+
+        destruct_break( e, self );
+        n++;
+
+        if ( n % 6 == 0 )
+            waitframe( 1 );
+    }
+
+    self menu_say( "^2broke " + n + " destructibles" );
+}
+
+// The Destructibles page is rebuilt on entry so its header row carries the live count.
+function private destruct_enter( menu )
+{
+    self menu_clear_items( "destruct" );
+
+    t = destruct_tally();
+    self menu_item( "destruct", "(" + t.n + " destructibles here, " + t.names.size + " kinds, " + t.veh + " cars)", undefined );
+    self menu_item( "destruct", "Break the one I am looking at", &act_destruct_aim );
+    self menu_item( "destruct", "Break everything within 600 u of me", &act_destruct_all, 1, 600 );
+    self menu_item( "destruct", "Break EVERY destructible on the map", &act_destruct_all, 0, 0 );
+    self menu_item( "destruct", "Census line to the feed (DESTRUCT)", &act_dbg_assets, undefined, undefined, #"gf_dbg_assets", 1 );
+    self menu_item( "destruct", "Radiant exploders (" + exp_table().size + " listed)", &menu_switch, "exploders" );
+}
+
+// ── Radiant exploders: the walker ─────────────────────────────────────────────
+
+function private exp_add( e, key, label )
+{
+    st = spawnstruct();
+    st.key = key;
+    st.label = label;
+    e[ e.size ] = st;
+    return e;
+}
+
+function private exp_label( i )
+{
+    t = exp_table();
+
+    if ( i < 0 || i >= t.size )
+        return "?";
+
+    tag = ( i + 1 ) + "/" + t.size;
+
+    if ( t[ i ].label != "" )
+        return tag + " " + t[ i ].label;
+
+    return tag + " (unnamed - map-exploders.json #" + ( i + 1 ) + ")";
+}
+
+// dir: next / prev / again / stop / all / stopall. The index lives on level, so it resets
+// with the level (per round in Gunfight) - the walk restarts at 1 each round.
+function private act_exp( item, dir )
+{
+    t = exp_table();
+
+    if ( dir == "stopall" )
+    {
+        level notify( #"gf_exp_stop" );
+        self menu_say( "^2exploder walk stopped" );
+        return true;
+    }
+
+    if ( t.size == 0 )
+    {
+        self menu_say( "^1no radiant exploders listed for this map (tools/exploders-gen.py)" );
+        return true;
+    }
+
+    if ( !isdefined( level.gf_exp_i ) )
+        level.gf_exp_i = -1;
+
+    switch ( dir )
+    {
+        case "next":
+            level.gf_exp_i = ( level.gf_exp_i + 1 ) % t.size;
+            break;
+        case "prev":
+            level.gf_exp_i = ( level.gf_exp_i - 1 + t.size ) % t.size;
+            break;
+        case "again":
+            if ( level.gf_exp_i < 0 )
+                level.gf_exp_i = 0;
+            break;
+        case "stop":
+            if ( level.gf_exp_i >= 0 )
+            {
+                deactivateclientradiantexploder( t[ level.gf_exp_i ].key );
+                self menu_say( "^2stopped exploder " + exp_label( level.gf_exp_i ) );
+            }
+            else
+            {
+                self menu_say( "^1nothing fired yet" );
+            }
+            return true;
+        case "all":
+            self thread exp_fire_all_think();
+            self menu_say( "^3firing all " + t.size + " exploders, one every 0.5 s (Stop walk ends it)" );
+            return true;
+        default:
+            self menu_say( "^1exploder: unknown verb '" + dir + "'" );
+            return true;
+    }
+
+    exploder::exploder( t[ level.gf_exp_i ].key );
+    self menu_say( "^2fired exploder " + exp_label( level.gf_exp_i ) );
+    return true;
+}
+
+function private exp_fire_all_think()
+{
+    level notify( #"gf_exp_stop" );        // a walk already running ends here, before our endon
+    level endon( #"gf_exp_stop" );
+    level endon( #"game_ended" );
+    self endon( #"disconnect" );
+
+    t = exp_table();
+
+    for ( i = 0; i < t.size; i++ )
+    {
+        level.gf_exp_i = i;
+        exploder::exploder( t[ i ].key );
+        self menu_say( "^2fired exploder " + exp_label( i ) );
+        wait 0.5;
+    }
+}
+
+function private exp_enter( menu )
+{
+    self menu_clear_items( "exploders" );
+
+    t = exp_table();
+    self menu_item( "exploders", "(" + t.size + " radiant exploders listed for this map)", undefined );
+    self menu_item( "exploders", "Fire NEXT", &act_exp, "next" );
+    self menu_item( "exploders", "Fire PREVIOUS", &act_exp, "prev" );
+    self menu_item( "exploders", "Fire the current one again", &act_exp, "again" );
+    self menu_item( "exploders", "Stop the current one", &act_exp, "stop" );
+    self menu_item( "exploders", "Fire ALL, one every 0.5 s", &act_exp, "all" );
+    self menu_item( "exploders", "Stop the walk", &act_exp, "stopall" );
+
+    // The named ones as their own rows (34 across all maps): a label is a known effect.
+    for ( i = 0; i < t.size; i++ )
+    {
+        if ( t[ i ].label != "" )
+            self menu_item( "exploders", "Fire " + ( i + 1 ) + ": " + t[ i ].label, &act_exp_at, i );
+    }
+}
+
+function private act_exp_at( item, i )
+{
+    t = exp_table();
+
+    if ( i < 0 || i >= t.size )
+        return true;
+
+    level.gf_exp_i = i;
+    exploder::exploder( t[ i ].key );
+    self menu_say( "^2fired exploder " + exp_label( i ) );
+    return true;
+}
+
+// [exploders-gen BEGIN]
+// GENERATED by tools/exploders-gen.py from tables/bgcache/<map>.csv - do not edit by hand.
+// 699 radiant exploders over 32 maps, 34 named (string form), the rest by #"hash" literal in manifest order. 2026-09-17.
+function private exp_table()
+{
+    if ( isdefined( level.gf_exp_table ) )
+        return level.gf_exp_table;
+
+    // sv_mapname: measured a plain string on every map (the census prints it); level.script
+    // may be a hash in this VM and a switch on it would match nothing.
+    mapname = tolower( getdvarstring( #"sv_mapname", "" ) );
+
+    e = [];
+
+    switch ( mapname )
+    {
+        case "mp_amerika": e = exp_rows_mp_amerika(); break;
+        case "mp_apocalypse": e = exp_rows_mp_apocalypse(); break;
+        case "mp_black_sea": e = exp_rows_mp_black_sea(); break;
+        case "mp_cartel": e = exp_rows_mp_cartel(); break;
+        case "mp_cliffhanger": e = exp_rows_mp_cliffhanger(); break;
+        case "mp_drivein_rm": e = exp_rows_mp_drivein_rm(); break;
+        case "mp_dune": e = exp_rows_mp_dune(); break;
+        case "mp_echelon": e = exp_rows_mp_echelon(); break;
+        case "mp_express_rm": e = exp_rows_mp_express_rm(); break;
+        case "mp_firebase": e = exp_rows_mp_firebase(); break;
+        case "mp_kgb": e = exp_rows_mp_kgb(); break;
+        case "mp_mall": e = exp_rows_mp_mall(); break;
+        case "mp_miami": e = exp_rows_mp_miami(); break;
+        case "mp_miami_strike": e = exp_rows_mp_miami_strike(); break;
+        case "mp_moscow": e = exp_rows_mp_moscow(); break;
+        case "mp_nuketown6": e = exp_rows_mp_nuketown6(); break;
+        case "mp_russianbase_rm": e = exp_rows_mp_russianbase_rm(); break;
+        case "mp_satellite": e = exp_rows_mp_satellite(); break;
+        case "mp_slums_rm": e = exp_rows_mp_slums_rm(); break;
+        case "mp_sm_game_show": e = exp_rows_mp_sm_game_show(); break;
+        case "mp_sm_gas_station": e = exp_rows_mp_sm_gas_station(); break;
+        case "mp_tank": e = exp_rows_mp_tank(); break;
+        case "mp_tundra": e = exp_rows_mp_tundra(); break;
+        case "mp_village_rm": e = exp_rows_mp_village_rm(); break;
+        case "mp_zoo_rm": e = exp_rows_mp_zoo_rm(); break;
+        case "wz_doa": e = exp_rows_wz_doa(); break;
+        case "wz_duga": e = exp_rows_wz_duga(); break;
+        case "wz_forest": e = exp_rows_wz_forest(); break;
+        case "wz_golova": e = exp_rows_wz_golova(); break;
+        case "wz_sanatorium": e = exp_rows_wz_sanatorium(); break;
+        case "wz_ski_slopes": e = exp_rows_wz_ski_slopes(); break;
+        case "wz_zoo": e = exp_rows_wz_zoo(); break;
+    }
+
+    level.gf_exp_table = e;
+    return e;
+}
+
+function private exp_rows_mp_amerika()
+{
+    e = [];
+    e = exp_add( e, #"hash_31ab44849655bc7", "" );
+    e = exp_add( e, #"hash_af9fd7358a3405e", "" );
+    e = exp_add( e, #"hash_c57a2da83d8c1b4", "" );
+    e = exp_add( e, #"hash_d1d401c4c43e4cb", "" );
+    e = exp_add( e, #"hash_17d9a01a470deaea", "" );
+    e = exp_add( e, #"hash_17e08c1a4713e79c", "" );
+    e = exp_add( e, #"hash_17e7181a4719412e", "" );
+    e = exp_add( e, #"hash_20f7d2d794092f78", "" );
+    e = exp_add( e, #"hash_20fb58d7940c4901", "" );
+    e = exp_add( e, #"hash_20fe5ed7940e890a", "" );
+    e = exp_add( e, #"hash_210f5cd7941cf8d7", "" );
+    e = exp_add( e, #"hash_456b357497c1d5d3", "" );
+    e = exp_add( e, #"hash_4ce6066ccc53ef8b", "" );
+    e = exp_add( e, #"hash_6ebf2d83afff910d", "" );
+    return e;
+}
+
+function private exp_rows_mp_apocalypse()
+{
+    e = [];
+    e = exp_add( e, #"hash_82e65e0f722e7b9", "" );
+    e = exp_add( e, #"hash_cb2b8a13ad44823", "" );
+    e = exp_add( e, #"hash_ec32cf4638ad910", "" );
+    e = exp_add( e, #"hash_ec9b8f4639032a2", "" );
+    e = exp_add( e, #"hash_ecd3ef463934c2b", "" );
+    e = exp_add( e, #"hash_ed3caf46398a5bd", "" );
+    e = exp_add( e, #"hash_1526dd1a5a09f02b", "" );
+    e = exp_add( e, #"hash_1f146aa949511632", "" );
+    e = exp_add( e, #"hash_208d61d26e1026a8", "" );
+    e = exp_add( e, #"hash_22b6e6f9ff37d864", "" );
+    e = exp_add( e, #"hash_25c919e0f966cf23", "" );
+    e = exp_add( e, #"hash_3ac6fc928bf95cae", "" );
+    e = exp_add( e, #"hash_42cb2f6b196f0835", "" );
+    e = exp_add( e, #"hash_42d1b66b19745948", "" );
+    e = exp_add( e, #"hash_42d1bb6b197461c7", "" );
+    e = exp_add( e, #"hash_42d1bd6b1974652d", "" );
+    e = exp_add( e, #"hash_517b9fb392d6f3b6", "" );
+    e = exp_add( e, #"hash_59784d54005f0e4e", "" );
+    e = exp_add( e, #"hash_6063d291057197ae", "" );
+    e = exp_add( e, #"hash_6063d39105719961", "" );
+    e = exp_add( e, #"hash_6063d49105719b14", "" );
+    e = exp_add( e, #"hash_62a72dc2581c5829", "" );
+    e = exp_add( e, #"hash_62b13fc25824cb44", "" );
+    e = exp_add( e, #"hash_62b82bc2582ac7f6", "" );
+    e = exp_add( e, #"hash_6de0cc93f60dc52e", "" );
+    e = exp_add( e, #"hash_7d58ae66d975538c", "" );
+    return e;
+}
+
+function private exp_rows_mp_black_sea()
+{
+    e = [];
+    e = exp_add( e, #"hash_9d3da0e8279d1f", "" );
+    e = exp_add( e, #"hash_c7318700eae462", "" );
+    e = exp_add( e, #"hash_701f1c2fc19e39f", "" );
+    e = exp_add( e, #"hash_82ecd8f228232cd", "" );
+    e = exp_add( e, #"hash_9884a03921e97ee", "" );
+    e = exp_add( e, #"hash_d0a47a0486b26aa", "" );
+    e = exp_add( e, #"hash_dbde0a22345a3b3", "" );
+    e = exp_add( e, #"hash_e092aea86d2b6d2", "" );
+    e = exp_add( e, #"hash_f78fc3818d2224e", "" );
+    e = exp_add( e, #"hash_fe6cc1b10ff8056", "" );
+    e = exp_add( e, #"hash_111c09c22d3c7f0c", "" );
+    e = exp_add( e, #"hash_111c0ac22d3c80bf", "" );
+    e = exp_add( e, #"hash_111c0cc22d3c8425", "" );
+    e = exp_add( e, #"hash_11709d4893f302cd", "" );
+    e = exp_add( e, #"hash_1a82af9b3d783b33", "" );
+    e = exp_add( e, #"hash_20ac174de0e714bf", "" );
+    e = exp_add( e, #"hash_233964ade2cc2273", "" );
+    e = exp_add( e, #"hash_2478c1c94c653e3a", "" );
+    e = exp_add( e, #"hash_262d6e22a70a8cd3", "" );
+    e = exp_add( e, #"hash_27fb35330563274b", "" );
+    e = exp_add( e, #"hash_2a39680d37cc34b0", "" );
+    e = exp_add( e, "exp_lgt_12v12", "exp_lgt_12v12" );
+    e = exp_add( e, #"hash_2ca2a57d22caaae6", "" );
+    e = exp_add( e, #"hash_2eb213b6939bd388", "" );
+    e = exp_add( e, #"hash_2eb59cb6939ef22a", "" );
+    e = exp_add( e, #"hash_2eb91fb693a2069a", "" );
+    e = exp_add( e, #"hash_2ebc85b693a4e9c3", "" );
+    e = exp_add( e, #"hash_2ebf8bb693a729cc", "" );
+    e = exp_add( e, #"hash_2ec311b693aa4355", "" );
+    e = exp_add( e, #"hash_3ed3c0000b7422d7", "" );
+    e = exp_add( e, #"hash_41877167642ecf9d", "" );
+    e = exp_add( e, #"hash_42ef89558771eb78", "" );
+    e = exp_add( e, #"hash_43f9fba42420c1c1", "" );
+    e = exp_add( e, #"hash_46da1922898414d3", "" );
+    e = exp_add( e, #"hash_487a72df53fd4e25", "" );
+    e = exp_add( e, #"hash_496026f849b0a3ba", "" );
+    e = exp_add( e, #"hash_4fced2b74e4dc411", "" );
+    e = exp_add( e, #"hash_565f18232f3617ca", "" );
+    e = exp_add( e, #"hash_5cf18753a47e6f2a", "" );
+    e = exp_add( e, #"hash_61f89a169a76269a", "" );
+    e = exp_add( e, #"hash_62028c169a7e6355", "" );
+    e = exp_add( e, #"hash_620612169a817cde", "" );
+    e = exp_add( e, #"hash_620617169a81855d", "" );
+    e = exp_add( e, #"hash_64c38ebcc7416bbd", "" );
+    e = exp_add( e, #"hash_650664cd4a95eb47", "" );
+    e = exp_add( e, "fxexp_main_ship_oil_fire_level", "fxexp_main_ship_oil_fire_level" );
+    return e;
+}
+
+function private exp_rows_mp_cartel()
+{
+    e = [];
+    e = exp_add( e, #"hash_2e512deef15d28b", "" );
+    e = exp_add( e, #"hash_f84ddec2d1bd178", "" );
+    e = exp_add( e, #"hash_f84deec2d1bd32b", "" );
+    e = exp_add( e, #"hash_f84e3ec2d1bdbaa", "" );
+    e = exp_add( e, #"hash_f84e4ec2d1bdd5d", "" );
+    e = exp_add( e, #"hash_189e37fafdad4b75", "" );
+    e = exp_add( e, #"hash_38edb091c511069b", "" );
+    e = exp_add( e, #"hash_51fc3f803f47cdcb", "" );
+    e = exp_add( e, #"hash_51fc40803f47cf7e", "" );
+    e = exp_add( e, #"hash_52c098e84cf1b40b", "" );
+    e = exp_add( e, #"hash_61f89a169a76269a", "" );
+    e = exp_add( e, #"hash_61fc00169a7909c3", "" );
+    e = exp_add( e, #"hash_61ff06169a7b49cc", "" );
+    e = exp_add( e, #"hash_62028c169a7e6355", "" );
+    e = exp_add( e, #"hash_620612169a817cde", "" );
+    e = exp_add( e, #"hash_620617169a81855d", "" );
+    e = exp_add( e, #"hash_64868c1e234e1812", "" );
+    e = exp_add( e, #"hash_650664cd4a95eb47", "" );
+    return e;
+}
+
+function private exp_rows_mp_cliffhanger()
+{
+    e = [];
+    e = exp_add( e, #"hash_19e3c5f6f176128", "" );
+    e = exp_add( e, #"hash_1a4c85f6f1cbaba", "" );
+    e = exp_add( e, #"hash_1af3a5f6f25d0f5", "" );
+    e = exp_add( e, #"hash_56589f16c6d138d", "" );
+    e = exp_add( e, #"hash_7f7c32bbbf5f06a", "" );
+    e = exp_add( e, #"hash_16dd4bd8ba4ce1f7", "" );
+    e = exp_add( e, #"hash_1a1edfbed03f9728", "" );
+    e = exp_add( e, #"hash_1d1b47209cabd570", "" );
+    e = exp_add( e, #"hash_29be60e5193780f2", "" );
+    e = exp_add( e, #"hash_31ebc2998066ccb1", "" );
+    e = exp_add( e, #"hash_32b6cad0f21380b4", "" );
+    e = exp_add( e, #"hash_32b9d0d0f215c0bd", "" );
+    e = exp_add( e, #"hash_32bd36d0f218a3e6", "" );
+    e = exp_add( e, #"hash_37be461a70adaea6", "" );
+    e = exp_add( e, #"hash_38aae9f1fa54808c", "" );
+    e = exp_add( e, #"hash_3cdba0315d0e6a9d", "" );
+    e = exp_add( e, #"hash_3f4acffbe5ab0693", "" );
+    e = exp_add( e, #"hash_425972f003c192de", "" );
+    e = exp_add( e, #"hash_428d86d65652dcc9", "" );
+    e = exp_add( e, #"hash_534b40f16922ed49", "" );
+    e = exp_add( e, #"hash_5b88962bd232e0f2", "" );
+    e = exp_add( e, #"hash_601059fa5e8e96aa", "" );
+    e = exp_add( e, #"hash_7140bfb7afdc3728", "" );
+    e = exp_add( e, #"hash_7547e0a43cff339c", "" );
+    return e;
+}
+
+function private exp_rows_mp_drivein_rm()
+{
+    e = [];
+    e = exp_add( e, #"hash_d1d401c4c43e4cb", "" );
+    e = exp_add( e, #"hash_3601eb67de812145", "" );
+    return e;
+}
+
+function private exp_rows_mp_dune()
+{
+    e = [];
+    e = exp_add( e, #"hash_70c75bb40235f3b", "" );
+    e = exp_add( e, #"hash_220b90fc54be9f51", "" );
+    e = exp_add( e, #"hash_220f16fc54c1b8da", "" );
+    e = exp_add( e, #"hash_222014fc54d028a7", "" );
+    e = exp_add( e, #"hash_2483fc06d24579d6", "" );
+    e = exp_add( e, #"hash_3601eb67de812145", "" );
+    e = exp_add( e, #"hash_364c0a77d0fb618d", "" );
+    e = exp_add( e, #"hash_3a35df59758f6f08", "" );
+    e = exp_add( e, #"hash_3a8288f573dca8c1", "" );
+    e = exp_add( e, #"hash_40ecb95335967f20", "" );
+    e = exp_add( e, #"hash_445e64afbe06d34f", "" );
+    e = exp_add( e, #"hash_467f547f158267c1", "" );
+    e = exp_add( e, #"hash_4ec98d433d82a148", "" );
+    e = exp_add( e, #"hash_4f082f236207db3a", "" );
+    e = exp_add( e, #"hash_514a446163004912", "" );
+    e = exp_add( e, #"hash_5668e8fa68d4ed43", "" );
+    e = exp_add( e, #"hash_5f9dca26dc2b46a3", "" );
+    e = exp_add( e, #"hash_6aeae8e0c4d6c96a", "" );
+    e = exp_add( e, #"hash_6af4dae0c4df0625", "" );
+    e = exp_add( e, #"hash_6affbbafd80aae05", "" );
+    e = exp_add( e, #"hash_6b0647afd8100797", "" );
+    return e;
+}
+
+function private exp_rows_mp_echelon()
+{
+    e = [];
+    e = exp_add( e, #"hash_bd0d252e2f7c1b", "" );
+    e = exp_add( e, #"hash_d1d401c4c43e4cb", "" );
+    e = exp_add( e, #"hash_17704dff62173070", "" );
+    e = exp_add( e, #"hash_1773d3ff621a49f9", "" );
+    e = exp_add( e, #"hash_177759ff621d6382", "" );
+    e = exp_add( e, #"hash_1784d1ff6228b9c6", "" );
+    e = exp_add( e, #"hash_178857ff622bd34f", "" );
+    e = exp_add( e, #"hash_35bd08c5d958a48a", "" );
+    e = exp_add( e, #"hash_3601eb67de812145", "" );
+    e = exp_add( e, #"hash_3bdbfd8345effb03", "" );
+    e = exp_add( e, #"hash_3da9886c761ac183", "" );
+    e = exp_add( e, #"hash_467f547f158267c1", "" );
+    e = exp_add( e, #"hash_687793b1e0fd3346", "" );
+    e = exp_add( e, #"hash_6a8669638afe57c9", "" );
+    e = exp_add( e, #"hash_6a89ef638b017152", "" );
+    e = exp_add( e, #"hash_6a8d75638b048adb", "" );
+    e = exp_add( e, #"hash_6a907b638b06cae4", "" );
+    e = exp_add( e, #"hash_6a9401638b09e46d", "" );
+    e = exp_add( e, #"hash_6a9767638b0cc796", "" );
+    e = exp_add( e, #"hash_6a9aed638b0fe11f", "" );
+    e = exp_add( e, #"hash_6a9e73638b12faa8", "" );
+    e = exp_add( e, #"hash_6aa179638b153ab1", "" );
+    return e;
+}
+
+function private exp_rows_mp_express_rm()
+{
+    e = [];
+    e = exp_add( e, "fxexp_trigger_train_debris_g", "fxexp_trigger_train_debris_g" );
+    e = exp_add( e, "fxexp_trigger_train_debris_f", "fxexp_trigger_train_debris_f" );
+    e = exp_add( e, "fxexp_trigger_train_debris_e", "fxexp_trigger_train_debris_e" );
+    e = exp_add( e, "fxexp_trigger_train_debris_d", "fxexp_trigger_train_debris_d" );
+    e = exp_add( e, "fxexp_trigger_train_debris_c", "fxexp_trigger_train_debris_c" );
+    e = exp_add( e, "fxexp_trigger_train_debris_b", "fxexp_trigger_train_debris_b" );
+    e = exp_add( e, "fxexp_trigger_train_debris_a", "fxexp_trigger_train_debris_a" );
+    e = exp_add( e, "fxexp_trigger_train_gate_bot_dust", "fxexp_trigger_train_gate_bot_dust" );
+    e = exp_add( e, "fxexp_trigger_train_sparks_d", "fxexp_trigger_train_sparks_d" );
+    e = exp_add( e, "fxexp_trigger_train_sparks_e", "fxexp_trigger_train_sparks_e" );
+    e = exp_add( e, "fxexp_trigger_train_sparks_f", "fxexp_trigger_train_sparks_f" );
+    e = exp_add( e, "fxexp_trigger_train_sparks_g", "fxexp_trigger_train_sparks_g" );
+    e = exp_add( e, "fxexp_trigger_train_sparks_a", "fxexp_trigger_train_sparks_a" );
+    e = exp_add( e, "fxexp_trigger_train_sparks_b", "fxexp_trigger_train_sparks_b" );
+    e = exp_add( e, "fxexp_trigger_train_sparks_c", "fxexp_trigger_train_sparks_c" );
+    e = exp_add( e, "fxexp_trigger_train_gate_top_dust", "fxexp_trigger_train_gate_top_dust" );
+    return e;
+}
+
+function private exp_rows_mp_firebase()
+{
+    e = [];
+    e = exp_add( e, #"hash_5bb5c25fc63a85a", "" );
+    e = exp_add( e, #"hash_10423f056b122715", "" );
+    e = exp_add( e, #"hash_136739312926bbc4", "" );
+    e = exp_add( e, #"hash_1777b65a96b25e68", "" );
+    e = exp_add( e, #"hash_1781a85a96ba9b23", "" );
+    e = exp_add( e, #"hash_29dd5689b7cb7a1a", "" );
+    e = exp_add( e, #"hash_2aa980e3873f2af4", "" );
+    e = exp_add( e, #"hash_2ef2f614107ed2d5", "" );
+    e = exp_add( e, #"hash_2ef67c141081ec5e", "" );
+    e = exp_add( e, #"hash_2efa0214108505e7", "" );
+    e = exp_add( e, "fxexp_red_door_enter_mall", "fxexp_red_door_enter_mall" );
+    e = exp_add( e, #"hash_31d7dfb632a882ff", "" );
+    e = exp_add( e, #"hash_420492bff8b35639", "" );
+    e = exp_add( e, #"hash_49f778f1e10c10c6", "" );
+    e = exp_add( e, #"hash_4f383f77dc1b4927", "" );
+    e = exp_add( e, "fxexp_red_door_enter_temple", "fxexp_red_door_enter_temple" );
+    e = exp_add( e, #"hash_610f74031c693074", "" );
+    e = exp_add( e, #"hash_61127a031c6b707d", "" );
+    e = exp_add( e, #"hash_6115e0031c6e53a6", "" );
+    e = exp_add( e, #"hash_7d0184c1d786103d", "" );
+    e = exp_add( e, #"hash_7d04eac1d788f366", "" );
+    e = exp_add( e, #"hash_7f5fdb8e28d1723b", "" );
+    return e;
+}
+
+function private exp_rows_mp_kgb()
+{
+    e = [];
+    e = exp_add( e, #"hash_3223f1221fb79548", "" );
+    e = exp_add( e, #"hash_322afd221fbdc85a", "" );
+    e = exp_add( e, #"hash_322e63221fc0ab83", "" );
+    e = exp_add( e, #"hash_3234ef221fc60515", "" );
+    e = exp_add( e, #"hash_330c7b1b627e2b7d", "" );
+    e = exp_add( e, #"hash_330fe11b62810ea6", "" );
+    e = exp_add( e, #"hash_4c443dcf99dde02c", "" );
+    e = exp_add( e, #"hash_4c443fcf99dde392", "" );
+    e = exp_add( e, #"hash_4c4440cf99dde545", "" );
+    e = exp_add( e, #"hash_7e1f1b242f5fc4e2", "" );
+    return e;
+}
+
+function private exp_rows_mp_mall()
+{
+    e = [];
+    e = exp_add( e, #"hash_5c44200d1fc9d68", "" );
+    e = exp_add( e, #"hash_5cace00d201f6fa", "" );
+    e = exp_add( e, #"hash_5d84600d20d4d3e", "" );
+    e = exp_add( e, #"hash_5dbcc00d21066c7", "" );
+    e = exp_add( e, #"hash_ca9b3e99ae37236", "" );
+    e = exp_add( e, #"hash_15a3190a4d63d1b0", "" );
+    e = exp_add( e, #"hash_16dd4bd8ba4ce1f7", "" );
+    e = exp_add( e, #"hash_32b6cad0f21380b4", "" );
+    e = exp_add( e, #"hash_32b9d0d0f215c0bd", "" );
+    e = exp_add( e, #"hash_32bd36d0f218a3e6", "" );
+    e = exp_add( e, #"hash_38aae9f1fa54808c", "" );
+    e = exp_add( e, #"hash_3cdba0315d0e6a9d", "" );
+    e = exp_add( e, #"hash_44c9690a169830e3", "" );
+    e = exp_add( e, #"hash_5992a364d9560448", "" );
+    e = exp_add( e, #"hash_5b88962bd232e0f2", "" );
+    e = exp_add( e, #"hash_5dd24a1bd2b31702", "" );
+    e = exp_add( e, #"hash_6eb49b83aff64472", "" );
+    e = exp_add( e, #"hash_6eb82183aff95dfb", "" );
+    e = exp_add( e, #"hash_6ebba783affc7784", "" );
+    e = exp_add( e, #"hash_6ebf2d83afff910d", "" );
+    e = exp_add( e, #"hash_6ec29383b0027436", "" );
+    return e;
+}
+
+function private exp_rows_mp_miami()
+{
+    e = [];
+    e = exp_add( e, #"hash_c7318700eae462", "" );
+    e = exp_add( e, #"hash_2d847292a2628f2", "" );
+    e = exp_add( e, #"hash_bf29c2dcd82eb3b", "" );
+    e = exp_add( e, #"hash_d1d401c4c43e4cb", "" );
+    e = exp_add( e, #"hash_22080afc54bb85c8", "" );
+    e = exp_add( e, #"hash_220b90fc54be9f51", "" );
+    e = exp_add( e, #"hash_221908fc54c9f595", "" );
+    e = exp_add( e, #"hash_221c8efc54cd0f1e", "" );
+    e = exp_add( e, #"hash_222014fc54d028a7", "" );
+    e = exp_add( e, #"hash_26465fd9778f60f5", "" );
+    e = exp_add( e, #"hash_27e335f7c6461435", "" );
+    e = exp_add( e, #"hash_2ad4b5995ad267f6", "" );
+    e = exp_add( e, #"hash_30369917c77999fe", "" );
+    e = exp_add( e, #"hash_3a2b572bccda0871", "" );
+    e = exp_add( e, #"hash_3e4347363cb68624", "" );
+    e = exp_add( e, #"hash_3e4db9363cbf9c5f", "" );
+    e = exp_add( e, #"hash_41723b7f9cf1ff10", "" );
+    e = exp_add( e, #"hash_43bd7489fb5f9a98", "" );
+    e = exp_add( e, #"hash_4513b383965d6b02", "" );
+    e = exp_add( e, #"hash_46a961a787226c27", "" );
+    e = exp_add( e, #"hash_51c8d8fafe6c5173", "" );
+    e = exp_add( e, #"hash_5c2c54129741e90e", "" );
+    e = exp_add( e, #"hash_5e32868524b90f99", "" );
+    e = exp_add( e, #"hash_6195807a10c66bf9", "" );
+    e = exp_add( e, #"hash_6ae145afd7f0e7f4", "" );
+    e = exp_add( e, #"hash_6ae44bafd7f327fd", "" );
+    e = exp_add( e, #"hash_6aeebdafd7fc3e38", "" );
+    e = exp_add( e, #"hash_6af549afd80197ca", "" );
+    e = exp_add( e, #"hash_6af8afafd8047af3", "" );
+    e = exp_add( e, #"hash_6affbbafd80aae05", "" );
+    e = exp_add( e, #"hash_6b0341afd80dc78e", "" );
+    e = exp_add( e, #"hash_6b0647afd8100797", "" );
+    e = exp_add( e, #"hash_741270afdd4bf847", "" );
+    e = exp_add( e, #"hash_744b4ae7d0136f15", "" );
+    return e;
+}
+
+function private exp_rows_mp_miami_strike()
+{
+    e = [];
+    e = exp_add( e, #"hash_2d847292a2628f2", "" );
+    e = exp_add( e, #"hash_bf29c2dcd82eb3b", "" );
+    e = exp_add( e, #"hash_26465fd9778f60f5", "" );
+    e = exp_add( e, #"hash_27e335f7c6461435", "" );
+    e = exp_add( e, #"hash_3a2b572bccda0871", "" );
+    e = exp_add( e, #"hash_3e4347363cb68624", "" );
+    e = exp_add( e, #"hash_3e4db9363cbf9c5f", "" );
+    e = exp_add( e, #"hash_51c8d8fafe6c5173", "" );
+    e = exp_add( e, #"hash_744b4ae7d0136f15", "" );
+    return e;
+}
+
+function private exp_rows_mp_moscow()
+{
+    e = [];
+    e = exp_add( e, #"hash_e7cc9aaa227b2c9", "" );
+    e = exp_add( e, #"hash_1138f73062f8e390", "" );
+    e = exp_add( e, #"hash_14a322ac1c7dfd5f", "" );
+    e = exp_add( e, #"hash_20056b5135034d39", "" );
+    e = exp_add( e, #"hash_2073823d3debc662", "" );
+    e = exp_add( e, #"hash_26465fd9778f60f5", "" );
+    e = exp_add( e, #"hash_27e335f7c6461435", "" );
+    e = exp_add( e, #"hash_30369917c77999fe", "" );
+    e = exp_add( e, #"hash_3a2b572bccda0871", "" );
+    e = exp_add( e, #"hash_4135cecccca7e173", "" );
+    e = exp_add( e, #"hash_6205fd4a2cb0a432", "" );
+    e = exp_add( e, #"hash_62c983c592c7b982", "" );
+    e = exp_add( e, #"hash_6affef43c291ff4b", "" );
+    e = exp_add( e, #"hash_73a566372f4aef12", "" );
+    e = exp_add( e, #"hash_74ffaca929a3eb70", "" );
+    e = exp_add( e, #"hash_750332a929a704f9", "" );
+    e = exp_add( e, #"hash_7509bea929ac5e8b", "" );
+    e = exp_add( e, #"hash_750d44a929af7814", "" );
+    e = exp_add( e, #"hash_7510caa929b2919d", "" );
+    e = exp_add( e, #"hash_751430a929b574c6", "" );
+    e = exp_add( e, #"hash_7517b6a929b88e4f", "" );
+    e = exp_add( e, #"hash_7521c8a929c1016a", "" );
+    e = exp_add( e, #"hash_75252ea929c3e493", "" );
+    e = exp_add( e, #"hash_7caa83373480acb0", "" );
+    e = exp_add( e, #"hash_7cae09373483c639", "" );
+    e = exp_add( e, #"hash_7cb18f373486dfc2", "" );
+    e = exp_add( e, #"hash_7cb4953734891fcb", "" );
+    e = exp_add( e, #"hash_7cd38b3734a3bf5c", "" );
+    e = exp_add( e, #"hash_7cd6913734a5ff65", "" );
+    e = exp_add( e, #"hash_7d9c3b334f0033d1", "" );
+    e = exp_add( e, #"hash_7d9fc1334f034d5a", "" );
+    e = exp_add( e, #"hash_7e1cf3a92eee824d", "" );
+    return e;
+}
+
+function private exp_rows_mp_nuketown6()
+{
+    e = [];
+    e = exp_add( e, "fxexp_halloween", "fxexp_halloween" );
+    e = exp_add( e, #"hash_2430d4b23d41e709", "" );
+    e = exp_add( e, #"hash_25767f8a25fcee58", "" );
+    e = exp_add( e, #"hash_25dfb047cbce7197", "" );
+    e = exp_add( e, #"hash_2879aedec8c2586f", "" );
+    e = exp_add( e, "fxexp_holiday", "fxexp_holiday" );
+    e = exp_add( e, #"hash_32930a1245030bf7", "" );
+    e = exp_add( e, #"hash_334932d16e831867", "" );
+    e = exp_add( e, #"hash_3359f3899cf9bcbc", "" );
+    e = exp_add( e, #"hash_43606ae615359f06", "" );
+    return e;
+}
+
+function private exp_rows_mp_russianbase_rm()
+{
+    e = [];
+    e = exp_add( e, #"hash_7e17d35a668424", "" );
+    e = exp_add( e, "fxexp_cleanroom_on", "fxexp_cleanroom_on" );
+    e = exp_add( e, "fxexp_controlroom_off", "fxexp_controlroom_off" );
+    e = exp_add( e, "fxexp_center_event", "fxexp_center_event" );
+    e = exp_add( e, "fxexp_gantry_off", "fxexp_gantry_off" );
+    e = exp_add( e, "fxexp_gantry_on", "fxexp_gantry_on" );
+    e = exp_add( e, "fxexp_glass_shatter", "fxexp_glass_shatter" );
+    e = exp_add( e, "fxexp_cleanroom_off", "fxexp_cleanroom_off" );
+    e = exp_add( e, "fxexp_controlroom_on", "fxexp_controlroom_on" );
+    return e;
+}
+
+function private exp_rows_mp_satellite()
+{
+    e = [];
+    e = exp_add( e, #"hash_3e3ecc51ceb204", "" );
+    e = exp_add( e, #"hash_c7318700eae462", "" );
+    e = exp_add( e, #"hash_2123dc6830d24c6", "" );
+    e = exp_add( e, #"hash_2123ec6830d2679", "" );
+    e = exp_add( e, #"hash_936c67103a44270", "" );
+    e = exp_add( e, #"hash_9445e7103afcf14", "" );
+    e = exp_add( e, #"hash_94ed07103b8e54f", "" );
+    e = exp_add( e, #"hash_109427174cced852", "" );
+    e = exp_add( e, #"hash_18f3a50d5ff5ff46", "" );
+    e = exp_add( e, #"hash_1c8106ce6b0633e4", "" );
+    e = exp_add( e, #"hash_1ddeb5f54da521bd", "" );
+    e = exp_add( e, #"hash_211946b17b40363f", "" );
+    e = exp_add( e, #"hash_22b02dd9e719d482", "" );
+    e = exp_add( e, #"hash_3324523ffa4b519f", "" );
+    e = exp_add( e, #"hash_40d307143c78ce05", "" );
+    e = exp_add( e, #"hash_4c443dcf99dde02c", "" );
+    e = exp_add( e, #"hash_4c443fcf99dde392", "" );
+    e = exp_add( e, #"hash_4c4440cf99dde545", "" );
+    e = exp_add( e, #"hash_6c046d6a4664bf66", "" );
+    e = exp_add( e, #"hash_7cfe13caff08c008", "" );
+    e = exp_add( e, #"hash_7d051fcaff0ef31a", "" );
+    e = exp_add( e, #"hash_7d0885caff11d643", "" );
+    e = exp_add( e, #"hash_7d0b8bcaff14164c", "" );
+    e = exp_add( e, #"hash_7d161dcaff1d62e7", "" );
+    e = exp_add( e, #"hash_7f1f4f9f550d4417", "" );
+    return e;
+}
+
+function private exp_rows_mp_slums_rm()
+{
+    e = [];
+    e = exp_add( e, #"hash_7e17d35a668424", "" );
+    e = exp_add( e, #"hash_7b5e2758caead77", "" );
+    e = exp_add( e, #"hash_30621110a92705ef", "" );
+    return e;
+}
+
+function private exp_rows_mp_sm_game_show()
+{
+    e = [];
+    e = exp_add( e, "fxexp_flag_confetti", "fxexp_flag_confetti" );
+    return e;
+}
+
+function private exp_rows_mp_sm_gas_station()
+{
+    e = [];
+    e = exp_add( e, #"hash_a7bb341b0967857", "" );
+    e = exp_add( e, #"hash_f54ec79bab2067d", "" );
+    e = exp_add( e, #"hash_209e0b05ba07fce3", "" );
+    e = exp_add( e, #"hash_209e0c05ba07fe96", "" );
+    e = exp_add( e, #"hash_300a582685b742d8", "" );
+    e = exp_add( e, #"hash_306d2e5d79349711", "" );
+    e = exp_add( e, #"hash_3f02b046e6b77ab7", "" );
+    e = exp_add( e, #"hash_435a41c5a7cb7c1c", "" );
+    e = exp_add( e, #"hash_4ec98d433d82a148", "" );
+    e = exp_add( e, #"hash_556ebf89cc84d091", "" );
+    e = exp_add( e, #"hash_556ec089cc84d244", "" );
+    e = exp_add( e, #"hash_556ec189cc84d3f7", "" );
+    e = exp_add( e, #"hash_556ec289cc84d5aa", "" );
+    e = exp_add( e, #"hash_710edab7e627de38", "" );
+    e = exp_add( e, #"hash_711260b7e62af7c1", "" );
+    e = exp_add( e, #"hash_712664b7e63ba797", "" );
+    return e;
+}
+
+function private exp_rows_mp_tank()
+{
+    e = [];
+    e = exp_add( e, #"hash_31ab44849655bc7", "" );
+    e = exp_add( e, #"hash_892cc30ddfdbf81", "" );
+    e = exp_add( e, #"hash_af9fd7358a3405e", "" );
+    e = exp_add( e, #"hash_c57a2da83d8c1b4", "" );
+    e = exp_add( e, #"hash_2515cfc90cc9b5bd", "" );
+    e = exp_add( e, #"hash_2569e9a0323ffa54", "" );
+    e = exp_add( e, #"hash_3e1f23621f34bccf", "" );
+    e = exp_add( e, #"hash_4536276dc8823013", "" );
+    e = exp_add( e, #"hash_51711b3e5a87f3c5", "" );
+    e = exp_add( e, #"hash_553c5b98b01dea8c", "" );
+    e = exp_add( e, #"hash_62b54409a6e97528", "" );
+    e = exp_add( e, #"hash_62b84a09a6ebb531", "" );
+    e = exp_add( e, #"hash_62c94809a6fa24fe", "" );
+    e = exp_add( e, #"hash_69c8d0d32552de37", "" );
+    return e;
+}
+
+function private exp_rows_mp_tundra()
+{
+    e = [];
+    e = exp_add( e, #"hash_ebfc2581ee067", "" );
+    e = exp_add( e, #"hash_38d34ab72a5059a", "" );
+    e = exp_add( e, #"hash_5833711e52101b8", "" );
+    e = exp_add( e, #"hash_5833811e521036b", "" );
+    e = exp_add( e, #"hash_5833911e521051e", "" );
+    e = exp_add( e, #"hash_5833e11e5210d9d", "" );
+    e = exp_add( e, #"hash_63cca56ee201771", "" );
+    e = exp_add( e, #"hash_6404d56ee232be1", "" );
+    e = exp_add( e, #"hash_643b656ee261423", "" );
+    e = exp_add( e, #"hash_6473c56ee292dac", "" );
+    e = exp_add( e, #"hash_64ac256ee2c4735", "" );
+    e = exp_add( e, #"hash_64dc856ee2e873e", "" );
+    e = exp_add( e, #"hash_b965f4d758fa573", "" );
+    e = exp_add( e, #"hash_cd9833064f03c4a", "" );
+    e = exp_add( e, #"hash_d1d401c4c43e4cb", "" );
+    e = exp_add( e, #"hash_da904db6470a75c", "" );
+    e = exp_add( e, #"hash_115ebbc6b4cc0162", "" );
+    e = exp_add( e, #"hash_13d4b1e8ef456b19", "" );
+    e = exp_add( e, #"hash_15b78afa9ab10140", "" );
+    e = exp_add( e, #"hash_15b78cfa9ab104a6", "" );
+    e = exp_add( e, #"hash_1efd1a80af011449", "" );
+    e = exp_add( e, #"hash_238602b0f86fdb90", "" );
+    e = exp_add( e, #"hash_24e905182a31d745", "" );
+    e = exp_add( e, #"hash_26e470cbab746b15", "" );
+    e = exp_add( e, #"hash_296c8d3a69986907", "" );
+    e = exp_add( e, "exp_lgt_12v12", "exp_lgt_12v12" );
+    e = exp_add( e, #"hash_2a8142796ff6fc4a", "" );
+    e = exp_add( e, #"hash_318a168c475aa18d", "" );
+    e = exp_add( e, #"hash_32137422fe736600", "" );
+    e = exp_add( e, #"hash_35923beb06e46e15", "" );
+    e = exp_add( e, #"hash_3601eb67de812145", "" );
+    e = exp_add( e, #"hash_37f7dd427c099b2e", "" );
+    e = exp_add( e, #"hash_3c1588a458b636e5", "" );
+    e = exp_add( e, #"hash_4649983af76ddb84", "" );
+    e = exp_add( e, #"hash_4a1c1f99fe6ad778", "" );
+    e = exp_add( e, #"hash_4a3f57c6e51253a0", "" );
+    e = exp_add( e, #"hash_4cc070d61b8244b9", "" );
+    e = exp_add( e, #"hash_4ccc49996872d760", "" );
+    e = exp_add( e, #"hash_4ccc4b996872dac6", "" );
+    e = exp_add( e, #"hash_4ccc4c996872dc79", "" );
+    e = exp_add( e, #"hash_4d9b09880791e43d", "" );
+    e = exp_add( e, #"hash_4f9d4e3a0467f00a", "" );
+    e = exp_add( e, #"hash_4fd419fee307f988", "" );
+    e = exp_add( e, #"hash_4fd41cfee307fea1", "" );
+    e = exp_add( e, #"hash_569a040365df3d73", "" );
+    e = exp_add( e, #"hash_56f6cebde79d621b", "" );
+    e = exp_add( e, #"hash_570446bde7a8b85f", "" );
+    e = exp_add( e, #"hash_58d9e201e0ba4df3", "" );
+    e = exp_add( e, #"hash_58d9e301e0ba4fa6", "" );
+    e = exp_add( e, #"hash_58d9e401e0ba5159", "" );
+    e = exp_add( e, #"hash_598314df8f2c9d6b", "" );
+    e = exp_add( e, #"hash_5a681359b2d128dc", "" );
+    e = exp_add( e, #"hash_5cc9076a3dfd8563", "" );
+    e = exp_add( e, #"hash_5d12668b51054246", "" );
+    e = exp_add( e, #"hash_5d2c088316ab74e8", "" );
+    e = exp_add( e, "fxexp_tundra_6v6", "fxexp_tundra_6v6" );
+    e = exp_add( e, #"hash_5e1df17985575eb2", "" );
+    e = exp_add( e, #"hash_64972b3227a51a7b", "" );
+    e = exp_add( e, #"hash_6a41b7a9e8220cce", "" );
+    e = exp_add( e, #"hash_6b3e549b11f65a59", "" );
+    e = exp_add( e, #"hash_6f22582a0eec74b8", "" );
+    e = exp_add( e, #"hash_6f22592a0eec766b", "" );
+    e = exp_add( e, #"hash_6f225a2a0eec781e", "" );
+    e = exp_add( e, #"hash_7051940df89840d9", "" );
+    e = exp_add( e, #"hash_72ce95173f87eacb", "" );
+    e = exp_add( e, #"hash_732e6992318b295a", "" );
+    e = exp_add( e, #"hash_75bd81fad69b9fe0", "" );
+    e = exp_add( e, #"hash_79c93dde06972f86", "" );
+    e = exp_add( e, #"hash_7bb830c655af911f", "" );
+    e = exp_add( e, #"hash_7fa2ed52f28da888", "" );
+    e = exp_add( e, #"hash_7fa2f452f28db46d", "" );
+    return e;
+}
+
+function private exp_rows_mp_village_rm()
+{
+    e = [];
+    e = exp_add( e, #"hash_d1d401c4c43e4cb", "" );
+    e = exp_add( e, #"hash_3601eb67de812145", "" );
+    return e;
+}
+
+function private exp_rows_mp_zoo_rm()
+{
+    e = [];
+    e = exp_add( e, #"hash_3601eb67de812145", "" );
+    e = exp_add( e, #"hash_5668e8fa68d4ed43", "" );
+    return e;
+}
+
+function private exp_rows_wz_doa()
+{
+    e = [];
+    e = exp_add( e, #"hash_7e8da32604c7cb", "" );
+    e = exp_add( e, #"hash_350d8aaeeba88f8", "" );
+    e = exp_add( e, #"hash_530a5f1a27fe0fa", "" );
+    e = exp_add( e, #"hash_81cf3a457b564fd", "" );
+    e = exp_add( e, #"hash_b4f91b69b05d17b", "" );
+    e = exp_add( e, #"hash_d1d401c4c43e4cb", "" );
+    e = exp_add( e, #"hash_f68bbd4064e6432", "" );
+    e = exp_add( e, #"hash_1502bf859b7889e6", "" );
+    e = exp_add( e, #"hash_171f550e0f24178a", "" );
+    e = exp_add( e, #"hash_1863b0f17a1a33c2", "" );
+    e = exp_add( e, #"hash_1cb2cd0929630709", "" );
+    e = exp_add( e, #"hash_1da6cb0676c67cb9", "" );
+    e = exp_add( e, #"hash_1e6963ebf91cea84", "" );
+    e = exp_add( e, #"hash_217d9aa69b19648d", "" );
+    e = exp_add( e, #"hash_257029acaf013f31", "" );
+    e = exp_add( e, #"hash_2d1c33a97a7024d0", "" );
+    e = exp_add( e, #"hash_2d1f720237a649e1", "" );
+    e = exp_add( e, #"hash_2dd2c119c6f86f8d", "" );
+    e = exp_add( e, #"hash_2e56718473ad0b69", "" );
+    e = exp_add( e, #"hash_2f287ea3f0a71680", "" );
+    e = exp_add( e, #"hash_31cdbcd23682bd36", "" );
+    e = exp_add( e, #"hash_37823734e5f7a03e", "" );
+    e = exp_add( e, #"hash_379e63750a2a82c8", "" );
+    e = exp_add( e, #"hash_37a393fa2a09ab82", "" );
+    e = exp_add( e, #"hash_38235e16dba81b26", "" );
+    e = exp_add( e, #"hash_3e9d1a772e1f0b76", "" );
+    e = exp_add( e, #"hash_3f568425fe077841", "" );
+    e = exp_add( e, #"hash_3fb6a73c102285c1", "" );
+    e = exp_add( e, #"hash_418f7e626f2b435d", "" );
+    e = exp_add( e, #"hash_45c02840a9491b8e", "" );
+    e = exp_add( e, #"hash_47721fe6e866d544", "" );
+    e = exp_add( e, #"hash_4891af0924b4ba31", "" );
+    e = exp_add( e, #"hash_4a36f339dbe0059f", "" );
+    e = exp_add( e, #"hash_513ab7c4bac94289", "" );
+    e = exp_add( e, #"hash_5243eed77981c13a", "" );
+    e = exp_add( e, #"hash_549ed74648cc1cd2", "" );
+    e = exp_add( e, #"hash_54eefdf357f1b41d", "" );
+    e = exp_add( e, #"hash_59920be393555928", "" );
+    e = exp_add( e, #"hash_5abb920ce1aac328", "" );
+    e = exp_add( e, #"hash_5b532a08a60c0047", "" );
+    e = exp_add( e, #"hash_5d95b7ba6bf32739", "" );
+    e = exp_add( e, #"hash_6143289e9cab2b29", "" );
+    e = exp_add( e, #"hash_6b19780729b8f6c6", "" );
+    e = exp_add( e, #"hash_6d9fb0cc2acd616f", "" );
+    e = exp_add( e, #"hash_713d156c4e2a95d7", "" );
+    e = exp_add( e, #"hash_74c29d4ac89aaec6", "" );
+    e = exp_add( e, #"hash_75283517c09df85a", "" );
+    e = exp_add( e, #"hash_7566183f1103905b", "" );
+    e = exp_add( e, #"hash_789bb5ed772830e8", "" );
+    e = exp_add( e, #"hash_790977376fb05ed3", "" );
+    return e;
+}
+
+function private exp_rows_wz_duga()
+{
+    e = [];
+    e = exp_add( e, #"hash_7aac4ff7e7defdd", "" );
+    e = exp_add( e, #"hash_d1d401c4c43e4cb", "" );
+    e = exp_add( e, #"hash_1b8ccc2a9c77dcf0", "" );
+    e = exp_add( e, #"hash_21ce3cafbaf75f91", "" );
+    e = exp_add( e, #"hash_3601eb67de812145", "" );
+    e = exp_add( e, #"hash_392656daeab6717c", "" );
+    e = exp_add( e, #"hash_3a35df59758f6f08", "" );
+    e = exp_add( e, #"hash_40ecb95335967f20", "" );
+    e = exp_add( e, #"hash_5668e8fa68d4ed43", "" );
+    e = exp_add( e, #"hash_585aa09c3fcfd971", "" );
+    e = exp_add( e, #"hash_650664cd4a95eb47", "" );
+    e = exp_add( e, #"hash_66147455862dfeb2", "" );
+    e = exp_add( e, #"hash_6eead413c6501c99", "" );
+    e = exp_add( e, #"hash_7cd770d54ad70617", "" );
+    e = exp_add( e, #"hash_7e6db5d8f095cfd4", "" );
+    e = exp_add( e, #"hash_7e6db6d8f095d187", "" );
+    e = exp_add( e, #"hash_7e6db8d8f095d4ed", "" );
+    return e;
+}
+
+function private exp_rows_wz_forest()
+{
+    e = [];
+    e = exp_add( e, #"hash_466b4524d8d3cce", "" );
+    e = exp_add( e, #"hash_466b6524d8d4034", "" );
+    e = exp_add( e, #"hash_466b7524d8d41e7", "" );
+    e = exp_add( e, #"hash_466b9524d8d454d", "" );
+    e = exp_add( e, #"hash_5da24454366b345", "" );
+    e = exp_add( e, #"hash_664374a18da43ef", "" );
+    e = exp_add( e, #"hash_7aac4ff7e7defdd", "" );
+    e = exp_add( e, #"hash_a4b9ecc46770dc9", "" );
+    e = exp_add( e, #"hash_a666e72c5004f49", "" );
+    e = exp_add( e, #"hash_d1d401c4c43e4cb", "" );
+    e = exp_add( e, #"hash_dc94651f9fc6c30", "" );
+    e = exp_add( e, #"hash_dcccc51f9ff85b9", "" );
+    e = exp_add( e, #"hash_dd05251fa029f42", "" );
+    e = exp_add( e, #"hash_dd35851fa04df4b", "" );
+    e = exp_add( e, #"hash_de15051fa110f0f", "" );
+    e = exp_add( e, #"hash_13d82495c548497d", "" );
+    e = exp_add( e, #"hash_14c5e232646c1190", "" );
+    e = exp_add( e, #"hash_14cc6e3264716b22", "" );
+    e = exp_add( e, #"hash_14cff432647484ab", "" );
+    e = exp_add( e, #"hash_14df74e691c24573", "" );
+    e = exp_add( e, #"hash_16d56f51ff385ce0", "" );
+    e = exp_add( e, #"hash_16d8f551ff3b7669", "" );
+    e = exp_add( e, #"hash_16dbfb51ff3db672", "" );
+    e = exp_add( e, #"hash_16df8151ff40cffb", "" );
+    e = exp_add( e, #"hash_16e30751ff43e984", "" );
+    e = exp_add( e, #"hash_16e68d51ff47030d", "" );
+    e = exp_add( e, #"hash_16e9f351ff49e636", "" );
+    e = exp_add( e, #"hash_16e9f851ff49eeb5", "" );
+    e = exp_add( e, #"hash_16ecf951ff4c263f", "" );
+    e = exp_add( e, #"hash_17050351ff60c91e", "" );
+    e = exp_add( e, #"hash_17088951ff63e2a7", "" );
+    e = exp_add( e, #"hash_18d3b1739a18f31d", "" );
+    e = exp_add( e, #"hash_1e2e98520302b910", "" );
+    e = exp_add( e, #"hash_1e319e520304f919", "" );
+    e = exp_add( e, #"hash_1e49a85203199bf8", "" );
+    e = exp_add( e, #"hash_1e503452031ef58a", "" );
+    e = exp_add( e, #"hash_1e5379fdc0667bdc", "" );
+    e = exp_add( e, #"hash_1e539a520321d8b3", "" );
+    e = exp_add( e, #"hash_1e5720520324f23c", "" );
+    e = exp_add( e, #"hash_1e5aa65203280bc5", "" );
+    e = exp_add( e, #"hash_1e5e2c52032b254e", "" );
+    e = exp_add( e, #"hash_1e613252032d6557", "" );
+    e = exp_add( e, #"hash_25e3703522d7fbc6", "" );
+    e = exp_add( e, #"hash_2b9b24c7aa4ff20c", "" );
+    e = exp_add( e, #"hash_31195bd8473a4c2c", "" );
+    e = exp_add( e, #"hash_31195cd8473a4ddf", "" );
+    e = exp_add( e, #"hash_31195dd8473a4f92", "" );
+    e = exp_add( e, #"hash_32a1eed48d303c7b", "" );
+    e = exp_add( e, #"hash_32a1efd48d303e2e", "" );
+    e = exp_add( e, #"hash_32a1f1d48d304194", "" );
+    e = exp_add( e, #"hash_3601eb67de812145", "" );
+    e = exp_add( e, #"hash_371c978ddaaab67f", "" );
+    e = exp_add( e, #"hash_39138ae11c6b64db", "" );
+    e = exp_add( e, #"hash_3a35df59758f6f08", "" );
+    e = exp_add( e, #"hash_3b726a2d7c417cb6", "" );
+    e = exp_add( e, #"hash_3cbca90c4e0f48f2", "" );
+    e = exp_add( e, #"hash_40ecb95335967f20", "" );
+    e = exp_add( e, #"hash_410e13b64a0b672a", "" );
+    e = exp_add( e, #"hash_4334f5f60ffd7b7e", "" );
+    e = exp_add( e, #"hash_4334f6f60ffd7d31", "" );
+    e = exp_add( e, #"hash_51ba5f64d31a9e1c", "" );
+    e = exp_add( e, #"hash_53d5e94fb2c3dfbb", "" );
+    e = exp_add( e, #"hash_5668e8fa68d4ed43", "" );
+    e = exp_add( e, #"hash_5aa0968f07933184", "" );
+    e = exp_add( e, #"hash_5c205a6d18c7f9df", "" );
+    e = exp_add( e, #"hash_6339328e9143f079", "" );
+    e = exp_add( e, #"hash_63e9ed274082cf68", "" );
+    e = exp_add( e, #"hash_63e9f3274082d99a", "" );
+    e = exp_add( e, #"hash_63e9f4274082db4d", "" );
+    e = exp_add( e, #"hash_64b027d8f1da8845", "" );
+    e = exp_add( e, #"hash_650664cd4a95eb47", "" );
+    e = exp_add( e, #"hash_658bed06abdb3cd9", "" );
+    e = exp_add( e, #"hash_66147455862dfeb2", "" );
+    e = exp_add( e, #"hash_6b8fea72ed5ae965", "" );
+    e = exp_add( e, #"hash_6cd27a9f0c35caef", "" );
+    e = exp_add( e, #"hash_6d2eb5bdf8932dd4", "" );
+    e = exp_add( e, #"hash_6eead413c6501c99", "" );
+    e = exp_add( e, #"hash_6f582adc1a5980f1", "" );
+    e = exp_add( e, #"hash_72f6a2b622b809cd", "" );
+    e = exp_add( e, #"hash_79c8a76f0eea433f", "" );
+    e = exp_add( e, #"hash_7a78d5b68df4b41e", "" );
+    e = exp_add( e, #"hash_7cd770d54ad70617", "" );
+    e = exp_add( e, #"hash_7d7f3f796dbe399b", "" );
+    e = exp_add( e, #"hash_7d8cb7796dc98fdf", "" );
+    e = exp_add( e, #"hash_7d903d796dcca968", "" );
+    e = exp_add( e, #"hash_7e6db5d8f095cfd4", "" );
+    e = exp_add( e, #"hash_7e6db6d8f095d187", "" );
+    e = exp_add( e, #"hash_7e6db8d8f095d4ed", "" );
+    return e;
+}
+
+function private exp_rows_wz_golova()
+{
+    e = [];
+    e = exp_add( e, #"hash_7aac4ff7e7defdd", "" );
+    e = exp_add( e, #"hash_d1d401c4c43e4cb", "" );
+    e = exp_add( e, #"hash_3601eb67de812145", "" );
+    e = exp_add( e, #"hash_3a35df59758f6f08", "" );
+    e = exp_add( e, #"hash_40ecb95335967f20", "" );
+    e = exp_add( e, #"hash_43184cf64995fb19", "" );
+    e = exp_add( e, #"hash_5668e8fa68d4ed43", "" );
+    e = exp_add( e, #"hash_650664cd4a95eb47", "" );
+    e = exp_add( e, #"hash_66147455862dfeb2", "" );
+    e = exp_add( e, #"hash_6d81feeba7bda2d4", "" );
+    e = exp_add( e, #"hash_6eead413c6501c99", "" );
+    e = exp_add( e, #"hash_7cd770d54ad70617", "" );
+    e = exp_add( e, #"hash_7e6db5d8f095cfd4", "" );
+    e = exp_add( e, #"hash_7e6db6d8f095d187", "" );
+    e = exp_add( e, #"hash_7e6db8d8f095d4ed", "" );
+    return e;
+}
+
+function private exp_rows_wz_sanatorium()
+{
+    e = [];
+    e = exp_add( e, #"hash_9e9be9feb628a64", "" );
+    e = exp_add( e, #"hash_d1d401c4c43e4cb", "" );
+    e = exp_add( e, #"hash_16e291af57e24bfc", "" );
+    e = exp_add( e, #"hash_1aa0910bab9dad08", "" );
+    e = exp_add( e, #"hash_1b8ccc2a9c77dcf0", "" );
+    e = exp_add( e, #"hash_2181a746a7a30685", "" );
+    e = exp_add( e, #"hash_299aeb1daeea4a1d", "" );
+    e = exp_add( e, #"hash_2c68a99e217132b6", "" );
+    e = exp_add( e, #"hash_3601eb67de812145", "" );
+    e = exp_add( e, #"hash_3a35df59758f6f08", "" );
+    e = exp_add( e, #"hash_40ecb95335967f20", "" );
+    e = exp_add( e, #"hash_4133cbd1b321ab21", "" );
+    e = exp_add( e, "lgtexp_lightstate2", "lgtexp_lightstate2" );
+    e = exp_add( e, #"hash_4e2d16119c238986", "" );
+    e = exp_add( e, #"hash_522a128a675cfb72", "" );
+    e = exp_add( e, #"hash_527072edb27db4ec", "" );
+    e = exp_add( e, #"hash_527073edb27db69f", "" );
+    e = exp_add( e, #"hash_527074edb27db852", "" );
+    e = exp_add( e, #"hash_5668e8fa68d4ed43", "" );
+    e = exp_add( e, #"hash_63783eafe27148f8", "" );
+    e = exp_add( e, #"hash_650664cd4a95eb47", "" );
+    e = exp_add( e, #"hash_66147455862dfeb2", "" );
+    e = exp_add( e, #"hash_6dcd3d3bdbae6bfc", "" );
+    e = exp_add( e, #"hash_6e25d2e8badf4bbd", "" );
+    e = exp_add( e, #"hash_6eead413c6501c99", "" );
+    e = exp_add( e, #"hash_76190bbf0ac1354a", "" );
+    e = exp_add( e, #"hash_7cd770d54ad70617", "" );
+    e = exp_add( e, #"hash_7e6db5d8f095cfd4", "" );
+    e = exp_add( e, #"hash_7e6db6d8f095d187", "" );
+    e = exp_add( e, #"hash_7e6db8d8f095d4ed", "" );
+    return e;
+}
+
+function private exp_rows_wz_ski_slopes()
+{
+    e = [];
+    e = exp_add( e, #"hash_59b51d6297a9a6c", "" );
+    e = exp_add( e, #"hash_7aac4ff7e7defdd", "" );
+    e = exp_add( e, #"hash_d1d401c4c43e4cb", "" );
+    e = exp_add( e, #"hash_2058d1e36fdbb825", "" );
+    e = exp_add( e, #"hash_246719aae602e0e1", "" );
+    e = exp_add( e, #"hash_3601eb67de812145", "" );
+    e = exp_add( e, #"hash_392656daeab6717c", "" );
+    e = exp_add( e, #"hash_3a35df59758f6f08", "" );
+    e = exp_add( e, #"hash_40ecb95335967f20", "" );
+    e = exp_add( e, #"hash_4c86198df3a33436", "" );
+    e = exp_add( e, #"hash_5668e8fa68d4ed43", "" );
+    e = exp_add( e, #"hash_585aa09c3fcfd971", "" );
+    e = exp_add( e, #"hash_650664cd4a95eb47", "" );
+    e = exp_add( e, #"hash_6b2698098fc3d1ae", "" );
+    e = exp_add( e, #"hash_6b2699098fc3d361", "" );
+    e = exp_add( e, #"hash_6eead413c6501c99", "" );
+    e = exp_add( e, #"hash_7cd770d54ad70617", "" );
+    e = exp_add( e, #"hash_7e6db5d8f095cfd4", "" );
+    e = exp_add( e, #"hash_7e6db6d8f095d187", "" );
+    e = exp_add( e, #"hash_7e6db8d8f095d4ed", "" );
+    return e;
+}
+
+function private exp_rows_wz_zoo()
+{
+    e = [];
+    e = exp_add( e, #"hash_d1d401c4c43e4cb", "" );
+    e = exp_add( e, #"hash_3601eb67de812145", "" );
+    e = exp_add( e, #"hash_3a35df59758f6f08", "" );
+    e = exp_add( e, #"hash_40ecb95335967f20", "" );
+    e = exp_add( e, #"hash_5668e8fa68d4ed43", "" );
+    e = exp_add( e, #"hash_650664cd4a95eb47", "" );
+    e = exp_add( e, #"hash_68d31d90ab323c55", "" );
+    e = exp_add( e, #"hash_7032245d6e5c26a4", "" );
+    e = exp_add( e, #"hash_7cd770d54ad70617", "" );
+    return e;
+}
+// [exploders-gen END]
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PROJECTILES — docs/notes/projectiles.md. Built 2026-09-17, never run.
+// ═════════════════════════════════════════════════════════════════════════════
+// "Turn bullets into rockets": there is no set-this-weapon's-projectile call in T9, so the SHOT
+// is intercepted and a projectile of our own is fired down the same line. The hook is the
+// weapon_fired notify the engine raises on the player for every shot (weapons.gsc:1034, the
+// event_handler that also drives callback::on_weapon_fired) - the same notify the teleport gun
+// rides (tpgun_think), with .weapon on the result (placeables.gsc:215 reads it). The spawn is
+// magicbullet( weapon, start, end, owner ) (remotemissile_shared.gsc:415, straferun.gsc:897),
+// which RETURNS the projectile entity; a 5th arg / missile_settarget( ent ) makes it HOME
+// (helicopter_shared.gsc:3276, straferun.gsc:899). The owner is the shooter, so the kill and
+// the killcam credit him (.ismagicbullet is what stock's attribution consults).
+//
+// Every projectile weapon here is UNIVERSAL - resident on all 36 MP maps by the bgcache
+// (projectiles.md §6: launcher_freefire_t9 / launcher_standard_t9 / special_crossbow_t9 /
+// special_grenadelauncher_t9 / sig_bow_flame / straferun_rockets / remote_missile_bomblet /
+// jetfighter_missile / frag_grenade sit in core_common or mp_common) - so there is no per-map
+// gating; getweapon( name ) != level.weaponnone is still checked, stock's own sentinel
+// (weapons.gsc:30). ⚠ crossbow_special_t8, the name §2 first listed, is in ZERO zones.
+//
+// The four unknowns the note names, and what this build does about each:
+//   1 full-auto = a magicbullet per shot (~12/s on an AR): a per-player minimum gap, default
+//     300 ms, walkable to "every shot" from the Rate page. That is the measurement.
+//   2 self-damage: the rocket starts 32 u ahead of the eye, or at the eye when a wall is
+//     closer than 64 u (it will then explode in the shooter's face - RPG rules).
+//   3 residency - answered offline, above.
+//   4 the real bullet still fires: this is "bullets PLUS rockets" until measured otherwise.
+// Trail FX: playfxontag( "destruct/fx8_atk_chppr_smk_trail", rocket, "tag_origin" ) - a plain
+// path the way infect.gsc:1229 passes one, universal by the fx rows - OFF by default: the
+// rocket weapons carry their own trails, and an FX call is the one line here stock never
+// makes on a magicbullet.
+//
+// State is per MATCH (game. / player fields, like the teleport gun) - not dvars, so the
+// packed store and the app's key list stay untouched: game.gf_proj_all (everyone, humans),
+// player.gf_proj (one player), game.gf_proj_wkey (weapon name), game.gf_proj_ms (min gap),
+// game.gf_proj_homing, game.gf_proj_trail. Shots while the host's menu is open are menu
+// navigation (ATTACK = next item) and ignored, as the teleport gun does.
+
+function private proj_wkey()
+{
+    if ( isdefined( game.gf_proj_wkey ) )
+        return game.gf_proj_wkey;
+
+    return #"launcher_freefire_t9";
+}
+
+function private proj_ms()
+{
+    if ( isdefined( game.gf_proj_ms ) )
+        return game.gf_proj_ms;
+
+    return 300;
+}
+
+function private proj_wanted( player )
+{
+    if ( isdefined( player.gf_proj ) && player.gf_proj )
+        return true;
+
+    return isdefined( game.gf_proj_all ) && game.gf_proj_all && !isbot( player );
+}
+
+function private proj_rearm( player )
+{
+    player notify( #"gf_proj_restart" );
+
+    if ( isalive( player ) && proj_wanted( player ) )
+        player thread proj_think();
+}
+
+// mod_spawn_place: the per-life thread for whoever wants it.
+function private proj_spawn_rearm()
+{
+    if ( !isplayer( self ) )
+        return;
+
+    proj_rearm( self );
+}
+
+function private proj_think()
+{
+    self notify( #"gf_proj_restart" );
+    self endon( #"gf_proj_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    w = getweapon( proj_wkey() );
+
+    if ( !isdefined( w ) || w == level.weaponnone )
+    {
+        mod_host_say( "^1projectiles: weapon not found on this map" );
+        return;
+    }
+
+    self.gf_proj_last = 0;
+
+    for ( ;; )
+    {
+        res = self waittill( #"weapon_fired" );
+
+        if ( !proj_wanted( self ) )
+            return;
+
+        if ( self tp_menu_open() )
+            continue;
+
+        // our own launcher / the projectile weapon itself: never chain
+        if ( isdefined( res.weapon ) && res.weapon == w )
+            continue;
+
+        now = gettime();
+
+        if ( now - self.gf_proj_last < proj_ms() )
+            continue;
+
+        self.gf_proj_last = now;
+        self proj_fire( w );
+    }
+}
+
+function private proj_fire( w )
+{
+    eye = self geteye();
+    fwd = anglestoforward( self getplayerangles() );
+    start = eye + vectorscale( fwd, 32 );
+    tr = bullettrace( eye, eye + vectorscale( fwd, 64 ), 0, self );
+
+    if ( tr[ #"fraction" ] < 1 )
+        start = eye;
+
+    p = magicbullet( w, start, eye + vectorscale( fwd, 10000 ), self );
+
+    if ( !isdefined( p ) )
+        return;
+
+    if ( isdefined( game.gf_proj_homing ) && game.gf_proj_homing )
+    {
+        target = self proj_target( eye, fwd );
+
+        if ( isdefined( target ) )
+            p missile_settarget( target, ( 0, 0, 0 ) );
+    }
+
+    if ( isdefined( game.gf_proj_trail ) && game.gf_proj_trail )
+        playfxontag( "destruct/fx8_atk_chppr_smk_trail", p, "tag_origin" );
+}
+
+// The living enemy nearest the crosshair inside a ~45 degree cone (dot > 0.7), bots included.
+// A shooter with no team, or on the free team, may lock anyone but himself.
+function private proj_target( eye, fwd )
+{
+    best = undefined;
+    bestdot = 0.7;
+
+    foreach ( player in getplayers() )
+    {
+        if ( player == self || !isalive( player ) )
+            continue;
+
+        if ( isdefined( self.team ) && isdefined( player.team ) && self.team == player.team && self.team != #"free" )
+            continue;
+
+        dot = vectordot( fwd, vectornormalize( ( player.origin + ( 0, 0, 40 ) ) - eye ) );
+
+        if ( dot > bestdot )
+        {
+            bestdot = dot;
+            best = player;
+        }
+    }
+
+    return best;
+}
+
+// who = "host" (self.gf_proj) | "all" (game.gf_proj_all, humans only) | "off" (everything).
+function private act_proj( item, who )
+{
+    if ( who == "off" )
+    {
+        game.gf_proj_all = 0;
+
+        foreach ( player in getplayers() )
+        {
+            player.gf_proj = 0;
+            proj_rearm( player );
+        }
+
+        broadcast_feed( "^3projectile fire OFF" );
+        self menu_say( "^2projectiles OFF for everyone" );
+        return true;
+    }
+
+    if ( who == "all" )
+    {
+        on = !( isdefined( game.gf_proj_all ) && game.gf_proj_all );
+        game.gf_proj_all = on;
+        item.activated = on;
+
+        foreach ( player in getplayers() )
+            proj_rearm( player );
+
+        broadcast_feed( on ? ( "^3your shots now fire " + proj_wname() ) : "^3projectile fire OFF" );
+        self menu_say( on ? ( "^2projectiles ON for everyone (not bots): " + proj_wname() ) : "^2projectiles OFF for everyone" );
+        return true;
+    }
+
+    if ( who != "host" )
+    {
+        self menu_say( "^1projectiles: host, all or off" );
+        return true;
+    }
+
+    on = !( isdefined( self.gf_proj ) && self.gf_proj );
+    self.gf_proj = on;
+    item.activated = on;
+    proj_rearm( self );
+    self menu_say( on ? ( "^2projectiles ON - your shots fire " + proj_wname() ) : "^2projectiles OFF" );
+    return true;
+}
+
+function private proj_wname()
+{
+    if ( isdefined( game.gf_proj_wname ) )
+        return game.gf_proj_wname;
+
+    return "RPG rockets";
+}
+
+// A weapon pick: stored, validated against level.weaponnone, live threads restarted so the
+// next shot uses it. name = the weapon asset (hash), label = what the feed says.
+function private act_proj_weapon( item, name, label )
+{
+    w = getweapon( name );
+
+    if ( !isdefined( w ) || w == level.weaponnone )
+    {
+        self menu_say( "^1" + label + ": weapon not found on this map" );
+        return true;
+    }
+
+    game.gf_proj_wkey = name;
+    game.gf_proj_wname = label;
+    self menu_mark_only( "proj_weapon", item );
+
+    foreach ( player in getplayers() )
+        proj_rearm( player );
+
+    self menu_say( "^2projectile: " + label );
+    return true;
+}
+
+function private act_proj_rate( item, ms )
+{
+    game.gf_proj_ms = ms;
+    self menu_mark_only( "proj_rate", item );
+    self menu_say( ms > 0 ? ( "^2projectile rate: one per " + ms + " ms" ) : "^2projectile rate: EVERY shot" );
+    return true;
+}
+
+function private act_proj_homing( item )
+{
+    on = !( isdefined( game.gf_proj_homing ) && game.gf_proj_homing );
+    game.gf_proj_homing = on;
+    item.activated = on;
+    self menu_say( on ? "^2homing ON - locks the enemy you face" : "^2homing OFF" );
+    return true;
+}
+
+function private act_proj_trail( item )
+{
+    on = !( isdefined( game.gf_proj_trail ) && game.gf_proj_trail );
+    game.gf_proj_trail = on;
+    item.activated = on;
+    self menu_say( on ? "^2smoke trail ON (untested FX call)" : "^2smoke trail OFF" );
+    return true;
+}
+
+// The [ON] marker as a radio group for game.-backed choices (the * marker reads dvars).
+function private menu_mark_only( page, item )
+{
+    menu = self.gfmenu.menus[ page ];
+
+    if ( !isdefined( menu ) )
+        return;
+
+    foreach ( it in menu.items )
+        it.activated = 0;
+
+    if ( isdefined( item ) )
+        item.activated = 1;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PROPS — docs/notes/static-props.md. Built 2026-09-17, never run.
+// ═════════════════════════════════════════════════════════════════════════════
+// A prop is Prop Hunt's own recipe (prop.gsc:1946): spawn( "script_model", origin ) +
+// setmodel( name ) + setscale( scale ). A plain replicated entity - Gate 2 does not apply, a
+// vanilla joiner sees it - and the only gate is the xmodel being resident, which
+// isassetloaded( "xmodel", name ) answers (MEASURED 2026-09-15: row-0 of Diesel's table read
+// res=1 with the bogus control at 0, so "xmodel" IS a valid type string; static-props.md).
+//
+// Two sources, both self-configuring:
+//   - THIS MAP's curated Prop Hunt table, gamedata/tables/mp/<map>_ph.csv (prop.gsc:1850):
+//     model, size, scale, offsets, rotation - the per-map list Treyarch hand-tuned. Read at
+//     runtime with tablelookuprowcount / tablelookuprow (the census already does). Maps with
+//     no table (Ruka measured tbl=0) get only the universal set.
+//   - the UNIVERSAL set: the 12 *_prophunt models (all in mp_common) + a hand-picked slice of
+//     the 338 p9_* props core_bootstrap / core_common / mp_common carry (static-props.md §5b),
+//     resident on every MP map by construction. Every row is still gated by isassetloaded.
+// Placement: where the host is looking (the teleport's trace), pushed 24 u off the surface,
+// dropped to the floor (playerphysicstrace), turned to face the host. Props are tracked on
+// level.gf_props for delete-last / delete-all; level is rebuilt per round, so a round
+// boundary clears the list (the engine deletes the entities with the level).
+
+function private prop_universal()
+{
+    if ( isdefined( level.gf_prop_universal ) )
+        return level.gf_prop_universal;
+
+    m = [];
+    // the 12 Treyarch authored FOR Prop Hunt, all mp_common
+    m = prop_def( m, "p9_barrel_metal_rusted_01_prophunt", "Rusted barrel (PH)" );
+    m = prop_def( m, "p9_krail_concrete_worn_01_prophunt", "Concrete K-rail (PH)" );
+    m = prop_def( m, "p9_rm_rai_dub_vase_prophunt", "Vase (PH)" );
+    m = prop_def( m, "p9_ang_satellite_panel_02_prophunt", "Satellite panel (PH)" );
+    m = prop_def( m, "p9_ang_satellite_panel_03_prophunt", "Satellite panel 3 (PH)" );
+    m = prop_def( m, "p9_ang_satellite_capsule_plate_02_prophunt", "Capsule plate (PH)" );
+    m = prop_def( m, "p9_nt6_abandoned_mattress_01_prophunt", "Mattress (PH)" );
+    m = prop_def( m, "p9_nt6_mannequin_clothes_female_02_dmg_full_prophunt", "Mannequin F2 (PH)" );
+    m = prop_def( m, "p9_nt6_mannequin_clothes_female_03_dirty_full_prophunt", "Mannequin F3 (PH)" );
+    m = prop_def( m, "p9_nt6_mannequin_clothes_male_01_dirty_full_prophunt", "Mannequin M1 (PH)" );
+    m = prop_def( m, "p9_ger_tank_computer_server_diagnostic_01_silver_prophunt", "Server rack (PH)" );
+    m = prop_def( m, "p9_ger_tank_tank_tread_rolls_01_prophunt", "Tank tread rolls (PH)" );
+    // universal p9_* scenery (static-props.md §5b)
+    m = prop_def( m, "p9_usa_bench_01", "Park bench" );
+    m = prop_def( m, "p9_usa_bicycle_01", "Bicycle" );
+    m = prop_def( m, "p9_usa_couch_04", "Couch" );
+    m = prop_def( m, "p9_usa_dumpster_01_full", "Dumpster" );
+    m = prop_def( m, "p9_usa_mailbox_01", "Mailbox" );
+    m = prop_def( m, "p9_usa_street_light_01", "Street light" );
+    m = prop_def( m, "p9_usa_vending_machine_soda_02", "Soda machine" );
+    m = prop_def( m, "p9_usa_kgb_target_dummy_01", "Target dummy" );
+    m = prop_def( m, "p9_usa_chair_beach", "Beach chair" );
+    m = prop_def( m, "p9_usa_surf_longboard_01", "Surfboard" );
+    m = prop_def( m, "p9_nt6_arcade_game", "Arcade game" );
+    m = prop_def( m, "p9_nt6_machine_washing_dirty", "Washing machine" );
+    m = prop_def( m, "p9_nt6_refrigerator_vintage_closed_02", "Vintage fridge" );
+    m = prop_def( m, "p9_nt6_chair_wood", "Wooden chair" );
+    m = prop_def( m, "p9_nt6_barricade_tire_01", "Tire barricade" );
+    m = prop_def( m, "p9_nt6x_win_snowman", "Snowman" );
+    m = prop_def( m, "p9_mal_arcade_cabinet_08", "Arcade cabinet" );
+    m = prop_def( m, "p9_mal_rocket_ride_01", "Kiddie rocket ride" );
+    m = prop_def( m, "p9_mal_scissor_lift_01", "Scissor lift" );
+    m = prop_def( m, "p9_mal_bean_bag_chair_sml", "Bean bag" );
+    m = prop_def( m, "p9_rus_amk_telephonebooth_01_closed_v2_wet", "Phone booth" );
+    m = prop_def( m, "p9_rus_bench_park_long", "Long park bench" );
+    m = prop_def( m, "p9_rus_oil_drum_01", "Oil drum" );
+    m = prop_def( m, "p9_rus_computer_server_02", "Computer server" );
+    m = prop_def( m, "p9_ger_kgb_mount_barrier_concrete_144", "Concrete barrier 144" );
+    m = prop_def( m, "p9_ger_tank_barrel_metal_01", "Metal barrel" );
+    m = prop_def( m, "p9_ger_tank_gas_pump_01", "Gas pump" );
+    m = prop_def( m, "p9_lat_sandbag_cover_02_grime", "Sandbag cover" );
+    m = prop_def( m, "p9_lat_hedgehog_metal_snow", "Czech hedgehog" );
+    m = prop_def( m, "p9_usa_large_ammo_crate_01", "Large ammo crate" );
+    m = prop_def( m, "p9_rm_zoo_hay_bale_sqr", "Hay bale" );
+    m = prop_def( m, "p9_rm_pai_wooden_spool", "Wooden spool" );
+    m = prop_def( m, "p9_rm_rai_water_cooler_metal_full", "Water cooler" );
+    m = prop_def( m, "p9_foliage_tree_palm_coconut_lrg_01", "Palm tree" );
+    m = prop_def( m, "p9_pot_of_gold_pristine", "Pot of gold" );
+    m = prop_def( m, "p9_wz_dirty_bomb_01", "Dirty bomb" );
+    m = prop_def( m, "p9_m114_155mm_artillery_gun_01_pickup", "155mm artillery gun" );
+    level.gf_prop_universal = m;
+    return m;
+}
+
+function private prop_def( m, model, label )
+{
+    st = spawnstruct();
+    st.model = model;
+    st.label = label;
+    st.scale = 1;
+    m[ m.size ] = st;
+    return m;
+}
+
+// This map's Prop Hunt table as rows (model, size text, scale), or an empty array.
+function private prop_map_rows()
+{
+    if ( isdefined( level.gf_prop_maprows ) )
+        return level.gf_prop_maprows;
+
+    rows = [];
+    mapname = level.script;
+
+    if ( !isdefined( mapname ) )
+        mapname = util::get_map_name();
+
+    path = "gamedata/tables/mp/" + mapname + "_ph.csv";
+
+    if ( isassetloaded( "stringtable", path ) )
+    {
+        numrows = tablelookuprowcount( path );
+
+        if ( !isdefined( numrows ) )
+            numrows = 0;
+
+        for ( i = 0; i < numrows && i < 64; i++ )
+        {
+            model = assets_table_cell( path, i, 0 );
+
+            if ( !isdefined( model ) || model == "" )
+                continue;
+
+            size = assets_table_cell( path, i, 1 );
+            scale = float( assets_table_cell( path, i, 2 ) );
+
+            if ( !isdefined( scale ) || scale == 0 )
+                scale = 1;
+
+            st = spawnstruct();
+            st.model = model;
+            st.label = prop_short( model ) + " (" + size + ")";
+            st.scale = scale;
+            rows[ rows.size ] = st;
+        }
+    }
+
+    level.gf_prop_maprows = rows;
+    return rows;
+}
+
+// "p9_usa_bench_01" -> "usa_bench_01": the family prefix carries no information on a row.
+function private prop_short( model )
+{
+    if ( model.size > 3 && getsubstr( model, 0, 3 ) == "p9_" )
+        return getsubstr( model, 3 );
+
+    if ( model.size > 3 && getsubstr( model, 0, 3 ) == "p8_" )
+        return getsubstr( model, 3 );
+
+    return model;
+}
+
+// Where a prop goes: the aim point pushed 24 u off the surface and floored; a shot into the
+// sky puts it 200 u ahead of the host, floored.
+function private prop_spot()
+{
+    eye = self geteye();
+    fwd = anglestoforward( self getplayerangles() );
+    tr = bullettrace( eye, eye + vectorscale( fwd, 4000 ), 0, self );
+
+    if ( tr[ #"fraction" ] >= 1 )
+        return tp_floor( self.origin + vectorscale( ( fwd[ 0 ], fwd[ 1 ], 0 ), 200 ) );
+
+    pos = tr[ #"position" ];
+
+    if ( isdefined( tr[ #"normal" ] ) )
+        pos += vectorscale( tr[ #"normal" ], 24 );
+
+    return tp_floor( pos );
+}
+
+function private act_prop_spawn( item, model, scale )
+{
+    if ( !isdefined( scale ) )
+        scale = 1;
+
+    if ( !isassetloaded( "xmodel", model ) )
+    {
+        self menu_say( "^1model not resident on this map: " + model );
+        return true;
+    }
+
+    spot = self prop_spot();
+
+    if ( !isdefined( spot ) )
+    {
+        self menu_say( "^1no spot found" );
+        return true;
+    }
+
+    ang = self getplayerangles();
+    prop = spawn( "script_model", spot );
+
+    if ( !isdefined( prop ) )
+    {
+        self menu_say( "^1spawn failed" );
+        return true;
+    }
+
+    prop.targetname = "gf_prop";
+    prop setmodel( model );
+
+    if ( scale != 1 )
+        prop setscale( scale );
+
+    prop.angles = ( 0, ang[ 1 ] + 180, 0 );
+
+    if ( !isdefined( level.gf_props ) )
+        level.gf_props = [];
+
+    level.gf_props[ level.gf_props.size ] = prop;
+    self menu_say( "^2placed " + prop_short( model ) + " (" + level.gf_props.size + " this round)" );
+    return true;
+}
+
+function private act_prop_delete( item, all )
+{
+    if ( !isdefined( level.gf_props ) || level.gf_props.size == 0 )
+    {
+        self menu_say( "^1no props placed this round" );
+        return true;
+    }
+
+    if ( all )
+    {
+        n = 0;
+
+        foreach ( p in level.gf_props )
+        {
+            if ( isdefined( p ) )
+            {
+                p delete();
+                n++;
+            }
+        }
+
+        level.gf_props = [];
+        self menu_say( "^2removed " + n + " props" );
+        return true;
+    }
+
+    last = level.gf_props[ level.gf_props.size - 1 ];
+    kept = [];
+
+    for ( i = 0; i < level.gf_props.size - 1; i++ )
+        kept[ kept.size ] = level.gf_props[ i ];
+
+    level.gf_props = kept;
+
+    if ( isdefined( last ) )
+        last delete();
+
+    self menu_say( "^2removed the last prop (" + kept.size + " left)" );
+    return true;
+}
+
+// Rebuilt on entry: the map's table can only be read once the level is up, and the
+// resident filter is per map.
+function private props_enter( menu )
+{
+    self menu_clear_items( "props" );
+
+    rows = prop_map_rows();
+    self menu_item( "props", "Remove the last prop I placed", &act_prop_delete, 0 );
+    self menu_item( "props", "Remove every prop I placed", &act_prop_delete, 1 );
+    self menu_item( "props", "This map's Prop Hunt set (" + rows.size + ")", &menu_switch, "props_map" );
+    self menu_item( "props", "Universal props", &menu_switch, "props_univ" );
+}
+
+function private props_map_enter( menu )
+{
+    self menu_clear_items( "props_map" );
+
+    n = 0;
+
+    foreach ( r in prop_map_rows() )
+    {
+        if ( !isassetloaded( "xmodel", r.model ) )
+            continue;
+
+        self menu_item( "props_map", "Place " + r.label, &act_prop_spawn, r.model, r.scale );
+        n++;
+    }
+
+    if ( n == 0 )
+        self menu_item( "props_map", "(no Prop Hunt table on this map - use Universal)", undefined );
+}
+
+function private props_univ_enter( menu )
+{
+    self menu_clear_items( "props_univ" );
+
+    n = 0;
+
+    foreach ( r in prop_universal() )
+    {
+        if ( !isassetloaded( "xmodel", r.model ) )
+            continue;
+
+        self menu_item( "props_univ", "Place " + r.label, &act_prop_spawn, r.model, r.scale );
+        n++;
+    }
+
+    if ( n == 0 )
+        self menu_item( "props_univ", "(none of the universal models read resident here)", undefined );
+}
+
+// App verb: place a universal prop by its model name or label prefix (case-insensitive).
+function private cmd_prop( arg )
+{
+    want = tolower( arg );
+
+    foreach ( r in prop_universal() )
+    {
+        if ( tolower( r.model ) == want || tolower( r.label ) == want )
+            return self act_prop_spawn( spawnstruct(), r.model, r.scale );
+    }
+
+    foreach ( r in prop_map_rows() )
+    {
+        if ( tolower( r.model ) == want )
+            return self act_prop_spawn( spawnstruct(), r.model, r.scale );
+    }
+
+    if ( want != "" && isassetloaded( "xmodel", arg ) )
+        return self act_prop_spawn( spawnstruct(), arg, 1 );
+
+    self menu_say( "^1prop: no such model here '" + arg + "'" );
+    return true;
+}
 
 
 // ── Map ──────────────────────────────────────────────────────────────────────
