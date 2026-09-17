@@ -104,6 +104,17 @@ These are **not** auto-loaded. Open the one you need.
   opened one in an MP match and it drew "Match starting" — then a plain string in it was a **fatal LUI error**
   (`localizeentry`, hash = the string). So: positioned rows of STOCK localized keys only, a wrong key crashes
   the client, and the hint panel stays the free-text ceiling. The `77LCOPnn` readout; crash-dump decode.
+- [lui-source](lui-source.md) — 🔓 **the client UI Lua is READABLE now (2026-09-17).** All 4,735 LUI
+  chunks decompiled offline from the game's fastfiles (no game process) to `C:\bocw\lui-source\`; the
+  format was LuaJIT 2.1 with a T9 xhash-constant variant (not Havok Script). `tools/lui/`: carve,
+  crack the xhashes (= the script hash), a patched `ljd`, and an offline T9 Lua **compiler** +
+  read-only pool lister. Ends "the dump ships no Lua."
+- [pause-menu](pause-menu.md) — **the in-match pause menu, read from source.** It is client Lua
+  (`StartMenu_Main`), talks to GSC via `sendmenuresponse`, and — the useful find — the stock popup
+  `open_generic_script_dialog(title, description)` renders **plain GSC strings unlocalized** (its Lua
+  localizes only a hash), so it is a titled free-text popup + Close button drivable from host GSC with
+  no client payload. Three routes to custom rows (stock popup → DataSources row → inject our own chunk);
+  the popup test is cheap and first. Read, not yet measured.
 - [ecosystem-survey](ecosystem-survey.md) — **the whole Cold War modding scene, swept 2026-09-13.**
   Nobody else does open MP gametype/lobby work; the one new thing is the Zombies-only *T9 Mod Manager*
   scene (Aug 2026, 1.4k-member Discord, encrypted `.cwm` packages, mods configured in the pregame

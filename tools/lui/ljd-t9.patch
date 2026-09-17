@@ -1,0 +1,219 @@
+diff --git a/ljd/lua/writer.py b/ljd/lua/writer.py
+index 0e5dfd4..3eb19bb 100644
+--- a/ljd/lua/writer.py
++++ b/ljd/lua/writer.py
+@@ -705,18 +705,26 @@ class Visitor(traverse.Visitor):
+             if base_is_constructor:
+                 self._write(")")
+ 
+-            self._write(":")
+-
+-            assert self._is_valid_name(func.key)
+-
+-            self._write(func.key.value)
+-            self._skip(func.key)
+-
+-            self._skip(node.function)
++            if self._is_valid_name(func.key):
++                self._write(":")
++                self._write(func.key.value)
++                self._skip(func.key)
++                self._skip(node.function)
+ 
+-            self._write("(")
+-            self._visit(node.arguments)
+-            self._write(")")
++                self._write("(")
++                self._visit(node.arguments)
++                self._write(")")
++            else:
++                # T9: a hashed method name -- obj["#hash"](obj, args)
++                self._write('[')
++                self._visit(func.key)
++                self._write('](')
++                self._skip(node.function)
++                self._visit(base)
++                if node.arguments.contents:
++                    self._write(", ")
++                self._visit(node.arguments)
++                self._write(")")
+ 
+             self._skip(node.arguments)
+         else:
+diff --git a/ljd/rawdump/constants.py b/ljd/rawdump/constants.py
+index 77758ef..1991770 100644
+--- a/ljd/rawdump/constants.py
++++ b/ljd/rawdump/constants.py
+@@ -6,6 +6,24 @@ import struct
+ import sys
+ 
+ import ljd.bytecode.constants
++import ljd.rawdump.header as _hdr
++
++_XHASH_NAMES = {}
++
++def load_xhash_names(path):
++    import json
++    _XHASH_NAMES.update({int(k, 16): v for k, v in json.load(open(path)).items()})
++
++class XHash(str):
++    '''A T9 hashed-string constant, rendered as #name or #hash_xxx'''
++    pass
++
++def _xhash(parser):
++    hi = parser.stream.read_uleb128()
++    lo = parser.stream.read_uleb128()
++    h = lo | (hi << 32)
++    name = _XHASH_NAMES.get(h)
++    return XHash('#' + name if name else '#hash_%x' % h)
+ 
+ BCDUMP_KGC_CHILD = 0
+ BCDUMP_KGC_TAB = 1
+@@ -49,6 +67,17 @@ def _read_complex_constants(parser, complex_constants):
+     while i < parser.complex_constants_count:
+         constant_type = parser.stream.read_uleb128()
+ 
++        if _hdr.T9:
++            # T9: 0 child, 1 tab, 2 i64, 3 u64, 4 xhash, 5 complex, 6+ str
++            if constant_type == 4:
++                complex_constants.append(_xhash(parser))
++                i += 1
++                continue
++            if constant_type == 5:
++                constant_type = BCDUMP_KGC_COMPLEX
++            elif constant_type >= 6:
++                constant_type = BCDUMP_KGC_STR + (constant_type - 6)
++
+         if constant_type >= BCDUMP_KGC_STR:
+             length = constant_type - BCDUMP_KGC_STR
+ 
+@@ -153,6 +182,13 @@ def _read_table(parser, table):
+ def _read_table_item(parser):
+     data_type = parser.stream.read_uleb128()
+ 
++    if _hdr.T9:
++        # T9: 0 nil, 1 false, 2 true, 3 int, 4 num, 5 xhash, 6+ str
++        if data_type == 5:
++            return _xhash(parser)
++        if data_type >= 6:
++            data_type = BCDUMP_KTAB_STR + (data_type - 6)
++
+     if data_type >= BCDUMP_KTAB_STR:
+         length = data_type - BCDUMP_KTAB_STR
+ 
+diff --git a/ljd/rawdump/header.py b/ljd/rawdump/header.py
+index 843abd7..4080570 100644
+--- a/ljd/rawdump/header.py
++++ b/ljd/rawdump/header.py
+@@ -13,6 +13,8 @@ _FLAG_IS_BIG_ENDIAN = 0b00000001
+ _FLAG_IS_STRIPPED = 0b00000010
+ _FLAG_HAS_FFI = 0b00000100
+ _FLAG_FR2 = 0b00001000
++_FLAG_T9_XHASH = 0b00010000   # Cold War (T9): xhash constants, no chunkname
++T9 = False
+ 
+ 
+ class Flags:
+@@ -21,6 +23,7 @@ class Flags:
+         self.is_stripped = False
+         self.has_ffi = False
+         self.fr2 = False
++        self.t9 = False
+ 
+ 
+ class Header:
+@@ -80,6 +83,11 @@ def _read_flags(parser, header):
+     header.flags.fr2 = bool(bits & _FLAG_FR2)
+     bits &= ~_FLAG_FR2
+ 
++    header.flags.t9 = bool(bits & _FLAG_T9_XHASH)
++    bits &= ~_FLAG_T9_XHASH
++    global T9
++    T9 = header.flags.t9
++
+     parser.flags.is_stripped = header.flags.is_stripped
+     if bits != 0:
+         errprint("Unknown flags set: {0:08b}", bits)
+@@ -89,7 +97,7 @@ def _read_flags(parser, header):
+ 
+ 
+ def _read_name(state, header):
+-    if header.flags.is_stripped:
++    if header.flags.is_stripped or header.flags.t9:
+         header.name = state.stream.name
+     else:
+         length = state.stream.read_uleb128()
+diff --git a/ljd/rawdump/luajit/t9/__init__.py b/ljd/rawdump/luajit/t9/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/ljd/rawdump/luajit/t9/luajit_opcode.py b/ljd/rawdump/luajit/t9/luajit_opcode.py
+new file mode 100644
+index 0000000..0734f8f
+--- /dev/null
++++ b/ljd/rawdump/luajit/t9/luajit_opcode.py
+@@ -0,0 +1,11 @@
++#
++# Cold War (T9) LuaJIT 2.1 variant: one extra opcode KXHASH at 0x28 (load an
++# xhash constant), every stock opcode from KCDATA onward shifted by +1.
++# Measured 2026-09-17 on core_ui.ff (proto tails = RET*, JMP = 0x59).
++#
++import ljd.bytecode.instructions as instructions
++from ljd.rawdump.luajit.v2_1.luajit_opcode import _OPCODES as _STOCK
++
++KXHASH = instructions._IDef("KXHASH", instructions.T_DST, None, instructions.T_STR, "{A} = {D}")
++
++_OPCODES = tuple((op if op < 0x28 else op + 1, cls) for op, cls in _STOCK) + ((0x28, KXHASH),)
+diff --git a/ljd/rawdump/prototype.py b/ljd/rawdump/prototype.py
+index 38d7953..7bd7179 100644
+--- a/ljd/rawdump/prototype.py
++++ b/ljd/rawdump/prototype.py
+@@ -141,6 +141,16 @@ def _read_debuginfo(stream, prototype):
+     if stream.debuginfo_size == 0:
+         return True
+ 
++    import ljd.rawdump.header as _hdr
++    if _hdr.T9:
++        # T9 debug block = line info only (no upvalue/variable names); it may be
++        # followed by padding, so seek to its declared end afterwards.
++        start = stream.stream.pos
++        r = ljd.rawdump.debuginfo._read_lineinfo(stream, prototype.first_line_number,
++                                                 prototype.debuginfo.addr_to_line_map)
++        stream.stream.pos = start + stream.debuginfo_size
++        return r
++
+     return ljd.rawdump.debuginfo.read(stream,
+                                       prototype.first_line_number,
+                                       prototype.debuginfo)
+diff --git a/main.py b/main.py
+index 0c1b633..4df76ab 100644
+--- a/main.py
++++ b/main.py
+@@ -32,6 +32,10 @@ from optparse import OptionParser, OptionGroup
+ from shutil import copyfile
+ 
+ import ljd.rawdump.parser
++import ljd.rawdump.constants
++import os as _os
++if _os.environ.get('LJD_XHASH_NAMES'):
++    ljd.rawdump.constants.load_xhash_names(_os.environ['LJD_XHASH_NAMES'])
+ import ljd.rawdump.code
+ import ljd.pseudoasm.writer
+ import ljd.pseudoasm.instructions
+@@ -64,6 +68,8 @@ def set_luajit_version(bc_version):
+         from ljd.rawdump.luajit.v2_0.luajit_opcode import _OPCODES as opcodes
+     elif bc_version == 2.1:
+         from ljd.rawdump.luajit.v2_1.luajit_opcode import _OPCODES as opcodes
++    elif bc_version == 2.19:
++        from ljd.rawdump.luajit.t9.luajit_opcode import _OPCODES as opcodes
+     else:
+         raise Exception("Unknown LuaJIT opcode module name for version " + str(bc_version))
+ 
+@@ -363,7 +369,7 @@ class Main:
+             elif preheader.version == 2:
+                 bc_version = 2.1
+             elif preheader.version == 130:
+-                bc_version = 2.1
++                bc_version = 2.19 if (preheader.flags.t9 if hasattr(preheader, 'flags') else False) else 2.1
+             else:
+                 raise Exception("Unsupported bytecode version: " + str(bc_version))
+ 

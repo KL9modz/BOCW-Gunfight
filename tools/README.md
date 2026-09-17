@@ -17,6 +17,7 @@
 | `inject.sh` | Inject **one** payload (`menu`, `mod`, or any `src/<name>/`) on the known-safe hook/replace pair |
 | `autoinject.sh` | Watch for the game and inject automatically, re-arming after each restart |
 | `cw-loader-shim/` | C shim for the `discord_game_sdk.dll` slot (see `docs/notes/unlock-dlls.md`) |
+| `lui/` | **The client UI (LUI) toolkit — offline.** Extract + decompile Cold War's Lua from the game's fastfiles (`extract-lui.sh` → `C:\bocw\lui-source\`), carve/index/crack it (`ljcarve.py`), an offline T9 LuaJIT **compiler** (`lj2t9.py`), a read-only + inject `luafile` pool tool (`luapool.py`), and the `ljd` T9 patch. `docs/notes/lui-source.md`, `docs/notes/pause-menu.md`. ⚠ `luapool.py --inject` writes game memory — klaze runs it |
 
 The full hosting procedure — Gunfight on any map with a 60-second round timer — is in
 [`../docs/notes/menu-map.md`](../docs/notes/menu-map.md). Read that first; this file only covers
