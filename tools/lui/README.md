@@ -14,7 +14,10 @@ bash tools/lui/extract-lui.sh            # ~20 min first run; output /c/bocw/lui
 |---|---|
 | `extract-lui.sh` | The pipeline: ACTS CASC-backed fastfile decompress → carve → xhash name table → ljd decompile. Idempotent; `JOBS=8`; one zone as `$1` |
 | `ljcarve.py` | Offline — carves every `luafile` asset (LuaJIT `1B 4C 4A 82` chunks) out of a decompressed `.ff.dec`, parses the T9 bytecode container, writes `index.json` (every string / xhash constant per chunk — grep this to find a menu), and `--names` builds the xhash → name table by hashing every candidate string (FNV1a-64 lowercase 63-bit, the script hash) |
-| `ljd-t9.patch` | The four changes that make [Aussiemon/ljd](https://github.com/Aussiemon/ljd) (MIT, `2ed0381`) read T9 chunks: header flag `0x10` + no chunk name, KGC/KTAB xhash constant types, line-info-only debug block, opcode `0x28 = KXHASH` (+1 shift after it). Applied by the script |
+| `ljd-t9.patch` | The changes that make [Aussiemon/ljd](https://github.com/Aussiemon/ljd) (MIT, `2ed0381`) read T9 chunks: header flag `0x10` + no chunk name, KGC/KTAB xhash constant types, line-info-only debug block, opcode `0x28 = KXHASH` (+1 shift after it), and a writer fix for hashed method calls (`obj["#hash"](obj, args)`). Applied by the script |
+| `lj2t9.py` | Offline **T9 Lua compiler**: `compile` (stock LuaJIT via `pip lupa` → T9), `to-stock` (T9 → stock, so any LuaJIT tool reads it), `verify` (load chunks in a real LuaJIT 2.1). `#name` → xhash, `#hash_HEX` → raw hash, everything else plain text |
+| `luapool.py` | The live game's `luafile` xasset pool: read-only `--list` (reuses `lobby-set.py`'s scanner) or `--inject a.luac --as HEX` (allocate + write + repoint, like `acts injectcw`; **writes memory — klaze runs it**) |
+| `localize.py` | Offline — carve the English localize table (xhash key → UI text) from a decompressed localized zone (`en_core_ui.ff.dec`). Heuristic; `lui-source/localize_en.json` is ~95% clean and flags which keys the UI Lua references |
 
 ## What the format turned out to be
 
