@@ -892,6 +892,7 @@ function private mod_apply()
     if ( debug_feed_any() )
         debug_feed_start();
     level thread mapdata_publish();     // GAME->APP map census (mapdata_scan.py)
+    level thread config_publish();     // GAME->APP live config readback (config_scan.py -> app "Load current")
 
     // Movement mods apply in EVERY gametype, so they run before the Gunfight gate.
     mod_movement();
@@ -7600,6 +7601,41 @@ function private roster_publish()
             level.gf_roster = "GFRO" + "STER|" + gettime() + "|" + body + "|END";
         }
 
+        wait 2;
+    }
+}
+
+// ── GAME->APP config readback (config_scan.py, the app's "Load current") ──────
+// The bridge is app->game only and the GSC dvar store cannot be read from outside, so the
+// live config is published the roster's way: one marked string kept alive in level.gf_cfgpub,
+// swept read-only from memory by tools/gf-control/config_scan.py. The app has no other way
+// to know what is actually set - its fields are otherwise just its own launch defaults, and a
+// value changed from the in-game menu (or a previous app run) is invisible to it. This echoes
+// the RAW packed chunk dvars gf_c0..gf_c8 (a menu pick writes them via cfg_write_chunk, an app
+// apply writes them over the bridge - so both show up), plus gf_oob and the two bot-knob packs;
+// the app resolves an empty field to its own default exactly as cfg_load does here. Assembled
+// at runtime ("GF"+"CFG") so the payload's string table carries no decoy. Refreshed every 2 s;
+// the tick lets the newest copy win over a stale one the string pool has not reused.
+function private config_publish()
+{
+    if ( isdefined( level.gf_cfgpub_on ) && level.gf_cfgpub_on )
+        return;
+
+    level endon( #"game_ended" );
+    level.gf_cfgpub_on = 1;
+
+    for ( ;; )
+    {
+        s = "GF" + "CFG|" + gettime();
+
+        for ( c = 0; c <= 8; c++ )
+            s += "|" + getdvarstring( "gf_c" + c, "" );
+
+        s += "|oob=" + cfg_oob();
+        s += "|bot=" + getdvarstring( #"gf_bot", "" );
+        s += "|bot2=" + getdvarstring( #"gf_bot2", "" );
+        s += "|" + "END";
+        level.gf_cfgpub = s;
         wait 2;
     }
 }

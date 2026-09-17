@@ -70,6 +70,11 @@ try:
 except Exception:
     roster_scan = None
 
+try:
+    import config_scan                       # read-only: the LIVE gf_* config out of the game
+except Exception:
+    config_scan = None
+
 
 def _no_window() -> dict:
     """subprocess kwargs that hide the child's console window - otherwise every shell-out
@@ -656,11 +661,16 @@ class App:
                    command=self._apply_restart).pack(side="left")
         ttk.Button(bar, text="Reset",
                    command=self._reset).pack(side="left", padx=6)
+        # Read the LIVE values out of the running game (config_scan.py, a read-only memory
+        # sweep) and snap every field to them - the app is otherwise blind to what the game
+        # actually has (in-game menu picks, a previous app run). See config_scan.py.
+        ttk.Button(bar, text="Load current",
+                   command=self._load_current).pack(side="left", padx=(6, 0))
         # NO "Apply ALL" button: one existed for ~10 minutes on 2026-09-15 and CRASHED the game
         # on first click - ~60 `set gf_*` in one message registers that many dvars at once and
         # the store overflows ("Can't register more dvar", the 2026-09-14 crash class). The
         # touched-field rule above is the safe way to undo an in-game menu value.
-        ttk.Label(bar, text="Apply now = live this round · Next round = defers round-safe settings",
+        ttk.Label(bar, text="Apply now = live this round · Next round = defers round-safe · Load current = read the game’s live values",
                   foreground="#777").pack(side="left", padx=10)
 
         inner = self._scrollable(tab)
@@ -1564,6 +1574,57 @@ class App:
             for dvar, _l, _k, _s, default in fields:
                 self.vars[dvar].set(default)
         self._say("reset to defaults (not yet applied)")
+
+    def _load_current(self):
+        # Snap every field to the game's LIVE config (config_scan.py: the GSC publishes the
+        # packed chunks + gf_oob + bot knobs as a marked string, swept read-only from memory).
+        # This is the ONLY read path - the bridge is app->game only - so it is how the app
+        # learns what the in-game menu (or a previous run) set. Also seeds _applied so the
+        # pending/Next-round logic treats the loaded values as the baseline.
+        if config_scan is None or gf_native is None:
+            self._say("load current: config_scan / gf_native not importable")
+            return
+        if getattr(self, "_loadcur_busy", False):
+            return
+        self._loadcur_busy = True
+        self._say("load current: sweeping game memory...")
+
+        def worker():
+            try:
+                pid = gf_native.find_game_pid()
+                if not pid:
+                    raise RuntimeError("game not running")
+                r = config_scan.read_config(pid, self._defaults)
+                self.root.after(0, lambda: self._load_current_done(r, None))
+            except Exception as e:                      # noqa: BLE001 - surfaced in the log
+                self.root.after(0, lambda: self._load_current_done(None, str(e)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _load_current_done(self, r, err):
+        self._loadcur_busy = False
+        if err:
+            self._say("load current: " + err)
+            return
+        if r is None:
+            self._say("load current: no GFCFG in memory (menu injected? match running?)")
+            return
+        tick, cfg = r
+        n = 0
+        for dvar, val in cfg.items():
+            if dvar not in self.vars:
+                continue
+            try:
+                cur = self.vars[dvar].get()
+            except Exception:
+                cur = None
+            if cur != val:
+                self.vars[dvar].set(val)          # trace re-adds it to _touched; clear below
+                n += 1
+            self._applied[dvar] = val             # loaded value is the new baseline
+            self._touched.discard(dvar)           # not a pending change - it IS the game's value
+        self._say(f"load current: {len(cfg)} fields read, {n} changed to match the game (tick {tick})")
+
 
     def _say(self, msg: str):
         self.logw.insert("end", msg + "\n")
