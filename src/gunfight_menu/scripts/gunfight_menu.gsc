@@ -596,6 +596,25 @@ function private cfg_write_chunk( chunk )
 }
 
 function private cfg_switch_wait()   { return cfg_geti( #"gf_switch_wait", 0 ); }  // 0 = immediate switch (cp form); klaze default 2026-09-15
+
+// ── Write a gametype setting ONLY when it actually changes ────────────────────
+// The engine FAST-RESTARTS the match when setgametypesetting() changes certain keys
+// (maxplayers + the round limits, measured 2026-09-15). mod_apply re-asserts the whole
+// blob every round (a Gunfight round is a map_restart, so on_start_gametype re-fires),
+// and cmd_apply_live ("Apply now") re-asserts periods/bots on every apply - so a bare
+// setgametypesetting fires a reload every time even when the value did not change. Since
+// the packed config store (2026-09-16) makes the app resend a whole 6-field chunk when any
+// one field in it changes, an unrelated Apply (e.g. the timer, which shares a chunk with
+// team size) was re-writing a restart key at its old value and reloading the match.
+// getgametypesetting returns the live value (stock compares it the same way,
+// globallogic.gsc updategametypedvars :3447), so skip the write when it already matches:
+// a redundant assert is now a no-op, and only a genuine change reloads. This is the single
+// choke point - every setgametypesetting in this file goes through it.
+function private gts_set( key, value )
+{
+    if ( getgametypesetting( key ) !== value )
+        setgametypesetting( key, value );
+}
 function private cfg_autoswitch()    { return cfg_geti( #"gf_autoswitch", 0 ); }
 // ⚠ Clamped: menu_think primes `for(i=0;i<lines+1)` blanks, so a garbage-huge value here spins
 // the render and freezes the game (measured 2026-09-14). Bound both row counts to a sane range.
@@ -941,7 +960,7 @@ function private mod_apply()
 
     // Team size. maxplayers = 2 x per side; L6 measured it survives the round boundary,
     // so this is belt-and-braces against the CARRY, which re-initialises settings.
-    setgametypesetting( #"maxplayers", maxplayers_value( clamp_team_size( cfg_team_size() ) ) );
+    gts_set( #"maxplayers", maxplayers_value( clamp_team_size( cfg_team_size() ) ) );
 
     // ── Mode remnants after a session switch ─────────────────────────────────
     // Gametype settings SURVIVE switchmap_load (LS6, docs/notes/session-switch.md), so a
@@ -962,7 +981,7 @@ function private mod_apply()
     // Gunfight blob (column A), so mode_profile_gunfight below asserts it with customcac.
     // gf_customcac 1 = the rules-menu "Custom Classes" row (disable_cac.json), on purpose.
     dcc = cfg_customcac() ? 0 : 1;
-    setgametypesetting( #"disablecustomcac", dcc );
+    gts_set( #"disablecustomcac", dcc );
     level.disablecustomcac = dcc;
 
     // The rest of the real Gunfight blob (column A, measured 2026-09-14) - settings AND the
@@ -973,15 +992,15 @@ function private mod_apply()
     // Loadout set and spy plane - written each match from the dvars (mod_apply is once
     // per match). Harmless when unchanged. The loadout LATCH (game.var_96a8ff4a) is
     // cleared only by the menu action, once, so a change takes effect without re-randomising.
-    setgametypesetting( #"gunfightloadoutindex", cfg_loadout() );
-    setgametypesetting( #"gunfightspyplane", cfg_spyplane() );
+    gts_set( #"gunfightloadoutindex", cfg_loadout() );
+    gts_set( #"gunfightspyplane", cfg_spyplane() );
 
     // Match-length knobs - sentinel -1 leaves the lobby value alone. Re-applied each match
     // like the timer/team so a menu pick self-heals across the round boundary and a carry.
     if ( cfg_roundwinlimit() >= 0 )
-        setgametypesetting( #"roundwinlimit", cfg_roundwinlimit() );
+        gts_set( #"roundwinlimit", cfg_roundwinlimit() );
     if ( cfg_roundlimit() >= 0 )
-        setgametypesetting( #"roundlimit", cfg_roundlimit() );
+        gts_set( #"roundlimit", cfg_roundlimit() );
     // Loadout rotation AND side switch, both driven by this one setting: gunfight.gsc
     // onendround rotates the loadout and calls on_round_switch() (the side swap) inside a
     // single check on level.gunfightroundsperloadout. TWO reasons a menu pick did nothing:
@@ -997,7 +1016,7 @@ function private mod_apply()
     rpl = ( cfg_rounds_loadout() >= 0 ) ? cfg_rounds_loadout() : 2;
     if ( cfg_rounds_loadout() >= 0 || ( cfg_profile() && profile_is_hybrid() ) )
     {
-        setgametypesetting( #"gunfightroundsperloadout", rpl );
+        gts_set( #"gunfightroundsperloadout", rpl );
         level.gunfightroundsperloadout = rpl;
         if ( isdefined( level.var_d1455682 ) )
             level.var_d1455682.switchsides = 1;
@@ -1587,9 +1606,9 @@ function private mod_periods()
     pr = periods_value( cfg_preround(), game.gf_lobby_preround );
 
     if ( isdefined( pm ) )
-        setgametypesetting( #"prematchperiod", pm );
+        gts_set( #"prematchperiod", pm );
     if ( isdefined( pr ) )
-        setgametypesetting( #"preroundperiod", pr );
+        gts_set( #"preroundperiod", pr );
 
     // Which countdown THIS load runs: the postinit's snapshot of stock's own test
     // (mod_postinit). Stock skips the pre-round read in splitscreen (:5085); mirror that.
@@ -6807,7 +6826,7 @@ function private build_tree()
 function private act_spec_slots( item, value )
 {
     cfg_seti( #"gf_spec_slots", value );
-    setgametypesetting( #"maxplayers", maxplayers_value( clamp_team_size( cfg_team_size() ) ) );
+    gts_set( #"maxplayers", maxplayers_value( clamp_team_size( cfg_team_size() ) ) );
     self menu_say( "^2spectator slots " + value + " - maxplayers now " + census_v( getgametypesetting( #"maxplayers" ) ) + " (budget " + getdvarint( #"com_maxclients", 0 ) + ")" );
     return true;
 }
@@ -6816,7 +6835,7 @@ function private act_team_size( item, per_side )
 {
     clamped = clamp_team_size( per_side );
     cfg_seti( #"gf_team_size", clamped );
-    setgametypesetting( #"maxplayers", maxplayers_value( clamped ) );
+    gts_set( #"maxplayers", maxplayers_value( clamped ) );
 
     if ( clamped < per_side )
     {
@@ -7010,14 +7029,14 @@ function private bot_diff_apply()
     dx = cfg_bot_diff_axis();
 
     if ( da >= 0 )
-        setgametypesetting( #"bot_difficulty_allies", bot_diff_stock( da ) );
+        gts_set( #"bot_difficulty_allies", bot_diff_stock( da ) );
     if ( dx >= 0 )
-        setgametypesetting( #"bot_difficulty_axis", bot_diff_stock( dx ) );
+        gts_set( #"bot_difficulty_axis", bot_diff_stock( dx ) );
     // bot_difficulty.gsc:63 reads bot_difficulty_vs_bots INSTEAD of the per-team pair when the
     // lobby's vs-bots flag (hash_c6a2e6c3e86125a, uncracked) is set. Mirror an agreed pick
     // there too so that mode follows; a split pick has no single value to mirror.
     if ( da >= 0 && da == dx )
-        setgametypesetting( #"bot_difficulty_vs_bots", bot_diff_stock( da ) );
+        gts_set( #"bot_difficulty_vs_bots", bot_diff_stock( da ) );
 
     n = 0;
 
@@ -7970,7 +7989,7 @@ function private act_prematch( item, secs )
     cfg_seti( #"gf_prematch", secs );
     v = periods_value( secs, game.gf_lobby_prematch );
     if ( isdefined( v ) )
-        setgametypesetting( #"prematchperiod", v );
+        gts_set( #"prematchperiod", v );
     self menu_say( "^2pre-match countdown " + ( secs >= 0 ? ( secs + "s" ) : "lobby's value" ) + " - next match" );
     return true;
 }
@@ -7981,7 +8000,7 @@ function private act_preround( item, secs )
     cfg_seti( #"gf_preround", secs );
     v = periods_value( secs, game.gf_lobby_preround );
     if ( isdefined( v ) )
-        setgametypesetting( #"preroundperiod", v );
+        gts_set( #"preroundperiod", v );
     self menu_say( "^2pre-round countdown " + ( secs >= 0 ? ( secs + "s" ) : "lobby's value" ) + " - from next round" );
     return true;
 }
@@ -7998,7 +8017,7 @@ function private act_restart( item )
 function private act_loadout( item, index )
 {
     cfg_seti( #"gf_loadout", index );
-    setgametypesetting( #"gunfightloadoutindex", index );
+    gts_set( #"gunfightloadoutindex", index );
 
     // gunfight.gsc:81 picks the loadout set only while game.var_96a8ff4a is
     // undefined. Clear the latch once so the NEXT round re-picks from the new set.
@@ -8015,7 +8034,7 @@ function private act_customcac( item, value )
 {
     cfg_seti( #"gf_customcac", value );
     dcc = value ? 0 : 1;
-    setgametypesetting( #"disablecustomcac", dcc );
+    gts_set( #"disablecustomcac", dcc );
     self menu_say( value ? "^2custom classes ON - next match / switch" : "^2custom classes OFF - Gunfight loadouts next match / switch" );
     return true;
 }
@@ -8065,7 +8084,7 @@ function private act_poolcamo_split( item, value )
 function private act_spyplane( item, value )
 {
     cfg_seti( #"gf_spyplane", value );
-    setgametypesetting( #"gunfightspyplane", value );
+    gts_set( #"gunfightspyplane", value );
     self menu_say( "^2spy plane " + value + " - next round" );
     return true;
 }
@@ -8612,7 +8631,7 @@ function private act_spawn_guard( item, value )
 function private act_roundwinlimit( item, value )
 {
     cfg_seti( #"gf_roundwinlimit", value );
-    setgametypesetting( #"roundwinlimit", value );
+    gts_set( #"roundwinlimit", value );
     self menu_say( "^2first to " + value + " rounds - applies next round" );
     return true;
 }
@@ -8620,7 +8639,7 @@ function private act_roundwinlimit( item, value )
 function private act_roundlimit( item, value )
 {
     cfg_seti( #"gf_roundlimit", value );
-    setgametypesetting( #"roundlimit", value );
+    gts_set( #"roundlimit", value );
     self menu_say( "^2round cap " + value + " - applies next round" );
     return true;
 }
@@ -8628,7 +8647,7 @@ function private act_roundlimit( item, value )
 function private act_rounds_loadout( item, value )
 {
     cfg_seti( #"gf_rounds_loadout", value );
-    setgametypesetting( #"gunfightroundsperloadout", value );
+    gts_set( #"gunfightroundsperloadout", value );
     // The live level var the round-end check actually reads (see mod_apply), plus the
     // side-switch gate - so a mid-match pick takes effect this match, not only next match.
     level.gunfightroundsperloadout = value;
@@ -11897,39 +11916,39 @@ function private mode_profile_gunfight( in_match )
         return;
 
     // Round rules.
-    setgametypesetting( #"playernumlives", 1 );
-    setgametypesetting( #"scorelimit", 0 );
-    setgametypesetting( #"cumulativeroundscores", 0 );
-    setgametypesetting( #"teamscoreperkill", 0 );
+    gts_set( #"playernumlives", 1 );
+    gts_set( #"scorelimit", 0 );
+    gts_set( #"cumulativeroundscores", 0 );
+    gts_set( #"teamscoreperkill", 0 );
     rwl = ( cfg_roundwinlimit() >= 0 ) ? cfg_roundwinlimit() : 6;
     rl = ( cfg_roundlimit() >= 0 ) ? cfg_roundlimit() : 0;
-    setgametypesetting( #"roundwinlimit", rwl );
-    setgametypesetting( #"roundlimit", rl );
+    gts_set( #"roundwinlimit", rwl );
+    gts_set( #"roundlimit", rl );
 
     // Respawn shape.
-    setgametypesetting( #"playerforcerespawn", 1 );
-    setgametypesetting( #"playerqueuedrespawn", 0 );
-    setgametypesetting( #"playerrespawndelay", 0 );
+    gts_set( #"playerforcerespawn", 1 );
+    gts_set( #"playerqueuedrespawn", 0 );
+    gts_set( #"playerrespawndelay", 0 );
 
     // Loadout surface.
     dcs = cfg_customcac() ? 0 : 1;
-    setgametypesetting( #"disableclassselection", dcs );
-    setgametypesetting( #"perksenabled", 0 );
-    setgametypesetting( #"loadoutkillstreaksenabled", 0 );
-    setgametypesetting( #"disableattachments", 0 );
-    setgametypesetting( #"disableweapondrop", 0 );
-    setgametypesetting( #"disabletacinsert", 0 );
+    gts_set( #"disableclassselection", dcs );
+    gts_set( #"perksenabled", 0 );
+    gts_set( #"loadoutkillstreaksenabled", 0 );
+    gts_set( #"disableattachments", 0 );
+    gts_set( #"disableweapondrop", 0 );
+    gts_set( #"disabletacinsert", 0 );
 
     // Health, damage, radar, pacing.
-    setgametypesetting( #"playermaxhealth", 150 );
-    setgametypesetting( #"playerhealthregentime", 5 );
-    setgametypesetting( #"autoheal", 0 );
-    setgametypesetting( #"bulletdamagescalar", 1 );
-    setgametypesetting( #"forceradar", 0 );
-    setgametypesetting( #"roundstartexplosivedelay", 5 );
-    setgametypesetting( #"roundstartkillstreakdelay", 10 );
-    setgametypesetting( #"playersprinttime", 4 );
-    setgametypesetting( #"spectatetype", 6 );
+    gts_set( #"playermaxhealth", 150 );
+    gts_set( #"playerhealthregentime", 5 );
+    gts_set( #"autoheal", 0 );
+    gts_set( #"bulletdamagescalar", 1 );
+    gts_set( #"forceradar", 0 );
+    gts_set( #"roundstartexplosivedelay", 5 );
+    gts_set( #"roundstartkillstreakdelay", 10 );
+    gts_set( #"playersprinttime", 4 );
+    gts_set( #"spectatetype", 6 );
 
     if ( !in_match )
         return;
@@ -11975,7 +11994,7 @@ function private mode_profile_prime( gametype )
         return;
 
     dcc = cfg_customcac() ? 0 : 1;
-    setgametypesetting( #"disablecustomcac", dcc );
+    gts_set( #"disablecustomcac", dcc );
     // Nothing else is primed: MEASURED 2026-09-14, a lobby launch rebuilds the blob from the
     // session gametype's preset (column B == A), so settings written here never reach it.
     // The profile fires in the switched level's own mod_apply instead.
