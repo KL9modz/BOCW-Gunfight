@@ -64,35 +64,41 @@ def read_rows(proc, pool, n=200):
 
 
 def find_luafile_row(proc, rows):
-    """The row whose items look like {name, 0, len, pad, buffer -> 1B 4C 4A}."""
+    """The pool row whose items are LuaFile{ name@0, len@8, buffer@(itemSize-8) -> 1B 4C 4A }.
+
+    CW runtime LuaFile is 0x18 (ACTS cw_unlinker_luafile.cpp: {CWXHash name; u32 len; byte* buffer}),
+    NOT the 0x20 fastfile-stream layout. buffer is the last field, at itemSize-8, whatever the size."""
     for i, p, isz, cnt, alloc in rows:
-        if isz != 0x20 or not p or alloc <= 0 or alloc > 100000:
+        if not p or alloc <= 0 or alloc > 200000 or isz < 0x10 or isz > 0x40:
             continue
-        raw = proc.read(p, 0x20 * min(alloc, 8))
-        if not raw:
+        n = min(alloc, 16)
+        raw = proc.read(p, isz * n)
+        if not raw or len(raw) < isz * n:
             continue
         good = 0
-        for j in range(min(alloc, 8)):
-            name, zero, ln, pad, buf = struct.unpack_from('<QQIIQ', raw, 0x20 * j)
-            if buf and 8 < ln < 16_000_000:
+        for j in range(n):
+            buf = struct.unpack_from('<Q', raw, isz * j + isz - 8)[0]
+            if buf:
                 head = proc.read(buf, 4)
                 if head and head[:3] == b'\x1bLJ':
                     good += 1
-        if good >= 4:
-            return i, p, cnt, alloc
+        if good >= 3:
+            return i, p, cnt, alloc, isz
     return None
 
 
-def list_entries(proc, p, alloc, match_dir=None):
+def list_entries(proc, p, alloc, isz, match_dir=None):
     known = {}
     if match_dir:
         import glob, hashlib
         for f in glob.glob(os.path.join(match_dir, '**', '*.luac'), recursive=True):
             known[hashlib.sha1(open(f, 'rb').read()).hexdigest()] = os.path.basename(f)
-    raw = proc.read(p, 0x20 * alloc)
+    raw = proc.read(p, isz * alloc)
     out = []
     for j in range(alloc):
-        name, zero, ln, pad, buf = struct.unpack_from('<QQIIQ', raw, 0x20 * j)
+        name = struct.unpack_from('<Q', raw, isz * j)[0]
+        ln = struct.unpack_from('<I', raw, isz * j + 8)[0]
+        buf = struct.unpack_from('<Q', raw, isz * j + isz - 8)[0]
         if not buf:
             continue
         tag = ''
@@ -124,9 +130,9 @@ def main():
     lf = find_luafile_row(proc, rows)
     if not lf:
         ls._die('no pool row looks like luafile {name,0,len,pad,buffer->1B 4C 4A}')
-    idx, p, cnt, alloc = lf
-    print('luafile pool = row %d @ %#x, itemSize 0x20, count %d, alloc %d' % (idx, p, cnt, alloc))
-    entries = list_entries(proc, p, alloc, a.match)
+    idx, p, cnt, alloc, isz = lf
+    print('luafile pool = row %d @ %#x, itemSize %#x, count %d, alloc %d' % (idx, p, isz, cnt, alloc))
+    entries = list_entries(proc, p, alloc, isz, a.match)
     if a.list:
         for j, name, ln, buf, tag in entries:
             print('%5d  %016x  %8d  %#x  %s' % (j, name, ln, buf, tag))
@@ -139,13 +145,17 @@ def main():
             ls._die('not a T9 LuaJIT chunk (compile with tools/lui/lj2t9.py compile)')
         name = asset_name_for(a.as_hex)
         slot = a.slot if a.slot is not None else max(j for j, *_ in entries)
-        old = proc.read(p + 0x20 * slot, 0x20)
-        print('overwriting slot %d, original bytes: %s' % (slot, old.hex()))
+        old = proc.read(p + isz * slot, isz)
+        print('overwriting slot %d (itemSize %#x), original bytes: %s' % (slot, isz, old.hex()))
         mem = proc.alloc(len(data) + 16, ls.PAGE_READWRITE)
         if not proc.write(mem, data):
             ls._die('WriteProcessMemory(buffer) failed')
-        entry = struct.pack('<QQIIQ', name, 0, len(data), 0, mem)
-        if not proc.write(p + 0x20 * slot, entry):
+        # LuaFile{ name@0, len@8, buffer@(isz-8) }, rest zero
+        entry = bytearray(isz)
+        struct.pack_into('<Q', entry, 0, name)
+        struct.pack_into('<I', entry, 8, len(data))
+        struct.pack_into('<Q', entry, isz - 8, mem)
+        if not proc.write(p + isz * slot, bytes(entry)):
             ls._die('WriteProcessMemory(entry) failed')
         print('injected %d bytes as x64:%s.lua (name %016x) at %#x; luiload("x64:%s.lua") from the client script loads it'
               % (len(data), a.as_hex, name, mem, a.as_hex))

@@ -143,3 +143,31 @@ Not needed now (lj2t9 = option A works), kept for the DLL-source-compile fallbac
 - The char GATE (likely `#`=0x23) is in the **caller** of `0xccf9680` (the main `llex` char switch) —
   unfinished; xref `0xccf9680` and look for `cmp …, 0x23` if option B ever revives.
 - ⚠ `lua_pcall` was NOT found (bocw-85). Still to sig-scan if the DLL is needed.
+
+## luafile pool is free-list-managed → DLL (option A) is the clean path (2026-09-18)
+
+Inspected the live luafile pool (`tools/lui/luapool.py` fixed to the real 0x18 runtime `LuaFile`
+struct — `{name@0, len@8, buffer@(itemSize-8)}`; the `--list` read works). Pool row 124, itemSize
+`0x18`, itemCount 7000, **itemAllocCount 3724 — but used entries scatter well past 3724** (3724/3725/3729
+are live; 6999 is free) and `freeHead` is set. So the pool is a **free-list allocator**, not a dense
+`[0, itemAllocCount)` array:
+- A naive `--inject` (overwrite a used slot's name, or write a free slot) is unsafe — it corrupts the
+  free-list (a free slot's node holds the next-free pointer) or clobbers a live asset, and it only gets
+  *found* if `luiload`'s name lookup is a linear scan of all 7000 slots (unknown; may be a hash index).
+- A proper add means popping `freeHead` + bumping `itemAllocCount` (needs the free-node layout) — fiddly
+  and still gated on the lookup being reachable.
+
+⇒ The **luiload/pool test is deprioritized.** The **DLL (option A)** doesn't touch the pool at all: it
+`lua_loadx`es our embedded bytecode directly into the captured `lua_State` and `lua_pcall`s it. Cleaner,
+and it's the route klaze picked. `luapool.py --list` stays useful (read-only pool inventory); its
+`--inject` is left as-is with this caveat (don't use it until the free-list handling is added).
+
+### DLL option A — RE status (ready enough to build)
+- **State capture:** hook `cod_lua_setxhash` (`0xd183130`), save arg1 = `lua_State`. ✅ exact.
+- **Load:** `lua_loadx(state, reader→embedded gf_loadtest.luac bytes, ud, "=gf", "b")`. ✅ address + call
+  convention (`0xd1979f0` wrapper) exact. Bytecode from `lj2t9` (correct — verified).
+- **Run:** `lua_pcall(state, 0, 0, 0)` — standard LuaJIT; the DLL sig-scans it (or resolve from a LuaJIT
+  reference). Not yet pinned to an address here, but findable.
+- **Timing:** run after the UI chunks define `LUI.createMenu`/`StartMenu_Main`. Simplest first cut: a
+  short delay after state capture, or hook the loadstring wrapper (`0xd1979f0`) and fire after a marker
+  chunk. Iterate in-DLL. This is the one genuinely empirical piece.
