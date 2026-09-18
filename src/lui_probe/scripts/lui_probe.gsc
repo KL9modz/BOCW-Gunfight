@@ -1,58 +1,42 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// LUI probe — the in-match pause-menu popup as a free-text channel.
+// LUI probe v2 — one dismissable pause-menu popup, host-GSC free text.
 //
 // Hook: scripts\mp_common\bb.gsc, mode=mp  (see ../gsc.conf)
 //
-// THE QUESTION. docs/notes/pause-menu.md found (by decompiling the client UI —
-// docs/notes/lui-source.md) that the stock popup ScriptMessageDialog_Compact draws its
-// title/description through BaseUtility's localize-ONLY-IF-hash helper (lui-source,
-// core_ui_1364 #hash_1993de65911eb3f), so a PLAIN GSC string should render verbatim.
-// That would be a host-side free-text popup with NO client payload — a channel above
-// the ~4-line feed and one-line hint the project has lived with, and the opposite of
-// the LUIelemText result where a plain string is a fatal crash (lui-elems.md).
+// WHAT v1 ESTABLISHED (measured 2026-09-17, klaze):
+//   - ScriptMessageDialog_Compact RENDERS full-screen in an MP match (openluimenu works).
+//   - Plain strings in it do NOT crash (survived:1) — opposite of LUIelemText (lui-elems.md).
+//   - BUT closeluimenu closes the SERVER handle and leaves the CLIENT overlay drawn, and the
+//     dialog blockDuplicateInstance's — so v1's three staged popups masked each other and only
+//     the empty first one ever showed. My title/description never rendered because that popup
+//     had no data; P2/P3 were blocked behind it. And there was no way to dismiss it (force-close
+//     doesn't run the client's close handler).
 //
-// It is READ, not measured. This measures it, staged so the safe cases confirm the
-// mechanism before the risky one:
-//   P1  open the popup with NO data              -> does it appear at all in MP?
-//   P2  set title/description to STOCK localized keys (#"...") -> does setluimenudata
-//                                                   reach the widget and localize?
-//   P3  set them to PLAIN strings                -> THE TEST: renders as-is, or crashes?
+// v2 FIXES: exactly ONE popup, our text set from the start, and dismissed the RIGHT way — by the
+// player pressing the dialog's Back button, which fires a menuresponse the client's close handler
+// consumes (the same thing stock lui::open_generic_script_dialog waits for). This asks two things:
+//   Q1  does our text render?  -> the popup should read "GUNFIGHT HOST" / "Timer 60s ... Hijacked".
+//                                 Field names #"title"/#"description" are confirmed against the
+//                                 decompiled frame (lui-source core_ui_1151: #Title/#Description via
+//                                 the localize-if-hash helper; those xhashes == #"title"/#"description").
+//   Q2  is it dismissable from GSC?  -> press the popup's BACK button. If the readout's resp: climbs
+//                                       and closed:1, the Back menuresponse reached the server = the
+//                                       dialog is interactive from GSC. If resp stays 0 whatever you
+//                                       press ON THE POPUP, it is not GSC-dismissable.
 //
-// Mirrors stock lui::open_generic_script_dialog (lui_shared.gsc:1040-1057) but
-// non-blocking, so it needs no menu input and cannot hang. Builtins verified in
-// reference/funcs_cw.csv.
+// ── READOUT — the one-line debug-feed convention ([[debug-feed-one-line]]) ────
+//   GF LUI host:1 open:1 set:1 resp:0 closed:0 waited:8s now:<instruction/state>
+// A single screenshot of this line + the popup is the whole result.
 //
-// ── READOUT — the DEBUG-FEED convention (klaze, 2026-09-14) ───────────────────
-// ONE complete line, every data point, printed continuously on the host feed, so any
-// single screenshot captures the whole state. NO tagged-number drip (that is the
-// deprecated mp_probe pattern — klaze does not read those). The line:
-//
-//   GF LUI  host:1  now:P3-PLAIN  P1empty open:1 close:1  P2stockkey open:1 close:1 set:1
-//           P3plain open:1 close:1 set:1  survived:1  [melee=re-pop plain]
-//
-// open:1  = openluimenu returned a defined handle (the popup was created)
-// close:1 = closeluimenu ran without the match dying
-// set:1   = setluimenudata ran on the title+description
-// The TEXT under test is on the POPUP, watched on screen: P3 should read
-// "Gunfight Host" / "Timer 60s   4v4   Hijacked". A screenshot of that popup + this
-// line (now:P3-PLAIN open:1) is the whole result.
-//
-// If the game crashes, the LAST line on screen shows which phase reached it; the crash
-// dump's error_message field 2 is the hash of the offending string (tools/crack-hash.py).
-//
-// After the staged run it parks: press MELEE as host to re-open the plain popup. WRITES
-// NOTHING to game state (no dvars, no stock fields).
+// SAFETY: the popup stays up until you close it or 45s passes, then a force closeluimenu runs.
+// If Back does not work and it lingers, open ESC -> Quit Match / restart to clear it (input is not
+// hard-locked — ESC still opens the pause menu, as seen in v1). WRITES NOTHING to game state.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #using scripts\core_common\callbacks_shared;
 #using scripts\core_common\system_shared;
 
 #namespace lui_probe;
-
-// A localized key the MP client is guaranteed to ship (globallogic.gsc game.strings
-// :5051-5061, the keys the LUIelemText calibration used).
-#define KEY_TITLE  #"mp/waiting_for_players"
-#define KEY_BODY   #"mp/match_starting"
 
 function private autoexec __init__system__()
 {
@@ -72,14 +56,14 @@ function private on_start()
     }
     level.lui_probe_ran = 1;
 
-    // one flat state struct the status line reads and the phases write
     level.lp = spawnstruct();
-    level.lp.now = "boot";
-    level.lp.host = 0;
-    level.lp.p1o = 0; level.lp.p1c = 0;
-    level.lp.p2o = 0; level.lp.p2c = 0; level.lp.p2s = 0;
-    level.lp.p3o = 0; level.lp.p3c = 0; level.lp.p3s = 0;
-    level.lp.survived = 0;
+    level.lp.now     = "boot";
+    level.lp.host    = 0;
+    level.lp.open    = 0;
+    level.lp.set     = 0;
+    level.lp.resp    = 0;
+    level.lp.closed  = 0;
+    level.lp.waited  = 0;
 
     level thread run();
 }
@@ -112,64 +96,59 @@ function private run()
     }
     if ( !isdefined( host ) )
     {
-        return; // all bots this match — nobody to show it to
+        return; // all bots — nobody to show it to
     }
     host endon( #"disconnect" );
 
     level.lp.host = 1;
-    level thread status_loop( host );   // the one continuous line starts now
+    level thread status_loop( host );
+    level thread wait_for_close( host );
 
-    wait( 4 ); // let the host finish spawning into the world
+    wait( 4 ); // let the host finish spawning in
 
-    // ── P1 — empty popup: does it appear in an MP match? ──
-    level.lp.now = "P1-empty";
+    // ── ONE popup, our text set from the start ──
+    level.lp.now = "opening popup";
     d = host openluimenu( "ScriptMessageDialog_Compact" );
-    level.lp.p1o = isdefined( d ) ? 1 : 0;
-    wait( 5 );
-    if ( isdefined( d ) ) { host closeluimenu( d ); }
-    level.lp.p1c = 1;
-
-    // ── P2 — stock localized keys ──
-    level.lp.now = "P2-stockkey";
-    d = host openluimenu( "ScriptMessageDialog_Compact" );
-    level.lp.p2o = isdefined( d ) ? 1 : 0;
-    host setluimenudata( d, #"title", KEY_TITLE );
-    host setluimenudata( d, #"description", KEY_BODY );
-    level.lp.p2s = 1;
-    wait( 5 );
-    host closeluimenu( d );
-    level.lp.p2c = 1;
-
-    // ── P3 — PLAIN strings: the measurement ──
-    level.lp.now = "P3-PLAIN";
-    d = host openluimenu( "ScriptMessageDialog_Compact" );
-    level.lp.p3o = isdefined( d ) ? 1 : 0;
-    host setluimenudata( d, #"title", "Gunfight Host" );
+    level.lp.open = isdefined( d ) ? 1 : 0;
+    host setluimenudata( d, #"title", "GUNFIGHT HOST" );
     host setluimenudata( d, #"description", "Timer 60s   4v4   Hijacked" );
-    level.lp.p3s = 1;
-    wait( 6 );
-    host closeluimenu( d );
-    level.lp.p3c = 1;
+    level.lp.set = 1;
+    level.lp.now = "SHOWING - press the popup BACK button to close";
 
-    level.lp.survived = 1;
-    level.lp.now = "done(melee=re-pop)";
-
-    for ( ;; )
+    // Wait for the player to dismiss it (menuresponse), or 45s, whichever first.
+    for ( t = 0; t < 45 && !level.lp.closed; t++ )
     {
-        if ( host meleebuttonpressed() )
-        {
-            d = host openluimenu( "ScriptMessageDialog_Compact" );
-            host setluimenudata( d, #"title", "Gunfight Host" );
-            host setluimenudata( d, #"description", "Timer 60s   4v4   Hijacked" );
-            wait( 5 );
-            host closeluimenu( d );
-        }
-        waitframe( 1 );
+        level.lp.waited = t;
+        wait( 1 );
+    }
+
+    host closeluimenu( d ); // safety; does not run the client close handler
+    if ( level.lp.closed )
+    {
+        level.lp.now = "you closed it - DISMISSABLE (good)";
+    }
+    else
+    {
+        level.lp.now = "timeout - Back never registered; ESC->Quit/restart to clear";
     }
 }
 
-// ONE complete line, every data point, every 2s — the debug-feed convention. A single
-// screenshot at any moment captures the full state.
+// ANY menuresponse the host produces after the popup opened counts as an interaction reaching the
+// server. Press the popup's Back specifically: if resp climbs, its Back button talks to GSC.
+function private wait_for_close( host )
+{
+    level endon( #"game_ended" );
+    host endon( #"disconnect" );
+
+    for ( ;; )
+    {
+        host waittill( #"menuresponse" );
+        level.lp.resp = level.lp.resp + 1;
+        level.lp.closed = 1;
+    }
+}
+
+// ONE complete line, every data point, every 2s.
 function private status_loop( host )
 {
     level endon( #"game_ended" );
@@ -178,11 +157,10 @@ function private status_loop( host )
     for ( ;; )
     {
         s = level.lp;
-        line = "^3GF LUI^7 host:" + s.host + " now:" + s.now
-             + " ^5P1empty^7 open:" + s.p1o + " close:" + s.p1c
-             + " ^5P2key^7 open:" + s.p2o + " set:" + s.p2s + " close:" + s.p2c
-             + " ^5P3plain^7 open:" + s.p3o + " set:" + s.p3s + " close:" + s.p3c
-             + " survived:" + s.survived;
+        line = "^3GF LUI^7 host:" + s.host
+             + " open:" + s.open + " set:" + s.set
+             + " resp:" + s.resp + " closed:" + s.closed
+             + " waited:" + s.waited + "s ^5now:^7" + s.now;
         host iprintln( line );
         wait( 2 );
     }
