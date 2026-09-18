@@ -64,3 +64,47 @@ on those, not on `luiload`.
 
 The custom chunk is `src/gf_lui/gf_loadtest.lua` (wrap StartMenu_Main, add a label). `menus.gsc
 register_menu_response_callback` handles the `sendmenuresponse` a real tab's action fires ([pause-menu](pause-menu.md)).
+
+## The DLL design (2026-09-17) — for klaze to build (cwpatch-style, his domain)
+
+A cwpatch/gf_bridge-style in-process DLL (sig-scans the live exe, ASLR-safe — never hardcode the RVAs
+above; use the cw.json sigs + the ones here):
+
+1. **Capture the LUI `lua_State`** — hook `cod_lua_setxhash` (`0xd183130`, clean prologue). Its 1st arg
+   (rcx) is the state (measured: LUI init does `lua_newstate` → `mov [rdi+0x48],rax` → `cod_lua_setxhash(state,…)`).
+   Save it, call the original. (There may be >1 state — frontend/HUD; capture and pick the one where the
+   UI classes exist, or the last one before StartMenu loads.)
+2. **Load + run our chunk** in that state, on the right trigger:
+   `lua_loadx(state, reader, ud, "=gf", mode)` then `lua_pcall(state, 0, 0, 0)`.
+   The load call convention is the `loadstring` wrapper at `0xd1979f0` (rcx=state, rdx=reader fn,
+   r8=ud, r9=chunkname, [rsp+0x20]=mode) — copy it. `reader` is a tiny callback returning our whole
+   buffer once then NULL+0.
+
+### Chunk / compile — two options
+- **(A) pre-compiled bytecode**, `mode="b"`: ship `src/gf_lui/gf_loadtest.lua` compiled to correct T9
+  bytecode (via `acts ljec` on a `game_dump` exe — plan B — or a fixed `lj2t9`). Reader hands the DLL's
+  embedded bytecode. Sidesteps the xhash source-syntax question. **Needs the compile path resolved.**
+- **(B) in-context source**, `mode="t"`: ship the `.lua` SOURCE; the game's compiler compiles it using
+  the XHash resolvers (`0xc99c6e0` / `0xc99c680` / `0xc99c7b0`, MASK63-confirmed). No offline compile at
+  all. **Needs the xhash source syntax** — the token the lexer maps to XHash (hypothesis: `#"Name"`;
+  our chunk would write `LUI.createMenu[#"StartMenu_Main"]`, not the quoted string). Verify by finding
+  the lexer's XHash call site, or empirically once a compile path exists.
+
+### Timing
+The state exists at LUI init but `LUI.createMenu` / `StartMenu_Main` aren't defined until the UI chunks
+load. Run our chunk AFTER that: (i) hook the `loadstring` wrapper (`0xd1979f0`) and inject after a known
+late marker chunk loads (shield-plugin style); or (ii) a worker that polls the state until
+`LUI.createMenu` resolves (needs `lua_getglobal`/`lua_getfield` — more C-API to sig-scan); or (iii) hook
+a known post-UI-init function.
+
+### Still to RE before the DLL builds
+- `lua_pcall` (sig-scan; runs the loaded chunk).
+- The timing hook (one of the three above).
+- Option B only: the xhash source syntax (or use option A's pre-compiled bytecode).
+- Option (ii) timing only: `lua_getglobal`/`lua_getfield`.
+
+### Division of labour
+Agent: the RE above + `src/gf_lui/gf_loadtest.lua` + (for A) a correctly-compiled chunk once a compile
+path exists. **klaze: writes/builds/injects the DLL** (C, hooks — same domain as cwpatch/gf_bridge).
+This is a multi-step build, not a one-shot; the RE foundation (decrypted dump, state capture, `lua_loadx`)
+is in place.
