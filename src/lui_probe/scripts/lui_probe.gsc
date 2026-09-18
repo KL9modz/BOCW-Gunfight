@@ -12,38 +12,36 @@
 // the LUIelemText result where a plain string is a fatal crash (lui-elems.md).
 //
 // It is READ, not measured. This measures it, staged so the safe cases confirm the
-// mechanism before the risky one, and so a crash at the end still leaves evidence:
-//
+// mechanism before the risky one:
 //   P1  open the popup with NO data              -> does it appear at all in MP?
 //   P2  set title/description to STOCK localized keys (#"...") -> does setluimenudata
 //                                                   reach the widget and localize?
 //   P3  set them to PLAIN strings                -> THE TEST: renders as-is, or crashes?
 //
-// Everything mirrors stock lui::open_generic_script_dialog (lui_shared.gsc:1040-1057)
-// except it is non-blocking (open, hold, close on a timer) so it needs no menu input
-// and cannot hang. Builtins verified in reference/funcs_cw.csv (openluimenu 1-2,
-// setluimenudata 3, closeluimenu 1, ishost, getplayers).
+// Mirrors stock lui::open_generic_script_dialog (lui_shared.gsc:1040-1057) but
+// non-blocking, so it needs no menu input and cannot hang. Builtins verified in
+// reference/funcs_cw.csv.
 //
-// ── READOUT ──────────────────────────────────────────────────────────────────
-// The feed (iprintlnbold, host) carries a NUMBER per phase — the project's proven
-// channel — so each phase's number confirms it RAN and did not crash getting there:
+// ── READOUT — the DEBUG-FEED convention (klaze, 2026-09-14) ───────────────────
+// ONE complete line, every data point, printed continuously on the host feed, so any
+// single screenshot captures the whole state. NO tagged-number drip (that is the
+// deprecated mp_probe pattern — klaze does not read those). The line:
 //
-//   700001  host found, starting
-//   700011  P1 empty popup opened            (712 = closed ok)
-//   700021  P2 stock-key popup opened        (722 = closed ok)
-//   700031  P3 PLAIN-string popup opened     (732 = closed ok)
-//   700099  all three survived
+//   GF LUI  host:1  now:P3-PLAIN  P1empty open:1 close:1  P2stockkey open:1 close:1 set:1
+//           P3plain open:1 close:1 set:1  survived:1  [melee=re-pop plain]
 //
-// The TEXT under test is on the POPUP, watched on screen:
-//   P2 should show a localized title/body (from #"mp/…").
-//   P3 should show  "Gunfight Host" / "Timer 60s   4v4   Hijacked"  <- the whole point.
+// open:1  = openluimenu returned a defined handle (the popup was created)
+// close:1 = closeluimenu ran without the match dying
+// set:1   = setluimenudata ran on the title+description
+// The TEXT under test is on the POPUP, watched on screen: P3 should read
+// "Gunfight Host" / "Timer 60s   4v4   Hijacked". A screenshot of that popup + this
+// line (now:P3-PLAIN open:1) is the whole result.
 //
-// If the game crashes at P3, the crash dump's error_message field 2 is the hash of the
-// offending string (tools/crack-hash.py) — same recipe as the LUIelemText crash.
+// If the game crashes, the LAST line on screen shows which phase reached it; the crash
+// dump's error_message field 2 is the hash of the offending string (tools/crack-hash.py).
 //
-// After the staged run, press MELEE as host to re-open the P3 plain popup for a longer
-// look. WRITES NOTHING to game state (no dvars, no stock fields); the popup is drawn by
-// the client and torn down each time.
+// After the staged run it parks: press MELEE as host to re-open the plain popup. WRITES
+// NOTHING to game state (no dvars, no stock fields).
 // ─────────────────────────────────────────────────────────────────────────────
 
 #using scripts\core_common\callbacks_shared;
@@ -51,8 +49,8 @@
 
 #namespace lui_probe;
 
-// A localized key the MP client is guaranteed to ship: both are in globallogic.gsc's
-// game.strings (:5051-5061), which is why the LUIelemText calibration used them.
+// A localized key the MP client is guaranteed to ship (globallogic.gsc game.strings
+// :5051-5061, the keys the LUIelemText calibration used).
 #define KEY_TITLE  #"mp/waiting_for_players"
 #define KEY_BODY   #"mp/match_starting"
 
@@ -68,17 +66,24 @@ function private __init__()
 
 function private on_start()
 {
-    // once per match, not once per round
     if ( isdefined( level.lui_probe_ran ) )
     {
         return;
     }
     level.lui_probe_ran = 1;
 
+    // one flat state struct the status line reads and the phases write
+    level.lp = spawnstruct();
+    level.lp.now = "boot";
+    level.lp.host = 0;
+    level.lp.p1o = 0; level.lp.p1c = 0;
+    level.lp.p2o = 0; level.lp.p2c = 0; level.lp.p2s = 0;
+    level.lp.p3o = 0; level.lp.p3c = 0; level.lp.p3s = 0;
+    level.lp.survived = 0;
+
     level thread run();
 }
 
-// Return the human host player, or undefined if none yet.
 function private find_host()
 {
     foreach ( player in getplayers() )
@@ -95,7 +100,6 @@ function private run()
 {
     level endon( #"game_ended" );
 
-    // on_start fires before anyone has spawned. Wait for the host to exist and settle.
     host = undefined;
     for ( i = 0; i < 60; i++ )
     {
@@ -108,45 +112,48 @@ function private run()
     }
     if ( !isdefined( host ) )
     {
-        return; // no human host this match (all bots) — nothing to show
+        return; // all bots this match — nobody to show it to
     }
-
     host endon( #"disconnect" );
-    wait( 4 ); // let the player finish spawning into the world
 
-    beat( host, 700001 );
+    level.lp.host = 1;
+    level thread status_loop( host );   // the one continuous line starts now
 
-    // ── P1 — does the popup appear at all in an MP match? ──
-    beat( host, 700011 );
+    wait( 4 ); // let the host finish spawning into the world
+
+    // ── P1 — empty popup: does it appear in an MP match? ──
+    level.lp.now = "P1-empty";
     d = host openluimenu( "ScriptMessageDialog_Compact" );
+    level.lp.p1o = isdefined( d ) ? 1 : 0;
     wait( 5 );
-    if ( isdefined( d ) )
-    {
-        host closeluimenu( d );
-    }
-    beat( host, 700012 );
+    if ( isdefined( d ) ) { host closeluimenu( d ); }
+    level.lp.p1c = 1;
 
-    // ── P2 — stock localized keys: does setluimenudata reach the widget? ──
-    beat( host, 700021 );
+    // ── P2 — stock localized keys ──
+    level.lp.now = "P2-stockkey";
     d = host openluimenu( "ScriptMessageDialog_Compact" );
+    level.lp.p2o = isdefined( d ) ? 1 : 0;
     host setluimenudata( d, #"title", KEY_TITLE );
     host setluimenudata( d, #"description", KEY_BODY );
+    level.lp.p2s = 1;
     wait( 5 );
     host closeluimenu( d );
-    beat( host, 700022 );
+    level.lp.p2c = 1;
 
     // ── P3 — PLAIN strings: the measurement ──
-    beat( host, 700031 );
+    level.lp.now = "P3-PLAIN";
     d = host openluimenu( "ScriptMessageDialog_Compact" );
+    level.lp.p3o = isdefined( d ) ? 1 : 0;
     host setluimenudata( d, #"title", "Gunfight Host" );
     host setluimenudata( d, #"description", "Timer 60s   4v4   Hijacked" );
+    level.lp.p3s = 1;
     wait( 6 );
     host closeluimenu( d );
-    beat( host, 700032 );
+    level.lp.p3c = 1;
 
-    beat( host, 700099 );
+    level.lp.survived = 1;
+    level.lp.now = "done(melee=re-pop)";
 
-    // Retrigger the plain popup on MELEE, so klaze can watch it as long as he likes.
     for ( ;; )
     {
         if ( host meleebuttonpressed() )
@@ -161,8 +168,22 @@ function private run()
     }
 }
 
-// One tagged number on the host feed — the reliable channel that says a phase ran.
-function private beat( host, tag )
+// ONE complete line, every data point, every 2s — the debug-feed convention. A single
+// screenshot at any moment captures the full state.
+function private status_loop( host )
 {
-    host iprintlnbold( tag );
+    level endon( #"game_ended" );
+    host endon( #"disconnect" );
+
+    for ( ;; )
+    {
+        s = level.lp;
+        line = "^3GF LUI^7 host:" + s.host + " now:" + s.now
+             + " ^5P1empty^7 open:" + s.p1o + " close:" + s.p1c
+             + " ^5P2key^7 open:" + s.p2o + " set:" + s.p2s + " close:" + s.p2c
+             + " ^5P3plain^7 open:" + s.p3o + " set:" + s.p3s + " close:" + s.p3c
+             + " survived:" + s.survived;
+        host iprintln( line );
+        wait( 2 );
+    }
 }
