@@ -17,9 +17,14 @@ each section `PointerToRawData = VirtualAddress`. Output → `ACTS/bin/deps/Blac
 ⚠ **`acts ljec` CANNOT execute this dump** (ACCESS_VIOLATION): the live-game image is bound to the
 running process (IAT + absolute pointers at the runtime base 0x7ff…), so it doesn't run cleanly when
 `ljec`'s module-mapper loads it at a different base in `acts.exe`. The read-only dump is for **reading
-(sig-scan / disasm)**, not for `ljec` execution. Compiling our chunk with `ljec` needs the cleaner
-`acts game_dump cw` capture (plan B) — or fix `tools/lui/lj2t9.py` (the offline compiler, currently
-has an xhash-chunk bug) — or compile in-context from the DLL (below).
+(sig-scan / disasm)**, not for `ljec` execution.
+
+✅✅ **UPDATE 2026-09-18 — no compile problem: `tools/lui/lj2t9.py` WORKS.** The offline T9 compiler
+produces correct bytecode — verified by executing the round-tripped chunk in real LuaJIT on gf_loadtest
++ table-ctor / ISEQS-compare / loop / nested-xhash cases. The earlier "xhash bug" was a lupa test-harness
+artifact (Python `str` keys passed to an `encoding=None` runtime instead of bytes), NOT the compiler.
+**⇒ `game_dump`/`ljec` are NOT needed to compile our chunk** — `lj2t9` gives correct bytecode offline,
+and `src/gf_lui/gf_loadtest.luac` is it. The `ljec`-on-read-only-dump crash is moot.
 
 ## Resolved so far (RVAs; live address = game module base + RVA)
 
@@ -108,3 +113,33 @@ Agent: the RE above + `src/gf_lui/gf_loadtest.lua` + (for A) a correctly-compile
 path exists. **klaze: writes/builds/injects the DLL** (C, hooks — same domain as cwpatch/gf_bridge).
 This is a multi-step build, not a one-shot; the RE foundation (decrypted dump, state capture, `lua_loadx`)
 is in place.
+
+## The compile is solved: use lj2t9 (2026-09-18)
+
+`tools/lui/lj2t9.py` produces correct T9 bytecode (verified above), so **there is no compile blocker
+and no `game_dump` need.** The plan simplifies to:
+1. `lj2t9 compile src/gf_lui/gf_loadtest.lua gf_loadtest.luac` → correct bytecode (done).
+2. **Cheap test first (no DLL):** inject the chunk into the luafile pool (`tools/lui/luapool.py --inject
+   gf_loadtest.luac --as 6766100000000001`) + inject `src/gf_luiload/` (a CSC that calls
+   `luiload("x64:6766100000000001.lua")`), restart, open ESC → does "GUNFIGHT MENU LOADED" show. If yes,
+   the integrated tab needs **no DLL**.
+3. If `luiload` no-ops, the **DLL (option A)** loads the *same* lj2t9 bytecode via `lua_loadx(state, reader,
+   ud, "=gf", "b")` + `lua_pcall` (state captured by the `cod_lua_setxhash` hook). Still no `game_dump`.
+
+Both wait only on the game being free for injection (klaze's menu test → frees on his relaunch to the
+vehmode build).
+
+## Option-B (in-context source compile) RE — bocw-85, 2026-09-18 (fallback only)
+
+Not needed now (lj2t9 = option A works), kept for the DLL-source-compile fallback:
+- **`cod_lua_setxhash` (0xd183130) storage:** `G = [state+0x18]` (global_State); stores `arg2`(XHashFn)→
+  `[G+0x330]`, `arg3`→`[G+0x338]`, `arg4`→`[G+0x340]`. A sibling stub `0xd18314a` stores an fn→`[G+0x328]`
+  behind an Arxan-style return-address check. So **two xhash-fn slots: `[G+0x328]` and `[G+0x330]`** (two
+  hash variants; matches the resolver trio `0xc99c6e0/680/7b0`).
+- **Lexer token→hash converter ~`0xccf9680`** (ends ~`0xccf9802`): calls `[G+0x330]` at `0xccf9743/99/…`
+  and `[G+0x328]` at `0xccf96d1`, args `(rcx=G, edx=span-start-delta, r8d=span-len)` from the lexer
+  buffer-position struct (`[rdi+0x50/0x58/0x88/0x90/0x98]`), result → `[rsi]`. So an xhash is the
+  compile-time hash of a **source SPAN** of a token — consistent with the `#"Name"` syntax hypothesis.
+- The char GATE (likely `#`=0x23) is in the **caller** of `0xccf9680` (the main `llex` char switch) —
+  unfinished; xref `0xccf9680` and look for `cmp …, 0x23` if option B ever revives.
+- ⚠ `lua_pcall` was NOT found (bocw-85). Still to sig-scan if the DLL is needed.
