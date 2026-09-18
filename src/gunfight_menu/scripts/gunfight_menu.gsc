@@ -3499,13 +3499,25 @@ function private mod_spawn_override( predictedspawn )
     if ( !isplayer( self ) || !isdefined( self.team ) )
         return false;
 
-    if ( cfg_spawn_guard() == 2 && cfg_spawn_family() == 0 )
+    // AUTO (guard 2) tries the engine's OWN start picker FIRST on every map, for ANY family:
+    // on a map whose stock spawns work (Diesel, Hijacked, every normal map) the engine returns a
+    // real start spawn and spreads players exactly like stock - no override, no stacking. Only
+    // when the engine has nothing (the combined-arms maps under gunfight: Crossroads / Collateral
+    // / Armada, whose gunfight has no start spawns -> the path-4 map-centre pile) does it fall
+    // through to the family / geometric anchors below.
+    // ⚠ FIX F5 (2026-09-18, klaze: "3v3 on Diesel spawns on top of each other"): the family path
+    // uses the map's AUTHORED starts as the anchor list, and Diesel ships only 2 TDM starts per
+    // side (census tdm=84/4(2+2+0)) - so mod_spawn_next_anchor's round-robin wrapped 3 players
+    // onto 2 anchors and doubled them up. Stock spawns were fine; the guard was overriding good
+    // spawns with too few anchors. Deferring to the engine picker wherever it works is what "AUTO"
+    // was always meant to be - it previously did this ONLY when no family was selected
+    // (cfg_spawn_family()==0), but the DEFAULT family is AUTO=8, so AUTO overrode every map.
+    // FORCE (guard 1) still uses the anchors always, for anyone who wants a specific S&D/TDM layout.
+    if ( cfg_spawn_guard() == 2 )
     {
-        // MEASURED 2026-09-15 (Hijacked, engine spawns): the sides did NOT switch. The legacy
-        // start-spawn path swapped the team by NAME when game.switchedsides was set
-        // (spawning.gsc getteamstartspawnname -> util::function_6f4ff113); the engine path
-        // hands self.team straight to the picker and swaps nothing. So ask for the OTHER
-        // team's start spawn while switched - the same swap the anchors already do.
+        // Sides: the engine path hands self.team straight to the picker and swaps nothing, so ask
+        // for the OTHER team's start spawn while game.switchedsides (the same swap the anchors do).
+        // MEASURED 2026-09-15 (Hijacked): without this the sides did not switch on a round flip.
         team = self.team;
         if ( isdefined( game.switchedsides ) && game.switchedsides )
             team = util::getotherteam( team );
