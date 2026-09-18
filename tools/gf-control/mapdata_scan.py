@@ -62,9 +62,13 @@ def parse(kind: str, body: str) -> tuple[str, dict] | None:
             items.append({"model": model, "size": size})
         return mapname, {"props": {"table": True, "rows": rows, "list": items}}
     if kind == "SPAWN":
-        if len(parts) != 3:
+        # MEASURED 2026-09-17 (Gas Station): the tally itself carries a pipe -
+        # "... NAMED tdm=0/0 ... | GROUPS n=0 a=0() b=0()" - so the body is 4 fields, not 3:
+        # everything between the map and the LAST field is the tally, the last field the note.
+        if len(parts) < 3:
             return None
-        return mapname, {"spawn": {"starts": parts[1].strip(), "family_note": parts[2].strip()}}
+        return mapname, {"spawn": {"starts": "|".join(parts[1:-1]).strip(),
+                                   "family_note": parts[-1].strip()}}
     if kind == "DEST":
         # The destructibles' .destructibledef names read live - the manifests hash every one
         # (docs/notes/destructibles.md §4), so this channel is where the real names come from.
