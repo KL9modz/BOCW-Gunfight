@@ -4735,22 +4735,54 @@ function private cmd_dispatch()
 // STRUCTURAL parts of mod_apply (level.zones + overtime-zone synth, presentation fixups,
 // spawn-anchor build) are match/round-start work and are deliberately NOT re-run here. The
 // round timer needs nothing - level.gettimelimit stays installed and re-reads every 0.25s.
-function private cmd_apply_live()
+// A comma token list contains name? (the app's Apply-now scope: "move,bots,periods,timer").
+function private scope_has( scope, name )
 {
-    mod_movement();
-    mod_bots();
-    mod_periods();
+    toks = strtok( scope, "," );
 
-    // "Apply now" is the LIVE button: refresh the round-timer cache so a timer change takes
-    // effect this round (the gettimelimit hook reads the cache). "Next round" skips this.
-    level.gf_timelimit_cache = cfg_timer_seconds() / 60;
+    if ( !isdefined( toks ) )
+        return false;
 
-    // ⚠ Apply-now applies ONLY the things that are safe to change mid-match: movement, bots,
-    // periods, timer (above). It deliberately does NOT setgametypesetting maxplayers / customcac /
-    // profile / loadout / spyplane / round limits - re-applying those mid-match makes the engine
-    // RELOAD the match (klaze 2026-09-15: "apply now always restarts; it used to apply some things
-    // without a restart"). Those are gametype settings: mod_apply re-applies them every round from
-    // the dvars, so a change lands on the NEXT round with no restart; + Restart applies them now.
+    foreach ( tk in toks )
+    {
+        if ( tk == name )
+            return true;
+    }
+
+    return false;
+}
+
+// "Apply now" from the app. scope names which live subsystems actually changed, so an app
+// apply re-asserts ONLY what the in-game menu would for that one setting - not the whole live
+// blob. This is why a menu gravity pick never restarts but an app apply used to: cmd_apply_live
+// ran mod_periods every time, and its prematch/preround setgametypesetting reloads the match.
+// (gts_set already no-ops an unchanged write; scoping means the write is not even attempted for
+// an untouched subsystem.) Empty / "all" = everything, for an older app that sends no scope.
+function private cmd_apply_live( scope )
+{
+    if ( !isdefined( scope ) || scope == "" )
+        scope = "all";
+
+    all = ( scope == "all" );
+
+    if ( all || scope_has( scope, "move" ) )
+        mod_movement();
+
+    if ( all || scope_has( scope, "bots" ) )
+        mod_bots();
+
+    if ( all || scope_has( scope, "periods" ) )
+        mod_periods();
+
+    // Refresh the round-timer cache so a timer change takes effect this round (the gettimelimit
+    // hook reads the cache). "Next round" skips this. Cheap and reload-free, so always safe -
+    // done whenever the timer is in scope or the scope is unknown.
+    if ( all || scope_has( scope, "timer" ) )
+        level.gf_timelimit_cache = cfg_timer_seconds() / 60;
+
+    // ⚠ Apply-now applies ONLY mid-match-safe subsystems: movement, bots, periods, timer.
+    // It never setgametypesetting's maxplayers / customcac / profile / loadout / spyplane / round
+    // limits - those reload the match, so mod_apply lands them on the NEXT round, or + Restart now.
 }
 
 // Run a menu act_* verb by name on the host, for the app's Actions (gf_cmd_action + gf_cmd_arg).
@@ -4819,7 +4851,7 @@ function private cmd_action( action, arg )
         case "restart":     self menu_say( "^3app: restarting..." ); map_restart();       break;
         case "pause":       match_pause();                                                break;
         case "resume":      self thread match_resume();                                   break;
-        case "apply":       self cmd_apply_live(); self menu_say( "^2app: config applied live" ); break;
+        case "apply":       self cmd_apply_live( arg ); self menu_say( "^2app: config applied live" ); break;
         case "sayclear":    level notify( #"gf_say_stop" ); broadcast_hint_stop(); self menu_say( "^2app: broadcast cleared" ); break;
         // Destructibles / exploders / projectiles / props (2026-09-17): arg = aim|near|all for
         // destruct; next|prev|again|stop|all|stopall for exploder; host|all|off for proj;

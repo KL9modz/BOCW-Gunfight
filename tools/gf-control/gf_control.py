@@ -1282,8 +1282,32 @@ class App:
             self._say("next round: reverted " + names + " (use + Restart to change them)")
         self._apply_config(exclude=self.RESTART_REQUIRED)
 
+    # The live subsystems cmd_apply_live() can re-assert mid-match, and which config fields feed
+    # each. "Apply now" tells the GSC which of these actually changed, so it re-applies ONLY that
+    # subsystem - exactly what an in-game menu pick does. Re-running an untouched subsystem (esp.
+    # periods, whose setgametypesetting reloads the match) is what made an app apply restart when
+    # the same change from the menu did not. Fields NOT here (team size, camo, spawn, limits, ...)
+    # are structural / next-round - cmd_apply_live never applies them, so they need no scope.
+    LIVE_SCOPE = {
+        "move": {"gf_gravity", "gf_jump", "gf_jump_boost", "gf_speed", "gf_falldamage",
+                 "gf_oob", "gf_fly_speed", "gf_fly_fast"},
+        "bots": {"gf_bot_diff_allies", "gf_bot_diff_axis", "gf_bot_passive",
+                 "gf_bot_hit", "gf_bot_head", "gf_bot_react", "gf_bot_fire", "gf_bot_hip",
+                 "gf_bot_far", "gf_bot_semi", "gf_bot_burst", "gf_bot_moveshoot", "gf_bot_fastaim",
+                 "gf_bot_sprint", "gf_bot_melee", "gf_bot_prone", "gf_bot_slide", "gf_bot_crouch"},
+        "periods": {"gf_prematch", "gf_preround"},
+        "timer": {"gf_timer_seconds"},
+    }
+
     def _apply_live(self):
-        self._apply_config(trailer={"gf_cmd_action": "apply", "gf_cmd_go": 1})
+        # Scope = the live subsystems whose fields changed since the last apply. Empty when only
+        # structural / next-round fields changed (or nothing) - the GSC then re-applies nothing
+        # instead of the whole blob. Computed BEFORE _apply_config updates _applied.
+        scope = sorted(s for s, keys in self.LIVE_SCOPE.items()
+                       if any(k in self.vars and self.vars[k].get() != self._applied.get(k)
+                              for k in keys))
+        arg = ",".join(scope) if scope else "none"
+        self._apply_config(trailer={"gf_cmd_action": "apply", "gf_cmd_arg": arg, "gf_cmd_go": 1})
 
     def _apply_restart(self):
         self._apply_config(trailer={"gf_cmd_action": "restart", "gf_cmd_go": 1})
