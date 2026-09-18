@@ -1274,6 +1274,9 @@ class App:
         self._drain()
 
     def _apply_next_round(self):
+        self._sync_untouched(self._apply_next_round_body)
+
+    def _apply_next_round_body(self):
         # "Next round" = defer changed settings to the next round. Structural settings cannot
         # defer (they reload the match), so pull those out and let the user decide: restart now
         # to apply everything, or keep them pending and apply only the round-safe settings.
@@ -1290,7 +1293,7 @@ class App:
                    + "No = apply only the round-safe settings now and keep these pending "
                    + "(they apply on your next + Restart).")
             if messagebox.askyesno("Restart needed for some settings", msg):
-                self._apply_restart()
+                self._apply_restart_body()      # wrapper already synced - do not re-sync
                 return
             # No: clear each pending field back to its applied value so it stops prompting and
             # the user can keep applying other things next round (klaze 2026-09-15).
@@ -1320,6 +1323,9 @@ class App:
     }
 
     def _apply_live(self):
+        self._sync_untouched(self._apply_live_body)
+
+    def _apply_live_body(self):
         # Scope = the live subsystems whose fields changed since the last apply. Empty when only
         # structural / next-round fields changed (or nothing) - the GSC then re-applies nothing
         # instead of the whole blob. Computed BEFORE _apply_config updates _applied.
@@ -1330,7 +1336,59 @@ class App:
         self._apply_config(trailer={"gf_cmd_action": "apply", "gf_cmd_arg": arg, "gf_cmd_go": 1})
 
     def _apply_restart(self):
+        self._sync_untouched(self._apply_restart_body)
+
+    def _apply_restart_body(self):
         self._apply_config(trailer={"gf_cmd_action": "restart", "gf_cmd_go": 1})
+
+    def _sync_untouched(self, then):
+        # Before ANY apply: pull the game's LIVE values into every field the user has NOT
+        # explicitly touched, so a resent packed chunk carries the game's real neighbours instead
+        # of app defaults. Without this, the chunk that holds e.g. gravity (gf_c3) also carries
+        # gf_loadout at the app default, and next-round mod_apply re-asserts that stale neighbour
+        # -> setgametypesetting -> match RELOAD. bocw-85's chunk map: 7 of 9 packed chunks drag a
+        # reload-triggering field (loadout / customcac / prematch / preround / profile / round
+        # limits / spec_slots / spyplane / team_size), which is why almost every app apply
+        # restarted while the same change from the in-game menu did not. config_scan is the read
+        # path (app<-game); if it is unavailable we apply UNSYNCED (old behaviour, no worse).
+        if config_scan is None or gf_native is None:
+            then()
+            return
+        if getattr(self, "_sync_busy", False):
+            return                              # a sync is already in flight; drop this click
+        self._sync_busy = True
+
+        def worker():
+            try:
+                pid = gf_native.find_game_pid()
+                live = config_scan.read_config(pid, self._defaults) if pid else None
+            except Exception:                   # noqa: BLE001 - reported below, then apply unsynced
+                live = None
+            self.root.after(0, lambda: self._sync_untouched_done(live, then))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _sync_untouched_done(self, live, then):
+        self._sync_busy = False
+        if live:
+            _tick, cfg = live
+            n = 0
+            for dvar, val in cfg.items():
+                if dvar not in self.vars or dvar in self._touched:
+                    continue                    # keep the user's explicit picks untouched
+                try:
+                    if self.vars[dvar].get() != val:
+                        self.vars[dvar].set(val)   # the write-trace re-adds it to _touched
+                        n += 1
+                    self._applied[dvar] = val
+                    self._touched.discard(dvar)    # a sync is not a user change
+                except Exception:               # noqa: BLE001 - one bad field must not block apply
+                    pass
+            if n:
+                self._say(f"apply: synced {n} untouched field(s) to the live game first")
+        else:
+            self._say("apply: could not read live config - applying UNSYNCED (a stale neighbour may reload)")
+        then()
 
     def _action(self, name, arg=""):
         s = {"gf_cmd_action": name}
