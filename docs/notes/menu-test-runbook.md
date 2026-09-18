@@ -113,7 +113,18 @@ Order: nothing here reloads the match until **M1.30**.
 | B8 | **Passive** toggle → off | bots wander, never engage; fight again | |
 | B9 | let the round end | difficulty survives the boundary | |
 
-## M2 — map toys: Nuketown '84 → Diesel → Miami → Crossroads (Map → 6v6 maps → … → Switch NOW)
+### M2 map-name map + offline exploder crack table (prepped 2026-09-18, so live = expected is instant)
+
+| picker label | sv_mapname | exploder rows | cracked-to-name rows (the string-path proof) | notes |
+|---|---|---|---|---|
+| **Diesel** | `mp_sm_gas_station` | 16 | none | **= the CURRENT map** — the "Diesel" rows (props 13, destruct propane×2) need NO switch |
+| **Nuketown '84** | `mp_nuketown6` | 10 | **1 `fxexp_halloween`, 6 `fxexp_holiday`** | fire a named row (6) before the hash rows |
+| **Miami** | `mp_miami` | 34 | none | pure hash-path map; 30 destructible defs (richest 6v6) |
+| **Crossroads** | `mp_tundra` | 71 | **26 `exp_lgt_12v12`, 56 `fxexp_tundra_6v6`** | Fire ALL ≈ 71×0.5 s ≈ 35 s; named rows 26/56 test the string path here too |
+
+⚠ Named-row-works-but-hash-rows-do-nothing is a REAL finding (bocw-0f): the hash into `activateclientradiantexploder` is the one unverified path. Fire a NAMED row first on Nuketown (6) and Crossroads (26/56); if those fire and a hash row doesn't, that pins it.
+
+## M2 — map toys: Nuketown '84 → (Diesel=here) → Miami → Crossroads (Map → 6v6 maps → … → Switch NOW)
 
 Each map switch is a session write: **lobby return check after the last one.** 💥 rows last on their map.
 
@@ -183,9 +194,46 @@ Each map switch is a session write: **lobby return check after the last one.** �
 **Fix (one function, `act_dbg`):** `getdvarint(dvar,0)`→`cfg_geti(dvar,0)` and `setdvar(dvar,nv)`→`cfg_seti(dvar,nv)`. Both fall through to the direct dvar for non-spec keys, so it's safe for any non-packed toggle; matches `act_dbg_all_off` which already uses `cfg_seti`. Fixes census/spawn/structs/families/flags/match/assets/veh at once. Owner: bocw-0f (packed store is theirs); lands next launch.
 **Workaround this launch:** none in-game, but the census DATA is unaffected — read it from the read-only `GFMAP*` memory channel (below), which is exactly what `assets_line_*` prints.
 
+### F2 — 🔎 the lobby's native bot-fill is ACTIVE and fights manual single add/remove
+Driving the Bots page over the bridge + reading the roster channel (autonomous, no klaze, no visuals) on Gas Station 4v4:
+- **removebots (all) ✓** — bots dropped 8→2, then the native fill re-balanced to **1v1** (host + A. Penner) and held. So the ALL-remove verb works; the engine keeps one bot to balance the lone human.
+- **fillbots (to team size) ✓** — restored **4v4** (fresh bot names; removed bots don't return).
+- **removebot (single)** at a full team = a **name swap** at count 4 (native fill instantly re-adds one) — single-remove is masked while the fill target is met.
+- **addbot** at 4v4 (budget/fill target met) = **no-op** (roster unchanged).
+⇒ The menu bot verbs are correct, but the lobby's own **Bot Fill** setting re-populates against them, so single add/remove/even (B1–B3) can't be measured cleanly until Bot Fill is set to a fixed count / off in the lobby. Bulk verbs (removebots/fillbots) move the count decisively and are confirmed. Difficulty/passive (B4–B9) need visual bot-behavior = klaze.
+
+### Autonomous coverage matrix (2026-09-18, bridge + memory + PrintWindow screenshots, no klaze input)
+| Feature | Verdict | How |
+|---|---|---|
+| Client: godmode / max ammo / **give-weapon target-context** / third person | ✅ PASS | menu (god/ammo/give) + bridge (thirdperson); `gave EM2 -> F. Noor` proves the target hub |
+| Bots: removebots / fillbots | ✅ PASS | bridge → roster channel (8→2→4v4) |
+| Map census (Diesel + Nuketown) / roster / live config | ✅ PASS | GFMAP*/GFROSTER/GFCFG memory sweeps |
+| **Map switch** (Gas Station → Nuketown '84, gunfight) | ✅ PASS | bridge `switch` → do_session_switch |
+| Exploder `all` / destruct `all` | ⚠ dispatch OK, **visual pending** | fired, no crash/reload; FX at map locations I can't survey from a fixed host view — needs klaze look-around |
+| Announce / countdown | ⚠ channel proven | broadcast_feed/bold = same iprintln the debug feed uses; fast-fade beat my capture |
+| **F1** debug-feed toggles | 🐛 dead (packed-store desync) | fix built into next build (bocw-c3) |
+| **F3** teleport All-to-me | 🐛 confirmed → **FIXED** | see below |
+| Bot difficulty/passive, pool camo over rounds, gravity/speed/jump/fly feel, OOB, projectiles, prop placement, teleport gun/crosshair | ⛔ needs klaze | visual effect / aim / trigger — no memory channel |
+
+### F3 — 🐛→✅ Teleport "All to me" reloaded the round; FIXED (2026-09-18)
+**Confirmed & characterized:** with every player **FROZEN** (bridge `freeze` → no combat possible), `tpall me` still reloaded the round (roster 4v4→1v0). So it is **not** bot combat and invulnerability can't fix it — the engine ends the round when **both teams occupy one cluster**. `team`/`enemy`-to-me (one team) are the proven-safe cases.
+**Fix (`tp_gather`, split into `tp_gather` dispatcher + `tp_gather_ring`):** "all" now does two independent single-team gathers at two centres 384u apart (forward of the host, sideways fallback if blocked) — each is exactly the working single-team case, and the two teams never co-locate. Owner-cleared by bocw-c3; lands in the vehmode build (next launch). ⚠ Not live-tested (needs rebuild+relaunch); re-run T5 next launch to confirm no reload.
+
+### F3-orig — the original observation
+
+Driven over the bridge (`tpall me`) on Gas Station 4v4, autonomous. The frame ~0.8 s later showed the **"GUNFIGHT — ELIMINATE ENEMY PLAYERS" round-start splash** (fresh loadout, reset health bars); roster after = host only, bots wiped (native-fill re-adding). So the round reloaded — the 283,546 B `tp_grace` fix did **not** prevent the double-elimination that `teleport-feature.md` recorded on 2026-09-15.
+**Diagnosis (source, `tp_gather` L10248 / `tp_grace` L10220):** the grace is applied **only to the moved bots, not the host**, and is a 1.5 s `enableinvulnerability`. But the reload beat the 1.5 s window (<0.8 s), so it is likely **not** post-grace mutual fire — more likely the teleport landing itself (telefrag / fall damage in the frame before grace threads, or the ring stacking both teams triggering an engine round-end) . `team`/`enemy` to-me move only one side and were reported working; only **all** (both teams to one point) reloads.
+**Next:** re-test with the F1-fixed feed next launch + a per-frame trace (did a bot take damage? did `level.playerlives`/elimination fire?); candidate fixes: grace the host too and apply `enableinvulnerability` BEFORE the setorigin, or stagger the two teams' rings so they never occupy one cluster. Owner: teleport feature (no active peer session owns it — flag to klaze). ⚠ Do not drive `tpall me` again this launch (it reloads).
+
 ## Results log (chronological, one line per event)
 
+- 2026-09-18 ~00:34 — **F3: teleport All-to-me RELOADS the round** (bridge `tpall me` → round-start splash, roster wiped to host). tp_grace insufficient. Also this launch: **M1.17 third person (host) ✓** (bridge, camera pulled back), **destruct all** sent (inconclusive — propane-tank targets not in view).
+
+- 2026-09-18 ~00:30 — **Bots (bots.md, never-run) via bridge+roster:** removebots ✓ (8→2, native-fill→1v1), fillbots ✓ (→4v4). See F2. Match left at 4v4.
+
 - 2026-09-17 23:18 — game launched (pid 35204), app LIVE; bridge not yet loaded; payload 365,638 B on disk = source.
+- 2026-09-18 ~00:19 — **M1.11 ✓ target context PASS** — gave a weapon from a bot's Give-weapon hub, feed read **`gave EM2 -> F. Noor`**. Source-confirmed: `act_giveweapon` gives to `menu_target()` and `target_tail` only emits `-> name` when the target isn't the host, so the `-> F. Noor` tail proves the shared Weapons hub was aimed at that bot (and `switchtoweapon` puts it in the bot's hands). V returned to the bot's page, not root (M1.11 step 3 ✓). Host's own gun unchanged by the bot-give (✓ not host). Remaining: the root-Weapons give → host half (M1.12).
+- 2026-09-18 ~00:17 — **M1.8 ✓** client page renders (bot's page drawn in the feed: Godmode/Max ammo/Give weapon rows). **M1.9 ✓ Godmode** on the bot (`Godmode [ON]` green marker; klaze: works, shot it). **M1.10 ✓ Max ammo** on the bot. Client-control (`client-control.md`, never-run) first three verbs PASS.
 - 2026-09-18 ~00:00 — **M1.1 ✓** 4v4 filled with bots on Gas Station (`mp_sm_gas_station`, gunfight). **M1.6 roster ✓** (GFROSTER, 0.8 s: `8bit allies host`). **M1.3 mapdata ✓** all four GFMAP strings live (SPAWN parser bug in mapdata_scan.py fixed). **M1.4 config ✓** (73 s). **M1.40 side-finding:** random-each-round pool camo visibly working (gold last round → green this round on both host + bot). **M1.2 feed toggle = F1 bug** (no lines); census captured from memory instead:
   - `GFMAPVEH mp_sm_gas_station gunfight` — drivable(5): vehicle_motorcycle_mil_us_offroad, _alt, vehicle_t9_mil_ru_apc_heavy, _open_turret, vehicle_t9_mil_helicopter_care_package · other(10): chopper_gunner, ru_heli_transport_drop, rcxd_racing(+alt), hash_58cc8ce25d32031f, ac130_gunship, helicopter_gunship(+guard), ru_air_vtol_forger, straferun
   - `GFMAPPROP mp_sm_gas_station tbl=1 rows=13` — cactus/tire_pile/sidewalk_sign/dumpster/pallet_stack/plywood/steps/beer_box/trashbin/cactus_barrel/water_cooler/newspaper_stand/cardboard_box

@@ -10243,9 +10243,31 @@ function private tp_front( origin, yaw )
     return spot;
 }
 
-// Everyone alive but the host (no spectators, no vehicle seats) in a ring around centre,
-// facing it. who = "all" | "team" (the host's side) | "enemy". Returns how many moved.
+// Everyone alive but the host (no spectators, no vehicle seats) to the host's area. who =
+// "all" | "team" (the host's side) | "enemy". Returns how many moved.
+// ⚠ "all" (BOTH teams to ONE point) reloaded the round - MEASURED 2026-09-18 even with every
+// player FROZEN, so it is NOT combat (invulnerability cannot help): the engine ends the round
+// when both teams occupy one cluster. "team"/"enemy" move a single team and are fine. So "all"
+// is split into two independent single-team gathers at two centres a real distance apart -
+// each is exactly the working single-team case, and the two teams are never co-located.
 function private tp_gather( centre, who )
+{
+    if ( who != "all" )
+        return self tp_gather_ring( centre, who );
+
+    ang = self getplayerangles();
+    fwd = anglestoforward( ( 0, ang[ 1 ], 0 ) );
+    c2 = tp_floor( centre + vectorscale( fwd, 384 ) );
+
+    // If the forward offset collapsed back onto the host (blocked / off a ledge), go sideways.
+    if ( distancesquared( centre, c2 ) < ( 220 * 220 ) )
+        c2 = tp_floor( centre + vectorscale( ( 0 - fwd[ 1 ], fwd[ 0 ], 0 ), 384 ) );
+
+    return ( self tp_gather_ring( centre, "team" ) ) + ( self tp_gather_ring( c2, "enemy" ) );
+}
+
+// One ring of one team around one centre - the single-team primitive "all" is built from.
+function private tp_gather_ring( centre, who )
 {
     list = [];
 
