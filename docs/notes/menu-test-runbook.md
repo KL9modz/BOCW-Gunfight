@@ -202,6 +202,12 @@ Driving the Bots page over the bridge + reading the roster channel (autonomous, 
 - **addbot** at 4v4 (budget/fill target met) = **no-op** (roster unchanged).
 ⇒ The menu bot verbs are correct, but the lobby's own **Bot Fill** setting re-populates against them, so single add/remove/even (B1–B3) can't be measured cleanly until Bot Fill is set to a fixed count / off in the lobby. Bulk verbs (removebots/fillbots) move the count decisively and are confirmed. Difficulty/passive (B4–B9) need visual bot-behavior = klaze.
 
+### F4 — 🔎 "Apply now still restarts" ROOT CAUSE: packed-chunk contamination (7/9 chunks)
+klaze reported Apply-now still restarts even after the scope fix. Root cause (confirmed structurally from the PACKED order, no churn): the app's `_apply_config` resends a WHOLE 6-field packed chunk for any changed field; 7 of the 9 chunks also carry a reload-triggering gametype setting, so an "innocent" apply drags a stale neighbor that trips next-round `mod_apply → gts_set` if it differs from the game's live value:
+- gf_c1 customcac ← camo/debug · **gf_c3 gf_loadout ← GRAVITY/fly/jump** · gf_c4 map_method/prematch/preround ← menu-display · gf_c5 profile/roundlimit/roundwinlimit ← rounds_loadout/spawn_diag · gf_c6 spec_slots ← speed/spawn-tuning · gf_c7 spyplane/team_size ← TIMER/strike/switch
+- SAFE: gf_c2 (falldamage/debug), gf_c8 (zone), gf_c0 (bots/camo-pool)
+`gts_set` no-ops an UNCHANGED write, so it only reloads when the app's stale neighbor DIFFERS. **Fix is app-side (bocw-0f's gf_control.py, no payload rebuild): sync every untouched field in each dirty chunk from the live config (config_scan / Load-current-first) before applying.** The scope fix (adb7e2f-era) was correct but addressed a different path (mod_periods); this is the chunk-neighbor path. Immediate apply is reload-free (mod_movement only); the reload is the deferred next-round path.
+
 ### Autonomous coverage matrix (2026-09-18, bridge + memory + PrintWindow screenshots, no klaze input)
 | Feature | Verdict | How |
 |---|---|---|
