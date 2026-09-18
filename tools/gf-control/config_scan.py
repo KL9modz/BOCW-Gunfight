@@ -167,6 +167,14 @@ class ConfigScanner(rs.Scanner):
                                 best = (r[0], r[1], buf.raw[i: j + len(END)])
                         start = i + len(MARK)
                 off += step
+            # config_publish re-interns GFCFG every 2 s into the SAME string pool, which lives in
+            # the exe-range private-RW region ranked first - so the newest tick is in the FIRST
+            # region that yields any hit. Stop there instead of scanning all ~12k regions for a
+            # marginally-newer copy. ~1 s vs ~50-70 s: the full sweep is what made the app's
+            # pre-apply auto-sync (F4) delay EVERY Apply-now by ~a minute (klaze 2026-09-18). A
+            # copy up to ~2 s old is fine for reading neighbour values that barely change.
+            if best is not None:
+                break
         self.last_sweep_s = time.perf_counter() - t0
         return best
 
