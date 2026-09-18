@@ -204,6 +204,18 @@
 //                       (spy.gsc:2411). ⚠ Stock NUKES every disable_oob layer on each spawn
 //                       (globallogic_spawn.gsc:612), so it is re-set per life in
 //                       mod_spawn_movement. A plain dvar, not in the packed store.
+//     gf_vehmode        VEHICLE MODE, 0 (default) off: everyone spawns already riding this map's
+//                       ride of the class - 1 motorcycles / 2 attack helis (Hind) / 3 care-package
+//                       heli (every map) / 4 snowmobiles / 5 quads + buggies / 6 tanks + APCs /
+//                       7 cars + trucks / 8 streak gunship (seat untested) / 9 AUTO (lightest ride,
+//                       else the care package heli). Stock's spawn-in-vehicle shape
+//                       (spawning_squad.gsc:1578): spawnvehicle at the spawn point + usevehicle.
+//     gf_veh_lock       1 (default) riders cannot get off: the disable_usability value layer +
+//                       a re-seat watcher. 0 = free to leave. Plain dvars, docs/notes/vehicle-mode.md.
+//     gf_veh_hp         vehicle health, PERCENT of the asset's default (100). 25 makes a Hind
+//                       killable by rifles; 400 makes bikes tanky.
+//     gf_veh_alt        air rides spawn this many units above the spawn point (300), ceiling-traced.
+//     gf_dbg_veh        1 = the VEHMODE debug feed line (one line, every 3 s).
 //     gf_falldamage     1 stock / 0 off - bg_falldamageminheight/maxheight pushed out of reach
 //                       (the pair cp/zm "oldschool" mode raises, cp globallogic.gsc:184). The
 //                       stock values are captured once per process (gf_fd_min/max_stock) so
@@ -409,6 +421,9 @@ function private __init__()
     // per-life movement state - speed scale after stock's loadout reset, the jump-boost
     // watcher - for EVERY player, bots included.
     callback::on_spawned( &mod_spawn_movement );
+    // Vehicle mode (docs/notes/vehicle-mode.md): everyone spawns already riding. After the
+    // movement handler so the rider's speed / oob / fall-damage state is in place first.
+    callback::on_spawned( &mod_spawn_vehicle );
 
     // Fired by bot_difficulty::assign() on the bot after EVERY stock difficulty install -
     // join, reconnect at the round boundary, our own re-assign. Where the custom struct and
@@ -896,6 +911,9 @@ function private mod_apply()
 
     // Movement mods apply in EVERY gametype, so they run before the Gunfight gate.
     mod_movement();
+
+    // Vehicle mode: resolve this map's ride for the round (every gametype) and tell the host.
+    veh_mode_announce();
 
     // Bots too: difficulty is a stock per-team gametype setting in every mode, and the
     // bots re-init at the round boundary (bot.gsc:239 on_player_connect -> assign), so
@@ -1654,13 +1672,15 @@ function private mod_ontimelimit()
         return;
     level.gfmenu_round_ended = 1;
 
+    // Vehicle mode: a rider's armour is his ride, so its health fraction (0..100) joins the
+    // side's total - otherwise a Hind at 5% and a Hind at 100% tie (veh_mode_hp_bonus).
     allies_health = 0;
     foreach ( p in getplayers( #"allies" ) )
-        allies_health += p.health;
+        allies_health += p.health + veh_mode_hp_bonus( p );
 
     axis_health = 0;
     foreach ( p in getplayers( #"axis" ) )
-        axis_health += p.health;
+        axis_health += p.health + veh_mode_hp_bonus( p );
 
     if ( allies_health > axis_health )
         globallogic::function_a3e3bd39( #"allies", 1 );
@@ -4780,6 +4800,11 @@ function private cmd_apply_live( scope )
     if ( all || scope_has( scope, "timer" ) )
         level.gf_timelimit_cache = cfg_timer_seconds() / 60;
 
+    // Vehicle mode: everyone alive dismounts and remounts the (re-resolved) ride now. Only on
+    // an explicit scope - never on "all", which an older app sends for any apply.
+    if ( scope_has( scope, "veh" ) )
+        veh_mode_refresh();
+
     // ⚠ Apply-now applies ONLY mid-match-safe subsystems: movement, bots, periods, timer.
     // It never setgametypesetting's maxplayers / customcac / profile / loadout / spyplane / round
     // limits - those reload the match, so mod_apply lands them on the NEXT round, or + Restart now.
@@ -6477,6 +6502,7 @@ function private build_tree()
 
     // ── Vehicles — built per map from what is resident (veh_page_build) ──────
     self menu_add( "vehicles", "Vehicles", "start_menu", 1 );
+    self veh_mode_page_build();     // Vehicle MODE: everyone spawns riding (docs/notes/vehicle-mode.md)
     self veh_page_build();          // rows = what THIS map has resident (veh_master)
 
     // ── Destructibles + radiant exploders — docs/notes/destructibles.md. Both pages are
@@ -7664,6 +7690,7 @@ function private config_publish()
             s += "|" + getdvarstring( "gf_c" + c, "" );
 
         s += "|oob=" + cfg_oob();
+        s += "|veh=" + cfg_vehmode() + "," + cfg_veh_lock() + "," + cfg_veh_hp() + "," + cfg_veh_alt();
         s += "|bot=" + getdvarstring( #"gf_bot", "" );
         s += "|bot2=" + getdvarstring( #"gf_bot2", "" );
         s += "|" + "END";
@@ -8344,7 +8371,7 @@ function private cfg_dbg_assets()   { return cfg_geti( #"gf_dbg_assets", 0 ); }
 
 function private debug_feed_any()
 {
-    return cfg_dbg_census() || cfg_dbg_spawn() || cfg_dbg_structs() || cfg_dbg_families() || cfg_dbg_match() || cfg_dbg_flags() || cfg_dbg_assets();
+    return cfg_dbg_census() || cfg_dbg_spawn() || cfg_dbg_structs() || cfg_dbg_families() || cfg_dbg_match() || cfg_dbg_flags() || cfg_dbg_assets() || cfg_dbg_veh();
 }
 
 function private debug_feed_start()
@@ -8391,6 +8418,8 @@ function private debug_feed_loop()
                 host iprintln( assets_line_p() );
                 host iprintln( assets_line_d() );
             }
+            if ( cfg_dbg_veh() )
+                host iprintln( veh_line() );
         }
 
         wait 3;
@@ -8403,9 +8432,12 @@ function private debug_feed_loop()
 // it off; the loop notices on its next tick and ends itself when nothing is left on.
 function private act_dbg( item, dvar, value, label )
 {
-    cur = getdvarint( dvar, 0 );
+    // Through the config store (bocw-85 F1, 2026-09-17): six of these dvars live in the PACKED
+    // store, whose readers (cfg_dbg_*) never saw a direct setdvar - the toggles were dead. Plain
+    // dvars (gf_dbg_veh) fall through cfg_geti/cfg_seti to getdvarint/setdvar unchanged.
+    cur = cfg_geti( dvar, 0 );
     nv = ( cur == value ) ? 0 : value;
-    setdvar( dvar, nv );
+    cfg_seti( dvar, nv );
 
     if ( nv )
     {
@@ -8436,6 +8468,7 @@ function private act_dbg_all_off( item )
     cfg_seti( #"gf_dbg_match", 0 );
     cfg_seti( #"gf_dbg_flags", 0 );
     cfg_seti( #"gf_dbg_assets", 0 );
+    cfg_seti( #"gf_dbg_veh", 0 );
     self menu_say( "^2debug feed: everything off" );
     return true;
 }
@@ -9189,6 +9222,719 @@ function private veh_enter( item )
 
     return true;
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// VEHICLE MODE — everyone spawns already riding. docs/notes/vehicle-mode.md
+// klaze, 2026-09-17: "on maps with motorcycles, players spawn already driving one and
+// cannot get off it, so it's a gunfight on bikes. and maybe gunfight in attack helicopters."
+// ═════════════════════════════════════════════════════════════════════════════
+// Mechanism = stock's own spawn-in-vehicle shape, the Fireteam squad spawn
+// (spawning_squad.gsc:1578 spawninvehicle, reached from spawning_shared.gsc:250 right after
+// self spawn( origin, angles )):
+//     player.var_5a44792f = 1;   vehicle usevehicle( player, seat );
+// The flag makes vehicle_shared's enter handler return before the enter animation
+// (vehicle_shared.gsc:5362 codecallback_vehicleenter), so the rider is seated the instant
+// the spawn lands. The vehicle itself is Path B (vehicles.md §1): spawnvehicle( key, spot,
+// yaw ) at the player's spawn point, key gated on isassetloaded( "vehicle", key ) with the
+// PLAIN-STRING type argument (the hashed form says yes to everything - vehicles.md §5), so a
+// class whose ride this map does not carry leaves everyone on foot and says so.
+//
+// "Cannot get off" - two layers, neither measured yet:
+//  (a) the registered player value disable_usability (values_shared.gsc:59 -> disableusability(),
+//      what Fireteam's parachute insertion sets while the player is in the air,
+//      player_insertion.gsc:2464), layered on the rider under our own id gf_veh. Leaving a
+//      vehicle is a hold-Use action (vehicle.showHoldToExitPrompt, vehicle_shared.gsc:90), so
+//      this is expected to swallow it. Stock nukes every value layer per spawn
+//      (globallogic_spawn.gsc:612), so it is set per life, after the seat.
+//  (b) belt and braces: a per-life watcher re-seats the rider the frame the engine reports
+//      him out of the driver's seat. ⚠ usevehicle TOGGLES - on a seated player it is the
+//      exit, which is exactly how stock ejects occupants (vehicle_death_shared.gsc:307,
+//      bot_devgui.gsc:935) - so the watcher only calls it while seat 0 is actually empty,
+//      and gives up after 20 re-seats in one life rather than fight the engine every frame.
+// A vehicle's death kills its occupants (player_vehicle.gsc:101 vehkilloccupantsondeath = 1),
+// so a downed Hind is an elimination with stock attribution; a rider shot off a bike is a
+// plain player death and the empty bike is deleted 3 s later.
+//
+// Ground rides spawn at the spawn point, braked until the pre-round countdown ends (stock's
+// enter handler RELEASES the brake, player_vehicle.gsc:1266, so it is re-set after the
+// seat). Air rides spawn at GO instead - a frozen pilot's heli would drift into the map -
+// gf_veh_alt above the spawn point, ceiling-traced, rotor up (the veh_spawn shape).
+//
+// Config (plain dvars, NOT the packed store - inserting a packed key shifts every chunk
+// position for a stale app, the gf_oob precedent):
+//   gf_vehmode  0 off | 1 bikes | 2 attack helis (Hind) | 3 care-package heli (every map) |
+//               4 snowmobiles | 5 quads + buggies | 6 tanks + APCs | 7 cars + trucks |
+//               8 streak gunship (universal asset, seat UNTESTED) | 9 AUTO (1,4,5,7,6,3 first hit)
+//   gf_veh_lock 1 = locked in (default) / 0 = free to leave
+//   gf_veh_hp   vehicle health in PERCENT of the asset's default, 100 = stock
+//   gf_veh_alt  air spawn height above the spawn point (units), default 300
+//   gf_dbg_veh  1 = the VEHMODE debug line in the feed (one line, every 3 s)
+// Per-map coverage is offline data (docs/data/map-assets.json, vehicles.md §6-7): bikes on
+// Diesel / Cartel / Collateral / the Fireteam maps, the Hind on Collateral + Fireteam maps,
+// snowmobiles on Crossroads / Alpine, quads + buggies on Collateral + Fireteam, tanks on
+// Crossroads (APCs on Diesel / Checkmate), the care package heli everywhere (measured flying
+// on every map, klaze 2026-09-16). A hashed key below is the FNV1a64 of the plain name it is
+// commented with (verified: all of veh_master's hashed labels hash back exactly).
+
+function private cfg_vehmode()  { return cfg_geti( #"gf_vehmode", 0 ); }
+function private cfg_veh_lock() { return cfg_geti( #"gf_veh_lock", 1 ); }
+function private cfg_veh_hp()   { return cfg_geti( #"gf_veh_hp", 100 ); }
+function private cfg_veh_alt()  { return cfg_geti( #"gf_veh_alt", 300 ); }
+function private cfg_dbg_veh()  { return cfg_geti( #"gf_dbg_veh", 0 ); }
+
+// One class = a name, air or ground, and an ORDERED candidate list; the first key resident
+// on this map (and not retired by a failed seat) is the round's ride.
+function private veh_mode_def( id, name, air )
+{
+    cls = spawnstruct();
+    cls.id = id;
+    cls.name = name;
+    cls.air = air;
+    cls.klist = [];
+    cls.tlist = [];
+    return cls;
+}
+
+function private veh_mode_add( cls, key, text )
+{
+    cls.klist[ cls.klist.size ] = key;
+    cls.tlist[ cls.tlist.size ] = text;
+    return cls;
+}
+
+function private veh_mode_classes()
+{
+    if ( isdefined( level.gf_vm_classes ) )
+        return level.gf_vm_classes;
+
+    c = [];
+
+    k = veh_mode_def( 1, "BIKES", 0 );
+    k = veh_mode_add( k, "vehicle_motorcycle_mil_us_offroad", "motorcycle" );
+    k = veh_mode_add( k, "vehicle_motorcycle_mil_us_offroad_alt", "motorcycle alt" );
+    k = veh_mode_add( k, #"hash_4b89aa566bff8383", "motorcycle slow" );                 // vehicle_motorcycle_mil_us_offroad_slow (Cartel)
+    c[ 1 ] = k;
+
+    k = veh_mode_def( 2, "ATTACK HELIS", 1 );
+    k = veh_mode_add( k, #"hash_6595f5efe62a4ec", "Hind gunship" );                     // vehicle_t9_mil_ru_heli_gunship_hind (Collateral, Fireteam maps)
+    c[ 2 ] = k;
+
+    k = veh_mode_def( 3, "HELIS ANY MAP", 1 );
+    k = veh_mode_add( k, "vehicle_t9_mil_helicopter_care_package", "care package heli" );   // core_common: every MP map, flies (klaze 09-16)
+    c[ 3 ] = k;
+
+    k = veh_mode_def( 4, "SNOWMOBILES", 0 );
+    k = veh_mode_add( k, "vehicle_t9_mil_snowmobile_alt_single_seat", "snowmobile single seat" );
+    k = veh_mode_add( k, "vehicle_t9_mil_snowmobile", "snowmobile" );
+    k = veh_mode_add( k, "vehicle_t9_mil_snowmobile_alt", "snowmobile alt" );
+    c[ 4 ] = k;
+
+    k = veh_mode_def( 5, "QUADS + BUGGIES", 0 );
+    k = veh_mode_add( k, "veh_quad_player_wz_pc", "quad / ATV" );
+    k = veh_mode_add( k, "vehicle_t9_mil_fav_light", "light buggy (FAV)" );
+    k = veh_mode_add( k, "vehicle_t9_mil_fav_light_alt", "light buggy (FAV) alt" );
+    k = veh_mode_add( k, "veh_mil_ru_fav_heavy", "heavy buggy (FAV)" );
+    c[ 5 ] = k;
+
+    k = veh_mode_def( 6, "TANKS + APCS", 0 );
+    k = veh_mode_add( k, "vehicle_t9_mil_ru_tank_t72_sr", "tank T-72" );
+    k = veh_mode_add( k, #"hash_28d512b739c9d9c1", "tank T-72 (base)" );                // vehicle_t9_mil_ru_tank_t72
+    k = veh_mode_add( k, "vehicle_t9_mil_ru_tank_t72_alt", "tank T-72 alt" );
+    k = veh_mode_add( k, #"hash_1a60a087a340574b", "APC (heavy)" );                     // vehicle_t9_mil_ru_apc_heavy (Diesel, Checkmate)
+    k = veh_mode_add( k, #"hash_7c54a264a26cb1eb", "APC (heavy, open turret)" );        // vehicle_t9_mil_ru_apc_heavy_open_turret
+    c[ 6 ] = k;
+
+    k = veh_mode_def( 7, "CARS + TRUCKS", 0 );
+    k = veh_mode_add( k, "vehicle_t9_civ_ru_sedan_80s_player", "sedan" );
+    k = veh_mode_add( k, "vehicle_t9_civ_ru_sedan_80s_player_alt", "sedan alt" );
+    k = veh_mode_add( k, "vehicle_t9_mil_ru_truck_light_player", "light truck" );
+    k = veh_mode_add( k, "vehicle_t9_mil_ru_truck_light_player_alt", "light truck alt" );
+    k = veh_mode_add( k, #"hash_1bdb534f1e8e23f5", "light truck (base)" );              // vehicle_t9_mil_ru_truck_light (Cartel)
+    k = veh_mode_add( k, "vehicle_t9_mil_ru_truck_transport_player", "transport truck" );
+    k = veh_mode_add( k, "vehicle_t9_mil_ru_truck_transport_player_alt", "transport truck alt" );
+    c[ 7 ] = k;
+
+    // The MP Attack Helicopter streak asset: universal (core_common + mp_common) and a gunship,
+    // but AI-flown in stock - whether seat 0 takes a player is exactly what a run measures.
+    // A failed seat retires the key for the match (veh_mode_ride), so trying costs one round.
+    k = veh_mode_def( 8, "STREAK GUNSHIP", 1 );
+    k = veh_mode_add( k, "veh_t8_helicopter_gunship_mp", "attack heli (streak asset)" );
+    k = veh_mode_add( k, "veh_t8_helicopter_gunship_mp_guard", "attack heli guard (streak asset)" );
+    c[ 8 ] = k;
+
+    level.gf_vm_classes = c;
+    return c;
+}
+
+function private veh_mode_class( id )
+{
+    c = veh_mode_classes();
+
+    if ( isdefined( c[ id ] ) )
+        return c[ id ];
+
+    return undefined;
+}
+
+function private veh_mode_name( mode )
+{
+    if ( mode <= 0 )
+        return "OFF";
+    if ( mode == 9 )
+        return "AUTO";
+
+    cls = veh_mode_class( mode );
+    return isdefined( cls ) ? cls.name : ( "mode " + mode );
+}
+
+// The per-round counters the VEHMODE feed line reads (level is rebuilt every round).
+function private veh_mode_state()
+{
+    if ( !isdefined( level.gf_vm ) )
+    {
+        st = spawnstruct();
+        st.spawned = 0;   // spawnvehicle calls
+        st.seated = 0;    // riders confirmed in seat 0 a frame later
+        st.fail = 0;      // spawn returned undefined / the seat did not take
+        st.exits = 0;     // frames the watcher found a rider out of the seat
+        st.reseat = 0;    // usevehicle re-seats it issued
+        st.shots = 0;     // weapon_fired notifies from seated riders (can the rider shoot?)
+        st.gaveup = 0;    // riders whose watcher hit the 20 re-seat cap
+        level.gf_vm = st;
+    }
+
+    return level.gf_vm;
+}
+
+// Resolve this map's ride for the configured mode: the first candidate of the class (AUTO:
+// classes 1,4,5,7,6,3 in that order) that is resident and not retired. Cached on level for
+// the round; veh_mode_refresh drops the cache so a mid-round mode change re-resolves.
+function private veh_mode_resolve()
+{
+    level.gf_veh_resolved = 1;
+    level.gf_veh_key = undefined;
+    level.gf_veh_text = "-";
+    level.gf_veh_cls = undefined;
+    mode = cfg_vehmode();
+
+    if ( mode <= 0 )
+        return 0;
+
+    if ( !isdefined( game.gf_veh_dead ) )
+        game.gf_veh_dead = [];
+
+    order = [];
+
+    if ( mode == 9 )
+    {
+        order[ 0 ] = 1;
+        order[ 1 ] = 4;
+        order[ 2 ] = 5;
+        order[ 3 ] = 7;
+        order[ 4 ] = 6;
+        order[ 5 ] = 3;
+    }
+    else
+    {
+        order[ 0 ] = mode;
+    }
+
+    foreach ( id in order )
+    {
+        cls = veh_mode_class( id );
+
+        if ( !isdefined( cls ) )
+            continue;
+
+        for ( i = 0; i < cls.klist.size; i++ )
+        {
+            if ( isdefined( game.gf_veh_dead[ id * 100 + i ] ) )
+                continue;                                   // retired: would not seat a player this match
+
+            if ( !isassetloaded( "vehicle", cls.klist[ i ] ) )
+                continue;
+
+            level.gf_veh_key = cls.klist[ i ];
+            level.gf_veh_text = cls.tlist[ i ];
+            level.gf_veh_cls = cls;
+            level.gf_veh_slot = id * 100 + i;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+function private veh_mode_key()
+{
+    if ( !isdefined( level.gf_veh_resolved ) )
+        veh_mode_resolve();
+
+    return level.gf_veh_key;
+}
+
+// Round start (mod_apply, every gametype): resolve and tell the host what this round rides.
+function private veh_mode_announce()
+{
+    level.gf_veh_resolved = undefined;
+
+    if ( cfg_vehmode() <= 0 )
+        return;
+
+    if ( veh_mode_resolve() )
+        mod_host_say( "^3vehicle mode ^7" + veh_mode_name( cfg_vehmode() ) + " -> " + level.gf_veh_text + ( cfg_veh_lock() ? " (locked in)" : " (free to leave)" ) );
+    else
+        mod_host_say( "^1vehicle mode " + veh_mode_name( cfg_vehmode() ) + ": no such ride resident on this map - everyone on foot" );
+}
+
+// on_spawned, every player, bots included (a bot sits still, a target on wheels).
+function private mod_spawn_vehicle()
+{
+    if ( !isplayer( self ) || cfg_vehmode() <= 0 )
+        return;
+
+    self thread veh_mode_ride( 0 );
+}
+
+// One life's ride: spawn the vehicle at the rider's spawn point, seat him the stock way,
+// hold / lock / clean up. now = 1 when re-applied mid-round (a frame's grace for a dismount).
+function private veh_mode_ride( now )
+{
+    self endon( #"disconnect" );
+    self endon( #"death" );
+    self notify( #"gf_veh_ride_restart" );   // never two per life
+    self endon( #"gf_veh_ride_restart" );
+
+    if ( now )
+        waitframe( 1 );
+
+    key = veh_mode_key();
+
+    if ( !isdefined( key ) || !isalive( self ) || self isinvehicle() )
+        return;
+
+    cls = level.gf_veh_cls;
+    st = veh_mode_state();
+
+    // Air: a heli with a frozen pilot drifts into the map - spawn it at GO. Ground rides sit
+    // braked through the countdown instead (below), so the riders see themselves mounted.
+    if ( cls.air )
+    {
+        while ( is_true( level.inprematchperiod ) )
+            waitframe( 1 );
+
+        if ( !isalive( self ) || self isinvehicle() )
+            return;
+    }
+
+    ang = self getplayerangles();
+    yaw = ( 0, ang[ 1 ], 0 );                 // level, facing the way the spawn faces
+    spot = self.origin + ( 0, 0, 12 );
+
+    if ( cls.air )
+        spot = veh_mode_air_spot( self.origin, cfg_veh_alt() );
+
+    veh = spawnvehicle( key, spot, yaw );
+    st.spawned++;
+
+    if ( !isdefined( veh ) )
+    {
+        st.fail++;
+        return;
+    }
+
+    veh.gf_veh_mode = 1;
+    veh.gf_veh_rider = self;
+    veh thread veh_mode_life( self );        // owns the cleanup from here on
+
+    if ( cls.air )
+        veh setrotorspeed( 1.0 );
+
+    self.var_5a44792f = 1;                   // stock's spawn-in-vehicle flag: no enter animation
+    veh usevehicle( self, 0 );
+    waitframe( 1 );
+
+    if ( !isdefined( veh ) )
+    {
+        st.fail++;
+        return;
+    }
+
+    if ( !self isinvehicle() )
+    {
+        // This asset takes no player at seat 0 here. Retire the key for the match so the next
+        // round falls through to the class's next candidate (or on foot), and say so once.
+        st.fail++;
+        game.gf_veh_dead[ level.gf_veh_slot ] = 1;
+        level.gf_veh_resolved = undefined;
+        veh delete();
+        mod_host_say( "^1vehicle mode: " + level.gf_veh_text + " would not seat " + self.name + " - retired for this match" );
+        return;
+    }
+
+    st.seated++;
+    self.gf_veh = veh;
+    self.gf_veh_reseats = 0;
+    veh_mode_hp_apply( veh );
+
+    if ( !cls.air )
+        self thread veh_mode_hold( veh );
+
+    if ( cfg_veh_lock() )
+        self val::set( #"gf_veh", "disable_usability", 1 );
+
+    self thread veh_mode_lock_think( veh );
+    self thread veh_mode_shots_think( veh );
+}
+
+// gf_veh_alt above the spawn point, but under any ceiling: trace up, keep 120 u of clearance
+// (a Hind is ~110 u tall with the rotor). An indoor spawn still gets its heli, just low.
+function private veh_mode_air_spot( origin, alt )
+{
+    if ( alt < 40 )
+        alt = 40;
+
+    top = origin + ( 0, 0, alt + 120 );
+    tr = bullettrace( origin + ( 0, 0, 8 ), top, 0, undefined );
+    room = tr[ #"position" ][ 2 ] - origin[ 2 ] - 120;
+
+    if ( room < alt )
+        alt = room;
+
+    if ( alt < 40 )
+        alt = 40;
+
+    return origin + ( 0, 0, alt );
+}
+
+// Ground rides: brake through the pre-round countdown (stock released it on the seat), off at GO.
+function private veh_mode_hold( veh )
+{
+    self endon( #"death", #"disconnect", #"gf_veh_release" );
+    veh endon( #"death" );
+
+    if ( !is_true( veh.isphysicsvehicle ) )
+        return;
+
+    veh setbrake( 1 );
+
+    while ( is_true( level.inprematchperiod ) )
+        waitframe( 1 );
+
+    if ( isdefined( veh ) )
+        veh setbrake( 0 );
+}
+
+// The re-seat watcher (layer b). Reads gf_veh_lock live: the host can free the riders mid-round.
+function private veh_mode_lock_think( veh )
+{
+    self notify( #"gf_veh_lock_restart" );
+    self endon( #"gf_veh_lock_restart", #"death", #"disconnect", #"gf_veh_release" );
+    veh endon( #"death" );
+    st = veh_mode_state();
+
+    for ( ;; )
+    {
+        waitframe( 1 );
+
+        if ( !isdefined( veh ) )
+            return;
+
+        if ( !cfg_veh_lock() )
+            continue;
+
+        if ( self isinvehicle() )
+        {
+            // Still aboard. A seat change (the bike has a passenger seat) leaves the driver's
+            // seat empty: hop back - exit (toggle) this frame, re-enter seat 0 the next.
+            if ( self getvehicleoccupied() == veh && veh getoccupantseat( self ) != 0 && !veh isvehicleseatoccupied( 0 ) )
+            {
+                veh usevehicle( self, veh getoccupantseat( self ) );
+                waitframe( 1 );
+
+                if ( isdefined( veh ) && isalive( self ) && !self isinvehicle() )
+                {
+                    self.var_5a44792f = 1;
+                    veh usevehicle( self, 0 );
+                    st.reseat++;
+                }
+            }
+
+            continue;
+        }
+
+        st.exits++;
+
+        if ( veh isvehicleseatoccupied( 0 ) )
+            continue;                           // mid-exit: the engine still counts him in the seat
+
+        if ( self.gf_veh_reseats >= 20 )
+        {
+            if ( self.gf_veh_reseats == 20 )
+            {
+                st.gaveup++;
+                self.gf_veh_reseats++;
+                mod_host_say( "^1vehicle mode: " + self.name + " keeps leaving his ride - re-seat cap hit, letting him" );
+            }
+
+            continue;
+        }
+
+        self.var_5a44792f = 1;
+        veh usevehicle( self, 0 );
+        self.gf_veh_reseats++;
+        st.reseat++;
+    }
+}
+
+// Debug: does a seated rider's own weapon fire at all (the bike's driver seat may forbid it)?
+function private veh_mode_shots_think( veh )
+{
+    self notify( #"gf_veh_shots_restart" );
+    self endon( #"gf_veh_shots_restart", #"death", #"disconnect", #"gf_veh_release" );
+    veh endon( #"death" );
+    st = veh_mode_state();
+
+    for ( ;; )
+    {
+        self waittill( #"weapon_fired" );
+
+        if ( self isinvehicle() )
+            st.shots++;
+    }
+}
+
+// On the vehicle: when its rider dies or leaves the match, delete the empty ride 3 s later. A
+// DESTROYED vehicle ends this first (endon death) - stock's wreck handling owns that case.
+function private veh_mode_life( player )
+{
+    self endon( #"death" );
+    player waittill( #"death", #"disconnect" );
+    wait 3;
+
+    if ( isdefined( self ) && veh_mode_empty( self ) )
+        self delete();
+}
+
+function private veh_mode_delete_soon( delay )
+{
+    self endon( #"death" );
+    wait delay;
+
+    if ( isdefined( self ) && veh_mode_empty( self ) )
+        self delete();
+}
+
+function private veh_mode_empty( veh )
+{
+    occ = veh getvehoccupants();
+    return !isdefined( occ ) || occ.size == 0;
+}
+
+// gf_veh_hp: scale the asset's default health (player_vehicle.gsc:1301 reads healthdefault
+// into maxhealth on the first enter; both are written so the HUD bar and the kill agree).
+function private veh_mode_hp_apply( veh )
+{
+    pct = cfg_veh_hp();
+
+    if ( pct <= 0 || pct == 100 )
+        return;
+
+    base = isdefined( veh.healthdefault ) ? veh.healthdefault : veh.health;
+
+    if ( !isdefined( base ) || base <= 0 )
+        return;
+
+    hp = int( base * pct / 100 );
+
+    if ( hp < 1 )
+        hp = 1;
+
+    veh.maxhealth = hp;
+    veh.health = hp;
+}
+
+// Free one rider: lock layer off, out of the seat (usevehicle toggles), the ride deleted once empty.
+function private veh_mode_dismount()
+{
+    self notify( #"gf_veh_release" );
+    self val::reset( #"gf_veh", "disable_usability" );
+    veh = self.gf_veh;
+    self.gf_veh = undefined;
+
+    if ( !isdefined( veh ) )
+        return;
+
+    if ( self isinvehicle() && self getvehicleoccupied() == veh )
+        veh usevehicle( self, veh getoccupantseat( self ) );
+
+    veh thread veh_mode_delete_soon( 0.5 );
+}
+
+// Mid-round apply (menu "Apply to everyone alive NOW", the app's Apply now with the veh scope):
+// everyone alive dismounts, then remounts the (re-resolved) ride if the mode is on.
+function private veh_mode_refresh()
+{
+    level.gf_veh_resolved = undefined;
+    on = ( cfg_vehmode() > 0 && isdefined( veh_mode_key() ) );
+
+    foreach ( p in getplayers() )
+    {
+        if ( !isalive( p ) )
+            continue;
+
+        if ( isdefined( p.gf_veh ) )
+            p veh_mode_dismount();
+
+        if ( on )
+            p thread veh_mode_ride( 1 );
+    }
+}
+
+// The timer tiebreak (mod_ontimelimit) sums player health; a rider's armour is his vehicle,
+// so a full-health ride counts +100 for its side (0..100 by health fraction).
+function private veh_mode_hp_bonus( p )
+{
+    if ( !isdefined( p.gf_veh ) || !isalive( p.gf_veh ) || !p isinvehicle() )
+        return 0;
+
+    mh = isdefined( p.gf_veh.maxhealth ) ? p.gf_veh.maxhealth : p.gf_veh.healthdefault;
+
+    if ( !isdefined( mh ) || mh <= 0 )
+        return 0;
+
+    return int( 100 * p.gf_veh.health / mh );
+}
+
+// The VEHMODE debug line (gf_dbg_veh): every data point, one line, re-printed every 3 s.
+function private veh_line()
+{
+    st = veh_mode_state();
+    mode = cfg_vehmode();
+    key = veh_mode_key();
+    riding = 0;
+    alive = 0;
+    vhp = "-";
+
+    foreach ( p in getplayers() )
+    {
+        if ( !isalive( p ) )
+            continue;
+
+        alive++;
+
+        if ( isdefined( p.gf_veh ) && p isinvehicle() )
+        {
+            riding++;
+
+            if ( isdefined( p.gf_veh.health ) )
+                vhp = "" + int( p.gf_veh.health );
+        }
+    }
+
+    vehs = getvehiclearray();
+    nveh = isdefined( vehs ) ? vehs.size : 0;
+    resolved = isdefined( key ) ? 1 : 0;
+
+    return "^3VEHMODE ^7" + veh_mode_name( mode ) + " ^5" + level.gf_veh_text + " ^7res:" + resolved
+        + " air:" + ( ( isdefined( level.gf_veh_cls ) && level.gf_veh_cls.air ) ? 1 : 0 )
+        + " riding:" + riding + "/" + alive + " vehs:" + nveh + " lastvhp:" + vhp
+        + " ^3spawned:" + st.spawned + " seated:" + st.seated + " fail:" + st.fail
+        + " exits:" + st.exits + " reseat:" + st.reseat + " gaveup:" + st.gaveup + " shots:" + st.shots
+        + " ^7pre:" + ( is_true( level.inprematchperiod ) ? 1 : 0 ) + " lock:" + cfg_veh_lock() + " hp:" + cfg_veh_hp() + "% alt:" + cfg_veh_alt();
+}
+
+// ── Menu: Vehicles -> "Vehicle MODE" page + options ─────────────────────────
+function private veh_mode_page_build()
+{
+    self menu_add( "vehmode", "Vehicle MODE - everyone spawns riding", "vehicles", 1 );
+    self menu_item( "vehmode", "Mode OFF - on foot", &act_vehmode, 0, undefined, #"gf_vehmode", 0 );
+    self menu_item( "vehmode", "Motorcycles - Diesel / Cartel / Collateral / Fireteam maps", &act_vehmode, 1, undefined, #"gf_vehmode", 1 );
+    self menu_item( "vehmode", "Attack helicopters - Hind: Collateral / Fireteam maps", &act_vehmode, 2, undefined, #"gf_vehmode", 2 );
+    self menu_item( "vehmode", "Helicopters ANY map - care package heli, unarmed", &act_vehmode, 3, undefined, #"gf_vehmode", 3 );
+    self menu_item( "vehmode", "Snowmobiles - Crossroads / Alpine", &act_vehmode, 4, undefined, #"gf_vehmode", 4 );
+    self menu_item( "vehmode", "Quads + buggies - Collateral / Fireteam maps", &act_vehmode, 5, undefined, #"gf_vehmode", 5 );
+    self menu_item( "vehmode", "Tanks + APCs - Crossroads; APC on Diesel / Checkmate", &act_vehmode, 6, undefined, #"gf_vehmode", 6 );
+    self menu_item( "vehmode", "Cars + trucks - Cartel / Fireteam maps", &act_vehmode, 7, undefined, #"gf_vehmode", 7 );
+    self menu_item( "vehmode", "Streak gunship heli - ANY map, seat UNTESTED", &act_vehmode, 8, undefined, #"gf_vehmode", 8 );
+    self menu_item( "vehmode", "AUTO - this map's lightest ride, else the care package heli", &act_vehmode, 9, undefined, #"gf_vehmode", 9 );
+    self menu_item( "vehmode", "Apply to everyone alive NOW", &act_vehmode_now );
+    self menu_add( "vehmode_opt", "Vehicle mode options", "vehmode", 1 );
+    self menu_item( "vehmode_opt", "Locked in - cannot get off (default)", &act_veh_lock, 1, undefined, #"gf_veh_lock", 1 );
+    self menu_item( "vehmode_opt", "Free - may get off", &act_veh_lock, 0, undefined, #"gf_veh_lock", 0 );
+    self menu_item( "vehmode_opt", "Vehicle HP 25%", &act_veh_hp, 25, undefined, #"gf_veh_hp", 25 );
+    self menu_item( "vehmode_opt", "Vehicle HP 50%", &act_veh_hp, 50, undefined, #"gf_veh_hp", 50 );
+    self menu_item( "vehmode_opt", "Vehicle HP 100% - stock", &act_veh_hp, 100, undefined, #"gf_veh_hp", 100 );
+    self menu_item( "vehmode_opt", "Vehicle HP 200%", &act_veh_hp, 200, undefined, #"gf_veh_hp", 200 );
+    self menu_item( "vehmode_opt", "Vehicle HP 400%", &act_veh_hp, 400, undefined, #"gf_veh_hp", 400 );
+    self menu_item( "vehmode_opt", "Heli spawn height 150", &act_veh_alt, 150, undefined, #"gf_veh_alt", 150 );
+    self menu_item( "vehmode_opt", "Heli spawn height 300 - default", &act_veh_alt, 300, undefined, #"gf_veh_alt", 300 );
+    self menu_item( "vehmode_opt", "Heli spawn height 600", &act_veh_alt, 600, undefined, #"gf_veh_alt", 600 );
+    self menu_item( "vehmode_opt", "Heli spawn height 1000", &act_veh_alt, 1000, undefined, #"gf_veh_alt", 1000 );
+    self menu_item( "vehmode_opt", "Debug line: VEHMODE to the feed", &act_dbg_veh, undefined, undefined, #"gf_dbg_veh", 1 );
+}
+
+function private act_vehmode( item, mode )
+{
+    cfg_seti( #"gf_vehmode", mode );
+    level.gf_veh_resolved = undefined;
+
+    if ( mode <= 0 )
+    {
+        self menu_say( "^2vehicle mode OFF - next spawn on foot (Apply NOW frees everyone alive)" );
+        return true;
+    }
+
+    if ( veh_mode_resolve() )
+        self menu_say( "^2vehicle mode " + veh_mode_name( mode ) + " -> " + level.gf_veh_text + " from the next spawn (or Apply NOW)" );
+    else
+        self menu_say( "^1vehicle mode " + veh_mode_name( mode ) + ": no such ride resident on this map - everyone stays on foot" );
+
+    return true;
+}
+
+function private act_vehmode_now( item )
+{
+    veh_mode_refresh();
+    self menu_say( cfg_vehmode() > 0 ? "^2vehicle mode applied to everyone alive" : "^2everyone alive dismounted" );
+    return true;
+}
+
+function private act_veh_lock( item, value )
+{
+    cfg_seti( #"gf_veh_lock", value );
+
+    // Live: the watcher reads the dvar; the usability layer follows it here.
+    foreach ( p in getplayers() )
+    {
+        if ( !isdefined( p.gf_veh ) )
+            continue;
+
+        if ( value )
+            p val::set( #"gf_veh", "disable_usability", 1 );
+        else
+            p val::reset( #"gf_veh", "disable_usability" );
+    }
+
+    self menu_say( value ? "^2riders locked in - cannot get off" : "^2riders free to get off" );
+    return true;
+}
+
+function private act_veh_hp( item, value )
+{
+    cfg_seti( #"gf_veh_hp", value );
+    self menu_say( "^2vehicle HP " + value + "% of stock - from the next ride" );
+    return true;
+}
+
+function private act_veh_alt( item, value )
+{
+    cfg_seti( #"gf_veh_alt", value );
+    self menu_say( "^2heli spawn height " + value + " u above the spawn point" );
+    return true;
+}
+
+function private act_dbg_veh( item ) { return self act_dbg( item, #"gf_dbg_veh", 1, "vehicle mode (VEHMODE)" ); }
 
 // ── Player tools ─────────────────────────────────────────────────────────────
 // Host-only (self = the host). Godmode/third person are re-applied on spawn by

@@ -5,6 +5,8 @@ out of `bocw-source-main` (T9 dump). **Nothing here is measured in-game yet** �
 source reference, and the one question that actually decides the feature (per-map asset residency)
 is *not answerable from the dump at all*. The probe that answers it is specified at the bottom.
 
+**2026-09-17: the per-map matrix below now drives a MODE — [[vehicle-mode]]: everyone spawns already riding the map's bike / Hind / snowmobile / … (built, never run).**
+
 **Status 2026-09-15: PROBE RAN (§5).** Run 1: the hashed-type form of `isassetloaded` is VOID (yes to
 everything); by the plain-string form **one** of the 105 `veh_t9_*` model names IS a resident vehicle
 asset on `mp_sm_gas_station` — the namespaces share names. Runs 2–3 crashed the game at link time —

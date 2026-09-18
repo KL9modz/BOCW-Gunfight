@@ -3,7 +3,7 @@
 roster_scan.py / mapdata_scan.py's sibling. gunfight_menu.gsc's config_publish() keeps one
 marked string alive in level.gf_cfgpub, refreshed every 2 s:
 
-    GFCFG|<tick>|<c0>|<c1>|...|<c8>|oob=<n>|bot=<f0,..,f7>|bot2=<f8,..,f14>|END
+    GFCFG|<tick>|<c0>|<c1>|...|<c8>|oob=<n>|bot=<f0,..,f7>|bot2=<f8,..,f14>|veh=<mode,lock,hp,alt>|END
 
 <c0>..<c8> are the RAW packed chunk dvars gf_c0..gf_c8 (6 fields each, the last short) - the
 same chunks the app writes and the in-game menu writes via cfg_write_chunk, so this reflects
@@ -103,6 +103,9 @@ def parse(body: str, defaults: dict[str, int] | None = None) -> tuple[int, dict[
             _unpack_bots(e[4:], BOT_PACK[:8], out, defaults)
         elif e.startswith("bot2="):
             _unpack_bots(e[5:], BOT_PACK[8:], out, defaults)
+        elif e.startswith("veh="):
+            # vehicle mode: mode,lock,hp,alt (plain dvars, docs/notes/vehicle-mode.md)
+            _unpack_bots(e[4:], ["gf_vehmode", "gf_veh_lock", "gf_veh_hp", "gf_veh_alt"], out, defaults)
     return tick, out
 
 

@@ -270,6 +270,20 @@ CONFIG = {
         ("gf_fly_fast", "Fly sprint speed", "choice",
          [("30", 30), ("60", 60), ("120", 120), ("240", 240)], 60),
     ],
+    "Vehicle mode": [
+        # gunfight_menu "Vehicle MODE" page (docs/notes/vehicle-mode.md): everyone spawns already
+        # riding this map's ride of the class; nothing resident = everyone on foot (host feed says so).
+        # Plain dvars (not the packed store). A change lands on the next spawn, or now via Apply now.
+        ("gf_vehmode", "Everyone spawns riding", "choice",
+         [("Off", 0), ("Motorcycles", 1), ("Attack helicopters (Hind)", 2),
+          ("Helicopters any map (care package heli)", 3), ("Snowmobiles", 4),
+          ("Quads + buggies", 5), ("Tanks + APCs", 6), ("Cars + trucks", 7),
+          ("Streak gunship heli (seat untested)", 8), ("AUTO - lightest ride, else care heli", 9)], 0),
+        ("gf_veh_lock", "Locked in (cannot get off)", "toggle", None, 1),
+        ("gf_veh_hp", "Vehicle HP %", "int", (10, 400, 10), 100),
+        ("gf_veh_alt", "Heli spawn height (u)", "int", (40, 1500, 20), 300),
+        ("gf_dbg_veh", "Debug: VEHMODE line", "choice", [("Off", 0), ("On", 1)], 0),
+    ],
     "Overtime zone": [
         # gunfight_menu "Overtime zone" page (docs/notes/overtime-zone.md). Off = HP tiebreak.
         ("gf_zone", "Overtime zone", "choice",
@@ -335,6 +349,10 @@ TIPS = {
     "gf_falldamage": "Off pushes the fall-damage thresholds out of reach, so boosted jumps land clean.",
     "gf_oob": "Disabled = nobody gets the restricted-area warning, countdown or death (stock's own per-player disable_oob switch, re-set every spawn). Applies at the next spawn, or now with Apply now.",
     "gf_jump": "Builtin jump height. -1 = engine default (untested).",
+    "gf_vehmode": "Motorcycles: Diesel / Cartel / Collateral / Fireteam maps. Hind: Collateral + Fireteam maps. Care package heli: every map (flies, unarmed). Snowmobiles: Crossroads / Alpine. Quads + buggies: Collateral / Fireteam. Tanks: Crossroads (APC on Diesel / Checkmate). Cars: Cartel / Fireteam. A class this map lacks = everyone on foot.",
+    "gf_veh_lock": "Riders cannot leave the seat (stock's disable_usability layer + a re-seat watcher). Live: applies to riders now.",
+    "gf_veh_hp": "Percent of the asset's default health. 25 makes a Hind killable by rifles; 400 makes bikes tanky. Next ride.",
+    "gf_veh_alt": "Air rides spawn this high above the spawn point (ceiling-traced). Next ride.",
     "gf_spawn_guard": "Central-spawn guard (untested - test solo first).",
     "gf_map_method": "Session = switchmap_load, the lobby follows. Carry = load-time override (UI stays stale).",
     "gf_camo": "Camo forced on every pool weapon each spawn. Ids 1-121 via the in-game 'by ID' page.",
@@ -569,7 +587,7 @@ WEAPONS = {
 class App:
     # Config sections split across two scrolling columns (balanced by height).
     LEFT = ["Teams", "Round", "Loadout", "Match", "Spawns", "Display"]
-    RIGHT = ["Bots", "Custom bot tuning", "Movement", "Overtime zone", "Session / Map"]
+    RIGHT = ["Bots", "Custom bot tuning", "Movement", "Vehicle mode", "Overtime zone", "Session / Map"]
     WIDE = {"Custom bot tuning"}          # rendered in two field-columns to keep it short
     _DUR = {"Once": 0, "5s": 5, "10s": 10, "30s": 30, "60s": 60, "Fixed": -1}
     # Cold War text colour codes (^0-^9) with an approximate on-screen colour for the cheat sheet.
@@ -1297,6 +1315,8 @@ class App:
                  "gf_bot_sprint", "gf_bot_melee", "gf_bot_prone", "gf_bot_slide", "gf_bot_crouch"},
         "periods": {"gf_prematch", "gf_preround"},
         "timer": {"gf_timer_seconds"},
+        # Vehicle mode: everyone alive dismounts + remounts the (re-resolved) ride now.
+        "veh": {"gf_vehmode", "gf_veh_lock", "gf_veh_hp"},
     }
 
     def _apply_live(self):
