@@ -417,6 +417,11 @@ function private __init__()
     callback::on_start_gametype( &mod_apply );
     callback::on_connect( &on_player_connect );
     callback::on_spawned( &mod_spawn_place );
+    // Anti-stack net (F5b, 2026-09-18): right after the guard/engine placement, for EVERY spawn
+    // path and every map - if a player lands on top of one already placed this round, fan them out
+    // side-by-side onto clear floored ground. Map-agnostic backstop for any residual stacking
+    // (too-few guard anchors, the engine handing the same start, the combined-arms map-centre pile).
+    callback::on_spawned( &mod_spawn_antistack );
     // Separate handler on purpose (mod_spawn_place holds the spawn guard + host tools):
     // per-life movement state - speed scale after stock's loadout reset, the jump-boost
     // watcher - for EVERY player, bots included.
@@ -644,6 +649,9 @@ function private cfg_hint_newlines() { return cfg_geti( #"gf_hint_newlines", 0 )
 // #spawn_guard (ported from gunfight_mod, adapted to dvars). Default OFF - test solo first.
 function private cfg_spawn_guard()     { return cfg_geti( #"gf_spawn_guard", 2 ); }
 function private cfg_spawn_diag()      { return cfg_geti( #"gf_spawn_diag", 1 ); }
+// Anti-stack net, default ON. NON-packed dvar on purpose (cfg_geti falls through to getdvarint) -
+// keeps it out of the packed chunk store, so no 3-file lockstep / config_scan change is needed.
+function private cfg_spawn_antistack() { return cfg_geti( #"gf_spawn_antistack", 1 ); }
 function private cfg_spawn_autospread(){ return cfg_geti( #"gf_spawn_autospread", 2500 ); }
 function private cfg_spawn_gap()       { return cfg_geti( #"gf_spawn_gap", 1800 ); }
 function private cfg_spawn_pick()      { return cfg_geti( #"gf_spawn_pick", 0 ); }
@@ -6333,6 +6341,9 @@ function private build_tree()
     self menu_item( "spawns", "Spawn guard OFF", &act_spawn_guard, 0, undefined, #"gf_spawn_guard", 0 );
     self menu_item( "spawns", "Spawn guard AUTO (only bad maps)", &act_spawn_guard, 2, undefined, #"gf_spawn_guard", 2 );
     self menu_item( "spawns", "Spawn guard FORCE (every map)", &act_spawn_guard, 1, undefined, #"gf_spawn_guard", 1 );
+    // Anti-stack net: fans out anyone who spawns on top of another player, on any map. Default ON.
+    self menu_item( "spawns", "Anti-stack net ON", &act_spawn_antistack, 1, undefined, #"gf_spawn_antistack", 1 );
+    self menu_item( "spawns", "Anti-stack net OFF", &act_spawn_antistack, 0, undefined, #"gf_spawn_antistack", 0 );
     // Crossroads under Gunfight loads the full 12v12 map (its script opens it for every
     // gametype outside its Strike list). ON keeps the Strike clips by renaming them before
     // the map deletes them. No-op on other maps.
@@ -8739,6 +8750,13 @@ function private act_spawn_guard( item, value )
     return true;
 }
 
+function private act_spawn_antistack( item, value )
+{
+    cfg_seti( #"gf_spawn_antistack", value );
+    self menu_say( value ? "^2anti-stack net ON - stacked spawns fan out side by side" : "^2anti-stack net OFF" );
+    return true;
+}
+
 // ── Match-length knobs. Verified stock keys; sentinel -1 elsewhere = untouched. ──
 
 function private act_roundwinlimit( item, value )
@@ -10167,6 +10185,106 @@ function private tp_floor( pos )
         return tr[ #"position" ];
 
     return pos;
+}
+
+// ── Anti-stack net (F5b) ───────────────────────────────────────────────────────
+// on_spawned, after mod_spawn_place, for every player (bots included). Records each spawn's
+// final 2D origin for the round; if a new spawn lands within a body-width of one already placed,
+// fans it out to the nearest clear, floored spot that is not on top of anyone. Map-agnostic: it
+// fixes stacking from ANY cause (too few guard anchors, the engine handing the same start, the
+// map-centre pile) with no per-map data. The placed list resets when game.roundsplayed changes
+// (Gunfight is one spawn wave per round). A player already in a vehicle (vehicle mode) is left
+// in its seat. If no clear spot is found the player is left where they are - never made worse.
+function private mod_spawn_antistack()
+{
+    if ( !isplayer( self ) || !isdefined( self.origin ) )
+        return;
+
+    if ( !cfg_spawn_antistack() )
+        return;
+
+    if ( isdefined( self getvehicleoccupied() ) )
+        return;
+
+    rp = isdefined( game.roundsplayed ) ? game.roundsplayed : 0;
+
+    if ( !isdefined( level.gf_antistack ) || !isdefined( level.gf_antistack_round ) || level.gf_antistack_round != rp )
+    {
+        level.gf_antistack = [];
+        level.gf_antistack_round = rp;
+    }
+
+    minsep = 48;
+    minsep_sq = minsep * minsep;
+    stacked = false;
+
+    foreach ( o in level.gf_antistack )
+    {
+        if ( mod_dist2d_sq( self.origin, o ) < minsep_sq )
+        {
+            stacked = true;
+            break;
+        }
+    }
+
+    if ( stacked )
+    {
+        spot = mod_antistack_spot( self.origin, level.gf_antistack, minsep );
+
+        if ( isdefined( spot ) )
+        {
+            self dontinterpolate();
+            self setorigin( spot );
+
+            if ( cfg_spawn_diag() )
+                self.gf_spawn_how = ( isdefined( self.gf_spawn_how ) ? self.gf_spawn_how : "" ) + "+unstack";
+        }
+    }
+
+    level.gf_antistack[ level.gf_antistack.size ] = self.origin;
+}
+
+// A clear, floored spot near center at least minsep from every placed origin. Rings outward
+// (minsep .. 3x) at 8 angles; each candidate floored (tp_floor) and rejected if it dropped off a
+// ledge (|z| > 128) or sits within minsep of another placed player. undefined = nothing found.
+function private mod_antistack_spot( center, placed, minsep )
+{
+    minsep_sq = minsep * minsep;
+
+    steps = [];
+    steps[ 0 ] = minsep;
+    steps[ 1 ] = minsep + minsep / 2;
+    steps[ 2 ] = minsep * 2;
+    steps[ 3 ] = minsep * 3;
+
+    for ( s = 0; s < steps.size; s++ )
+    {
+        r = steps[ s ];
+
+        for ( a = 0; a < 360; a += 45 )
+        {
+            cand = tp_floor( center + ( r * cos( a ), r * sin( a ), 0 ) );
+
+            if ( abs( cand[ 2 ] - center[ 2 ] ) > 128 )
+                continue;
+
+            clear = true;
+
+            foreach ( o in placed )
+            {
+                if ( mod_dist2d_sq( cand, o ) < minsep_sq )
+                {
+                    clear = false;
+                    break;
+                }
+            }
+
+            if ( clear )
+                return cand;
+        }
+    }
+
+    return undefined;
 }
 
 // Where the host is aiming: eye + view forward, 10000u, characters count (the Atian
