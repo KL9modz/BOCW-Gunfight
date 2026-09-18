@@ -206,6 +206,10 @@ Driving the Bots page over the bridge + reading the roster channel (autonomous, 
 | Feature | Verdict | How |
 |---|---|---|
 | Client: godmode / max ammo / **give-weapon target-context** / third person | ✅ PASS | menu (god/ammo/give) + bridge (thirdperson); `gave EM2 -> F. Noor` proves the target hub |
+| **Client team move** (act_move, per-client, C11) | ✅ PASS | bridge `move "A. Raymond" axis` → roster flips allies↔axis, bidirectional, no reload |
+| **gf_cmd_target quoted-name string round-trip** | ✅ PASS | `"A. Raymond"` resolved to the bot — proves the string-command bridge path with spaces (was int-only proven) |
+| **Scoped Apply-now (move)** — no reload | ✅ PASS (by code + run) | cmd_apply_live("move") = mod_movement() only, no setgametypesetting → reload-free by construction; bridge run showed no splash |
+| Config readback (GFCFG / config_publish / config_scan / Load current) | ✅ PASS | config_scan found GFCFG + printed full live config, end-to-end |
 | Bots: removebots / fillbots | ✅ PASS | bridge → roster channel (8→2→4v4) |
 | Map census (Diesel + Nuketown) / roster / live config | ✅ PASS | GFMAP*/GFROSTER/GFCFG memory sweeps |
 | **Map switch** (Gas Station → Nuketown '84, gunfight) | ✅ PASS | bridge `switch` → do_session_switch |
