@@ -27,6 +27,7 @@ not loaded, a sent command simply sits unread in the buffer.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -446,6 +447,103 @@ PROJ_WEAPONS = [
 # Universal props (docs/notes/static-props.md §5b): the menu's prop_universal() list, by label.
 # The GSC matches the label or the model name. ⚠ gf_cmd_arg rides a 47-byte bridge slot
 # ("set gf_cmd_arg " is 15 of them), so the value sent is the LABEL, never a long model name.
+# The in-game Vehicles page's master list (gunfight_menu.gsc veh_master): the app names a vehicle by
+# its INDEX in that list (gf_cmd_action vehspawn <i>) because an asset name does not fit the 47-byte
+# bridge slot. Read out of the GSC source at startup so the two cannot drift; the baked copy below is
+# the fallback when the repo is not beside the app (the frozen exe). kind 0 = drivable, 1 = other
+# (streak / intro / turret - may not be enterable). The GSC answers "no vehicle assets on this map"
+# itself for anything not resident where you are. docs/notes/vehicles.md, vehicle-mode.md.
+VEHICLE_MASTER_BAKED = [
+    (0, 'Light buggy (FAV)', 0),
+    (1, 'Light buggy (FAV) alt', 0),
+    (2, 'Heavy buggy (FAV)', 0),
+    (3, 'Motorcycle', 0),
+    (4, 'Motorcycle alt', 0),
+    (5, 'Motorcycle (slow)', 0),
+    (6, 'Quad / ATV', 0),
+    (7, 'Snowmobile', 0),
+    (8, 'Snowmobile alt', 0),
+    (9, 'Snowmobile (single seat)', 0),
+    (10, 'Sedan', 0),
+    (11, 'Sedan alt', 0),
+    (12, 'Sedan (BO4 midsize)', 0),
+    (13, 'Light truck', 0),
+    (14, 'Light truck alt', 0),
+    (15, 'Light truck (base)', 0),
+    (16, 'Transport truck', 0),
+    (17, 'Transport truck alt', 0),
+    (18, 'Transport truck (objective)', 0),
+    (19, 'Tank T-72', 0),
+    (20, 'Tank T-72 alt', 0),
+    (21, 'Tank T-72 (base)', 0),
+    (22, 'APC (heavy)', 0),
+    (23, 'APC (heavy, open turret)', 0),
+    (24, 'Hind gunship', 0),
+    (25, 'Armada heli (campaign)', 0),
+    (26, 'Jetski', 0),
+    (27, 'Jetski alt', 0),
+    (28, 'Tactical raft', 0),
+    (29, 'Tactical raft alt', 0),
+    (30, 'Tactical raft (grey)', 0),
+    (31, 'Tactical raft (grey, base)', 0),
+    (32, 'PBR gunboat', 0),
+    (33, 'PBR gunboat alt', 0),
+    (34, 'Chopper Gunner (streak)', 1),
+    (35, 'Care package heli - FLIES ON EVERY MAP', 0),
+    (36, 'Vehicle-drop heli (streak)', 1),
+    (37, 'RC-XD', 1),
+    (38, 'RC-XD alt', 1),
+    (39, 'Exfil chopper (VIP escort)', 1),
+    (40, 'Exfil helicopter (Fireteam)', 1),
+    (41, 'AC-130 gunship (streak)', 1),
+    (42, 'Attack helicopter (streak)', 1),
+    (43, 'Attack helicopter guard (streak)', 1),
+    (44, 'VTOL Forger (streak)', 1),
+    (45, 'Strafe run plane (streak)', 1),
+    (46, 'Air transport (intro)', 1),
+    (47, 'Air transport (infiltration, BO4)', 1),
+    (48, 'Mounted MG tripod', 1),
+    (49, 'Express train', 1),
+    (50, 'Intro cinematic vehicle (Checkmate / Satellite)', 1),
+    (51, 'Intro cinematic tank (Garrison / Amerika)', 1),
+    (52, 'Intro cinematic vehicle (Garrison)', 1),
+    (53, 'Intro cinematic vehicle (Miami)', 1),
+    (54, 'Intro cinematic vehicle (Moscow cia)', 1),
+    (55, 'Intro cinematic vehicle (Moscow kgb)', 1),
+    (56, 'Intro cinematic helicopter (The Pines)', 1),
+    (57, 'Intro cinematic APC (The Pines)', 1),
+    (58, 'Intro cinematic APC (Amerika)', 1),
+    (59, 'Intro cinematic vehicle (Echelon)', 1),
+    (60, 'Intro cinematic vehicle (Yamantau)', 1),
+    (61, 'Intro cinematic vehicle (Apocalypse)', 1),
+    (62, 'Intro cinematic vehicle (Cartel)', 1),
+    (63, 'Intro cinematic vehicle (Collateral cia)', 1),
+    (64, 'Intro cinematic vehicle (Collateral kgb)', 1),
+    (65, 'Intro cinematic vehicle (Crossroads kgb)', 1),
+    (66, 'Intro cinematic vehicle (Crossroads)', 1),
+    (67, 'Intro cinematic vehicle (Crossroads kgb 2)', 1),
+    (68, 'Intro cinematic vehicle (Crossroads cia)', 1),
+]
+
+
+def _load_vehicle_master() -> list[tuple[int, str, int]]:
+    """(index, label, kind) rows of veh_master(), parsed from the GSC when it is reachable."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    gsc = os.path.join(here, "..", "..", "src", "gunfight_menu", "scripts", "gunfight_menu.gsc")
+    try:
+        text = open(gsc, encoding="utf-8", errors="replace").read()
+        body = text[text.index("function private veh_master()"):]
+        body = body[:body.index("\nfunction private ", 10)]
+        rows = re.findall(r'veh_def\(\s*m,\s*#?"[^"]+",\s*"([^"]+)",\s*(\d)', body)
+        if len(rows) >= 10:
+            return [(i, label, int(kind)) for i, (label, kind) in enumerate(rows)]
+    except Exception:
+        pass
+    return list(VEHICLE_MASTER_BAKED)
+
+
+VEHICLE_MASTER = _load_vehicle_master()
+
 PROP_UNIVERSAL = [
     ("Park bench", "p9_usa_bench_01"), ("Bicycle", "p9_usa_bicycle_01"), ("Couch", "p9_usa_couch_04"),
     ("Dumpster", "p9_usa_dumpster_01_full"), ("Mailbox", "p9_usa_mailbox_01"),
@@ -938,6 +1036,42 @@ class App:
                                ("TP grenade: host", "tpnade", "host"), ("TP grenade: everyone", "tpnade", "all")]:
             ttk.Button(rt4, text=text, width=20,
                        command=lambda a=act, g=arg: self._action(a, g)).pack(side="left", padx=3)
+
+        # Vehicles (2026-09-18, klaze: "everything in the app"): the menu's Vehicles page over
+        # gf_cmd_action - spawn by master INDEX ahead of the host (aircraft above his head), enter
+        # the aimed vehicle, sweep the empty ones this menu spawned. docs/notes/vehicles.md.
+        boxv = ttk.LabelFrame(body, text="Vehicles  (host; spawns ahead of you, aircraft above you - only what this map has resident)")
+        boxv.pack(fill="x", padx=12, pady=6)
+        rv1 = ttk.Frame(boxv)
+        rv1.pack(anchor="w", padx=10, pady=(10, 2))
+        ttk.Label(rv1, text="Drivable", width=13).pack(side="left")
+        self._vehlut = {(f"{label}  [#{i}]" if kind == 0 else f"{label}  [other #{i}]"): i
+                        for i, label, kind in VEHICLE_MASTER}
+        drivable = [k for k, i in self._vehlut.items() if VEHICLE_MASTER[i][2] == 0]
+        other = [k for k, i in self._vehlut.items() if VEHICLE_MASTER[i][2] != 0]
+        self.veh_var = tk.StringVar(value=next((k for k in drivable if k.startswith("Motorcycle ")), drivable[0]))
+        ttk.Combobox(rv1, state="readonly", values=drivable, textvariable=self.veh_var,
+                     width=40).pack(side="left", padx=3)
+        ttk.Button(rv1, text="Spawn ahead of me", width=18,
+                   command=lambda: self._action("vehspawn", str(self._vehlut.get(self.veh_var.get(), 0)))
+                   ).pack(side="left", padx=3)
+        rv2 = ttk.Frame(boxv)
+        rv2.pack(anchor="w", padx=10, pady=2)
+        ttk.Label(rv2, text="Other", width=13).pack(side="left")
+        self.veh_other_var = tk.StringVar(value=other[0] if other else "")
+        ttk.Combobox(rv2, state="readonly", values=other, textvariable=self.veh_other_var,
+                     width=40).pack(side="left", padx=3)
+        ttk.Button(rv2, text="Spawn (untested)", width=18,
+                   command=lambda: self._action("vehspawn", str(self._vehlut.get(self.veh_other_var.get(), 0)))
+                   ).pack(side="left", padx=3)
+        rv3 = ttk.Frame(boxv)
+        rv3.pack(anchor="w", padx=10, pady=(2, 10))
+        ttk.Label(rv3, text="", width=13).pack(side="left")
+        ttk.Button(rv3, text="Enter the vehicle I aim at", width=24,
+                   command=lambda: self._action("vehenter")).pack(side="left", padx=3)
+        ttk.Button(rv3, text="Remove empty spawned vehicles", width=28,
+                   command=lambda: self._action("vehclear")).pack(side="left", padx=3)
+        ttk.Label(rv3, text="  spawn-riding modes: Config → Vehicle mode", foreground="#777").pack(side="left")
 
         # Map toys (2026-09-17, none run in-game yet): the menu's Destructibles + exploders /
         # Projectiles / Props pages over gf_cmd_action. docs/notes/destructibles.md,

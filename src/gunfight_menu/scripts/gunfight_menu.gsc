@@ -4915,6 +4915,14 @@ function private cmd_action( action, arg )
         case "prop":        self cmd_prop( arg );                                              break;
         case "propundo":    self act_prop_delete( it, 0 );                                     break;
         case "propclear":   self act_prop_delete( it, 1 );                                     break;
+        // Vehicles (the Vehicles page, app parity 2026-09-18): arg = the veh_master() INDEX - a
+        // vehicle asset name does not fit the 47-byte bridge slot - spawned ahead of the host
+        // exactly like the page row (isassetloaded-gated, so a non-resident pick just says so);
+        // vehenter = the vehicle the host aims at; vehclear = sweep every EMPTY vehicle this menu
+        // spawned (page rows + vehicle mode), stock's streak vehicles untouched.
+        case "vehspawn":    self cmd_vehspawn( arg );                                          break;
+        case "vehenter":    self veh_enter( it );                                              break;
+        case "vehclear":    self act_vehclear( it );                                           break;
         default:            self menu_say( "^1app: unknown action '" + action + "'" ); break;
     }
 }
@@ -9100,6 +9108,46 @@ function private veh_master()
     return m;
 }
 
+// Is this master key an aircraft? By the plain name (e.text carries it for hashed keys): every
+// heli / chopper / gunship / VTOL / plane / air transport / AC-130 / strafe run in the master
+// matches one of these; "boat_pgb_double_gun" does not ("gunship" is the token, not "gun").
+function private veh_is_air_key( key )
+{
+    text = undefined;
+
+    foreach ( e in veh_master() )
+    {
+        if ( e.key === key )
+        {
+            text = e.text;
+            break;
+        }
+    }
+
+    if ( !isdefined( text ) )
+        text = isstring( key ) ? key : "";
+
+    text = tolower( text );
+    return veh_text_has( text, "heli" ) || veh_text_has( text, "chopper" ) || veh_text_has( text, "gunship" )
+        || veh_text_has( text, "vtol" ) || veh_text_has( text, "plane" ) || veh_text_has( text, "air_transport" )
+        || veh_text_has( text, "ac130" ) || veh_text_has( text, "straferun" );
+}
+
+// Substring test (GSC has no builtin for it): does `s` contain `sub`?
+function private veh_text_has( s, sub )
+{
+    if ( sub.size == 0 || s.size < sub.size )
+        return false;
+
+    for ( i = 0; i + sub.size <= s.size; i++ )
+    {
+        if ( getsubstr( s, i, i + sub.size ) == sub )
+            return true;
+    }
+
+    return false;
+}
+
 // Rows for one page: every master entry of `kind` resident on this map. Returns the count.
 function private veh_page_rows( page, kind )
 {
@@ -9126,6 +9174,7 @@ function private veh_page_build()
         self menu_item( "vehicles", "(no drivable vehicle assets on this map)", undefined );
 
     self menu_item( "vehicles", "Enter vehicle I am aiming at", &veh_enter );
+    self menu_item( "vehicles", "Remove empty spawned vehicles", &act_vehclear );
     self menu_add( "veh_other", "Other resident vehicles - streaks / intro, untested", "vehicles", 1 );
 
     if ( self veh_page_rows( "veh_other", 1 ) == 0 )
@@ -9214,6 +9263,13 @@ function private veh_spawn( item, type )
     flat = ( 0, ang[ 1 ], 0 );                                   // level, keep the yaw
     spot = self.origin + vectorscale( anglestoforward( flat ), 250 ) + ( 0, 0, 25 );
 
+    // Air vehicles spawn ABOVE the host, not on the ground ahead (klaze 2026-09-18: "so they
+    // aren't stuck in the ground"): gf_veh_alt (300) up, ceiling-traced, a little ahead so a
+    // descending heli does not land on him. The asset is judged by its name (veh_is_air_key) -
+    // the spawned entity's isairborne() only answers after the spawn has already placed it.
+    if ( veh_is_air_key( type ) )
+        spot = veh_mode_air_spot( self.origin + vectorscale( anglestoforward( flat ), 120 ), cfg_veh_alt() );
+
     veh = spawnvehicle( type, spot, flat );
 
     if ( !isdefined( veh ) )
@@ -9223,6 +9279,7 @@ function private veh_spawn( item, type )
     }
 
     veh makeusable();
+    veh.gf_spawned = 1;                        // ours: act_vehclear sweeps it once empty
 
     if ( isdefined( veh.isphysicsvehicle ) && veh.isphysicsvehicle )
         veh setbrake( 1 );
@@ -9965,6 +10022,58 @@ function private act_veh_alt( item, value )
 }
 
 function private act_dbg_veh( item ) { return self act_dbg( item, #"gf_dbg_veh", 1, "vehicle mode (VEHMODE)" ); }
+
+// ── App parity for the Vehicles page ─────────────────────────────────────────
+// The app names a vehicle by its veh_master() index (tools/gf-control reads the same list out of
+// this file at startup, so the two cannot drift); veh_spawn does the residency check and the
+// "no vehicle assets on this map" answer itself.
+function private cmd_vehspawn( arg )
+{
+    m = veh_master();
+
+    if ( !isdefined( arg ) || arg == "" )
+    {
+        self menu_say( "^1app: vehspawn needs a vehicle index" );
+        return;
+    }
+
+    i = int( arg );
+
+    if ( i < 0 || i >= m.size )
+    {
+        self menu_say( "^1app: no vehicle #" + arg + " (0-" + ( m.size - 1 ) + ")" );
+        return;
+    }
+
+    self veh_spawn( spawnstruct(), m[ i ].key );
+    self menu_say( "^2app: " + m[ i ].label );
+}
+
+// Delete every vehicle THIS menu spawned (page rows tag gf_spawned, vehicle mode tags gf_veh_mode)
+// that nobody is sitting in. Stock's own vehicles (streaks, map intro) carry neither tag.
+function private act_vehclear( item )
+{
+    n = 0;
+    vehs = getvehiclearray();
+
+    if ( isdefined( vehs ) )
+    {
+        foreach ( v in vehs )
+        {
+            if ( !isdefined( v ) || ( !is_true( v.gf_spawned ) && !is_true( v.gf_veh_mode ) ) )
+                continue;
+
+            if ( !veh_mode_empty( v ) )
+                continue;
+
+            v delete();
+            n++;
+        }
+    }
+
+    self menu_say( "^2removed " + n + " empty spawned vehicle(s)" );
+    return true;
+}
 
 // ── Player tools ─────────────────────────────────────────────────────────────
 // Host-only (self = the host). Godmode/third person are re-applied on spawn by

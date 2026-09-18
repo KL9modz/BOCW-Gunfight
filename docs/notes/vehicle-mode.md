@@ -187,6 +187,30 @@ in the pre-round countdown.
 
 Record: `______`
 
+## 5. App parity + air spawn — 2026-09-18 (source committed, NOT yet in a payload)
+
+klaze: *"i want everything in the app"* and *"make it so air vehicles spawn above my head so they aren't
+stuck in the ground"* (the Vehicles-page spawn put a heli 250 u ahead at +25, i.e. in the ground).
+
+- **App → Actions → Vehicles box**: *Spawn ahead of me* (drivable combobox), *Spawn (untested)*
+  (streak / intro rows), *Enter the vehicle I aim at*, *Remove empty spawned vehicles*. The verbs are
+  `gf_cmd_action vehspawn <i>` / `vehenter` / `vehclear`; `<i>` is the vehicle's INDEX in
+  `veh_master()` because an asset name does not fit the 47-byte bridge slot ([[bridge-command-limit]]).
+  The app parses the master list out of `gunfight_menu.gsc` at startup (baked fallback for the frozen
+  exe), so the index cannot drift.
+- **`veh_spawn` (page rows + the app verb)**: an aircraft — judged by name, `veh_is_air_key`: heli /
+  chopper / gunship / vtol / plane / air_transport / ac130 / straferun — now spawns at
+  `veh_mode_air_spot( host + 120 u ahead, gf_veh_alt )`: above the host's head, ceiling-traced, a
+  little ahead so a descending heli does not land on him. Ground vehicles keep the 250-ahead spot.
+  Vehicle mode's air rides already used the same helper.
+- `vehclear` / the page row *Remove empty spawned vehicles*: deletes every vehicle this menu spawned
+  (`gf_spawned` from the page, `gf_veh_mode` from the mode) that nobody sits in; stock's own vehicles
+  carry neither tag and are left alone.
+
+⚠ Held out of the injected payload on purpose: the 2026-09-18 in-match crash on Miami (err
+`0x91f84370`, sig `C55D66DA`, round-transition-timed) was being isolated by bocw-0f / bocw-85 when this
+landed — the next injected build is theirs (the spawn fix), these verbs ride the rebuild after it.
+
 ## Untried — not ruled out
 
 - A passenger-seat model for two-per-bike (driver + shooter) if drivers cannot fire.
