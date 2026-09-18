@@ -106,3 +106,31 @@ human's.
   mod and fire `sendmenuresponse` from an injected menu row — closes the loop for route 2/3.
 - The Start-menu **tab data source** `#hash_520bbde6a8d0a9ac` — whether GSC can push a tab into it via a
   clientfield/uimodel the stock client already reads (the [game-systems](game-systems.md) §2 rule).
+
+## MEASURED in-game 2026-09-17 (klaze) — the popup channel
+
+Ran `src/lui_probe/` (host-GSC, no client payload) in a live MP match:
+
+- ✅ **`ScriptMessageDialog_Compact` renders full-screen in an MP match** — `openluimenu` returns a
+  handle and the client draws the dialog (the "Intelligence Information Notice" chrome, its
+  categoryType = info/notice).
+- ✅ **Plain strings do NOT crash it** — the staged run reached `survived:1` with plain
+  `setluimenudata(#"title"/#"description", "...")`. This is the opposite of the LUIelemText result
+  ([lui-elems](lui-elems.md)) and confirms the read finding: the dialog's title/description frame
+  (lui-source `core_ui_1151`, fields `#Title`/`#Description`) renders through the **localize-if-hash**
+  helper (`#hash_1993de65911eb3f`), so a plain string passes through verbatim.
+- 🪲 **`closeluimenu` does not dismiss the client overlay.** It closes the server handle (returns
+  fine, `close:1`) but the drawn popup lingers, and with `blockDuplicateInstance = true` the v1 probe's
+  three staged popups masked each other — only the empty first popup ever showed, so the set text was
+  never visible ("can't close"). Input is **not** hard-locked (ESC still opens the pause menu over it).
+- ▶ The correct dismiss is the dialog's **Back button → a menuresponse**, which runs the client close
+  handler (what stock `lui::open_generic_script_dialog` waits for). `src/lui_probe/` v2 opens ONE popup
+  with the text set and waits on the player's Back press to answer: (Q1) does the text render, (Q2) is
+  the dialog GSC-dismissable. Field names `#"title"`/`#"description"` are confirmed correct against the
+  frame (the `#Title`/`#Description` xhashes equal the lowercased-hash of "title"/"description").
+
+**Net so far:** the pause-menu popup is a real, crash-safe free-text surface reachable from host GSC
+with no client payload — the first free-text channel above the ~4-line feed / one-line hint. Whether
+it is cleanly *usable* (text renders + dismissable) is what v2 measures. The integrated **tab in
+`StartMenu_Main`** (klaze's actual target, seen in-game 2026-09-17) still routes through the
+client-inject path, gated on the untested `luiload`-of-an-injected-chunk step.
