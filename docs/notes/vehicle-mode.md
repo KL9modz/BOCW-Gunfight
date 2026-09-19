@@ -216,6 +216,13 @@ stuck in the ground"* (the Vehicles-page spawn put a heli 250 u ahead at +25, i.
   spawn in both paths (bocw-0f: rotor-on in the spawn frame of a possibly embedded heli is the
   physics-risky pair).
 
+- **Transition sweep (`veh_sweep_for_transition`)** — the same dismount-then-delete, synchronous, before
+  every level transition THIS menu starts: *Stage* (before the load half), *Switch NOW*, the legacy
+  carry (`map()`), and both restarts (menu + app). The 3rd crash (dump 000325, same signature) was a Gas
+  Station page-spawned vehicle riding a session switch into Sanatorium — `switchmap_load` sets no
+  `level.gameended`, so the round-end poll never ran. A rider the engine will not eject keeps his ride
+  (never deleted occupied) and the host is told.
+
 **Crash analysis (bocw-0f + bocw-85, 2026-09-18):** two Miami dumps, both AT the round transition
 (`last_map_switch_time` [10,20[ and [30,40[ s), not at a spawn — a page-spawned heli, live physics and
 rotor, standing in the ground through `map_restart( 1 )`. bocw-0f's anti-stack spawn net was inspected

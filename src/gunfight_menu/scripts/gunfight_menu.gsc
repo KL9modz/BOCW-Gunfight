@@ -4896,7 +4896,7 @@ function private cmd_action( action, arg )
         case "addbot":      self thread add_one_bot( ( tolower( arg ) == "allies" ) ? #"allies" : ( ( tolower( arg ) == "axis" ) ? #"axis" : undefined ) ); break;
         case "removebot":   self thread remove_one_bot( undefined );                      break;
         case "evenbots":    self thread even_up_bots();                                   break;
-        case "restart":     self menu_say( "^3app: restarting..." ); map_restart();       break;
+        case "restart":     self menu_say( "^3app: restarting..." ); veh_sweep_for_transition( "restart" ); map_restart(); break;
         case "pause":       match_pause();                                                break;
         case "resume":      self thread match_resume();                                   break;
         case "apply":       self cmd_apply_live( arg ); self menu_say( "^2app: config applied live" ); break;
@@ -8137,8 +8137,17 @@ function private act_preround( item, secs )
 function private act_restart( item )
 {
     self menu_say( "^3restarting..." );
-    map_restart();
+    // Threaded: the sweep waits two frames and this runs inside menu_think, which the menu
+    // close (return false) must not be able to cut short of the restart itself.
+    self thread restart_after_sweep();
     return false;
+}
+
+function private restart_after_sweep()
+{
+    self endon( #"disconnect" );
+    veh_sweep_for_transition( "restart" );
+    map_restart();
 }
 
 // ── Loadout ──────────────────────────────────────────────────────────────────
@@ -10092,6 +10101,56 @@ function private veh_sweep_tagged()
 
         v delete();
         n++;
+    }
+
+    return n;
+}
+
+// The SAME sweep before every level transition THIS menu starts - Stage (the load half runs while
+// the match continues), Switch NOW, the legacy carry, a restart. The 3rd crash (2026-09-18, dump
+// 000325, the same signature C55D66DA) was a Gas Station page-spawned vehicle riding a session
+// switch into Sanatorium: none of those paths sets level.gameended, so the round-end poll never
+// ran. Synchronous from the caller's thread (every caller is threaded): dismount, a frame, delete
+// the empties, a frame, once more. A rider the engine will not eject keeps his vehicle - it is
+// never deleted with a player inside - and the host hears about it.
+function private veh_sweep_for_transition( why )
+{
+    riders = 0;
+
+    foreach ( p in getplayers() )
+    {
+        if ( isdefined( p.gf_veh ) )
+        {
+            p veh_mode_dismount();
+            riders++;
+        }
+    }
+
+    waitframe( 1 );
+    n = veh_sweep_tagged();
+    waitframe( 1 );
+    n += veh_sweep_tagged();
+    left = veh_count_tagged();
+
+    if ( left > 0 )
+        mod_host_say( "^1VEHMODE " + why + ": " + left + " spawned vehicle(s) still occupied - could not remove before the load" );
+    else if ( cfg_dbg_veh() && ( n > 0 || riders > 0 ) )
+        mod_host_say( "^3VEHMODE ^7" + why + ": swept " + n + " spawned vehicle(s), " + riders + " rider(s) dismounted" );
+}
+
+// How many menu-spawned vehicles still exist (occupied ones included).
+function private veh_count_tagged()
+{
+    n = 0;
+    vehs = getvehiclearray();
+
+    if ( !isdefined( vehs ) )
+        return 0;
+
+    foreach ( v in vehs )
+    {
+        if ( isdefined( v ) && ( is_true( v.gf_spawned ) || is_true( v.gf_veh_mode ) ) )
+            n++;
     }
 
     return n;
@@ -12956,6 +13015,7 @@ function private autoswitch_disarm_for( gametype )
 function private do_session_stage( map_name, gametype )
 {
     self autoswitch_disarm_for( gametype );
+    veh_sweep_for_transition( "stage" );      // no menu-spawned vehicle may sit through a level load
     mode_profile_prime( gametype );
     switchmap_load( map_name, gametype );
     stage_mark( map_name, gametype );
@@ -13138,6 +13198,7 @@ function private do_map_switch( map_name, gametype )
     if ( cfg_map_method() == 0 && gametype == tolower( getdvarstring( #"g_gametype" ) ) )
     {
         stage_mark( "", "" );
+        veh_sweep_for_transition( "carry" );
         map( map_name );
         wait( 1 );
         switchmap_switch();
@@ -13246,6 +13307,7 @@ function private do_session_switch( map_name, gametype )
 
     // A NOW switch supersedes whatever was staged: the lobby will show the map we land on.
     stage_mark( "", "" );
+    veh_sweep_for_transition( "switch" );     // the 3rd crash: a Gas Station heli rode a switch into Sanatorium
     mode_profile_prime( gametype );
     switchmap_load( map_name, gametype );
 
