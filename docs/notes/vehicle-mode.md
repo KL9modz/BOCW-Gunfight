@@ -207,6 +207,21 @@ stuck in the ground"* (the Vehicles-page spawn put a heli 250 u ahead at +25, i.
   (`gf_spawned` from the page, `gf_veh_mode` from the mode) that nobody sits in; stock's own vehicles
   carry neither tag and are left alone.
 
+- **Round-end sweep (`veh_round_end_sweep`, every round from `mod_apply`)** — the crash fix. A 0.25 s poll
+  on `level.gameended` (set at EVERY round end by `function_d8d30361`, globallogic.gsc:2329; the
+  `map_restart( 1 )` follows the round-end presentation ≥ 1.5 s later, :2058): riders are dismounted
+  the way stock ejects occupants before freeing a vehicle, then every `gf_spawned` / `gf_veh_mode`
+  vehicle nobody sits in is deleted, twice (a second pass 0.6 s later for the ones `delete_soon`
+  released). No menu-spawned vehicle reaches the transition. The rotor now starts a frame AFTER the
+  spawn in both paths (bocw-0f: rotor-on in the spawn frame of a possibly embedded heli is the
+  physics-risky pair).
+
+**Crash analysis (bocw-0f + bocw-85, 2026-09-18):** two Miami dumps, both AT the round transition
+(`last_map_switch_time` [10,20[ and [30,40[ s), not at a spawn — a page-spawned heli, live physics and
+rotor, standing in the ground through `map_restart( 1 )`. bocw-0f's anti-stack spawn net was inspected
+and exonerated (relocates only on real overlap). So: above-ground spawn = the visual fix; the round-end
+sweep = the transition fix. Both unmeasured until the consolidated build runs.
+
 ⚠ Held out of the injected payload on purpose: the 2026-09-18 in-match crash on Miami (err
 `0x91f84370`, sig `C55D66DA`, round-transition-timed) was being isolated by bocw-0f / bocw-85 when this
 landed — the next injected build is theirs (the spawn fix), these verbs ride the rebuild after it.

@@ -922,6 +922,9 @@ function private mod_apply()
 
     // Vehicle mode: resolve this map's ride for the round (every gametype) and tell the host.
     veh_mode_announce();
+    // Every vehicle this menu spawned is deleted the moment the round ends, before map_restart
+    // (the 2026-09-18 Miami round-transition crash had a page-spawned heli standing in the ground).
+    level thread veh_round_end_sweep();
 
     // Bots too: difficulty is a stock per-team gametype setting in every mode, and the
     // bots re-init at the round boundary (bot.gsc:239 on_player_connect -> assign), so
@@ -9279,13 +9282,26 @@ function private veh_spawn( item, type )
     }
 
     veh makeusable();
-    veh.gf_spawned = 1;                        // ours: act_vehclear sweeps it once empty
+    veh.gf_spawned = 1;                        // ours: the round-end sweep / act_vehclear delete it
 
     if ( isdefined( veh.isphysicsvehicle ) && veh.isphysicsvehicle )
         veh setbrake( 1 );
 
+    // One frame for the entity to settle where it was placed before the rotor spins up
+    // (bocw-0f, 2026-09-18: rotor-on in the same frame as a possibly embedded spawn is the
+    // physics-risky combination).
     if ( isairborne( veh ) )
+    {
+        waitframe( 1 );
+
+        if ( !isdefined( veh ) )
+        {
+            self menu_say( "^1spawn failed" );
+            return true;
+        }
+
         veh setrotorspeed( 1.0 );
+    }
 
     self menu_say( "^2vehicle spawned ahead - walk into it and hold Use" );
     return true;
@@ -9634,9 +9650,6 @@ function private veh_mode_ride( now )
     veh.gf_veh_rider = self;
     veh thread veh_mode_life( self );        // owns the cleanup from here on
 
-    if ( cls.air )
-        veh setrotorspeed( 1.0 );
-
     self.var_5a44792f = 1;                   // stock's spawn-in-vehicle flag: no enter animation
     veh usevehicle( self, 0 );
     waitframe( 1 );
@@ -9663,6 +9676,9 @@ function private veh_mode_ride( now )
     self.gf_veh = veh;
     self.gf_veh_reseats = 0;
     veh_mode_hp_apply( veh );
+
+    if ( cls.air )
+        veh setrotorspeed( 1.0 );            // a frame after the spawn, with the pilot aboard
 
     if ( !cls.air )
         self thread veh_mode_hold( veh );
@@ -10053,26 +10069,65 @@ function private cmd_vehspawn( arg )
 // that nobody is sitting in. Stock's own vehicles (streaks, map intro) carry neither tag.
 function private act_vehclear( item )
 {
+    n = veh_sweep_tagged();
+    self menu_say( "^2removed " + n + " empty spawned vehicle(s)" );
+    return true;
+}
+
+function private veh_sweep_tagged()
+{
     n = 0;
     vehs = getvehiclearray();
 
-    if ( isdefined( vehs ) )
+    if ( !isdefined( vehs ) )
+        return 0;
+
+    foreach ( v in vehs )
     {
-        foreach ( v in vehs )
-        {
-            if ( !isdefined( v ) || ( !is_true( v.gf_spawned ) && !is_true( v.gf_veh_mode ) ) )
-                continue;
+        if ( !isdefined( v ) || ( !is_true( v.gf_spawned ) && !is_true( v.gf_veh_mode ) ) )
+            continue;
 
-            if ( !veh_mode_empty( v ) )
-                continue;
+        if ( !veh_mode_empty( v ) )
+            continue;                          // never delete a vehicle with someone in it
 
-            v delete();
-            n++;
-        }
+        v delete();
+        n++;
     }
 
-    self menu_say( "^2removed " + n + " empty spawned vehicle(s)" );
-    return true;
+    return n;
+}
+
+// No menu-spawned vehicle survives a round transition. level.gameended is set at EVERY round end
+// (globallogic.gsc:2329 function_d8d30361, from end_round) and map_restart( 1 ) follows only after
+// the round-end presentation (display_round_end, >= 1.5 s later, :2058) - so a 0.25 s poll sees it
+// in time. Riders are dismounted first the way stock ejects occupants before freeing a vehicle
+// (vehicle_death_shared.gsc:307 usevehicle toggle, then free) - a vehicle is never deleted with a
+// player inside; the second sweep catches the ones veh_mode_delete_soon released. One thread per
+// level (level is rebuilt each round). Prime-suspect fix for the 2026-09-18 Miami crash
+// (0x91f84370 at a round transition, a page-spawned heli stuck in the ground at the time).
+function private veh_round_end_sweep()
+{
+    if ( isdefined( level.gf_veh_sweep_on ) )
+        return;
+
+    level.gf_veh_sweep_on = 1;
+
+    while ( !is_true( level.gameended ) )
+        wait 0.25;
+
+    foreach ( p in getplayers() )
+    {
+        if ( isdefined( p.gf_veh ) )
+            p veh_mode_dismount();
+    }
+
+    waitframe( 1 );
+    n = veh_sweep_tagged();
+    wait 0.6;
+    n += veh_sweep_tagged();
+
+    if ( cfg_dbg_veh() && n > 0 )
+        mod_host_say( "^3VEHMODE ^7round end: swept " + n + " spawned vehicle(s) before the restart" );
 }
 
 // ── Player tools ─────────────────────────────────────────────────────────────
