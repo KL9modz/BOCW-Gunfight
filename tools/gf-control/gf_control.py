@@ -286,9 +286,10 @@ CONFIG = {
         ("gf_dbg_veh", "Debug: VEHMODE line", "choice", [("Off", 0), ("On", 1)], 0),
     ],
     "Overtime zone": [
-        # gunfight_menu "Overtime zone" page (docs/notes/overtime-zone.md). Off = HP tiebreak.
+        # gunfight_menu "Overtime zone" page (docs/notes/overtime-zone.md). ON by default (klaze
+        # 2026-09-18); Off = HP tiebreak only.
         ("gf_zone", "Overtime zone", "choice",
-         [("Off (HP tiebreak)", 0), ("On (next round)", 1)], 0),
+         [("On (next round) - default", 1), ("Off (HP tiebreak)", 0)], 1),
         ("gf_zone_overtime", "Overtime (s)", "choice", [("10", 10), ("20", 20), ("30", 30)], 20),
         ("gf_zone_capture", "Capture (s)", "choice", [("3", 3), ("5", 5), ("10", 10)], 5),
         ("gf_zone_radius", "Zone radius", "int", (32, 512, 16), 128),
@@ -373,7 +374,7 @@ TIPS = {
     "gf_switch_sides": "Mod-owned = one coupled flip per rotation. Stock = both engine paths (may double-flip).",
     "gf_customcac": "Off = the mod's Gunfight loadouts. On = each player's own custom classes.",
     "gf_profile": "When a Gunfight level runs on another mode's settings (only an in-match Switch NOW from TDM does that; a lobby launch already gets the real blob), assert the real Gunfight blob (column A, 2026-09-14): 1 life/round, no kill limit, fixed loadouts, no streaks. Off = the raw hybrid.",
-    "gf_zone": "Capture-zone overtime (needs gf_zone entities). Off = health tiebreak.",
+    "gf_zone": "Capture-zone overtime, ON by default since 2026-09-18 (synthesized on Domination's B flag / a Hardpoint trigger per map). Off = health tiebreak only.",
     "gf_zone_radius": "Capture-zone radius in units. Stock ~128.",
     "gf_spawn_guard": "Off / Auto (engine start spawns when it has them, the guard's anchors when it has none - e.g. Crossroads under Gunfight) / Force (anchors always).",
     "gf_strike": "Crossroads loads the full 12v12 map under Gunfight. On = keep the Strike clips server-side - but clients (joiners too) still draw the 12v12 minimap and bounds, so walls stand on open ground. Off by default. No-op on other maps.",

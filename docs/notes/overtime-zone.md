@@ -8,7 +8,7 @@ stock code, anchored on **Domination's neutral B flag** the way the BO1 mod did 
 
 **Status: BUILDS IN-GAME — `level.zones 1`, no dead match (two maps, 2026-09-12). Anchor now the
 Domination B flag, captured before deletion; overtime BEHAVIOUR (clock extend / capture) not yet
-watched.** Shipped in `gunfight_menu` behind `gf_zone` (default **0/off**).
+watched.** Shipped in `gunfight_menu` behind `gf_zone` — **default 1/ON since 2026-09-18 (klaze: "make overtime on by default")**; 0 = the HP tiebreak only.
 
 > **MEASURED — Zoo then a second map, 2026-09-12.** Census on both: `koth: 0 centre / 3-4 trig`,
 > `control: 0 centre / 2 trig`, **`dom live 0 flag_primary`**. With `gf_zone` ON the second map read

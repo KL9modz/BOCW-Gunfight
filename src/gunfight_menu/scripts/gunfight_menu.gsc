@@ -131,7 +131,7 @@
 //                       the map centre at about that distance, facing each other.
 //                       62=obj-radius 63=nearest-start 64=decision + per-spawn receipts, to
 //                       the HOST's screen only. Nothing this payload prints reaches a joiner.
-//     gf_zone           0 off (default) / 1 on - build the OVERTIME CAPTURE ZONE that private
+//     gf_zone           1 on (DEFAULT since 2026-09-18, klaze) / 0 off = HP tiebreak only - build the OVERTIME CAPTURE ZONE that private
 //                       matches never get (no map ships gunfight_zone_center in a private match,
 //                       docs/notes/gunfight-findings.md). Anchored on Domination's neutral B flag,
 //                       then a Hardpoint / Control zone. docs/notes/overtime-zone.md
@@ -535,7 +535,7 @@ function private cfg_spec()
     c = cfg_add( c, #"gf_switch_wait", 0 );
     c = cfg_add( c, #"gf_team_size", 4 );
     c = cfg_add( c, #"gf_timer_seconds", 60 );
-    c = cfg_add( c, #"gf_zone", 0 );
+    c = cfg_add( c, #"gf_zone", 1 );           // overtime zone ON by default (klaze, 2026-09-18)
     c = cfg_add( c, #"gf_zone_capture", 5 );
     c = cfg_add( c, #"gf_zone_overtime", 20 );
     c = cfg_add( c, #"gf_zone_radius", 128 );
@@ -661,7 +661,7 @@ function private cfg_caster_probe()   { return cfg_geti( #"gf_caster_probe", 1 )
 // Overtime zone (docs/notes/overtime-zone.md). Default OFF: a zone is a round-start
 // entity build, and the one failure that matters is fatal (a centre no trigger contains
 // is a map error -> abort_level). mod_zone_synthesize backs out before that can happen.
-function private cfg_zone()          { return cfg_geti( #"gf_zone", 0 ); }
+function private cfg_zone()          { return cfg_geti( #"gf_zone", 1 ); }   // 1 = overtime zone ON (default since 2026-09-18)
 function private cfg_zone_overtime() { return cfg_geti( #"gf_zone_overtime", 20 ); }
 function private cfg_zone_capture()  { return cfg_geti( #"gf_zone_capture", 5 ); }
 function private cfg_zone_radius()   { return cfg_geti( #"gf_zone_radius", 128 ); }
@@ -809,7 +809,7 @@ function private dvars_register()
     dvar_reg( #"gf_hint_lines", 8 );
     dvar_reg( #"gf_hint_newlines", 0 );
     dvar_reg( #"gf_spawn_diag", 1 );
-    dvar_reg( #"gf_zone", 0 );
+    dvar_reg( #"gf_zone", 1 );
     dvar_reg( #"gf_zone_overtime", 20 );
     dvar_reg( #"gf_zone_capture", 5 );
     dvar_reg( #"gf_zone_radius", 128 );
@@ -6433,8 +6433,8 @@ function private build_tree()
     // ── Overtime zone — default OFF. Run the census first. docs/notes/overtime-zone.md ─
     self menu_add( "zone", "Overtime zone", "start_menu", 1 );
     self menu_item( "zone", "Zone census - read only", &act_zone_census );
+    self menu_item( "zone", "Zone ON - from next round (default)", &act_zone, 1, undefined, #"gf_zone", 1 );
     self menu_item( "zone", "Zone OFF - HP tiebreak", &act_zone, 0, undefined, #"gf_zone", 0 );
-    self menu_item( "zone", "Zone ON - from next round", &act_zone, 1, undefined, #"gf_zone", 1 );
     self menu_item( "zone", "Overtime 10s", &act_zone_overtime, 10, undefined, #"gf_zone_overtime", 10 );
     self menu_item( "zone", "Overtime 20s", &act_zone_overtime, 20, undefined, #"gf_zone_overtime", 20 );
     self menu_item( "zone", "Overtime 30s", &act_zone_overtime, 30, undefined, #"gf_zone_overtime", 30 );
