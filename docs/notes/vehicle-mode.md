@@ -223,6 +223,11 @@ stuck in the ground"* (the Vehicles-page spawn put a heli 250 u ahead at +25, i.
   `level.gameended`, so the round-end poll never ran. A rider the engine will not eject keeps his ride
   (never deleted occupied) and the host is told.
 
+⚠ **Not coverable from script: cwpatch's F6 `fast_restart` hotkey** — an engine console restart that no
+script sees (no round end, no menu path), so a spawned vehicle rides it exactly like the crashes. Use the
+menu's / the app's *Restart* (both sweep first) or *Remove empty spawned vehicles* before F6. F7 and a
+natural round / match end are covered (bocw-85's review).
+
 **Crash analysis (bocw-0f + bocw-85, 2026-09-18):** two Miami dumps, both AT the round transition
 (`last_map_switch_time` [10,20[ and [30,40[ s), not at a spawn — a page-spawned heli, live physics and
 rotor, standing in the ground through `map_restart( 1 )`. bocw-0f's anti-stack spawn net was inspected
