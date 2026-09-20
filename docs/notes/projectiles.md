@@ -7,6 +7,8 @@ Read out of the T9 dump; **nothing measured in-game yet.**
 FX are reachable, tracers have no script API at all, and beams/lasers are client-side only.**
 **2026-09-17: BUILT as the menu's Projectiles page (§7), never run** — weapon_fired → magicbullet,
 rate-gated, nine universal projectile weapons, optional homing and trail FX; test sheet in §7.
+**2026-09-20: klaze — "never worked" (ON message, then nothing). Bytecode verified = source; DIAGNOSTIC
+build (§8): PROJ debug line + six spawn methods incl. EXPLOSIVE ROUNDS (no projectile), one-match test sheet.**
 
 ---
 
@@ -275,5 +277,90 @@ App: *Map toys* → Projectiles `host` / `everyone` / `OFF` / `homing` / `trail 
 | 5 | Rate → *One per 150 ms*, then *EVERY shot*, hold an AR for 2 s | frame rate / hitching; count rockets vs bullets in the killcam. This is §4 q1 |
 | 6 | *Fire mode – everyone* with a joiner | the joiner's shots fire rockets; the joiner sees his own rockets (server projectile, plain replication) |
 | 7 | *Smoke trail FX* ON, one shot | a second trail, or nothing (the FX call was a no-op), or a script error — record which |
+
+Record: `______`
+
+---
+
+## 8. 2026-09-20 — "never worked" (klaze): ON message, then nothing on any shot. DIAGNOSTIC BUILD.
+
+### What is now proven, offline
+
+- **The compiled bytecode IS the source.** `acts gscd` of the live payload, `proj_think` / `proj_fire`
+  read back line for line; every builtin hash resolved with the T89 script hash
+  (`magicbullet` 96f15236, `bullettrace`, `geteye`, `getplayerangles`, `anglestoforward`,
+  `missile_settarget`, `playfxontag`), the `weapon_fired` / `fraction` / `death` / `disconnect` hashes
+  with fnv1a63. `magicbullet` is emitted as a 4-param FUNCTION call, as stock does. Not a compile bug.
+- **Everything up to the `waittill` is proven by the teleport gun** (same per-life thread, same
+  `endon`s, same `tp_menu_open()` gate, same `weapon_fired` notify — klaze: "teleport gun has worked").
+  `getweapon( #"..." )` by hash is proven by the Weapons page (`gave EM2 -> F. Noor`, runbook M1.11).
+- **The red "weapon not found" toast is NOT excluded.** `mod_host_say` → `menu_toast` → `iprintlnbold`
+  fires from the thread *while the menu is still open* (the toggle runs `proj_rearm` before
+  `menu_say`), and the menu's status repaint owns that region — so `getweapon( launcher )` returning
+  `level.weaponnone` would have looked exactly like "ON, then nothing".
+- **The engine side cannot be read at rest**: `BlackOpsColdWar.exe+3c6b290` (`magicbullet`) is
+  Arxan-encrypted on disk (garbage disassembly); it needs the live process (`tools/dvar-live/disasm.py`)
+  with the game up — not done this session.
+- The Atian **Cold War** port ships no rocket gun (only the BO4 tree does — `launcher_standard_t8`,
+  `magicbullet` from `origin + look*40 + (0,0,40)`, owner = player, "to avoid blowing up the player"),
+  so there is no community-proven `magicbullet( player launcher, …, player )` on CW to lean on. Stock MP
+  only fires killstreak projectile weapons this way (`remote_missile_missile` with a PLAYER owner,
+  `straferun_rockets`, `flak_drone_rocket`, `remote_missile_bomblet`); CP fires a launcher
+  (`launcher_standard_t9_cp_straight_shot_siege`) with `level.player`.
+
+So the failure is at runtime, after the thread starts, in one of: the weapon lookup (hidden toast), a
+runtime error at the spawn call (kills the thread silently — every later shot is "nothing"), the call
+returning nothing, or a projectile that spawns and dies on frame 1 / is not drawn. Those four look
+identical from the chair. **This build measures which.**
+
+### The build (`payloads/gunfight_menu.projdiag.gscc`, 471,936 B / 2,685 strings; check-gsc PASS zero notes, check-args 0)
+
+**PROJ debug line** — one line to the feed every 3 s, auto-ON with any fire mode (this build
+measures), off with *Everything OFF* or the toggle (Projectiles → *Debug line*, Debug page, bridge
+`projdbg`). No dvar: `level.gf_dbg_proj` + `level.gf_pj` counters, so the dvar pool is untouched.
+
+```
+PROJ mode:host m:1 w:ok(RPG rockets) ms:300 thr:1 shots:N menu:N chain:N gate:N fire:N ret:N threw:N ent:N none:N gave:N blast:N host alive:1 menuopen:0 want:1 last:<what the entity did>
+```
+
+| field | meaning |
+|---|---|
+| `mode` | off / host / all — what the toggles say |
+| `m` | spawn method 1-6 (below) |
+| `w` | `getweapon( chosen )` right now: `ok` / `NONE` (== `level.weaponnone`) / `undef` |
+| `thr` | `proj_think` threads started (1 after the toggle; +1 per spawn) |
+| `shots` | `weapon_fired` notifies the thread saw. **Frozen while you keep firing = the thread is dead** |
+| `menu` / `chain` / `gate` | shots ignored: menu open / fired weapon is the projectile weapon / inside the rate gap |
+| `fire` / `ret` / `threw` | `proj_fire` entered / the spawn call returned / `fire - ret` — **threw:1 = the spawn call raised a runtime error** |
+| `ent` / `none` | the call returned an entity / returned undefined |
+| `gave` / `blast` | method 3 gave the weapon / method 5 blasts |
+| `host …` | alive, menu open, `proj_wanted` for the host |
+| `last` | the last spawned entity: `m1 missile mdl:1 d1f:40 d.5s:900 alive:1 …` (classname, moved by frame 1 / 0.5 s / 2.5 s), `GONE after 1 frame`, `gone<0.5s (hit something)`, `m1 returned undefined`, `blast at x y z` |
+
+**Spawn method** (Projectiles → *Spawn method*, bridge `projmethod <1-6>`), read live per shot:
+
+| m | call | discriminates |
+|---|---|---|
+| 1 | `magicbullet( w, eye+32fwd, eye+10000fwd, self )` | the original |
+| 2 | `magicbullet( w, start, end )` — no owner (cp_takedown_raid_apt.gsc:356 form) | a player-owner precondition |
+| 3 | `self giveweapon( w )` (silent, no switch) then method 1 | the owner having to own the weapon |
+| 4 | `self magicgrenadeplayer( w, start, fwd*1500 )` (traps_deployable.gsc:1135 form) | the other projectile spawner; frag / M79 make sense here |
+| 5 | **EXPLOSIVE ROUNDS** — no projectile: `bullettrace` to the impact, `playfx( #"explosions/fx_exp_bomb_demo_mp" )` (universal `fx` row), `playsoundatposition( #"mpl_sd_exp_suitcase_bomb_main" )`, `radiusdamage( pos, 160, 130, 35, self, "MOD_EXPLOSIVE", w )` (raz.gsc:1080 shape), `earthquake` | works by construction — a blast from whatever weapon is held; if THIS does nothing the fault is upstream of the spawn and the counters say where |
+| 6 | method 1 from `origin + fwd*40 + (0,0,40)` (the Atian BO4 rocket-gun start) | a projectile dying against the shooter |
+
+The 09-17 weapon list is unchanged and is itself a variant: *Strafe run rocket* / *Cruise missile
+bomblet* are weapons stock DOES fire through `magicbullet` in MP — a launcher that fails where those
+work is a weapon-class answer.
+
+### Test sheet — one match, solo, Nuketown; screenshot the PROJ line after every step
+
+| # | do | read |
+|---|---|---|
+| 1 | Projectiles → *Fire mode – host*; close the menu; wait for the PROJ line | `mode:host m:1 w:ok(RPG rockets) thr:1 want:1 menuopen:0`. **`w:NONE`** → that is the bug (the name); pick *Projectile → Strafe run rocket*, re-read `w:` — stop there |
+| 2 | ONE pistol shot at a wall ~20 m away | `shots:1 fire:1 ret:1` and then one of: `ent:1 last:m1 missile … alive:1 d.5s:NNN` (spawned + flying; if nothing was visible it is a render question) · `none:1 last:m1 returned undefined` (engine refused → 3) · `threw:1` (the call raised; further shots will not move `shots:` → 3) · `GONE after 1 frame` (killed on spawn → 4) |
+| 3 | *Spawn method → 2*, one shot; *→ 3*, one shot; back to *1* + *Projectile → Strafe run rocket*, one shot | for each: `ent` vs `none` vs `threw`, and `last` |
+| 4 | *Spawn method → 6*, one shot | as above |
+| 5 | *Spawn method → 4* + *Projectile → Frag grenade*, one shot | a grenade arcs out? `last:m4 grenade …` |
+| 6 | *Spawn method → 5*, one shot at the wall | a Demolition-bomb explosion at the impact, `blast:1 last:blast at x y z`; then *Everything OFF* |
 
 Record: `______`
