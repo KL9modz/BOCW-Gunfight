@@ -118,12 +118,14 @@ def main():
     ap.add_argument('--inject', help='compiled T9 .luac to inject (WRITES the game)')
     ap.add_argument('--as', dest='as_hex', help='HEX of the x64:HEX.lua name to give it')
     ap.add_argument('--slot', type=int, help='pool entry index to overwrite (default: the last allocated)')
+    ap.add_argument('--hijack', help='replacement .luac to put in place of --stock (keeps the stock NAME; WRITES the game)')
+    ap.add_argument('--stock', help='carved stock .luac to identify the pool slot by content (for --hijack)')
     a = ap.parse_args()
-    if not (a.list or a.inject):
+    if not (a.list or a.inject or a.hijack):
         ap.print_help(); return 0
     pid = ls.find_process('BlackOpsColdWar.exe')
     base, size = ls.find_module(pid, 'BlackOpsColdWar.exe')
-    proc = ls.Proc(pid, write=bool(a.inject))
+    proc = ls.Proc(pid, write=bool(a.inject or a.hijack))
     pool = find_pool(proc, base, size)
     print('xasset pool @ %#x (exe+%#x)' % (pool, pool - base))
     rows = read_rows(proc, pool)
@@ -137,6 +139,38 @@ def main():
         for j, name, ln, buf, tag in entries:
             print('%5d  %016x  %8d  %#x  %s' % (j, name, ln, buf, tag))
         print('%d entries' % len(entries))
+    if a.hijack:
+        import hashlib
+        if not a.stock:
+            ls._die('--hijack needs --stock <carved stock .luac> to identify the slot by content')
+        repl = open(a.hijack, 'rb').read()
+        if repl[:3] != b'\x1bLJ' or repl[3] != 0x82:
+            ls._die('--hijack replacement is not a T9 LuaJIT chunk')
+        stock = open(a.stock, 'rb').read()
+        target = hashlib.sha1(stock).hexdigest()
+        # find the slot whose buffer content == the stock chunk (same len + sha1)
+        hit = None
+        for j, name, ln, buf, tag in entries:
+            if ln == len(stock) and buf:
+                data = proc.read(buf, ln)
+                if data and hashlib.sha1(data).hexdigest() == target:
+                    hit = (j, name, ln, buf); break
+        if hit is None:
+            ls._die('stock chunk not found in the pool (len %d) - not loaded yet, or the bytes differ' % len(stock))
+        j, name, ln, buf = hit
+        old = proc.read(p + isz * j, isz)
+        print('hijacking slot %d, name %016x (kept), original len %d buffer %#x' % (j, name, ln, buf))
+        print('ORIGINAL entry bytes: %s (write these back to restore)' % old.hex())
+        mem = proc.alloc(len(repl) + 16, ls.PAGE_READWRITE)
+        if not proc.write(mem, repl):
+            ls._die('WriteProcessMemory(buffer) failed')
+        entry = bytearray(old)                              # keep name@0, only change len + buffer
+        struct.pack_into('<I', entry, 8, len(repl))
+        struct.pack_into('<Q', entry, isz - 8, mem)
+        if not proc.write(p + isz * j, bytes(entry)):
+            ls._die('WriteProcessMemory(entry) failed')
+        print('hijacked slot %d: name kept, buffer -> our %d-byte chunk at %#x. The game loads OUR bytes when it (re)reads this chunk.'
+              % (j, len(repl), mem))
     if a.inject:
         if not a.as_hex:
             ls._die('--inject needs --as HEX')
@@ -144,9 +178,25 @@ def main():
         if data[:3] != b'\x1bLJ' or data[3] != 0x82:
             ls._die('not a T9 LuaJIT chunk (compile with tools/lui/lj2t9.py compile)')
         name = asset_name_for(a.as_hex)
-        slot = a.slot if a.slot is not None else max(j for j, *_ in entries)
+        # Free-list-safe target: only ever repoint a slot that is a LIVE luafile (its buffer starts with
+        # the LuaJIT magic 1B4C4A) - never a free-list node (whose "buffer" field holds a next-free
+        # pointer) and never a non-luafile. Repointing a USED entry's {name,len,buffer} does not touch
+        # the free list. Default = the highest-indexed live luafile (a late stock chunk the UI has already
+        # cached and will not re-read). Original bytes are printed so the slot can be restored by hand.
+        def is_live_luafile(j):
+            buf = struct.unpack_from('<Q', proc.read(p + isz * j, isz), isz - 8)[0]
+            return bool(buf) and proc.read(buf, 3) == b'\x1bLJ'
+        if a.slot is not None:
+            slot = a.slot
+            if not is_live_luafile(slot):
+                ls._die('--slot %d is not a live luafile (buffer lacks the 1B4C4A magic); refusing so we cannot corrupt the free-list' % slot)
+        else:
+            live = [j for j, *_ in entries if is_live_luafile(j)]
+            if not live:
+                ls._die('no live luafile slot found to repoint')
+            slot = max(live)
         old = proc.read(p + isz * slot, isz)
-        print('overwriting slot %d (itemSize %#x), original bytes: %s' % (slot, isz, old.hex()))
+        print('repointing slot %d (itemSize %#x), a live luafile; ORIGINAL bytes: %s (write these back to restore)' % (slot, isz, old.hex()))
         mem = proc.alloc(len(data) + 16, ls.PAGE_READWRITE)
         if not proc.write(mem, data):
             ls._die('WriteProcessMemory(buffer) failed')

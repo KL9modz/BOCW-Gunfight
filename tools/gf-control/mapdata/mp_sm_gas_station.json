@@ -1,0 +1,96 @@
+{
+ "spawn": {
+  "starts": "tdm=84/4(2+2+0) dom=26/0(0+0+0) ctf=71/0(0+0+0) control=62/0(0+0+0) dm=88/8(1+1+6) hq=0 NAMED tdm=0/0 sd=0/0 dom=0/0 ctf=0/0 | GROUPS n=0 a=0() b=0()",
+  "family_note": ""
+ },
+ "destructibles": {
+  "entities": 2,
+  "kinds": 1,
+  "list": [
+   {
+    "def": "decor_propane_tank_01_en_ddef",
+    "count": 2
+   }
+  ]
+ },
+ "props": {
+  "table": true,
+  "rows": 13,
+  "list": [
+   {
+    "model": "p8_wz_foliage_cactus_cardon_lrg_optimized",
+    "size": "large"
+   },
+   {
+    "model": "cob_tire_pile_02",
+    "size": "medium"
+   },
+   {
+    "model": "p9_hue_sidewalk_sign_01",
+    "size": "medium"
+   },
+   {
+    "model": "p9_usa_dumpster_01_full",
+    "size": "large"
+   },
+   {
+    "model": "p9_wz_industrial_wooden_pallet_stack_02",
+    "size": "large"
+   },
+   {
+    "model": "hardware_plywood_bare_01_48",
+    "size": "large"
+   },
+   {
+    "model": "p7_fir_steps_wood_sml",
+    "size": "medium"
+   },
+   {
+    "model": "p9_ams_beer_box_01",
+    "size": "small"
+   },
+   {
+    "model": "p9_stk_trashbin_plastic",
+    "size": "medium"
+   },
+   {
+    "model": "p9_sm_gas_foliage_cactus_barrel_red_med_half_02",
+    "size": "small"
+   },
+   {
+    "model": "p7_water_cooler_box_dirty",
+    "size": "small"
+   },
+   {
+    "model": "p9_usa_stand_newspaper_01_red_3_lit",
+    "size": "medium"
+   },
+   {
+    "model": "p7_box_cardboard_d_closed",
+    "size": "small"
+   }
+  ]
+ },
+ "gametype": "gunfight",
+ "vehicles_drive": [
+  "vehicle_motorcycle_mil_us_offroad",
+  "vehicle_motorcycle_mil_us_offroad_alt",
+  "vehicle_t9_mil_ru_apc_heavy",
+  "vehicle_t9_mil_ru_apc_heavy_open_turret",
+  "vehicle_t9_mil_helicopter_care_package"
+ ],
+ "vehicles_other": [
+  "veh_t9_mil_us_helicopter_large_chopper_gunner",
+  "vehicle_t9_mil_ru_heli_transport_vehicle_drop",
+  "vehicle_t9_rcxd_racing",
+  "vehicle_t9_rcxd_racing_alt",
+  "hash_58cc8ce25d32031f",
+  "veh_t8_ac130_gunship_mp",
+  "veh_t8_helicopter_gunship_mp",
+  "veh_t8_helicopter_gunship_mp_guard",
+  "vehicle_t9_mil_ru_air_vtol_forger",
+  "vehicle_straferun_mp"
+ ],
+ "map": "mp_sm_gas_station",
+ "captured": "2026-09-17T23:54:38"
+}

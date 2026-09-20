@@ -1,0 +1,34 @@
+{
+ "destructibles": {
+  "entities": 11,
+  "kinds": 6,
+  "list": [
+   {
+    "def": "destructible_veh_t9_civ_hatchback_80s_tan_us_wet",
+    "count": 3
+   },
+   {
+    "def": "destructible_veh_t9_civ_hatchback_80s_blk_us_wet",
+    "count": 1
+   },
+   {
+    "def": "destructible_veh_t9_civ_eu_van_kgb_wet",
+    "count": 3
+   },
+   {
+    "def": "destructible_veh_t9_civ_ru_bus_large_wet",
+    "count": 2
+   },
+   {
+    "def": "destructible_veh_t9_mil_ru_truck_50s_cargo_delivery_workers_boots_wet",
+    "count": 1
+   },
+   {
+    "def": "destructible_veh_t9_civ_eu_van_work_dirt2_wet",
+    "count": 1
+   }
+  ]
+ },
+ "map": "mp_moscow",
+ "captured": "2026-09-18T19:43:31"
+}

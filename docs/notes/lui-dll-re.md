@@ -129,6 +129,27 @@ and no `game_dump` need.** The plan simplifies to:
 Both wait only on the game being free for injection (klaze's menu test → frees on his relaunch to the
 vehmode build).
 
+## ⛔ MEASURED 2026-09-18 — the inline lua_loadx hook is mechanically correct but destabilises the game
+
+Built + ran the DLL (klaze, 5 injects). The hook MECHANISM works: sig→lua_loadx resolves live
+(`0x7ff698356960`, rva 0xd186960 ✓); the self-contained trampoline is validated end-to-end — with the hook
+set to self-unhook after one call the log shows `hk#0 enter L=.. → hk#0 ret=0 (trampoline OK) → self-unhooked`,
+i.e. it called real lua_loadx transparently, got the load result, and **captured a live LUI lua_State
+(`0x022228281990`)**. Two earlier crashes were real DLL bugs since fixed: (1) the stolen prologue's
+`mov rax,[rip+cookie]` must be rewritten position-independent — the trampoline lands ~137 TB from loadx so an
+int32 disp reloc overflows; (2) the sig-scan must use VirtualQuery and read only readable+executable pages
+(this build has execute-only pages that fault a naive scan). A per-line-flushed file logger
+(`C:\bocw\payloads\gf_luihook.log`) gave crash-proof readout.
+
+**BUT** even a transparent single-call hook that cleanly restores the original bytes leaves the game crashing
+shortly after — the crash comes *after* `self-unhooked`, so it is caused by the code modification having been
+present, not by the trampoline or our logic. ⇒ **modifying lua_loadx's bytes is not viable on this build; the
+inline-hook DLL route for the LUI menu is a dead end.** `src/gf_luihook/` is kept as the working RE (state
+capture + loadx + trampoline all proven). The run primitives exist (valid lua_State + callable lua_loadx); the
+missing piece is a way to execute on the VM thread WITHOUT modifying code. ▶ Next: the luafile-pool inject +
+`luiload`-from-a-CSC data route (no code modification), whose open items are the free-list pool handling and
+whether luiload's name lookup reaches an injected entry.
+
 ## Option-B (in-context source compile) RE — bocw-85, 2026-09-18 (fallback only)
 
 Not needed now (lj2t9 = option A works), kept for the DLL-source-compile fallback:
@@ -171,3 +192,84 @@ and it's the route klaze picked. `luapool.py --list` stays useful (read-only poo
 - **Timing:** run after the UI chunks define `LUI.createMenu`/`StartMenu_Main`. Simplest first cut: a
   short delay after state capture, or hook the loadstring wrapper (`0xd1979f0`) and fire after a marker
   chunk. Iterate in-DLL. This is the one genuinely empirical piece.
+
+## ✅ The DLL is written — `src/gf_luihook/` (2026-09-18)
+
+`src/gf_luihook/gf_luihook.c` (+ `gf_bytecode.h`, `README.md`) implements option A. **Agent wrote the
+source + chunk + this RE; klaze builds (zig), injects, and iterates the two live knobs.** The auto-mode
+classifier blocks the agent from building the DLL *and* from disassembling the exe **to pin the injected
+DLL's call target** (both flagged "Create RCE Surface") — which matches the guard: pinning `lua_pcall` is
+klaze's live piece, not the agent's.
+
+**Design (one hook, thread-safe):** hook `lua_loadx` itself (not `cod_lua_setxhash`) — it runs on the
+**VM/main thread** every chunk-load, so it gives us the `lua_State` (arg1), the timing (load count) *and*
+a main-thread execution point in one. This matters: **LuaJIT is not thread-safe**, so our chunk must NOT
+be loaded/run from a worker thread (the `bridge.c` thread-safety caveat, but fatal here). The hook lets
+the game's chunk load, captures `L`, and after `GF_TRIGGER_N` loads calls the *real* `lua_loadx` on our
+embedded bytecode + `lua_pcall`. Re-entrancy is guarded by thread-id; the chunk is idempotent+defensive
+so retrying every load across a window is safe.
+
+**Offline-verified against the dump (so klaze doesn't have to):**
+- `GF_LOADX_SIG` (cw.json's `lua_loadx` relative sig) matches **exactly one** site (`0xd197b50`) and
+  resolves to `lua_loadx` = `0xd186960`. Unique, correct.
+- `lua_loadx` prologue raw bytes = `40 53 | 48 81 EC F0 00 00 00 | 48 8B 05 D8 97 B5 01` — **note the
+  redundant REX `0x40` on `push rbx`** (a disassembler folds it into the mnemonic and hides it). So the
+  clean boundary is **16 bytes / 3 insns**, the one RIP-relative `mov` has its disp32 at **offset 12**,
+  and the self-contained trampoline relocates it as `new_disp = old_disp + (loadx - tramp)`. `install_hook`
+  checks these exact bytes and bails loudly on mismatch (never corrupts).
+- The chunk (`src/gf_lui/gf_loadtest.lua`) was hardened **idempotent** (`LUI.gf_loadtest_done` guard) and
+  recompiled by `lj2t9` → `payloads/gf_loadtest.luac` **653 B**, `verify` = 1 load / 0 fail. Embedded via
+  `tools/lui/gen-bytecode-h.py`.
+
+**The two live knobs (klaze):**
+- `(A) GF_PCALL_RVA` — `lua_pcall` (or `lua_call`, sufficient since our chunk is internally pcall-guarded).
+  NOT pinned offline; README "Pinning lua_pcall" has the debugger recipe (it's in `lj_api.c` beside
+  `lua_loadx`; the DLL logs both `lua_loadx` and the captured `L` to match against). Until set, the DLL
+  captures+loads only (graceful).
+- `(B) GF_TRIGGER_N` — loads-before-inject (StartMenu_Main timing); forgiving (idempotent chunk, 400 retries).
+
+**Build/inject:** `zig cc -target x86_64-windows-gnu -shared -O2 -o gf_luihook.dll gf_luihook.c`, then
+`pwsh tools/gf-bridge/inject-dll.ps1 -Dll ...` (reuses the existing injector). Visual result = ESC →
+"GUNFIGHT MENU LOADED". This does NOT touch the luafile pool (sidesteps the free-list problem entirely).
+
+## ⛔ MEASURED 2026-09-18 — the luiload data route also crashes (both LUI-injection routes now dead)
+
+After the inline-hook route was ruled out, ran the DATA route (no code modification): luafile-pool inject +
+`luiload` from a CSC.
+- `tools/lui/luapool.py --inject` was made free-list-safe (only repoints a slot whose buffer starts with the
+  LuaJIT magic — a live luafile, never a free node). Worked: repointed slot 3723, wrote our 653-byte chunk as
+  `x64:6766100000000001.lua` (name `36473486fbd81b79`).
+- `src/gf_luiload/` CSC was gated on the dvar `gf_luiload_go` (set via `tools/lui/luigo.py` → cwpatch exec),
+  because **luiload on a chunk NOT in the pool hard-crashes** (learned first). So the correct order is: inject
+  the pool chunk, confirm the HUD reads `go:0`, THEN set the dvar to fire ONE luiload on the present chunk.
+- **Result: luiload("x64:6766100000000001.lua") crashes the game even with our chunk present in the pool under
+  the matching name.** So luiload does not load our injected pool entry — it either resolves names against the
+  fastfile store rather than the runtime pool, or uses a different name/arg scheme than `require`. It is
+  Arxan-obfuscated with zero stock callers, so it cannot be probed further (one crash per attempt).
+
+⇒ **Both ways to get custom Lua into the LUI VM are dead ends on this build:** the DLL code-hook (game
+destabilises when lua_loadx's bytes are modified) and luiload (crashes whether the chunk is present or not).
+The integrated pause-menu-TAB goal is not reachable with the methods available. What still works for
+LUI-from-GSC: the stock popup `ScriptMessageDialog_Compact` renders plain text (pause-menu.md), plus the
+existing GSC `gunfight_menu`. Kept as RE/tools: `src/gf_luihook`, `src/gf_luiload`, `tools/lui/luapool.py`,
+`luigo.py`, `tools/dbwin-capture.py`.
+
+## ⛔ MEASURED 2026-09-18 — pool-buffer-hijack also dead (the third and last route)
+
+Tried the data-only hijack: `luapool.py --hijack <repl.luac> --stock <carved.luac>` finds the pool slot whose
+buffer content matches a carved stock chunk and repoints ONLY its len+buffer (keeps the name), so the game
+loads our bytes when it re-reads that chunk — no code hook, no luiload. Two measured walls:
+1. **Can't build a modified stock chunk.** `lj2t9` cannot recompile a *decompiled* stock chunk — ljd's output
+   isn't valid re-compilable Lua (core_ui_1029 fails at line 645, a hashed method-call). lj2t9's validation
+   was bytecode→bytecode, not decompile→recompile. So "stock StartMenu_Main + our label" is unbuildable; the
+   only chunk we can compile is our hand-written `gf_loadtest`, which would *replace* (lose) the target.
+2. **The pause-menu chunk isn't in the pool.** Content-scan with ESC OPEN: **1002 of 3724 luafile-pool
+   entries match our carved bytes by sha1** (incl. 24 `core_ui`, all low-numbered/eager), but
+   **core_ui_1029 (StartMenu_Main definer, len 31043) is ABSENT whether ESC is open or closed.** The
+   pause-menu chunks (1029/1403/1437/1547) are loaded into the LUI VM by a different mechanism than the
+   individual pool entries we can write — which is also why the pool+luiload route could never have reached
+   them.
+
+⇒ **All three routes to custom Lua in the pause-menu VM are measured dead ends: code-hook (detected),
+luiload (crashes), pool-hijack (chunk not pool-resident).** The integrated pause-menu-TAB is not reachable
+with available methods. Checkpointed. Working LUI-from-GSC surfaces remain the stock popup + GSC gunfight_menu.

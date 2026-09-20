@@ -50,7 +50,18 @@ static void run_console_command(const char *cmd, size_t len)
     if (len > sizeof(buf) - 2) len = sizeof(buf) - 2;
     for (size_t i = 0; i < len; i++) buf[i] = cmd[i];
     buf[len] = '\n';
-    WriteProcessMemory(self, slot, buf, len + 1, &n);
+    /* ⚠ Pad the WHOLE restore window with '\n' (empty commands) before executing. Writing only
+     * `cmd\n` left the bytes after it — cwpatch's original slot content, which holds `*_restart`
+     * command literals — in place, and the game's command buffer runs them as a SECOND command.
+     * At exactly 24 bytes ("set gf_cmd_action apply") the leftover formed a valid match restart,
+     * which is what made every app "Apply now" reload the match (measured 2026-09-19). Filling to
+     * RESTORE_LEN guarantees only our one command runs; the trailing '\n's are no-ops. */
+    size_t writelen = len + 1;
+    if (writelen < RESTORE_LEN) {
+        for (size_t i = writelen; i < RESTORE_LEN; i++) buf[i] = '\n';
+        writelen = RESTORE_LEN;
+    }
+    WriteProcessMemory(self, slot, buf, writelen, &n);
     executor();
     WriteProcessMemory(self, slot, saved, RESTORE_LEN, &n);
 }

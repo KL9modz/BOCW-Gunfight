@@ -41,22 +41,45 @@ function private loader()
 {
     wait( 6 ); // let the LUI VM finish loading its own chunks first
 
-    level.gf_calling = 1;
-    luiload( CHUNK );          // if this errors the thread, returned stays 0
-    level.gf_returned = 1;
+    // MEASURED 2026-09-18: luiload() on a chunk that is NOT in the pool HARD-CRASHES the game (it does
+    // not error cleanly). So we NEVER call luiload until the pool chunk is definitely injected. Gate on
+    // the dvar gf_luiload_go: the operator injects the pool chunk (luapool.py --inject) FIRST, then sets
+    // `gf_luiload_go 1`, and only then do we fire luiload ONCE, on a rising edge (0->1). Reset it to 0 to
+    // arm another attempt (e.g. after re-injecting the pool). One call per edge = at most one crash-risk
+    // per deliberate trigger.
+    fired = 0;
+    for ( ;; )
+    {
+        go = getdvarint( #"gf_luiload_go", 0 );
+        if ( go && !fired )
+        {
+            fired = 1;
+            level.gf_attempt++;
+            level thread try_luiload();
+        }
+        else if ( !go )
+        {
+            fired = 0;            // falling edge re-arms
+        }
+        wait( 1 );
+    }
 }
 
-// one complete line, every ~2s
+function private try_luiload()
+{
+    luiload( CHUNK );          // hard-crashes if CHUNK is not a loadable pool entry; else returns
+    level.gf_returned++;       // only reached when luiload returns without crashing/erroring
+}
+
+// one complete line, every ~2s (the debug-feed convention)
 function private status_loop()
 {
-    level.gf_calling = 0;
+    level.gf_attempt = 0;
     level.gf_returned = 0;
-    n = 0;
 
     for ( ;; )
     {
-        n++;
-        iprintlnbold( "^3GF LUILOAD^7 n:" + n + " calling:" + level.gf_calling + " returned:" + level.gf_returned + " ^5(ESC->look for GUNFIGHT MENU LOADED)" );
+        iprintlnbold( "^3GF LUILOAD^7 go:" + getdvarint( #"gf_luiload_go", 0 ) + " att:" + level.gf_attempt + " ok:" + level.gf_returned + " ^5(pool-inject, THEN set gf_luiload_go 1)" );
         wait( 2 );
     }
 }

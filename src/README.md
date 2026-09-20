@@ -22,6 +22,11 @@ prop_probe/       read-only — reads the per-map Prop Hunt table
                   number that decides whether props are free on that map.
                   ✅ RAN 2026-09-15 (mp_sm_gas_station): tbl=1, 13 rows, row 0 resident.
                   Folded into gunfight_menu as the gf_dbg_assets feed line (PROPS).
+slide_probe/      WRITES velocity — measures every slide (2D distance, ms, entry/exit speed) and
+                  tries the slide-distance levers: gf_slide (% of the engine's start speed,
+                  applied at slide_begin), gf_slidehold (re-assert it every frame), gf_slidechain
+                  (slide_subsequentslidescale 0), gf_slidephd (specialty_mod_phdflopper). One SLIDE
+                  line every 2 s. Built 2026-09-20, check-gsc PASS, NEVER RUN. docs/notes/slide.md
 gunfight_mod/     the real mod. ✅ ALL FOUR SWITCHES VERIFIED 2026-09-08 —
                   3v3 Gunfight on Zoo, 60s rounds, timed out cleanly, correct HUD
 gunfight_menu/    ⬅ THE HOSTING PAYLOAD. gunfight_mod's fixes + team size + an

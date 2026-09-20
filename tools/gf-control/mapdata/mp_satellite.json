@@ -1,0 +1,88 @@
+{
+ "destructibles": {
+  "entities": 0,
+  "kinds": 0,
+  "list": []
+ },
+ "props": {
+  "table": true,
+  "rows": 13,
+  "list": [
+   {
+    "model": "p8_col_barrel_metal_02_tan_dmg",
+    "size": "medium"
+   },
+   {
+    "model": "p8_slu_crate_wood",
+    "size": "medium"
+   },
+   {
+    "model": "p8_tire_old_dirty_01_dusty",
+    "size": "medium"
+   },
+   {
+    "model": "p9_ang_rock_layered_01_boulder_lrg_02_a1",
+    "size": "medium"
+   },
+   {
+    "model": "p9_ang_rocket_wreckage_cone_bit_01",
+    "size": "medium"
+   },
+   {
+    "model": "p9_ang_satellite_capsule_plate_01",
+    "size": "large"
+   },
+   {
+    "model": "p9_ang_satellite_capsule_plate_02_prophunt",
+    "size": "large"
+   },
+   {
+    "model": "p9_ang_satellite_debris_04",
+    "size": "small"
+   },
+   {
+    "model": "p9_ang_satellite_panel_02_prophunt",
+    "size": "large"
+   },
+   {
+    "model": "p9_ang_satellite_panel_03_prophunt",
+    "size": "medium"
+   },
+   {
+    "model": "p9_barrel_metal_rusted_01_prophunt",
+    "size": "medium"
+   },
+   {
+    "model": "p9_nic_jerrycan_fuel_sml",
+    "size": "small"
+   },
+   {
+    "model": "p9_rus_ammo_crate_01",
+    "size": "medium"
+   }
+  ]
+ },
+ "gametype": "dm",
+ "vehicles_drive": [
+  "vehicle_t9_mil_helicopter_care_package"
+ ],
+ "vehicles_other": [
+  "veh_t9_mil_us_helicopter_large_chopper_gunner",
+  "vehicle_t9_mil_ru_heli_transport_vehicle_drop",
+  "vehicle_t9_rcxd_racing",
+  "vehicle_t9_rcxd_racing_alt",
+  "hash_58cc8ce25d32031f",
+  "veh_t8_ac130_gunship_mp",
+  "veh_t8_helicopter_gunship_mp",
+  "veh_t8_helicopter_gunship_mp_guard",
+  "vehicle_t9_mil_ru_air_vtol_forger",
+  "vehicle_straferun_mp",
+  "hash_60868aaa45d05ffe"
+ ],
+ "spawn": {
+  "starts": "tdm=100/0(0+0+0) dom=34/0(0+0+0) ctf=112/12(6+6+0) control=94/0(0+0+0) dm=108/8(1+1+6) hq=0 NAMED tdm=0/0 sd=0/0 dom=0/0 ctf=0/0 | GROUPS n=0 a=0() b=0()",
+  "family_note": ""
+ },
+ "map": "mp_satellite",
+ "captured": "2026-09-19T23:14:11"
+}
