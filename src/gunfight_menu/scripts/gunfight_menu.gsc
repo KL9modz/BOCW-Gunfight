@@ -649,6 +649,7 @@ function private cfg_hint_newlines() { return cfg_geti( #"gf_hint_newlines", 0 )
 // #spawn_guard (ported from gunfight_mod, adapted to dvars). Default OFF - test solo first.
 function private cfg_spawn_guard()     { return cfg_geti( #"gf_spawn_guard", 2 ); }
 function private cfg_spawn_diag()      { return cfg_geti( #"gf_spawn_diag", 1 ); }
+function private cfg_mapscan()         { return cfg_geti( #"gf_mapscan", 0 ); }    // 0 = map-census harvest OFF (default); opt-in, safe when on
 // Anti-stack net, default ON. NON-packed dvar on purpose (cfg_geti falls through to getdvarint) -
 // keeps it out of the packed chunk store, so no 3-file lockstep / config_scan change is needed.
 function private cfg_spawn_antistack() { return cfg_geti( #"gf_spawn_antistack", 1 ); }
@@ -809,6 +810,7 @@ function private dvars_register()
     dvar_reg( #"gf_hint_lines", 8 );
     dvar_reg( #"gf_hint_newlines", 0 );
     dvar_reg( #"gf_spawn_diag", 1 );
+    dvar_reg( #"gf_mapscan", 0 );
     dvar_reg( #"gf_zone", 1 );
     dvar_reg( #"gf_zone_overtime", 20 );
     dvar_reg( #"gf_zone_capture", 5 );
@@ -914,7 +916,13 @@ function private mod_apply()
     census_snapshot();
     if ( debug_feed_any() )
         debug_feed_start();
-    level thread mapdata_publish();     // GAME->APP map census (mapdata_scan.py)
+    // Map census -> app (mapdata_scan.py). OFF by default (gf_mapscan 0): it is a harvesting
+    // feed that nothing consumes at runtime - per-map vehicle/prop/asset data is offline in
+    // docs/data/map-assets.json - and its entity scan is what tripped the 0x91f84370 fatal on
+    // big maps (mp_miami). Opt in only to document a map's live destructibles; the scan is
+    // yield-guarded (destruct_tally / this function) so it is safe when enabled.
+    if ( cfg_mapscan() )
+        level thread mapdata_publish();     // GAME->APP map census (mapdata_scan.py)
     level thread config_publish();     // GAME->APP live config readback (config_scan.py -> app "Load current")
 
     // Movement mods apply in EVERY gametype, so they run before the Gunfight gate.
@@ -2710,9 +2718,22 @@ function private destruct_tally()
     t.unnamed = 0;
     t.names = [];
     t.counts = [];
+    seen = [];          // def-string -> index into t.names/t.counts, an O(1) lookup
+    i = 0;
 
     foreach ( e in destruct_list() )
     {
+        // ⚠ Yield periodically. A dense urban map (mp_miami) carries THOUSANDS of
+        // destructibles; scanning them all in one uninterrupted VM resumption trips the
+        // engine's script-execution limit -> a bare-code fatal (0x91f84370), which crashed
+        // every inject on Miami ~10-50s in (measured 2026-09-19). Every caller runs in a
+        // thread (mapdata_publish, the Destructibles page, the debug feed), so waitframe is
+        // safe here. The keyed `seen` lookup below also drops the old O(n^2) name search to
+        // O(n).
+        if ( i > 0 && ( i % 256 ) == 0 )
+            waitframe( 1 );
+        i++;
+
         t.n++;
         d = destruct_def( e );
 
@@ -2725,25 +2746,15 @@ function private destruct_tally()
         if ( d.size >= 4 && getsubstr( d, 0, 4 ) == "veh_" )
             t.veh++;
 
-        idx = -1;
-
-        for ( k = 0; k < t.names.size; k++ )
+        if ( isdefined( seen[ d ] ) )
         {
-            if ( t.names[ k ] == d )
-            {
-                idx = k;
-                break;
-            }
-        }
-
-        if ( idx < 0 )
-        {
-            t.names[ t.names.size ] = d;
-            t.counts[ t.counts.size ] = 1;
+            t.counts[ seen[ d ] ]++;
         }
         else
         {
-            t.counts[ idx ]++;
+            seen[ d ] = t.names.size;
+            t.names[ t.names.size ] = d;
+            t.counts[ t.counts.size ] = 1;
         }
     }
 
@@ -9256,9 +9267,14 @@ function private mapdata_publish()
 
     level.gf_mapdata_p = "GFMAP" + "PROP|" + map + "|" + props + "|END";
 
+    // Spread the map scans across frames: each of these tallies walks a map-sized entity set,
+    // and running them all in one VM resumption trips the script-execution limit on big maps
+    // (mp_miami) -> 0x91f84370. A frame between sections keeps each resumption under the cap.
+    waitframe( 1 );
     note = isdefined( level.gf_family_note ) ? level.gf_family_note : "";
     level.gf_mapdata_s = "GFMAP" + "SPAWN|" + map + "|" + mod_starts_tally() + " NAMED" + mod_named_tally( mod_gather_spawns() ) + mod_groups_tally() + "|" + note + "|END";
 
+    waitframe( 1 );
     dt = destruct_tally();
     level.gf_mapdata_d = "GFMAP" + "DEST|" + map + "|n=" + dt.n + "|kinds=" + dt.names.size + "|" + destruct_tally_text( dt, 40 ) + "|END";
 }
