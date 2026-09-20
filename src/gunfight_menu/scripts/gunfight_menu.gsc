@@ -397,7 +397,7 @@
 //       by hash from the bgcache table (exploder::exploder)              (destructible.gsc:23/:613,
 //                                                                       exploder_shared.gsc:278).
 //     projectiles: weapon_fired -> magicbullet( w, eye, far, self ),   ⚠ 09-17 build never fired (klaze);
-//       + PROJ debug line + 6 spawn methods (2026-09-20)               09-20 diag build measures it.
+//       + PROJ debug line + AUTO/6 spawn methods (2026-09-20)          09-20 MEASURED: pipeline ok; per-class fixes.
 //       rate-gated, optional missile_settarget homing                    Stock shapes (remotemissile
 //                                                                       :415, straferun.gsc:897-899);
 //                                                                       the per-shot rate is the test.
@@ -8263,6 +8263,7 @@ function private build_tree()
     self menu_item( "proj_rate", "EVERY shot (full-auto test)", &act_proj_rate, 0 );
     // Spawn method (2026-09-20 diagnostic, projectiles.md §8): six ways to make the shot, read live.
     self menu_add( "proj_method", "Spawn method", "proj", 1 );
+    self menu_item( "proj_method", "0 AUTO - grenade-class launched, else magicbullet (default)", &act_proj_method, 0, "AUTO by weapon class" );
     self menu_item( "proj_method", "1 magicbullet, owner = me (original)", &act_proj_method, 1, "magicbullet, owner = shooter" );
     self menu_item( "proj_method", "2 magicbullet, no owner", &act_proj_method, 2, "magicbullet, no owner" );
     self menu_item( "proj_method", "3 give the weapon first, then magicbullet", &act_proj_method, 3, "give the weapon first" );
@@ -14094,7 +14095,7 @@ function private exp_rows_wz_zoo()
 // [exploders-gen END]
 
 // ═════════════════════════════════════════════════════════════════════════════
-// PROJECTILES — docs/notes/projectiles.md. Built 2026-09-17; DIAGNOSED 2026-09-20 (§8).
+// PROJECTILES — docs/notes/projectiles.md. Built 2026-09-17; MEASURED 2026-09-20 (§8-9).
 // ═════════════════════════════════════════════════════════════════════════════
 // "Turn bullets into rockets": there is no set-this-weapon's-projectile call in T9, so the SHOT
 // is intercepted and a projectile of our own is fired down the same line. The hook is the
@@ -14106,36 +14107,41 @@ function private exp_rows_wz_zoo()
 // makes it HOME (helicopter_shared.gsc:3276, straferun.gsc:899). The owner is the shooter, so
 // the kill and the killcam credit him (.ismagicbullet is what stock's attribution consults).
 //
-// 2026-09-20, klaze: "never worked" - the ON message, then nothing on any shot. The compiled
-// bytecode was checked against the source (every builtin hash: magicbullet / bullettrace /
-// geteye / getplayerangles / anglestoforward / missile_settarget / playfxontag, the weapon_fired
-// hash) - it is the source, so the failure is at RUNTIME, somewhere after the thread starts.
-// Everything up to the waittill is proven by the teleport gun; getweapon( #"..." ) by the
-// Weapons page. What is NOT proven: that getweapon( launcher ) is not level.weaponnone here
-// (the red toast is drawn UNDER the open menu, so it could have fired unseen), and what
-// magicbullet( launcher, eye, far, player ) does in MP - returns nothing, throws (a runtime
-// error kills the thread silently: from then on every shot is "nothing"), spawns something
-// that dies on frame 1, or spawns something invisible. So this build MEASURES instead of
-// guessing: the PROJ debug line (one line, every 3 s, auto-on with a fire mode) carries a
-// counter per stage of the shot pipeline + what the spawned entity did, and a Spawn-method
-// page walks the plausible variants so one match settles it:
-//   1 magicbullet, owner = shooter (the original)          4 magicgrenadeplayer( w, start, vel )
-//   2 magicbullet, NO owner (3-arg, cp_takedown form)      5 EXPLOSIVE ROUNDS - impact blast, no
-//   3 give the weapon first (silent), then magicbullet       projectile at all (works by construction)
-//   6 magicbullet from the chest, 40 u ahead (the Atian BO4 rocket-gun geometry)
+// MEASURED 2026-09-20 (klaze, the PROJ line, first run): the pipeline is sound - weapon_fired
+// seen per shot, getweapon ok, the spawn call never throws, and magicbullet returns an entity
+// for most shots (ent:17). The failures are PER WEAPON CLASS: the crossbow's calls return
+// undefined (none:6, "returned undefined"), and the M79's grenade spawns but drops at the
+// shooter's feet - magicbullet gives a grenade-class projectile no launch velocity (the classic
+// CoD behaviour; the grenade spawner with an explicit velocity is what launches them). So:
+//   - method 0 AUTO (the default now): grenade-class weapons (w.isgrenadeweapon, the M79, the
+//     frag) go through self magicgrenadeplayer( w, start, fwd * w.projectilespeed )
+//     (traps_deployable.gsc:1135's spawner, the AI-throw velocity idiom of
+//     archetype_human_cover.gsc:411); everything else through magicbullet with the owner.
+//   - the PROJ line now carries the CURRENT weapon's own class bits (wcls: b bullet / p
+//     projectile / r rocket launcher / g grenade / m projectilemodel present, spd: its
+//     projectilespeed - all stock-read weapon fields: doors_shared.gsc:4590,
+//     challenges_shared.gsc:1514, zm_ai_hulk.gsc:2246), a wall: count (spawn fell back to the
+//     eye because a wall was within 64 u - the start-inside-geometry suspect for a "none"), and
+//     SEPARATE lastcall: (the last spawn call: method, weapon, ent|none, wall) and lastent:
+//     (what the last spawned entity did) fields - run 1 lost the entity outcomes because one
+//     shared last: field was overwritten by the crossbow's "returned undefined".
+// Explicit methods 1-6 stay for testing: 1 magicbullet owner=me, 2 no owner, 3 give the weapon
+// first, 4 the grenade spawner for ANY weapon (a bolt or rocket as a lobbed grenade), 5
+// EXPLOSIVE ROUNDS (impact blast, no projectile; works by construction), 6 chest start.
 // Reading the line: shots = weapon_fired seen (frozen while firing = the thread is dead);
-// fire > ret = the spawn call THREW; none = it returned undefined; ent + last = what came back
-// (classname, moved after 1 frame / 0.5 s, still alive) - "GONE after 1 frame" is a projectile
-// killed on spawn, "alive:1 d.5s:NNN" with nothing visible is a client-render problem.
+// fire > ret = the spawn call THREW; none = it returned undefined; ent + lastent = what came
+// back (classname, moved after 1 frame / 0.5 s, still alive) - "GONE after 1 frame" is a
+// projectile killed on spawn, "alive:1 d.5s:NNN" with nothing visible is a client-render problem.
 //
 // Every projectile weapon here is UNIVERSAL - resident on all 36 MP maps by the bgcache
-// (projectiles.md §6). Trail FX: playfxontag( "destruct/fx8_atk_chppr_smk_trail", rocket,
-// "tag_origin" ) - a plain path the way infect.gsc:1229 passes one, OFF by default.
+// (projectiles.md §6; the crossbow bolt model wpn_t9_special_crossbow_projectile is a
+// core_common + mp_common model row too). Trail FX: playfxontag( "destruct/fx8_atk_chppr_smk_trail",
+// rocket, "tag_origin" ) - a plain path the way infect.gsc:1229 passes one, OFF by default.
 //
 // State is per MATCH (game. / player / level fields, like the teleport gun) - not dvars, so the
 // packed store, the dvar pool and the app's key list stay untouched: game.gf_proj_all (everyone,
 // humans), player.gf_proj (one player), game.gf_proj_wkey (weapon name), game.gf_proj_ms (min
-// gap), game.gf_proj_method (1-6), game.gf_proj_homing, game.gf_proj_trail, level.gf_pj (the
+// gap), game.gf_proj_method (0-6), game.gf_proj_homing, game.gf_proj_trail, level.gf_pj (the
 // counters), level.gf_dbg_proj (the line). Shots while the host's menu is open are menu
 // navigation (ATTACK = next item) and ignored, as the teleport gun does.
 
@@ -14155,12 +14161,32 @@ function private proj_ms()
     return 300;
 }
 
+// 0 = AUTO (grenade-class -> the grenade spawner, else magicbullet with the owner), 1-6 explicit.
 function private proj_method()
 {
     if ( isdefined( game.gf_proj_method ) )
         return game.gf_proj_method;
 
-    return 1;
+    return 0;
+}
+
+// Grenade-class: the weapon says so, or it is one of the two launched/thrown picks on the page.
+function private proj_is_nade( w )
+{
+    if ( is_true( w.isgrenadeweapon ) )
+        return true;
+
+    return w == getweapon( #"special_grenadelauncher_t9" ) || w == getweapon( #"frag_grenade" );
+}
+
+// The weapon's own projectile speed where the def exposes it (zm_ai_hulk.gsc:2246 reads
+// weapon.projectilespeed), else a launcher-like 1200 u/s.
+function private proj_speed( w )
+{
+    if ( isdefined( w.projectilespeed ) && w.projectilespeed > 0 )
+        return w.projectilespeed;
+
+    return 1200;
 }
 
 // The pipeline counters the PROJ line reads. One struct per match, on level.
@@ -14180,8 +14206,10 @@ function private proj_stats()
         s.none = 0;     // it returned undefined
         s.gave = 0;     // method 3 gave the weapon
         s.blast = 0;    // method 5 blasts
+        s.wall = 0;     // the start fell back to the eye (a wall within 64 u)
         s.wstate = "-"; // what getweapon gave the last thread: ok / NONE / undef
-        s.last = "-";   // what the last spawned entity did
+        s.lastcall = "-"; // the last spawn call: method, weapon, ent|none, wall
+        s.lastent = "-";  // what the last spawned entity did
         level.gf_pj = s;
     }
 
@@ -14273,17 +14301,23 @@ function private proj_think()
     }
 }
 
-// One shot -> one spawn, by the chosen method. Counters around the call so the line can tell
-// "threw" (fire > ret) from "returned undefined" (none) from "returned an entity" (ent + last).
+// One shot -> one spawn, by the chosen method (0 = AUTO picks per weapon class). Counters
+// around the call so the line can tell "threw" (fire > ret) from "returned undefined" (none)
+// from "returned an entity" (ent + lastent).
 function private proj_fire( w )
 {
     s = proj_stats();
     m = proj_method();
+    use = m;
+
+    if ( m == 0 )
+        use = proj_is_nade( w ) ? 4 : 1;
+
     eye = self geteye();
     fwd = anglestoforward( self getplayerangles() );
     s.fire++;
 
-    if ( m == 5 )
+    if ( use == 5 )
     {
         self proj_blast( w, eye, fwd );
         s.ret++;
@@ -14291,8 +14325,9 @@ function private proj_fire( w )
     }
 
     start = eye + vectorscale( fwd, 32 );
+    wall = 0;
 
-    if ( m == 6 )
+    if ( use == 6 )
     {
         // the Atian BO4 rocket gun: origin + look * 40 + 40 up ("to avoid blowing up the player")
         start = self.origin + vectorscale( fwd, 40 ) + ( 0, 0, 40 );
@@ -14302,37 +14337,41 @@ function private proj_fire( w )
         tr = bullettrace( eye, eye + vectorscale( fwd, 64 ), 0, self );
 
         if ( tr[ #"fraction" ] < 1 )
+        {
             start = eye;
+            wall = 1;
+            s.wall++;
+        }
     }
 
     end = eye + vectorscale( fwd, 10000 );
 
-    if ( m == 3 && !( self hasweapon( w ) ) )
+    if ( use == 3 && !( self hasweapon( w ) ) )
     {
         self giveweapon( w );
         s.gave++;
     }
 
-    if ( m == 4 )
-        p = self magicgrenadeplayer( w, start, vectorscale( fwd, 1500 ) );
-    else if ( m == 2 )
+    if ( use == 4 )
+        p = self magicgrenadeplayer( w, start, vectorscale( fwd, proj_speed( w ) ) );
+    else if ( use == 2 )
         p = magicbullet( w, start, end );
     else
         p = magicbullet( w, start, end, self );
 
     s.ret++;
+    s.lastcall = "m" + use + ( m == 0 ? "(auto)" : "" ) + " " + proj_wname() + " -> " + ( isdefined( p ) ? "ent" : "none" ) + ( wall ? " wall" : "" );
 
     if ( !isdefined( p ) )
     {
         s.none++;
-        s.last = "m" + m + " returned undefined";
         return;
     }
 
     s.ent++;
-    level thread proj_watch( p, start, m );
+    level thread proj_watch( p, start, use );
 
-    if ( isdefined( game.gf_proj_homing ) && game.gf_proj_homing )
+    if ( use != 4 && isdefined( game.gf_proj_homing ) && game.gf_proj_homing )
     {
         target = self proj_target( eye, fwd );
 
@@ -14345,19 +14384,19 @@ function private proj_fire( w )
 }
 
 // What the spawned entity does: its classname, whether it survived the first frame, how far
-// it moved by 0.5 s and 2.5 s. Written into the PROJ line's last: field.
+// it moved by 0.5 s and 2.5 s. Written into the PROJ line's lastent: field.
 function private proj_watch( p, start, m )
 {
     level endon( #"game_ended" );
 
     s = proj_stats();
     cls = isdefined( p.classname ) ? p.classname : "?";
-    s.last = "m" + m + " " + cls + " mdl:" + ( isdefined( p.model ) ? 1 : 0 ) + " spawned";
+    s.lastent = "m" + m + " " + cls + " mdl:" + ( isdefined( p.model ) ? 1 : 0 ) + " spawned";
     waitframe( 1 );
 
     if ( !isdefined( p ) )
     {
-        s.last = "m" + m + " " + cls + " GONE after 1 frame";
+        s.lastent = "m" + m + " " + cls + " GONE after 1 frame";
         return;
     }
 
@@ -14366,18 +14405,18 @@ function private proj_watch( p, start, m )
 
     if ( !isdefined( p ) )
     {
-        s.last = "m" + m + " " + cls + " d1f:" + d1 + " gone<0.5s (hit something)";
+        s.lastent = "m" + m + " " + cls + " d1f:" + d1 + " gone<0.5s (hit something)";
         return;
     }
 
     d2 = int( distance( p.origin, start ) );
-    s.last = "m" + m + " " + cls + " d1f:" + d1 + " d.5s:" + d2 + " alive:1";
+    s.lastent = "m" + m + " " + cls + " d1f:" + d1 + " d.5s:" + d2 + " alive:1";
     wait 2;
 
     if ( isdefined( p ) )
-        s.last += " alive@2.5s d:" + int( distance( p.origin, start ) );
+        s.lastent += " alive@2.5s d:" + int( distance( p.origin, start ) );
     else
-        s.last += " gone<2.5s";
+        s.lastent += " gone<2.5s";
 }
 
 // Method 5 - explosive rounds: no projectile, the bullet's impact point gets a blast. Pure
@@ -14391,7 +14430,7 @@ function private proj_blast( w, eye, fwd )
 
     if ( tr[ #"fraction" ] >= 1 )
     {
-        s.last = "blast: no hit (sky)";
+        s.lastcall = "m5 blast: no hit (sky)";
         return;
     }
 
@@ -14405,7 +14444,7 @@ function private proj_blast( w, eye, fwd )
     radiusdamage( pos, 160, 130, 35, self, "MOD_EXPLOSIVE", w );
     earthquake( 0.35, 0.6, pos, 500 );
     s.blast++;
-    s.last = "blast at " + tp_fmt( pos );
+    s.lastcall = "m5 blast at " + tp_fmt( pos );
 }
 
 // The living enemy nearest the crosshair inside a ~45 degree cone (dot > 0.7), bots included.
@@ -14446,6 +14485,8 @@ function private proj_dbg_set( on )
         debug_feed_start();
 }
 
+function private proj_bit( v ) { return is_true( v ) ? 1 : 0; }
+
 function private proj_line()
 {
     s = proj_stats();
@@ -14466,15 +14507,25 @@ function private proj_line()
     else if ( isdefined( host ) && isdefined( host.gf_proj ) && host.gf_proj )
         mode = "host";
 
-    line = "^3PROJ ^7mode:" + mode + " m:" + proj_method() + " w:" + ws + "(" + proj_wname() + ")" + " ms:" + proj_ms()
+    line = "^3PROJ ^7mode:" + mode + " m:" + proj_method() + " w:" + ws + "(" + proj_wname() + ")";
+
+    if ( ws == "ok" )
+    {
+        line += " wcls:b" + proj_bit( w.isbulletweapon ) + "p" + proj_bit( w.isprojectileweapon ) + "r" + proj_bit( w.isrocketlauncher )
+            + "g" + proj_bit( w.isgrenadeweapon ) + "m" + ( isdefined( w.projectilemodel ) ? 1 : 0 )
+            + " spd:" + ( isdefined( w.projectilespeed ) ? int( w.projectilespeed ) : "-" )
+            + " nade:" + ( proj_is_nade( w ) ? 1 : 0 );
+    }
+
+    line += " ms:" + proj_ms()
         + " thr:" + s.thr + " shots:" + s.shots + " menu:" + s.menu + " chain:" + s.chain + " gate:" + s.gate
         + " fire:" + s.fire + " ret:" + s.ret + " threw:" + ( s.fire - s.ret ) + " ent:" + s.ent + " none:" + s.none
-        + " gave:" + s.gave + " blast:" + s.blast;
+        + " wall:" + s.wall + " gave:" + s.gave + " blast:" + s.blast;
 
     if ( isdefined( host ) )
         line += " ^5host ^7alive:" + ( isalive( host ) ? 1 : 0 ) + " menuopen:" + ( host tp_menu_open() ? 1 : 0 ) + " want:" + ( proj_wanted( host ) ? 1 : 0 );
 
-    line += " ^3last:^7" + s.last;
+    line += " ^3lastcall:^7" + s.lastcall + " ^3lastent:^7" + s.lastent;
     return line;
 }
 
@@ -14569,7 +14620,7 @@ function private act_proj_weapon( item, name, label )
     foreach ( player in getplayers() )
         proj_rearm( player );
 
-    self menu_say( "^2projectile: " + label );
+    self menu_say( "^2projectile: " + label + ( proj_is_nade( w ) ? " (grenade-class: launched by the grenade spawner in AUTO)" : "" ) );
     return true;
 }
 
@@ -14581,12 +14632,12 @@ function private act_proj_rate( item, ms )
     return true;
 }
 
-// The spawn method (1-6, see the block comment). Read live by proj_fire - no rearm needed.
+// The spawn method (0 = AUTO, 1-6 explicit, see the block comment). Read live by proj_fire.
 function private act_proj_method( item, m, label )
 {
-    if ( m < 1 || m > 6 )
+    if ( m < 0 || m > 6 )
     {
-        self menu_say( "^1projectile method: 1-6" );
+        self menu_say( "^1projectile method: 0 (auto) or 1-6" );
         return true;
     }
 
