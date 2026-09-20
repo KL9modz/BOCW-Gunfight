@@ -364,3 +364,51 @@ work is a weapon-class answer.
 | 6 | *Spawn method → 5*, one shot at the wall | a Demolition-bomb explosion at the impact, `blast:1 last:blast at x y z`; then *Everything OFF* |
 
 Record: `______`
+
+---
+
+## 9. 2026-09-20 — RUN 1 of the diagnostic (klaze): the pipeline is sound; the failures are per weapon class
+
+The PROJ line, mode *everyone*, method 1, weapon `special_crossbow_t9`:
+
+```
+PROJ mode:all m:1 w:ok(special_crossbow_t9) ms:300 thr:2 shots:47 menu:0 chain:0 gate:24 fire:23 ret:23 threw:0 ent:17 none:6 gave:0 blast:0 host alive:1 menuopen:0 want:1 last:m1 returned undefined
+```
+
+- `shots:47 fire:23 ret:23 threw:0` — every shot reached the thread, the weapon lookup passed, the spawn
+  call **never threw**. Hypotheses 1 (hidden NONE toast) and 2 (runtime error) are dead.
+- `ent:17 none:6` — `magicbullet` returned an entity 17 times and nothing 6 times (counters are per
+  match, across whatever weapons were picked; the last call, a crossbow shot, was a `none`).
+- klaze's eyes: **the crossbow bolt did fly** (he had expected an *explosive* bolt — CW's R1 has none:
+  `explosive_bolt` is referenced by `player_killed.gsc:1849` / `weapons.gsc:1548` but is in **zero**
+  zones, a BO4 leftover like `crossbow_special_t8`; the explosive arrow in CW is the Combat Bow's
+  `sig_bow_flame`, already on the page). **The M79 grenade spawns but drops at the shooter's feet** —
+  the classic CoD behaviour: `magicbullet` gives a grenade-class projectile no launch velocity.
+
+So the 09-17 design was right and "never worked" was not the pipeline. What is still open: which
+shots were the six `none` (the crossbow at a wall? the start-inside-geometry fallback?) — run 1 could not
+say, because the single `last:` field was overwritten.
+
+### Build 2 (commit `47da679`, payload `gunfight_menu.projv2.gscc` 550,675 B / 3,720 strings, sha256 D4F74009…)
+
+- **Method 0 = AUTO, the new default:** grenade-class weapons (`w.isgrenadeweapon`, the M79, the frag)
+  go through `self magicgrenadeplayer( w, start, fwd * w.projectilespeed )` — stock's spawner
+  (`traps_deployable.gsc:1135`) with the AI-throw velocity idiom (`archetype_human_cover.gsc:411`),
+  `w.projectilespeed` read off the weapon (`zm_ai_hulk.gsc:2246`), 1200 u/s if the def has none.
+  Everything else keeps `magicbullet` with the owner. Explicit 1–6 unchanged (4 now uses the weapon's
+  own speed).
+- **Line:** `wcls:b?p?r?g?m? spd:N nade:0|1` = the CURRENT weapon's own class bits (`isbulletweapon`,
+  `isprojectileweapon`, `isrocketlauncher`, `isgrenadeweapon`, `projectilemodel` present — all fields
+  stock reads), `wall:N` (the start fell back to the eye because a wall was within 64 u), and separate
+  `lastcall:` (`m4(auto) M79 grenades -> ent wall`) / `lastent:` (`m4 grenade d1f:40 d.5s:600 alive:1`).
+
+### Test sheet, run 2 — one match
+
+| # | do | read |
+|---|---|---|
+| 1 | *Projectile → M79 grenade*, fire mode host, one shot at a far wall | the grenade **launches** and arcs (AUTO → m4); `lastcall:m4(auto) M79 grenades -> ent`, `wcls:` shows `g1` or `nade:1` |
+| 2 | *Projectile → Crossbow bolt*, five shots: three at a far wall, two with a wall within arm's reach | which produce `-> none`: if only the close ones and `wall:` rises with them, the `none` is the eye-start inside geometry (fix = push the start out / skip the shot); if far shots too, read `wcls:` for the bolt's class |
+| 3 | *Projectile → Combat bow arrow*, one shot | the explosive arrow klaze wanted; `lastent:` says whether it flew |
+| 4 | *Projectile → Frag grenade*, one shot | launched (m4), fuse, explodes away from you |
+
+Record: `______`
