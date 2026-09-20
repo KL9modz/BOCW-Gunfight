@@ -204,6 +204,50 @@
 //                       (spy.gsc:2411). ⚠ Stock NUKES every disable_oob layer on each spawn
 //                       (globallogic_spawn.gsc:612), so it is re-set per life in
 //                       mod_spawn_movement. A plain dvar, not in the packed store.
+//     gf_deathbarrier   DEATH BARRIERS (the map's trigger_hurt kill volumes - the instant death off a
+//                       ledge / in the water / under the map, which gf_oob does NOT touch and god mode
+//                       does NOT survive: klaze 2026-09-19). 0 (DEFAULT) stock. 1 = OFF: every
+//                       trigger_hurt triggerenable( 0 ) (stock treats a hurt trigger that is not
+//                       istriggerenabled() as inert - weaponobjects.gsc:2940/2983). 2 = OFF: every
+//                       trigger_hurt delete()d (the BO1/BO2 community shape; gone until the next
+//                       round rebuilds the level). 3 = OFF: every trigger_hurt sunk 40000u below its
+//                       place (.origin, the shape mp_russianbase_rm.gsc:91 uses on its train hurt
+//                       trigger). Re-applied every round from mod_movement (the level is rebuilt per
+//                       round) and live from Apply-now (scope move). 1 and 3 restore on "stock";
+//                       2 restores at the next round. Plain dvar, not in the packed store. Which of the
+//                       three the engine honours is MEASURED with the BARRIER line, not assumed.
+//     gf_dbg_barrier    1 = the BARRIER debug feed line (one line, every 3 s): the trigger_hurt census
+//                       (n / enabled / held off / deleted / sunk / named / dmg tallies), the host's own
+//                       state (inside how many hurt volumes, alive, god, z) and the LAST DEATH of any
+//                       player (name, MOD, attacker classname, god at death, z) - the one screenshot
+//                       that says what a death barrier is and whether the switch beat it.
+//     gf_race_laps      RACE (docs/notes/racing.md, prototype 2026-09-19, never run): laps (1), the
+//     gf_race_grace     finish timer in s after the FIRST finish (45) - shown on the stock match clock,
+//     gf_race_width     gate width in units (600), gf_race_combat 0/1, gf_race_markers 1 = objective
+//     gf_race_sprint    icons on every gate at race start (1: the icon renders, klaze run 1),
+//                       gf_race_sprint 1 = finish at the last gate. gf_race_end 1 (default) = the
+//     gf_race_end       race ends the match (stock FFA podium); 0 = keep playing: points add up
+//                       across races (givepointstowin), START again, "End match now" for the podium.
+//     gf_race_corridor  TRACK BOUNDARY: corridor width (u) around the gate-to-gate centreline
+//     gf_race_reset     (1600; 0 = off); seconds off it before the reset to the last gate passed
+//                       (5; 0 = warn only). A rider's vehicle is moved (.origin/.angles + zero
+//                       velocity), a runner is tp_place'd; the RACE line shows cd:/off:/rst:.
+//     gf_race_oobhud    1 = off track shows stock's own "return to the combat area" overlay by
+//                       setting the out_of_bounds clientfield (4..31, oob.gsc:832's range) - no
+//                       trigger, no stock kill; its countdown is the CLIENT's oob_timelimit_ms
+//                       (3 s in MP), so a 3 s reset matches it. 0 = bold OFF TRACK prints.
+//     gf_race_score     1 = the end-screen number is the track time in whole seconds (written to
+//                       score AND kills, whichever the podium prints); 0 = placement points.
+//     gf_race_posts     1 = a script_model at both ends of every gate with the markers (palm tree
+//                       where resident, else street light / tire barricade / oil drum / hedgehog).
+//     gf_race_grid      START GRID: 1 = at START everyone is lined up behind gate 0 (columns at
+//     gf_race_vehicle   gf_race_grid_gap u, rows 300 u apart) and, for gf_race_vehicle (the
+//     gf_race_grid_gap  vehicle-mode class, 9 = AUTO), a ride is spawned at each slot and the racer
+//                       seated (veh_mode_ride's shape); a racer already riding brings his vehicle.
+//     gf_gate_map/_n/<i> the track mirror: map name, gate count, "x,y,z,yaw,w" per gate (16 max);
+//                       also published as trk= in the GFCFG marker (the app's Save track) and
+//                       loaded back over the bridge: racetrack <map>, then racegate x,y,z,yaw,w.
+//     gf_dbg_race       1 = the RACE debug feed line. Race page: start_menu -> Race.
 //     gf_vehmode        VEHICLE MODE, 0 (default) off: everyone spawns already riding this map's
 //                       ride of the class - 1 motorcycles / 2 attack helis (Hind) / 3 care-package
 //                       heli (every map) / 4 snowmobiles / 5 quads + buggies / 6 tanks + APCs /
@@ -397,6 +441,12 @@
 // pausetimer / resumetimer for the match pause; #used by globallogic itself, so it is in
 // every MP link set the line above is.
 #using scripts\mp_common\gametypes\globallogic_utils;
+// RACE (docs/notes/racing.md): setpointstowin / _setplayerscore (the FFA placement fields),
+// round::function_870759fb (the stock winner pick before end_round), objective ids for the
+// gate markers. All three are in every MP link set (globallogic #uses the first two).
+#using scripts\mp_common\gametypes\globallogic_score;
+#using scripts\mp_common\gametypes\round;
+#using scripts\core_common\gameobjects_shared;
 
 #namespace gunfight_menu;
 
@@ -429,6 +479,9 @@ function private __init__()
     // Vehicle mode (docs/notes/vehicle-mode.md): everyone spawns already riding. After the
     // movement handler so the rider's speed / oob / fall-damage state is in place first.
     callback::on_spawned( &mod_spawn_vehicle );
+    // Death-barrier diagnosis (2026-09-19): every death's MOD / attacker classname / god flag,
+    // read by the BARRIER debug line. Cheap, every gametype.
+    callback::on_player_killed( &mod_on_player_killed );
 
     // Fired by bot_difficulty::assign() on the bot after EVERY stock difficulty install -
     // join, reconnect at the round boundary, our own re-assign. Where the custom struct and
@@ -682,6 +735,8 @@ function private cfg_jump()     { return cfg_geti( #"gf_jump", -1 ); }
 function private cfg_jump_boost() { return cfg_geti( #"gf_jump_boost", 0 ); }
 function private cfg_falldamage() { return cfg_geti( #"gf_falldamage", 0 ); }
 function private cfg_oob()        { return cfg_geti( #"gf_oob", 1 ); }          // 1 = OOB disabled (default)
+function private cfg_deathbarrier() { return cfg_geti( #"gf_deathbarrier", 0 ); }  // 0 stock / 1 disabled / 2 deleted / 3 sunk
+function private cfg_dbg_barrier()  { return cfg_geti( #"gf_dbg_barrier", 0 ); }
 function private cfg_speed()      { return cfg_geti( #"gf_speed", 100 ); }
 function private cfg_fly_speed()  { return cfg_geti( #"gf_fly_speed", 20 ); }
 function private cfg_fly_fast()   { return cfg_geti( #"gf_fly_fast", 60 ); }
@@ -1145,6 +1200,7 @@ function private mod_movement()
 
     mod_falldamage_apply();
     mod_oob_apply_all();
+    mod_deathbarrier_apply();
 }
 
 // ── Out of bounds (gf_oob, default OFF = disabled) ───────────────────────────
@@ -1184,6 +1240,1550 @@ function private act_oob( item, value )
     self menu_say( value ? "^2out of bounds OFF - no warning, no death (everyone)" : "^2out of bounds: stock" );
     return true;
 }
+
+// ── Death barriers (gf_deathbarrier, default 0 = stock) ──────────────────────
+// What kills a player who leaves the map with gf_oob already off - the ledge drop, the water,
+// the space under the floor - is the map's trigger_hurt volumes ("kill brushes" in stock's own
+// words: weaponobjects.gsc deleteonkillbrush, qrdrone.gsc). They are engine entities, not a
+// script: nothing in mp_common / core_common calls suicide() at a map edge (only oob.gsc:873,
+// which gf_oob already silences, the Express train and the team-kill punishment), and the kill
+// lands on an invulnerable player too (klaze 2026-09-19: god mode does not survive it). So the
+// switch acts on the entities, three ways, picked by the mode - and the BARRIER line measures
+// which the engine honours:
+//   1 triggerenable( 0 ): stock's own predicate for "this kill brush is inert" is
+//     !istriggerenabled() (weaponobjects.gsc:2940/2983, oob.gsc:454 for the OOB kind), and
+//     nothing stock disables a hurt trigger at map load, so the flag is ours to hold. Reversible:
+//     each one we switch off is marked gf_kb_off and "stock" re-enables exactly those.
+//   2 delete(): the classic BO1/BO2 mod-menu shape; stock deletes brush triggers freely
+//     (mp_black_sea.gsc:136 12v12_bounds). Every stock reader re-fetches the array or isdefined()s
+//     its cached one (weaponobjects.gsc:2978/2938; supplydrop.gsc:199 + qrdrone.gsc:667 hold a
+//     cached list - killstreak paths a Gunfight match does not run). Gone until the level is
+//     rebuilt (the next round).
+//   3 sink: .origin - 40000u, the shape mp_russianbase_rm.gsc:91 uses to park its train hurt
+//     trigger; the start origin is kept in gf_kb_org and "stock" puts it back.
+// Vehicles, AI and the Express train crusher (a script "touch" waittill + suicide,
+// mp_express_rm_train.gsc:220) are not death barriers and are not touched.
+function private mod_deathbarrier_apply()
+{
+    mode = cfg_deathbarrier();
+    hurts = getentarray( "trigger_hurt", "classname" );
+    off = 0;
+    del = 0;
+    sunk = 0;
+    back = 0;
+
+    foreach ( t in hurts )
+    {
+        if ( !isdefined( t ) )
+            continue;
+
+        if ( mode == 2 )
+        {
+            t delete();
+            del++;
+            continue;
+        }
+
+        if ( mode == 1 )
+        {
+            if ( t istriggerenabled() )
+            {
+                t triggerenable( 0 );
+                t.gf_kb_off = 1;
+            }
+        }
+        else if ( is_true( t.gf_kb_off ) )
+        {
+            t triggerenable( 1 );
+            t.gf_kb_off = 0;
+            back++;
+        }
+
+        if ( mode == 3 )
+        {
+            if ( !isdefined( t.gf_kb_org ) )
+            {
+                t.gf_kb_org = t.origin;
+                t.origin = t.origin - ( 0, 0, 40000 );
+            }
+        }
+        else if ( isdefined( t.gf_kb_org ) )
+        {
+            t.origin = t.gf_kb_org;
+            t.gf_kb_org = undefined;
+            back++;
+        }
+
+        if ( is_true( t.gf_kb_off ) )
+            off++;
+        if ( isdefined( t.gf_kb_org ) )
+            sunk++;
+    }
+
+    level.gf_kb_n = hurts.size;
+    level.gf_kb_off = off;
+    level.gf_kb_del = ( isdefined( level.gf_kb_del ) ? level.gf_kb_del : 0 ) + del;
+    level.gf_kb_sunk = sunk;
+    level.gf_kb_back = back;
+
+    if ( cfg_dbg_barrier() )
+        debug_feed_start();
+}
+
+function private deathbarrier_label( mode )
+{
+    if ( mode == 1 )
+        return "OFF - hurt volumes disabled";
+    if ( mode == 2 )
+        return "OFF - hurt volumes deleted";
+    if ( mode == 3 )
+        return "OFF - hurt volumes sunk";
+    return "stock";
+}
+
+function private act_deathbarrier( item, value )
+{
+    cfg_seti( #"gf_deathbarrier", value );
+    mod_deathbarrier_apply();
+    n = isdefined( level.gf_kb_n ) ? level.gf_kb_n : 0;
+
+    if ( value == 2 )
+        self menu_say( "^2death barriers OFF - " + level.gf_kb_del + " hurt volumes deleted (back next round)" );
+    else if ( value == 1 )
+        self menu_say( "^2death barriers OFF - " + level.gf_kb_off + " of " + n + " hurt volumes disabled" );
+    else if ( value == 3 )
+        self menu_say( "^2death barriers OFF - " + level.gf_kb_sunk + " of " + n + " hurt volumes sunk" );
+    else
+        self menu_say( "^2death barriers: stock - " + level.gf_kb_back + " restored, " + n + " hurt volumes on the map" );
+
+    return true;
+}
+
+// Every death, any player: one short record for the BARRIER line - who, the MOD, what the
+// attacker entity was (a death barrier reports classname trigger_hurt), whether the victim
+// was invulnerable at the time, and how far down he was. smeansofdeath is a string on the
+// MP killed path (player_killed.gsc:389); guarded anyway.
+function private mod_on_player_killed( params )
+{
+    m = "?";
+    if ( isdefined( params ) && isdefined( params.smeansofdeath ) && isstring( params.smeansofdeath ) )
+    {
+        m = params.smeansofdeath;
+        if ( m.size > 4 && getsubstr( m, 0, 4 ) == "MOD_" )
+            m = getsubstr( m, 4 );
+    }
+
+    c = "none";
+    if ( isdefined( params ) && isdefined( params.eattacker ) )
+    {
+        if ( isplayer( params.eattacker ) )
+            c = "player";
+        else if ( isdefined( params.eattacker.classname ) && isstring( params.eattacker.classname ) )
+            c = params.eattacker.classname;
+        else
+            c = "ent";
+    }
+
+    who = isdefined( self.name ) ? self.name : "?";
+    level.gf_kb_last = who + " " + m + " by:" + c + " god:" + ( self getinvulnerability() ? 1 : 0 ) + " z:" + int( self.origin[ 2 ] );
+}
+
+// The BARRIER debug line: census + the host's own state + the last death, one line.
+function private barrier_line()
+{
+    hurts = getentarray( "trigger_hurt", "classname" );
+    host = census_host();
+    n = 0;
+    ena = 0;
+    tn = 0;
+    nw = 0;
+    inn = 0;
+    vals = [];
+    cnts = [];
+
+    foreach ( t in hurts )
+    {
+        if ( !isdefined( t ) )
+            continue;
+
+        n++;
+        if ( t istriggerenabled() )
+            ena++;
+        if ( isdefined( t.targetname ) )
+            tn++;
+        if ( isdefined( t.script_noteworthy ) )
+            nw++;
+
+        d = isdefined( t.dmg ) ? int( t.dmg ) : -1;
+        found = 0;
+        for ( i = 0; i < vals.size; i++ )
+        {
+            if ( vals[ i ] == d )
+            {
+                cnts[ i ]++;
+                found = 1;
+                break;
+            }
+        }
+        if ( !found )
+        {
+            vals[ vals.size ] = d;
+            cnts[ cnts.size ] = 1;
+        }
+
+        if ( isdefined( host ) && isalive( host ) && host istouching( t ) )
+            inn++;
+    }
+
+    dl = "";
+    for ( i = 0; i < vals.size && i < 4; i++ )
+        dl += ( i ? "," : "" ) + vals[ i ] + "x" + cnts[ i ];
+    if ( dl == "" )
+        dl = "-";
+
+    s = "^3BARRIER ^7mode:" + cfg_deathbarrier() + " n:" + n + " ena:" + ena
+        + " off:" + ( isdefined( level.gf_kb_off ) ? level.gf_kb_off : 0 )
+        + " del:" + ( isdefined( level.gf_kb_del ) ? level.gf_kb_del : 0 )
+        + " sunk:" + ( isdefined( level.gf_kb_sunk ) ? level.gf_kb_sunk : 0 )
+        + " tn:" + tn + " nw:" + nw + " dmg:" + dl;
+
+    if ( isdefined( host ) )
+        s += " ^5host ^7in:" + inn + " alive:" + ( isalive( host ) ? 1 : 0 ) + " god:" + ( host getinvulnerability() ? 1 : 0 ) + " z:" + int( host.origin[ 2 ] );
+
+    s += " ^3last:^7" + ( isdefined( level.gf_kb_last ) ? level.gf_kb_last : "-" );
+    return s;
+}
+
+function private act_dbg_barrier( item ) { return self act_dbg( item, #"gf_dbg_barrier", 1, "death barriers (BARRIER)" ); }
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// RACE — vehicle racing, prototype 1 (docs/notes/racing.md §3, §5 step 1-2). 2026-09-19,
+// NEVER RUN. A race is meant to run in a Free-for-all (dm) match (the podium is the stock FFA
+// end screen); it works in any gametype, a team match just hands the round to the winner's team.
+//
+// Track = ordered gates in game.gf_race_gates (survives rounds) mirrored to dvars gf_gate_n /
+// gf_gate0..15 / gf_gate_map (survive matches, one launch). A gate = centre c, travel direction
+// fwd (the host's yaw when he pressed "gate here"), right, width w; posts a/b for the markers.
+// Gate 0 = start/finish. Crossing = pure math each server frame (racing.md T2): side =
+// dot( pos - c, fwd ) flips from < 0 to >= 0 while |dot( pos - c, right )| <= w/2 + slack.
+// No entities: bocw-c2's Miami resource-limit crash makes every spawn a suspect; the optional
+// gate markers are objective icons (deathicons.gsc:97 shape), released on stop.
+//
+// Result (klaze's spec): the first finish starts the finish timer, shown on the STOCK match
+// clock - race_gettimelimit is installed as level.gettimelimit (globallogic.gsc:3452 re-reads it
+// every 0.25 s and checktimelimit() setgameendtime()s the HUD, :3314) and returns the elapsed
+// time + grace as minutes; stock's checktimelimit then fires level.ontimelimit = race_ontimelimit
+// at zero. Race over (everyone finished / timer / nobody driving) -> finishing order written into
+// pointstowin + score (what updateplacement sorts by in FFA, globallogic.gsc:3548) -> stock's
+// own score-limit ending: round::function_870759fb() + globallogic::end_round( 3 )
+// (globallogic_defaults.gsc:209-219). level.endgameonscorelimit = 0 while racing, the sd/spy/vip
+// shape (sd.gsc:68), so the points cannot end the match a frame early through checkscorelimit;
+// level.scorelimit itself is re-read from the gametype setting every 0.25 s (:3459) so it is
+// NOT the switch to flip. Combat off = player.candocombat = 0 (read at player_damage.gsc:1214,
+// never written by stock in T9 - grep - so it holds across deaths).
+// ═════════════════════════════════════════════════════════════════════════════
+function private cfg_race_laps()    { return cfg_geti( #"gf_race_laps", 1 ); }
+function private cfg_race_grace()   { return cfg_geti( #"gf_race_grace", 45 ); }    // s after the first finish
+function private cfg_race_width()   { return cfg_geti( #"gf_race_width", 600 ); }   // gate width, units
+function private cfg_race_combat()  { return cfg_geti( #"gf_race_combat", 0 ); }
+function private cfg_race_markers() { return cfg_geti( #"gf_race_markers", 1 ); }  // the escort_goal icon renders (klaze, run 1)
+function private cfg_race_end()     { return cfg_geti( #"gf_race_end", 1 ); }       // 1 = the race ends the match (podium) / 0 = keep playing, points add up
+function private cfg_race_corridor(){ return cfg_geti( #"gf_race_corridor", 1600 ); } // track boundary: corridor width in units around the gate-to-gate line, 0 = off
+function private cfg_race_posts()   { return cfg_geti( #"gf_race_posts", 1 ); }      // 1 = a palm tree (else the first resident fallback) at both ends of every gate, with the markers
+function private cfg_race_grid()    { return cfg_geti( #"gf_race_grid", 1 ); }       // 1 = START lines everyone up behind gate 0 (rows), 0 = start where you stand
+function private cfg_race_vehicle() { return cfg_geti( #"gf_race_vehicle", 9 ); }    // the vehicle-mode class spawned on the grid: 0 none / 1-8 a class / 9 AUTO
+function private cfg_race_grid_gap(){ return cfg_geti( #"gf_race_grid_gap", 220 ); } // grid column spacing (u); rows sit 300 u apart
+function private cfg_race_score()   { return cfg_geti( #"gf_race_score", 1 ); }      // the SCORE the end screens show: 0 = placement points, 1 = track time in seconds (order still by pointstowin)
+function private cfg_race_oobhud()  { return cfg_geti( #"gf_race_oobhud", 1 ); }     // 1 = off track shows the stock "return to the combat area" overlay (the out_of_bounds clientfield), 0 = bold prints
+function private cfg_race_reset()   { return cfg_geti( #"gf_race_reset", 3 ); }      // seconds off track before the reset to the last gate (3 = the stock overlay's own countdown), 0 = warn only
+function private cfg_race_sprint()  { return cfg_geti( #"gf_race_sprint", 0 ); }    // 1 = finish at the LAST gate, no wrap
+function private cfg_dbg_race()     { return cfg_geti( #"gf_dbg_race", 0 ); }
+
+function private race_state()
+{
+    if ( !isdefined( level.gf_race ) )
+    {
+        r = spawnstruct();
+        r.state = 0;            // 0 idle / 1 countdown / 2 running / 3 over
+        r.racers = [];
+        r.finishers = [];
+        r.marker_ids = [];
+        r.post_ents = [];
+        r.posts_text = "-";
+        level.gf_race = r;
+    }
+
+    return level.gf_race;
+}
+
+// ── Track ────────────────────────────────────────────────────────────────────
+function private race_gates()
+{
+    if ( !isdefined( game.gf_race_gates ) )
+        race_gates_load();
+
+    return game.gf_race_gates;
+}
+
+function private race_gate_make( c, yaw, w )
+{
+    g = spawnstruct();
+    g.c = c;
+    g.yaw = int( yaw );
+    g.w = int( w );
+    flat = ( 0, g.yaw, 0 );
+    g.fwd = anglestoforward( flat );
+    g.right = anglestoright( flat );
+    g.a = c - vectorscale( g.right, g.w * 0.5 );
+    g.b = c + vectorscale( g.right, g.w * 0.5 );
+    return g;
+}
+
+// Where the racer is: his seat's vehicle, else himself.
+function private race_pos( p )
+{
+    v = p getvehicleoccupied();
+
+    if ( isdefined( v ) )
+        return v.origin;
+
+    return p.origin;
+}
+
+function private race_yaw( p )
+{
+    v = p getvehicleoccupied();
+
+    if ( isdefined( v ) )
+        return v.angles[ 1 ];
+
+    ang = p getplayerangles();
+    return ang[ 1 ];
+}
+
+// The dvar mirror: gf_gate_map / gf_gate_n / gf_gate<i> = "x,y,z,yaw,w" (ints, <= 40 chars).
+function private race_gates_save()
+{
+    gates = race_gates();
+    setdvar( #"gf_gate_map", getdvarstring( #"sv_mapname", "?" ) );
+    setdvar( #"gf_gate_n", gates.size );
+
+    for ( i = 0; i < gates.size && i < 16; i++ )
+    {
+        g = gates[ i ];
+        setdvar( "gf_gate" + i, int( g.c[ 0 ] ) + "," + int( g.c[ 1 ] ) + "," + int( g.c[ 2 ] ) + "," + g.yaw + "," + g.w );
+    }
+}
+
+function private race_gates_load()
+{
+    game.gf_race_gates = [];
+
+    if ( getdvarstring( #"gf_gate_map", "" ) != getdvarstring( #"sv_mapname", "?" ) )
+        return 0;
+
+    n = getdvarint( #"gf_gate_n", 0 );
+
+    for ( i = 0; i < n && i < 16; i++ )
+    {
+        parts = strtok( getdvarstring( "gf_gate" + i, "" ), "," );
+
+        if ( parts.size < 5 )
+            continue;
+
+        c = ( int( parts[ 0 ] ), int( parts[ 1 ] ), int( parts[ 2 ] ) );
+        game.gf_race_gates[ game.gf_race_gates.size ] = race_gate_make( c, int( parts[ 3 ] ), int( parts[ 4 ] ) );
+    }
+
+    return game.gf_race_gates.size;
+}
+
+// "Gate here": at the host (his vehicle when riding), across his travel direction.
+function private act_race_gate( item )
+{
+    gates = race_gates();
+
+    if ( gates.size >= 16 )
+    {
+        self menu_say( "^1race: 16 gates is the limit" );
+        return true;
+    }
+
+    g = race_gate_make( race_pos( self ), race_yaw( self ), cfg_race_width() );
+    game.gf_race_gates[ gates.size ] = g;
+    race_gates_save();
+    race_markers_show();   // the editor always shows what it just placed: icon + the two posts = the width
+    self menu_say( "^2race: gate " + gates.size + ( gates.size == 0 ? " (start/finish)" : "" ) + " at " + int( g.c[ 0 ] ) + " " + int( g.c[ 1 ] ) + " " + int( g.c[ 2 ] ) + " yaw " + g.yaw + " w " + g.w );
+    return true;
+}
+
+function private act_race_undo( item )
+{
+    gates = race_gates();
+
+    if ( gates.size == 0 )
+    {
+        self menu_say( "^1race: no gates" );
+        return true;
+    }
+
+    game.gf_race_gates[ gates.size - 1 ] = undefined;
+    race_gates_save();
+    race_markers_refresh();
+    self menu_say( "^2race: last gate removed, " + game.gf_race_gates.size + " left" );
+    return true;
+}
+
+function private act_race_clear( item )
+{
+    game.gf_race_gates = [];
+    race_gates_save();
+    race_markers_hide();
+    self menu_say( "^2race: track cleared" );
+    return true;
+}
+
+function private act_race_load( item )
+{
+    n = race_gates_load();
+    race_markers_refresh();
+    self menu_say( n ? ( "^2race: " + n + " gates loaded for this map" ) : "^1race: no saved track for this map (gf_gate_map / gf_gate_n)" );
+    return true;
+}
+
+// ── Track <-> app (racing.md T8): the gates ride in the GFCFG marker as trk=map;n;gate;gate...
+// (config_publish, swept read-only by config_scan.py -> the app's "Save track"), and come back
+// over the bridge one gate per command: racetrack <map> (clears the track when the map matches
+// and arms the accept flag), then racegate x,y,z,yaw,w per gate (<= 47 B each, the bridge limit).
+function private race_track_text()
+{
+    gates = race_gates();
+    t = getdvarstring( #"sv_mapname", "?" ) + ";" + gates.size;
+
+    foreach ( g in gates )
+        t += ";" + int( g.c[ 0 ] ) + "," + int( g.c[ 1 ] ) + "," + int( g.c[ 2 ] ) + "," + g.yaw + "," + g.w;
+
+    return t;
+}
+
+function private cmd_race_track( map )
+{
+    here = tolower( getdvarstring( #"sv_mapname", "?" ) );
+    level.gf_race_accept = ( tolower( map ) == here );
+
+    if ( !level.gf_race_accept )
+    {
+        self menu_say( "^1race: track is for " + map + ", this is " + here + " - not loaded" );
+        return;
+    }
+
+    game.gf_race_gates = [];
+    race_gates_save();
+    race_markers_hide();
+    self menu_say( "^2race: loading a track for " + here + " from the app..." );
+}
+
+function private cmd_race_gate( str )
+{
+    if ( !is_true( level.gf_race_accept ) )
+    {
+        self menu_say( "^1race: gate refused - no matching racetrack command first" );
+        return;
+    }
+
+    gates = race_gates();
+    parts = strtok( str, "," );
+
+    if ( parts.size < 5 || gates.size >= 16 )
+    {
+        self menu_say( "^1race: bad gate '" + str + "'" );
+        return;
+    }
+
+    c = ( int( parts[ 0 ] ), int( parts[ 1 ] ), int( parts[ 2 ] ) );
+    game.gf_race_gates[ gates.size ] = race_gate_make( c, int( parts[ 3 ] ), int( parts[ 4 ] ) );
+    race_gates_save();
+    race_markers_show();
+    self menu_say( "^2race: gate " + gates.size + " loaded (" + game.gf_race_gates.size + " so far)" );
+}
+
+// ── Markers: one objective icon per gate (deathicons.gsc:96-98 shape), toggled or per race ──
+function private race_markers_show()
+{
+    race_markers_hide();
+    r = race_state();
+
+    foreach ( g in race_gates() )
+    {
+        id = gameobjects::get_next_obj_id();
+
+        if ( !isdefined( id ) )
+            break;
+
+        objective_add( id, "active", g.c + ( 0, 0, 48 ), #"escort_goal" );
+        r.marker_ids[ r.marker_ids.size ] = id;
+    }
+
+    r.markers_on = 1;
+
+    if ( cfg_race_posts() )
+        race_posts_show();
+}
+
+// Gate posts (klaze 2026-09-19: "palm trees on each end of every checkpoint width"): a
+// script_model at post a and post b of every gate, floored, the Props page's shape
+// (act_prop_spawn: isassetloaded-gated setmodel). The palm is resident on the tropical maps
+// only, so a fallback list stands in elsewhere; the RACE line says which model stood up.
+function private race_post_model()
+{
+    models = array( "p9_foliage_tree_palm_coconut_lrg_01", "p9_usa_street_light_01", "p9_nt6_barricade_tire_01", "p9_rus_oil_drum_01", "p9_lat_hedgehog_metal_snow" );
+
+    foreach ( m in models )
+    {
+        if ( isassetloaded( "xmodel", m ) )
+            return m;
+    }
+
+    return undefined;
+}
+
+function private race_posts_show()
+{
+    race_posts_hide();
+    r = race_state();
+    model = race_post_model();
+
+    if ( !isdefined( model ) )
+    {
+        r.posts_text = "no post model resident";
+        return;
+    }
+
+    foreach ( g in race_gates() )
+    {
+        ends = array( g.a, g.b );
+
+        foreach ( end in ends )
+        {
+            e = spawn( "script_model", tp_floor( end ) );
+
+            if ( !isdefined( e ) )
+                continue;
+
+            e setmodel( model );
+            e.angles = ( 0, g.yaw + 90, 0 );
+            e.targetname = "gf_race_post";
+            r.post_ents[ r.post_ents.size ] = e;
+        }
+    }
+
+    r.posts_text = r.post_ents.size + "x" + prop_short( model );
+}
+
+function private race_posts_hide()
+{
+    r = race_state();
+
+    foreach ( e in r.post_ents )
+    {
+        if ( isdefined( e ) )
+            e delete();
+    }
+
+    r.post_ents = [];
+    r.posts_text = "-";
+}
+
+function private race_markers_hide()
+{
+    r = race_state();
+
+    foreach ( id in r.marker_ids )
+    {
+        objective_delete( id );
+        gameobjects::release_obj_id( id );
+    }
+
+    r.marker_ids = [];
+    r.markers_on = 0;
+    race_posts_hide();
+}
+
+function private race_markers_refresh()
+{
+    if ( is_true( race_state().markers_on ) )
+        race_markers_show();
+}
+
+function private act_race_markers( item )
+{
+    if ( is_true( race_state().markers_on ) )
+    {
+        race_markers_hide();
+        self menu_say( "^2race: markers hidden" );
+    }
+    else
+    {
+        race_markers_show();
+        self menu_say( "^2race: " + race_state().marker_ids.size + " gate markers shown" );
+    }
+
+    return true;
+}
+
+// ── Start / stop ─────────────────────────────────────────────────────────────
+function private act_race_start( item )
+{
+    r = race_state();
+
+    if ( r.state == 1 || r.state == 2 )
+    {
+        self menu_say( "^1race: already running - Stop first" );
+        return true;
+    }
+
+    if ( race_gates().size == 0 )
+    {
+        self menu_say( "^1race: no gates - add the start/finish gate first" );
+        return true;
+    }
+
+    level thread race_run( self );
+    return true;
+}
+
+function private act_race_stop( item )
+{
+    r = race_state();
+
+    if ( r.state == 0 || r.state == 3 )
+    {
+        self menu_say( "^1race: not running" );
+        return true;
+    }
+
+    race_teardown();
+    broadcast_bold( "^1RACE CANCELLED" );
+    self menu_say( "^2race: stopped, stock hooks restored" );
+    return true;
+}
+
+// ── Start grid (racing.md T5): rows behind gate 0, one slot per racer, everyone seated ────
+// Slots: columns across the start gate at gf_race_grid_gap, rows 300 u apart starting 200 u
+// behind the line, all floored. A racer already riding brings his vehicle (the same .origin /
+// .angles move as the reset); a racer on foot is tp_place'd and, when a race vehicle class is
+// set and resolves on this map, gets one spawned at his slot and is seated the vehicle mode's
+// way (spawnvehicle + stock's spawn-in-vehicle flag + usevehicle, veh_mode_ride). Grid rides
+// carry the page tag gf_spawned so every existing sweep (round end / transitions / vehclear)
+// removes them. Bots stay on foot. Nothing here has run in-game.
+function private race_resolve( mode )
+{
+    if ( mode <= 0 )
+        return undefined;
+
+    if ( mode == 9 )
+        order = array( 1, 4, 5, 7, 6, 3 );
+    else
+        order = array( mode );
+
+    foreach ( id in order )
+    {
+        cls = veh_mode_class( id );
+
+        if ( !isdefined( cls ) )
+            continue;
+
+        for ( i = 0; i < cls.klist.size; i++ )
+        {
+            if ( isdefined( game.gf_veh_dead ) && isdefined( game.gf_veh_dead[ id * 100 + i ] ) )
+                continue;
+
+            if ( !isassetloaded( "vehicle", cls.klist[ i ] ) )
+                continue;
+
+            res = spawnstruct();
+            res.key = cls.klist[ i ];
+            res.cls = cls;
+            res.text = cls.tlist[ i ];
+            return res;
+        }
+    }
+
+    return undefined;
+}
+
+function private race_grid_place()
+{
+    r = race_state();
+    gates = race_gates();
+    g0 = gates[ 0 ];
+    res = race_resolve( cfg_race_vehicle() );
+    r.grid_ride = isdefined( res ) ? res.text : "foot";
+    r.grid_placed = 0;
+    r.grid_seated = 0;
+    r.grid_fail = 0;
+    gap = cfg_race_grid_gap();
+    cols = int( ( g0.w - 100 ) / gap );
+
+    if ( cols < 1 )
+        cols = 1;
+
+    i = 0;
+
+    foreach ( p in r.racers )
+    {
+        if ( !isdefined( p ) || !isalive( p ) )
+            continue;
+
+        row = int( i / cols );
+        col = i % cols;
+        lateral = ( col - ( cols - 1 ) * 0.5 ) * gap;
+        back = 200 + row * 300;
+        slot = g0.c - vectorscale( g0.fwd, back ) + vectorscale( g0.right, lateral );
+        floor = tp_floor( slot );
+        ang = ( 0, g0.yaw, 0 );
+        v = p getvehicleoccupied();
+
+        if ( isdefined( v ) )
+        {
+            v.origin = floor + ( 0, 0, 32 );
+            v.angles = ang;
+            v setvehvelocity( ( 0, 0, 0 ) );
+        }
+        else
+        {
+            tp_place( p, floor, ang );
+
+            if ( isdefined( res ) && !isbot( p ) )
+                p thread race_ride( res, floor, ang );
+        }
+
+        r.grid_placed++;
+        i++;
+    }
+}
+
+function private race_ride( res, floor, ang )
+{
+    self endon( #"disconnect" );
+    r = race_state();
+    cls = res.cls;
+    spot = floor + ( 0, 0, 12 );
+
+    if ( cls.air )
+        spot = veh_mode_air_spot( floor, cfg_veh_alt() );
+
+    veh = spawnvehicle( res.key, spot, ang );
+
+    if ( !isdefined( veh ) )
+    {
+        r.grid_fail++;
+        return;
+    }
+
+    veh.gf_spawned = 1;                      // the page tag: swept at round end / every transition / vehclear
+    veh.gf_race = 1;
+    veh makeusable();
+    self.var_5a44792f = 1;                   // stock's spawn-in-vehicle flag: no enter animation
+    veh usevehicle( self, 0 );
+    waitframe( 1 );
+
+    if ( !isdefined( veh ) )
+    {
+        r.grid_fail++;
+        return;
+    }
+
+    if ( !self isinvehicle() )
+    {
+        veh delete();
+        r.grid_fail++;
+        return;
+    }
+
+    r.grid_seated++;
+    veh_mode_hp_apply( veh );
+
+    if ( cls.air )
+        veh setrotorspeed( 1.0 );
+    else if ( isdefined( veh.isphysicsvehicle ) && veh.isphysicsvehicle )
+        veh setbrake( 1 );                   // held until GO (race_hold releases it)
+}
+
+function private race_hold( p, on )
+{
+    if ( on )
+        p val::set( #"gf_race", "freezecontrols_allowlook", 1 );
+    else
+        p val::reset( #"gf_race", "freezecontrols_allowlook" );
+
+    v = p getvehicleoccupied();
+
+    if ( isdefined( v ) )
+        v setbrake( on );
+}
+
+function private race_run( host )
+{
+    level endon( #"game_ended" );
+    level endon( #"gf_race_stop" );
+
+    r = race_state();
+    r.state = 1;
+    r.racers = [];
+    r.finishers = [];
+    r.first_finish = undefined;
+    r.end_minutes = undefined;
+    r.laps = cfg_race_laps();
+    r.grace = cfg_race_grace();
+    r.sprint = cfg_race_sprint();
+    r.gate_count = race_gates().size;
+    r.corridor = cfg_race_corridor();
+    r.reset_s = cfg_race_reset();
+    r.oobhud = cfg_race_oobhud();
+    r.last = "-";
+    gates = race_gates();
+
+    // Stock hooks, saved for a cancel; the score-limit ending disarmed the sd/spy/vip way.
+    r.prev_gettimelimit = level.gettimelimit;
+    r.prev_ontimelimit = level.ontimelimit;
+    r.prev_endonscore = level.endgameonscorelimit;
+    level.gettimelimit = &race_gettimelimit;
+    level.ontimelimit = &race_ontimelimit;
+    level.endgameonscorelimit = 0;
+
+    foreach ( p in getplayers() )
+    {
+        if ( p.team == #"spectator" )
+            continue;
+
+        st = spawnstruct();
+        st.lap = 0;
+        st.next = ( r.gate_count > 1 ) ? 1 : 0;
+        st.place = 0;
+        st.time = 0;
+        st.side = 0;
+        st.passed = 0;                  // gates passed this race (the corridor is generous before the first)
+        st.resets = 0;
+        st.cd = 0;                      // last corridor distance, for the readouts
+        st.reset_pos = gates[ 0 ].c;    // where an off-track reset lands: the last gate passed, gate 0 to begin with
+        st.reset_yaw = gates[ 0 ].yaw;
+        p.gf_rc = st;
+        if ( cfg_race_combat() )
+            p.candocombat = undefined;
+        else
+            p.candocombat = 0;
+
+        race_hold( p, 1 );
+        r.racers[ r.racers.size ] = p;
+    }
+
+    if ( cfg_race_markers() )
+        race_markers_show();
+
+    if ( cfg_race_grid() )
+    {
+        race_grid_place();
+        wait 0.5;                            // the seats take a frame; let the rides settle
+    }
+
+    for ( i = 3; i >= 1; i-- )
+    {
+        broadcast_bold( "^3" + i );
+        wait 1;
+    }
+
+    // GO: the first side reading is taken here so a racer already past his gate is not credited.
+    r.start_time = gettime();
+    r.state = 2;
+
+    foreach ( p in r.racers )
+    {
+        if ( !isdefined( p ) )
+            continue;
+
+        race_hold( p, 0 );
+        gates = race_gates();
+        g = gates[ p.gf_rc.next ];
+        p.gf_rc.side = vectordot( race_pos( p ) - g.c, g.fwd );
+    }
+
+    broadcast_bold( "^2GO!" );
+    level thread race_think();
+    level thread race_feed();
+}
+
+function private race_think()
+{
+    level endon( #"game_ended" );
+    level endon( #"gf_race_stop" );
+    r = race_state();
+
+    while ( r.state == 2 )
+    {
+        all_done = 1;
+        gates = race_gates();
+
+        foreach ( p in r.racers )
+        {
+            if ( !isdefined( p ) || !isdefined( p.gf_rc ) )
+                continue;
+
+            st = p.gf_rc;
+
+            if ( st.place > 0 )
+                continue;
+
+            all_done = 0;
+
+            if ( !isalive( p ) )
+                continue;
+
+            g = gates[ st.next ];
+            d = race_pos( p ) - g.c;
+            side = vectordot( d, g.fwd );
+            lat = abs( vectordot( d, g.right ) );
+
+            if ( st.side < 0 && side >= 0 && lat <= g.w * 0.5 + 64 )
+            {
+                // Crossed this frame: when, to the fraction of the frame the flip happened at.
+                frac = 1;
+                span = side - st.side;
+                if ( span > 0 )
+                    frac = ( 0 - st.side ) / span;
+                at = gettime() - int( ( 1 - frac ) * float( function_60d95f53() ) );
+                race_gate_passed( p, st, at );
+                continue;   // st.side was re-seated on the next gate inside
+            }
+
+            st.side = side;
+
+            // Track boundary (racing.md T3): the corridor around the line from the last gate
+            // centre to the next one (and the leg before it, so a corner is covered). Off it:
+            // a bold warning each second, then the reset to the last gate passed (T6).
+            if ( r.corridor > 0 && gates.size > 1 && !( isdefined( st.bound_grace ) && gettime() < st.bound_grace ) )
+            {
+                pos = race_pos( p );
+                st.cd = race_corridor_dist( st, pos, gates );
+
+                if ( st.cd > r.corridor * 0.5 )
+                {
+                    if ( !isdefined( st.off_since ) )
+                    {
+                        // Stock's timekeep, mirrored: the CLIENT keeps the time already spent out
+                        // of bounds and, on a re-entry within oob_timekeep_ms (3 s), continues its
+                        // countdown from there (oob.csc:238-241) - and hides the banner outright once
+                        // that time is used up (measured 2026-09-20: "out of bounds text but not the
+                        // red banner"). So the server continues from the same point.
+                        if ( isdefined( st.off_left_at ) && isdefined( st.off_accum ) && gettime() - st.off_left_at < 3000 )
+                            st.off_since = gettime() - st.off_accum;
+                        else
+                            st.off_since = gettime();
+
+                        st.warn_at = gettime();
+                    }
+
+                    off_ms = gettime() - st.off_since;
+
+                    if ( r.reset_s > 0 && off_ms >= r.reset_s * 1000 )
+                        race_reset( p, st, "off track" );
+                    else if ( r.oobhud )
+                    {
+                        // Stock's own overlay: the out_of_bounds clientfield (oob.gsc:832 sets it
+                        // to ceil( effect * 31 ) and the client starts the warning + its countdown
+                        // on any non-zero value, oob.csc:160/219). No trigger, no stock kill - the
+                        // reset above is the only consequence. Ramped 4 -> 31 over the reset time.
+                        v = 4;
+                        if ( r.reset_s > 0 )
+                            v = 4 + int( 27 * min( 1, float( off_ms ) / ( r.reset_s * 1000 ) ) );
+                        race_oob_field( p, st, v );
+                    }
+                    else if ( gettime() >= st.warn_at )
+                    {
+                        p iprintlnbold( "^1OFF TRACK" + ( r.reset_s > 0 ? ( " ^7- reset in " + int( r.reset_s - off_ms / 1000 ) ) : "" ) );
+                        st.warn_at = gettime() + 1000;
+                    }
+                }
+                else
+                {
+                    if ( isdefined( st.off_since ) )
+                    {
+                        st.off_accum = gettime() - st.off_since;
+                        st.off_left_at = gettime();
+                    }
+
+                    st.off_since = undefined;
+                    race_oob_field( p, st, 0 );
+                }
+            }
+        }
+
+        // Everyone finished (a racer who left counts as done); a dead racer is merely respawning,
+        // so the finish timer - not this - is what ends a race with stragglers.
+        if ( all_done )
+        {
+            race_end( "all finished" );
+            return;
+        }
+
+        waitframe( 1 );
+    }
+}
+
+function private race_gate_passed( p, st, at )
+{
+    r = race_state();
+    gates = race_gates();
+    r.last = p.name + " g" + st.next + " " + race_clock( at - r.start_time );
+    finished = 0;
+    st.passed++;
+    st.reset_pos = gates[ st.next ].c;
+    st.reset_yaw = gates[ st.next ].yaw;
+    st.off_since = undefined;
+    st.off_accum = undefined;
+    st.off_left_at = undefined;
+    race_oob_field( p, st, 0 );
+
+    if ( r.sprint )
+    {
+        if ( st.next == gates.size - 1 )
+            finished = 1;
+        else
+            st.next++;
+    }
+    else if ( st.next == 0 )
+    {
+        st.lap++;
+
+        if ( st.lap >= r.laps )
+            finished = 1;
+        else
+        {
+            broadcast_feed( "^5" + p.name + " ^7lap " + st.lap + "/" + r.laps + " ^3" + race_clock( at - r.start_time ) );
+            st.next = ( gates.size > 1 ) ? 1 : 0;
+        }
+    }
+    else
+    {
+        st.next = ( st.next + 1 ) % gates.size;
+    }
+
+    if ( !finished )
+    {
+        // Re-seat the side reading on the new gate so a gate right past this one is not credited.
+        g = gates[ st.next ];
+        st.side = vectordot( race_pos( p ) - g.c, g.fwd );
+        return;
+    }
+
+    st.time = at - r.start_time;
+    r.finishers[ r.finishers.size ] = p;
+    st.place = r.finishers.size;
+    broadcast_bold( "^3" + race_place( st.place ) + " ^7" + p.name + " ^3" + race_clock( st.time ) );
+
+    if ( !isdefined( r.first_finish ) )
+    {
+        // The finish timer: from here the stock clock counts the grace down (race_gettimelimit).
+        r.first_finish = gettime();
+        r.end_minutes = float( globallogic_utils::gettimepassed() + r.grace * 1000 ) / 60000;
+        broadcast_feed( "^3RACE ^7ends in ^3" + r.grace + " s ^7- " + p.name + " has finished" );
+    }
+}
+
+// Distance (2-D) from pos to the corridor centreline: the line from the previous gate centre to
+// the next gate's, or the leg before that one, whichever is nearer. Before the first gate of the
+// race the leg starts 1500 u behind gate 0, so a grid behind the start line is on track.
+function private race_corridor_dist( st, pos, gates )
+{
+    n = gates.size;
+    k = st.next;
+    nxt = gates[ k ].c;
+
+    if ( st.passed == 0 )
+    {
+        g0 = gates[ 0 ];
+        a = g0.c - vectorscale( g0.fwd, 1500 );
+        return race_seg_dist( pos, a, nxt );
+    }
+
+    pk = ( k - 1 + n ) % n;
+    d = race_seg_dist( pos, gates[ pk ].c, nxt );
+
+    // The leg before, so a racer cutting the corner at gate pk is still inside. (On an A-to-B
+    // course the only wrap-around leg is the first one, and that is the passed == 0 case above.)
+    if ( n > 2 )
+    {
+        ppk = ( pk - 1 + n ) % n;
+        d2 = race_seg_dist( pos, gates[ ppk ].c, gates[ pk ].c );
+
+        if ( d2 < d )
+            d = d2;
+    }
+
+    return d;
+}
+
+function private race_seg_dist( p, a, b )
+{
+    abx = b[ 0 ] - a[ 0 ];
+    aby = b[ 1 ] - a[ 1 ];
+    len2 = abx * abx + aby * aby;
+
+    if ( len2 < 1 )
+        return distance2d( p, a );
+
+    t = ( ( p[ 0 ] - a[ 0 ] ) * abx + ( p[ 1 ] - a[ 1 ] ) * aby ) / len2;
+    t = max( 0, min( 1, t ) );
+    q = ( a[ 0 ] + abx * t, a[ 1 ] + aby * t, p[ 2 ] );
+    return distance2d( p, q );
+}
+
+// Back to the last gate passed (gate 0 before any), 64 u past its line, facing its direction.
+// A rider's whole vehicle is moved - the util::teleport shape for a non-player entity
+// (.origin / .angles, util_shared.gsc:7120) plus a zero velocity (exfil_chopper.gsc:162); on
+// foot it is tp_place. The side reading is re-seated on the next gate so the move cannot count
+// as a crossing. Also the flip recovery: the angles are levelled.
+// The out_of_bounds clientfield on one racer, set only on change (a set is a network update).
+function private race_oob_field( p, st, v )
+{
+    if ( isdefined( st.oobv ) && st.oobv == v )
+        return;
+
+    if ( v == 0 && !isdefined( st.oobv ) )
+        return;
+
+    st.oobv = v;
+    p clientfield::set_to_player( "out_of_bounds", v );
+}
+
+function private race_reset( p, st, why )
+{
+    gates = race_gates();
+    race_oob_field( p, st, 0 );
+    ang = ( 0, st.reset_yaw, 0 );
+    pos = st.reset_pos + vectorscale( anglestoforward( ang ), 64 );
+    floor = tp_floor( pos );
+    v = p getvehicleoccupied();
+
+    if ( isdefined( v ) )
+    {
+        v.origin = floor + ( 0, 0, 32 );
+        v.angles = ang;
+        v setvehvelocity( ( 0, 0, 0 ) );
+    }
+    else
+    {
+        tp_place( p, floor, ang );
+    }
+
+    st.resets++;
+    st.off_since = undefined;
+    st.off_accum = undefined;
+    st.off_left_at = undefined;
+    st.bound_grace = gettime() + 3200;   // past the client's 3 s timekeep, so its next warning starts a fresh countdown
+
+    if ( st.next < gates.size )
+    {
+        g = gates[ st.next ];
+        st.side = vectordot( race_pos( p ) - g.c, g.fwd );
+    }
+
+    p iprintlnbold( "^3RESET ^7- " + why );
+}
+
+// Host verb: reset myself (a flipped or stuck vehicle) while a race runs.
+function private act_race_resetme( item )
+{
+    r = race_state();
+
+    if ( r.state != 2 || !isdefined( self.gf_rc ) || self.gf_rc.place > 0 )
+    {
+        self menu_say( "^1race: no race running for you" );
+        return true;
+    }
+
+    race_reset( self, self.gf_rc, "by request" );
+    return true;
+}
+
+// Installed as level.gettimelimit while racing: 0 (no clock) until the first finish, then the
+// fixed minute mark the grace runs out at. Minutes as a float, the DDL field is fixed<8,2>.
+function private race_gettimelimit()
+{
+    r = race_state();
+
+    if ( r.state != 2 || !isdefined( r.end_minutes ) )
+        return 0;
+
+    return r.end_minutes;
+}
+
+function private race_ontimelimit()
+{
+    race_end( "finish timer" );
+}
+
+// Ranking: finishers in order, then the rest by laps, gates and distance to the next gate.
+function private race_progress( p )
+{
+    st = p.gf_rc;
+    gates = race_gates();
+    g = gates[ st.next ];
+    dist = distance2d( race_pos( p ), g.c );
+    return st.lap * 1000000 + st.next * 10000 + max( 0, 9999 - int( dist ) );
+}
+
+function private race_end( why )
+{
+    r = race_state();
+
+    if ( r.state != 2 )
+        return;
+
+    r.state = 3;
+    // The finish thread FIRST: the notify below ends every thread that endon's gf_race_stop, and
+    // that includes the caller (race_think) - a notify kills its own notifier's thread when it
+    // endon's the event, so anything after it would never run (measured 2026-09-19: st:3, no
+    // RACE OVER line, match never ended).
+    level thread race_finish( why );
+    level notify( #"gf_race_stop" );
+}
+
+function private race_finish( why )
+{
+    level endon( #"game_ended" );
+    r = race_state();
+    r.stage = "rank";
+    ranking = [];
+
+    foreach ( p in r.finishers )
+    {
+        if ( isdefined( p ) )
+            ranking[ ranking.size ] = p;
+    }
+
+    rest = [];
+    foreach ( p in r.racers )
+    {
+        if ( isdefined( p ) && isdefined( p.gf_rc ) && p.gf_rc.place == 0 )
+            rest[ rest.size ] = p;
+    }
+
+    // Insertion sort, best progress first.
+    for ( i = 1; i < rest.size; i++ )
+    {
+        p = rest[ i ];
+        k = race_progress( p );
+
+        for ( j = i - 1; j >= 0 && race_progress( rest[ j ] ) < k; j-- )
+            rest[ j + 1 ] = rest[ j ];
+
+        rest[ j + 1 ] = p;
+    }
+
+    foreach ( p in rest )
+    {
+        ranking[ ranking.size ] = p;
+        p.gf_rc.place = ranking.size;
+    }
+
+    // Placement = finishing order: the fields FFA's updateplacement sorts by, 1st highest, last >= 1.
+    n = ranking.size;
+    r.stage = "points";
+    line = "^3RACE OVER ^7(" + why + ")";
+
+    keep = !cfg_race_end();
+
+    for ( i = 0; i < n; i++ )
+    {
+        p = ranking[ i ];
+        pts = n - i;
+
+        // pointstowin is what FFA's placement sorts by (order); score is what the screens print.
+        // gf_race_score 1 prints the track time in whole seconds as the score (0 = did not finish),
+        // klaze 2026-09-20 ("could we show our track time?"); 0 prints the placement points.
+        shown = pts;
+
+        if ( cfg_race_score() )
+        {
+            shown = ( p.gf_rc.time > 0 ) ? int( p.gf_rc.time / 1000 ) : 0;
+            // klaze 2026-09-20: the FFA podium's number is probably KILLS - so the time goes there
+            // too: the kill path's own three writes minus the career-stat one (globallogic_score
+            // .gsc:3144-3146: incpersstat -> pers + stats, self.kills, recordplayerstats).
+            p.pers[ #"kills" ] = shown;
+            p.kills = shown;
+            recordplayerstats( p, "kills", shown );
+        }
+
+        if ( keep )
+        {
+            // Races add up: the points join what earlier races (or kills) left, so the standings
+            // and the stock end screen at the end of the session show the championship.
+            p globallogic_score::givepointstowin( pts );
+            [[ level._setplayerscore ]]( p, [[ level._getplayerscore ]]( p ) + shown );
+        }
+        else
+        {
+            p globallogic_score::setpointstowin( pts );
+            [[ level._setplayerscore ]]( p, shown );
+        }
+
+        if ( i < 3 )
+            line += "  ^3" + race_place( i + 1 ) + " ^7" + p.name + ( p.gf_rc.time > 0 ? ( " ^5" + race_clock( p.gf_rc.time ) ) : " ^1dnf" );
+    }
+
+    broadcast_feed( line );
+    r.result_line = line;
+    r.stage = "printed";
+
+    if ( n == 0 )
+    {
+        race_teardown();
+        r.state = 0;
+        return;
+    }
+
+    broadcast_bold( "^3RACE OVER - " + race_place( 1 ) + " ^7" + ranking[ 0 ].name );
+
+    if ( keep )
+    {
+        // Keep playing: hooks back to stock, the race can be started again, the score-limit
+        // ending stays disarmed so accumulated points cannot end the session by themselves -
+        // the lobby's time limit or the host's "End match now" does.
+        wait 2;
+        broadcast_feed( race_standings_line() );
+        race_teardown();
+        level.endgameonscorelimit = 0;
+        r.state = 0;
+        r.stage = "kept";
+        return;
+    }
+
+    wait 3;   // let the podium prints land before the end screen takes over (hooks still ours)
+    r.stage = "ending";
+    race_end_match();
+    r.stage = "ended";
+    race_teardown();
+}
+
+// Ending the match with whatever the placement fields hold: stock's own score-limit ending in
+// FFA (the podium), the time-limit ending in a team mode (team scores decide there).
+function private race_end_match()
+{
+    if ( level.teambased )
+    {
+        thread globallogic::end_round( 2 );
+        return;
+    }
+
+    round::function_870759fb();
+    thread globallogic::end_round( 3 );
+}
+
+function private act_race_endmatch( item )
+{
+    r = race_state();
+
+    if ( r.state == 1 || r.state == 2 )
+    {
+        self menu_say( "^1race: a race is running - Stop it first" );
+        return true;
+    }
+
+    broadcast_feed( race_standings_line() );
+    self menu_say( "^2race: ending the match with the standings" );
+    race_end_match();
+    return true;
+}
+
+// The session standings by pointstowin (what FFA placement sorts by): top three, one line.
+function private race_standings_line()
+{
+    players = [];
+
+    foreach ( p in getplayers() )
+    {
+        if ( p.team != #"spectator" && isdefined( p.pointstowin ) )
+            players[ players.size ] = p;
+    }
+
+    for ( i = 1; i < players.size; i++ )
+    {
+        p = players[ i ];
+
+        for ( j = i - 1; j >= 0 && players[ j ].pointstowin < p.pointstowin; j-- )
+            players[ j + 1 ] = players[ j ];
+
+        players[ j + 1 ] = p;
+    }
+
+    line = "^3STANDINGS";
+
+    for ( i = 0; i < players.size && i < 3; i++ )
+        line += "  ^3" + race_place( i + 1 ) + " ^7" + players[ i ].name + " ^5" + players[ i ].pointstowin + " pts";
+
+    return line;
+}
+
+// Back to stock: hooks, holds, combat, markers. state stays 3 (over) or goes 0 (cancel).
+function private race_teardown()
+{
+    r = race_state();
+    level notify( #"gf_race_stop" );
+
+    if ( isdefined( r.prev_gettimelimit ) )
+        level.gettimelimit = r.prev_gettimelimit;
+    if ( isdefined( r.prev_ontimelimit ) )
+        level.ontimelimit = r.prev_ontimelimit;
+    if ( isdefined( r.prev_endonscore ) )
+        level.endgameonscorelimit = r.prev_endonscore;
+
+    r.prev_gettimelimit = undefined;
+    r.prev_ontimelimit = undefined;
+    r.prev_endonscore = undefined;
+
+    foreach ( p in r.racers )
+    {
+        if ( !isdefined( p ) )
+            continue;
+
+        race_hold( p, 0 );
+        p.candocombat = undefined;
+
+        if ( isdefined( p.gf_rc ) )
+            race_oob_field( p, p.gf_rc, 0 );
+    }
+
+    if ( r.state != 3 )
+        r.state = 0;
+}
+
+// ── Readouts ─────────────────────────────────────────────────────────────────
+function private race_place( n )
+{
+    if ( n == 1 ) return "1st";
+    if ( n == 2 ) return "2nd";
+    if ( n == 3 ) return "3rd";
+    return n + "th";
+}
+
+function private race_clock( ms )
+{
+    if ( ms < 0 )
+        ms = 0;
+
+    s = int( ms / 1000 );
+    tenths = int( ( ms % 1000 ) / 100 );
+    m = int( s / 60 );
+    s = s % 60;
+    return m + ":" + ( s < 10 ? "0" : "" ) + s + "." + tenths;
+}
+
+// Each racer's own feed line every 3 s while the race runs: lap, next gate, place so far.
+function private race_feed()
+{
+    level endon( #"game_ended" );
+    level endon( #"gf_race_stop" );
+    r = race_state();
+
+    while ( r.state == 2 )
+    {
+        elapsed = race_clock( gettime() - r.start_time );
+
+        foreach ( p in r.racers )
+        {
+            if ( !isdefined( p ) || !isdefined( p.gf_rc ) || isbot( p ) )
+                continue;
+
+            st = p.gf_rc;
+
+            if ( st.place > 0 )
+                p iprintln( "^3RACE ^7" + race_place( st.place ) + " ^5" + race_clock( st.time ) + " ^7- finished, " + r.finishers.size + "/" + r.racers.size + " in" );
+            else
+                p iprintln( "^3RACE ^7" + ( r.sprint ? "" : ( "lap " + ( st.lap + 1 ) + "/" + r.laps + "  " ) ) + "gate " + st.next + "/" + r.gate_count + "  ^5" + elapsed + ( isdefined( r.first_finish ) ? ( "  ^1ends in " + int( max( 0, r.grace - ( gettime() - r.first_finish ) / 1000 ) ) + "s" ) : "" ) );
+        }
+
+        wait 3;
+    }
+}
+
+// The RACE debug line (gf_dbg_race): state + track + the host's own numbers + the last crossing.
+function private race_line()
+{
+    r = race_state();
+    gates = race_gates();
+    host = census_host();
+    s = "^3RACE ^7st:" + r.state + " gates:" + gates.size + " laps:" + cfg_race_laps() + " sprint:" + cfg_race_sprint() + " grace:" + cfg_race_grace() + " w:" + cfg_race_width()
+        + " racers:" + r.racers.size + " fin:" + r.finishers.size + " tl:" + ( isdefined( r.end_minutes ) ? ( "" + r.end_minutes ) : "0" ) + " mk:" + r.marker_ids.size
+        + " bound:" + cfg_race_corridor() + "/" + cfg_race_reset() + "s posts:" + r.posts_text
+        + " grid:" + ( isdefined( r.grid_placed ) ? ( r.grid_placed + "/" + r.grid_seated + "/" + r.grid_fail + " " + r.grid_ride ) : "-" )
+        + " stage:" + ( isdefined( r.stage ) ? r.stage : "-" );
+
+    if ( isdefined( host ) && isdefined( host.gf_rc ) && host.gf_rc.next < gates.size )
+    {
+        st = host.gf_rc;
+        g = gates[ st.next ];
+        d = race_pos( host ) - g.c;
+        s += " ^5host ^7lap:" + st.lap + " next:" + st.next + " side:" + int( vectordot( d, g.fwd ) ) + " lat:" + int( abs( vectordot( d, g.right ) ) ) + " place:" + st.place + " veh:" + ( isdefined( host getvehicleoccupied() ) ? 1 : 0 )
+            + " cd:" + int( st.cd ) + "/" + int( r.corridor * 0.5 ) + " off:" + ( isdefined( st.off_since ) ? ( "" + int( ( gettime() - st.off_since ) / 1000 ) ) : "0" ) + " rst:" + st.resets;
+    }
+    else if ( isdefined( host ) && gates.size > 0 )
+    {
+        g = gates[ 0 ];
+        d = race_pos( host ) - g.c;
+        s += " ^5host ^7g0 side:" + int( vectordot( d, g.fwd ) ) + " lat:" + int( abs( vectordot( d, g.right ) ) );
+    }
+
+    s += " ^3last:^7" + r.last;
+    return s;
+}
+
+function private act_dbg_race( item ) { return self act_dbg( item, #"gf_dbg_race", 1, "race (RACE)" ); }
+
+// Bridge / app verb: race <start|stop|gate|undo|clear|load|markers>
+function private cmd_race( arg )
+{
+    it = spawnstruct();
+    switch ( arg )
+    {
+        case "start":   self act_race_start( it );   break;
+        case "stop":    self act_race_stop( it );    break;
+        case "gate":    self act_race_gate( it );    break;
+        case "undo":    self act_race_undo( it );    break;
+        case "clear":   self act_race_clear( it );   break;
+        case "load":    self act_race_load( it );    break;
+        case "markers": self act_race_markers( it ); break;
+        case "endmatch": self act_race_endmatch( it ); break;
+        case "resetme":  self act_race_resetme( it );  break;
+        default:        self menu_say( "^1race: unknown verb '" + arg + "'" ); break;
+    }
+}
+
+function private act_race_cfg( item, dvar, value, label )
+{
+    cfg_seti( dvar, value );
+    self menu_say( "^2race: " + label );
+    return true;
+}
+
+function private act_race_laps( item, value )    { return self act_race_cfg( item, #"gf_race_laps", value, "laps " + value ); }
+function private act_race_grace( item, value )   { return self act_race_cfg( item, #"gf_race_grace", value, "finish timer " + value + " s" ); }
+function private act_race_width( item, value )   { return self act_race_cfg( item, #"gf_race_width", value, "gate width " + value + " (next gates)" ); }
+function private act_race_combat( item, value )  { return self act_race_cfg( item, #"gf_race_combat", value, value ? "combat ON" : "combat OFF" ); }
+function private act_race_sprint( item, value )  { return self act_race_cfg( item, #"gf_race_sprint", value, value ? "A to B - gate 0 is the start line, the last gate placed is the finish" : "circuit - laps through the start gate" ); }
+function private act_race_mk_cfg( item, value )  { return self act_race_cfg( item, #"gf_race_markers", value, value ? "markers on at race start" : "no markers at race start" ); }
+function private act_race_end_cfg( item, value ) { return self act_race_cfg( item, #"gf_race_end", value, value ? "the race ends the match (podium)" : "keep playing after a race - points add up, End match now for the podium" ); }
+function private act_race_corridor( item, value ){ return self act_race_cfg( item, #"gf_race_corridor", value, value ? ( "track boundary " + value + " u wide (next race)" ) : "track boundary off (next race)" ); }
+function private act_race_oobhud( item, value )   { return self act_race_cfg( item, #"gf_race_oobhud", value, value ? "off track = the stock combat-area overlay (its countdown is the client's own 3 s)" : "off track = bold prints" ); }
+function private act_race_score_cfg( item, value ){ return self act_race_cfg( item, #"gf_race_score", value, value ? "end-screen score = track time in seconds" : "end-screen score = placement points" ); }
+function private act_race_grid_cfg( item, value ) { return self act_race_cfg( item, #"gf_race_grid", value, value ? "start grid on - everyone lines up behind the start gate at START" : "start grid off - start where you stand" ); }
+function private act_race_vehicle( item, value )  { return self act_race_cfg( item, #"gf_race_vehicle", value, "grid vehicle: " + veh_mode_name( value ) ); }
+function private act_race_grid_gap( item, value ) { return self act_race_cfg( item, #"gf_race_grid_gap", value, "grid spacing " + value + " u" ); }
+function private act_race_posts_cfg( item, value ){ cfg_seti( #"gf_race_posts", value ); race_markers_refresh(); self menu_say( value ? ( "^2race: gate posts on, with the markers - " + race_state().posts_text ) : "^2race: gate posts off" ); return true; }
+function private act_race_reset_cfg( item, value ){ return self act_race_cfg( item, #"gf_race_reset", value, value ? ( "off-track reset after " + value + " s (next race)" ) : "off track: warn only (next race)" ); }
+
+
 
 // Fall damage on/off. bg_falldamageminheight / maxheight are the engine pair the campaign
 // and Zombies "oldschool" mode raise (cp_common globallogic.gsc:184-185), same bg_ family
@@ -2726,10 +4326,10 @@ function private destruct_tally()
         // ⚠ Yield periodically. A dense urban map (mp_miami) carries THOUSANDS of
         // destructibles; scanning them all in one uninterrupted VM resumption trips the
         // engine's script-execution limit -> a bare-code fatal (0x91f84370), which crashed
-        // every inject on Miami ~10-50s in (measured 2026-09-19). Every caller runs in a
-        // thread (mapdata_publish, the Destructibles page, the debug feed), so waitframe is
-        // safe here. The keyed `seen` lookup below also drops the old O(n^2) name search to
-        // O(n).
+        // every inject on Miami ~10-50s in (root cause found + fixed 2026-09-19). Every
+        // caller runs in a thread (mapdata_publish, the Destructibles page, the debug feed),
+        // so waitframe is safe here. The keyed `seen` lookup below also drops the old O(n^2)
+        // name search to O(n).
         if ( i > 0 && ( i % 256 ) == 0 )
             waitframe( 1 );
         i++;
@@ -4937,6 +6537,10 @@ function private cmd_action( action, arg )
         case "vehspawn":    self cmd_vehspawn( arg );                                          break;
         case "vehenter":    self veh_enter( it );                                              break;
         case "vehclear":    self act_vehclear( it );                                           break;
+        // Race (docs/notes/racing.md): arg = start|stop|gate|undo|clear|load|markers.
+        case "race":        self cmd_race( tolower( arg ) );                              break;
+        case "racetrack":   self cmd_race_track( arg );                                   break;
+        case "racegate":    self cmd_race_gate( arg );                                    break;
         default:            self menu_say( "^1app: unknown action '" + action + "'" ); break;
     }
 }
@@ -5919,7 +7523,7 @@ function private match_info()
 
     gd = cfg_spawn_guard();
     self iprintln( "^7spawn ^3" + ( gd == 2 ? "AUTO" : ( gd == 1 ? "FORCE" : "off" ) ) + "  ^7zone ^3" + ( cfg_zone() ? ( "on ot" + cfg_zone_overtime() + " cap" + cfg_zone_capture() ) : "off" ) );
-    self iprintln( "^7gravity ^3" + cfg_gravity() + "  ^7jump ^3" + ( cfg_jump() >= 0 ? ( "" + cfg_jump() ) : "stock" ) + "  ^7boost ^3" + cfg_jump_boost() + "  ^7speed ^3" + cfg_speed() + "%  ^7fall ^3" + ( cfg_falldamage() ? "stock" : "off" ) + "  ^7oob ^3" + ( cfg_oob() ? "off" : "stock" ) );
+    self iprintln( "^7gravity ^3" + cfg_gravity() + "  ^7jump ^3" + ( cfg_jump() >= 0 ? ( "" + cfg_jump() ) : "stock" ) + "  ^7boost ^3" + cfg_jump_boost() + "  ^7speed ^3" + cfg_speed() + "%  ^7fall ^3" + ( cfg_falldamage() ? "stock" : "off" ) + "  ^7oob ^3" + ( cfg_oob() ? "off" : "stock" ) + "  ^7barrier ^3" + ( cfg_deathbarrier() ? ( "off" + cfg_deathbarrier() ) : "stock" ) );
 }
 
 // Everything switched on beyond its default, one short line. Empty when nothing is on
@@ -6436,6 +8040,8 @@ function private build_tree()
     self menu_item( "debug", "Marker flags census", &act_dbg_flags, undefined, undefined, #"gf_dbg_flags", 1 );
     self menu_item( "debug", "Match info", &act_dbg_match, undefined, undefined, #"gf_dbg_match", 1 );
     self menu_item( "debug", "Asset census: vehicles + props + destructibles", &act_dbg_assets, undefined, undefined, #"gf_dbg_assets", 1 );
+    self menu_item( "debug", "Death barriers: BARRIER census + last death", &act_dbg_barrier, undefined, undefined, #"gf_dbg_barrier", 1 );
+    self menu_item( "debug", "Race: RACE state + host gate numbers", &act_dbg_race, undefined, undefined, #"gf_dbg_race", 1 );
     self menu_item( "debug", "Everything off", &act_dbg_all_off );
     // Caster diagnosis: prints button/render probe lines while the host is a CoD Caster.
     self menu_item( "display", "Caster input probe ON", &act_caster_probe, 1, undefined, #"gf_caster_probe", 1 );
@@ -6513,11 +8119,82 @@ function private build_tree()
     self menu_add( "mv_oob", "Out of bounds", "movement", 1 );
     self menu_item( "mv_oob", "Out of bounds OFF - no warning, no death", &act_oob, 1, undefined, #"gf_oob", 1 );
     self menu_item( "mv_oob", "Out of bounds: stock", &act_oob, 0, undefined, #"gf_oob", 0 );
+    // Death barriers = the map's trigger_hurt kill volumes (NOT the restricted area above; god
+    // mode does not survive them). Three ways off, in the order to try; the BARRIER line measures.
+    self menu_add( "mv_barrier", "Death barriers", "movement", 1 );
+    self menu_item( "mv_barrier", "Death barriers: stock", &act_deathbarrier, 0, undefined, #"gf_deathbarrier", 0 );
+    self menu_item( "mv_barrier", "Death barriers OFF - hurt volumes disabled", &act_deathbarrier, 1, undefined, #"gf_deathbarrier", 1 );
+    self menu_item( "mv_barrier", "Death barriers OFF - hurt volumes deleted (this round)", &act_deathbarrier, 2, undefined, #"gf_deathbarrier", 2 );
+    self menu_item( "mv_barrier", "Death barriers OFF - hurt volumes sunk 40000u", &act_deathbarrier, 3, undefined, #"gf_deathbarrier", 3 );
+    self menu_item( "mv_barrier", "Debug line: BARRIER census + last death to the feed", &act_dbg_barrier, undefined, undefined, #"gf_dbg_barrier", 1 );
     self menu_add( "mv_fly", "Fly speed", "movement", 1 );
     self menu_item( "mv_fly", "Fly 10 / sprint 30", &act_fly_speed, 10, 30, #"gf_fly_speed", 10 );
     self menu_item( "mv_fly", "Fly 20 / sprint 60", &act_fly_speed, 20, 60, #"gf_fly_speed", 20 );
     self menu_item( "mv_fly", "Fly 40 / sprint 120", &act_fly_speed, 40, 120, #"gf_fly_speed", 40 );
     self menu_item( "mv_fly", "Fly 80 / sprint 240", &act_fly_speed, 80, 240, #"gf_fly_speed", 80 );
+
+    // ── Race (docs/notes/racing.md) — track editor + the race itself, prototype ──────
+    self menu_add( "race", "Race", "start_menu", 1 );
+    self menu_item( "race", "START RACE - 3-2-1-GO", &act_race_start );
+    self menu_item( "race", "Stop race - cancel, stock hooks back", &act_race_stop );
+    self menu_item( "race", "Gate here - first one is start/finish", &act_race_gate );
+    self menu_item( "race", "Undo last gate", &act_race_undo );
+    self menu_item( "race", "Clear track", &act_race_clear );
+    self menu_item( "race", "Load saved track for this map", &act_race_load );
+    self menu_item( "race", "Gate markers + posts: show / hide now", &act_race_markers );
+    self menu_item( "race", "End match now - podium with the standings", &act_race_endmatch );
+    self menu_item( "race", "Reset me - back to the last gate (flipped / stuck)", &act_race_resetme );
+    self menu_item( "race", "Debug line: RACE to the feed", &act_dbg_race, undefined, undefined, #"gf_dbg_race", 1 );
+    self menu_add( "race_cfg", "Race settings", "race", 1 );
+    self menu_item( "race_cfg", "Laps 1", &act_race_laps, 1, undefined, #"gf_race_laps", 1 );
+    self menu_item( "race_cfg", "Laps 2", &act_race_laps, 2, undefined, #"gf_race_laps", 2 );
+    self menu_item( "race_cfg", "Laps 3", &act_race_laps, 3, undefined, #"gf_race_laps", 3 );
+    self menu_item( "race_cfg", "Laps 5", &act_race_laps, 5, undefined, #"gf_race_laps", 5 );
+    self menu_item( "race_cfg", "Course: CIRCUIT - laps, the start gate is the finish", &act_race_sprint, 0, undefined, #"gf_race_sprint", 0 );
+    self menu_item( "race_cfg", "Course: A to B - separate finish = the LAST gate placed", &act_race_sprint, 1, undefined, #"gf_race_sprint", 1 );
+    self menu_item( "race_cfg", "Finish timer 30 s after the first finish", &act_race_grace, 30, undefined, #"gf_race_grace", 30 );
+    self menu_item( "race_cfg", "Finish timer 45 s", &act_race_grace, 45, undefined, #"gf_race_grace", 45 );
+    self menu_item( "race_cfg", "Finish timer 60 s", &act_race_grace, 60, undefined, #"gf_race_grace", 60 );
+    self menu_item( "race_cfg", "Finish timer 90 s", &act_race_grace, 90, undefined, #"gf_race_grace", 90 );
+    self menu_item( "race_cfg", "Gate width 400", &act_race_width, 400, undefined, #"gf_race_width", 400 );
+    self menu_item( "race_cfg", "Gate width 600", &act_race_width, 600, undefined, #"gf_race_width", 600 );
+    self menu_item( "race_cfg", "Gate width 800", &act_race_width, 800, undefined, #"gf_race_width", 800 );
+    self menu_item( "race_cfg", "Gate width 1200", &act_race_width, 1200, undefined, #"gf_race_width", 1200 );
+    self menu_item( "race_cfg", "Combat OFF during the race", &act_race_combat, 0, undefined, #"gf_race_combat", 0 );
+    self menu_item( "race_cfg", "Combat ON - guns allowed", &act_race_combat, 1, undefined, #"gf_race_combat", 1 );
+    self menu_item( "race_cfg", "After the race: END the match - podium (default)", &act_race_end_cfg, 1, undefined, #"gf_race_end", 1 );
+    self menu_item( "race_cfg", "After the race: KEEP playing - races add up", &act_race_end_cfg, 0, undefined, #"gf_race_end", 0 );
+    self menu_item( "race_cfg", "Track boundary OFF - no corridor", &act_race_corridor, 0, undefined, #"gf_race_corridor", 0 );
+    self menu_item( "race_cfg", "Boundary width 800 - tight", &act_race_corridor, 800, undefined, #"gf_race_corridor", 800 );
+    self menu_item( "race_cfg", "Boundary width 1200", &act_race_corridor, 1200, undefined, #"gf_race_corridor", 1200 );
+    self menu_item( "race_cfg", "Boundary width 1600 (default)", &act_race_corridor, 1600, undefined, #"gf_race_corridor", 1600 );
+    self menu_item( "race_cfg", "Boundary width 2400 - loose", &act_race_corridor, 2400, undefined, #"gf_race_corridor", 2400 );
+    self menu_item( "race_cfg", "Off track look: stock combat-area overlay (default)", &act_race_oobhud, 1, undefined, #"gf_race_oobhud", 1 );
+    self menu_item( "race_cfg", "Off track look: bold OFF TRACK prints", &act_race_oobhud, 0, undefined, #"gf_race_oobhud", 0 );
+    self menu_item( "race_cfg", "Off track: warn only, no reset", &act_race_reset_cfg, 0, undefined, #"gf_race_reset", 0 );
+    self menu_item( "race_cfg", "Off track: reset after 3 s (default, = the overlay's countdown)", &act_race_reset_cfg, 3, undefined, #"gf_race_reset", 3 );
+    self menu_item( "race_cfg", "Off track: reset after 5 s", &act_race_reset_cfg, 5, undefined, #"gf_race_reset", 5 );
+    self menu_item( "race_cfg", "Off track: reset after 8 s", &act_race_reset_cfg, 8, undefined, #"gf_race_reset", 8 );
+    self menu_item( "race_cfg", "Start grid ON - line up behind the start gate (default)", &act_race_grid_cfg, 1, undefined, #"gf_race_grid", 1 );
+    self menu_item( "race_cfg", "Start grid OFF - start where you stand", &act_race_grid_cfg, 0, undefined, #"gf_race_grid", 0 );
+    self menu_item( "race_cfg", "Grid vehicle: AUTO - this map's lightest ride (default)", &act_race_vehicle, 9, undefined, #"gf_race_vehicle", 9 );
+    self menu_item( "race_cfg", "Grid vehicle: none - on foot / keep your ride", &act_race_vehicle, 0, undefined, #"gf_race_vehicle", 0 );
+    self menu_item( "race_cfg", "Grid vehicle: motorcycles", &act_race_vehicle, 1, undefined, #"gf_race_vehicle", 1 );
+    self menu_item( "race_cfg", "Grid vehicle: snowmobiles", &act_race_vehicle, 4, undefined, #"gf_race_vehicle", 4 );
+    self menu_item( "race_cfg", "Grid vehicle: quads + buggies", &act_race_vehicle, 5, undefined, #"gf_race_vehicle", 5 );
+    self menu_item( "race_cfg", "Grid vehicle: cars + trucks", &act_race_vehicle, 7, undefined, #"gf_race_vehicle", 7 );
+    self menu_item( "race_cfg", "Grid vehicle: tanks + APCs", &act_race_vehicle, 6, undefined, #"gf_race_vehicle", 6 );
+    self menu_item( "race_cfg", "Grid vehicle: care package heli", &act_race_vehicle, 3, undefined, #"gf_race_vehicle", 3 );
+    self menu_item( "race_cfg", "Grid vehicle: attack heli (Hind)", &act_race_vehicle, 2, undefined, #"gf_race_vehicle", 2 );
+    self menu_item( "race_cfg", "Grid spacing 160 - tight", &act_race_grid_gap, 160, undefined, #"gf_race_grid_gap", 160 );
+    self menu_item( "race_cfg", "Grid spacing 220 (default)", &act_race_grid_gap, 220, undefined, #"gf_race_grid_gap", 220 );
+    self menu_item( "race_cfg", "Grid spacing 320 - wide (tanks)", &act_race_grid_gap, 320, undefined, #"gf_race_grid_gap", 320 );
+    self menu_item( "race_cfg", "End-screen score: track time in seconds (default)", &act_race_score_cfg, 1, undefined, #"gf_race_score", 1 );
+    self menu_item( "race_cfg", "End-screen score: placement points", &act_race_score_cfg, 0, undefined, #"gf_race_score", 0 );
+    self menu_item( "race_cfg", "Gate posts: palm trees at both ends (default)", &act_race_posts_cfg, 1, undefined, #"gf_race_posts", 1 );
+    self menu_item( "race_cfg", "Gate posts: none, icons only", &act_race_posts_cfg, 0, undefined, #"gf_race_posts", 0 );
+    self menu_item( "race_cfg", "Markers at race start: on (default)", &act_race_mk_cfg, 1, undefined, #"gf_race_markers", 1 );
+    self menu_item( "race_cfg", "Markers at race start: off", &act_race_mk_cfg, 0, undefined, #"gf_race_markers", 0 );
 
     // ── Host — pause / freeze / broadcast ────────────────────────────────────
     self menu_add( "host", "Host", "start_menu", 1 );
@@ -7735,6 +9412,8 @@ function private config_publish()
             s += "|" + getdvarstring( "gf_c" + c, "" );
 
         s += "|oob=" + cfg_oob();
+        s += "|bar=" + cfg_deathbarrier();
+        s += "|trk=" + race_track_text();       // map;n;x,y,z,yaw,w;... -> the app's Save track (racing.md T8)
         s += "|veh=" + cfg_vehmode() + "," + cfg_veh_lock() + "," + cfg_veh_hp() + "," + cfg_veh_alt();
         s += "|bot=" + getdvarstring( #"gf_bot", "" );
         s += "|bot2=" + getdvarstring( #"gf_bot2", "" );
@@ -8425,7 +10104,7 @@ function private cfg_dbg_assets()   { return cfg_geti( #"gf_dbg_assets", 0 ); }
 
 function private debug_feed_any()
 {
-    return cfg_dbg_census() || cfg_dbg_spawn() || cfg_dbg_structs() || cfg_dbg_families() || cfg_dbg_match() || cfg_dbg_flags() || cfg_dbg_assets() || cfg_dbg_veh();
+    return cfg_dbg_census() || cfg_dbg_spawn() || cfg_dbg_structs() || cfg_dbg_families() || cfg_dbg_match() || cfg_dbg_flags() || cfg_dbg_assets() || cfg_dbg_veh() || cfg_dbg_barrier() || cfg_dbg_race();
 }
 
 function private debug_feed_start()
@@ -8474,6 +10153,10 @@ function private debug_feed_loop()
             }
             if ( cfg_dbg_veh() )
                 host iprintln( veh_line() );
+            if ( cfg_dbg_barrier() )
+                host iprintln( barrier_line() );
+            if ( cfg_dbg_race() )
+                host iprintln( race_line() );
         }
 
         wait 3;
@@ -8523,6 +10206,8 @@ function private act_dbg_all_off( item )
     cfg_seti( #"gf_dbg_flags", 0 );
     cfg_seti( #"gf_dbg_assets", 0 );
     cfg_seti( #"gf_dbg_veh", 0 );
+    cfg_seti( #"gf_dbg_barrier", 0 );
+    cfg_seti( #"gf_dbg_race", 0 );
     self menu_say( "^2debug feed: everything off" );
     return true;
 }

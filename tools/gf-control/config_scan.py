@@ -3,7 +3,7 @@
 roster_scan.py / mapdata_scan.py's sibling. gunfight_menu.gsc's config_publish() keeps one
 marked string alive in level.gf_cfgpub, refreshed every 2 s:
 
-    GFCFG|<tick>|<c0>|<c1>|...|<c8>|oob=<n>|bot=<f0,..,f7>|bot2=<f8,..,f14>|veh=<mode,lock,hp,alt>|END
+    GFCFG|<tick>|<c0>|<c1>|...|<c8>|oob=<n>|bar=<n>|trk=<map;n;x,y,z,yaw,w;...>|bot=<f0,..,f7>|bot2=<f8,..,f14>|veh=<mode,lock,hp,alt>|END
 
 <c0>..<c8> are the RAW packed chunk dvars gf_c0..gf_c8 (6 fields each, the last short) - the
 same chunks the app writes and the in-game menu writes via cfg_write_chunk, so this reflects
@@ -97,6 +97,12 @@ def parse(body: str, defaults: dict[str, int] | None = None) -> tuple[int, dict[
         if e.startswith("oob="):
             try:
                 out["gf_oob"] = int(e[4:])
+            except ValueError:
+                pass
+        elif e.startswith("bar="):
+            # death barriers (trigger_hurt kill volumes): 0 stock / 1 disabled / 2 deleted / 3 sunk
+            try:
+                out["gf_deathbarrier"] = int(e[4:])
             except ValueError:
                 pass
         elif e.startswith("bot="):
@@ -201,6 +207,45 @@ def read_config(pid: int | None = None,
     finally:
         sc.close()
     return None if r is None else (r[0], r[1])
+
+
+def parse_track(raw: str) -> tuple[str, list[list[int]]] | None:
+    """The race track riding in the marker: trk=<map>;<n>;<x,y,z,yaw,w>;... -> (map, gates)."""
+    body = raw
+    if body.startswith("GFCFG|"):
+        body = body[len("GFCFG|"):]
+    for e in body.split("|"):
+        if not e.startswith("trk="):
+            continue
+        fields = e[4:].split(";")
+        if len(fields) < 2:
+            return None
+        gates = []
+        for f in fields[2:]:
+            try:
+                vals = [int(x) for x in f.split(",")]
+            except ValueError:
+                continue
+            if len(vals) == 5:
+                gates.append(vals)
+        return fields[0], gates
+    return None
+
+
+def read_track(pid: int | None = None) -> tuple[str, list[list[int]]] | None:
+    """One-shot: (map, [[x,y,z,yaw,w], ...]) of the track the game holds right now, or None."""
+    if pid is None:
+        pid = rs.find_game_pid()
+    if not pid:
+        return None
+    sc = ConfigScanner(pid)          # defaults resolve lazily from gf_control - an empty dict would
+    try:                             # make parse() reject every unwritten chunk and find nothing
+        r = sc.sweep()
+    finally:
+        sc.close()
+    if r is None:
+        return None
+    return parse_track(r[2].decode("utf-8", "replace"))
 
 
 def main() -> int:

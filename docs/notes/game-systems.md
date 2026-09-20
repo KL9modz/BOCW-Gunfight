@@ -384,6 +384,17 @@ setting), the first-round forfeit clock (`function_67ed6c46` `:875`, reads the l
   covered: the territory in-bounds volumes (`oob.gsc:138`, `territory.gsc:151`) call `enter_oob` unchecked —
   Fireteam's own gametype uses those; 6v6 / Gunfight maps ship `trigger_out_of_bounds`. Menu: Movement → Out of
   bounds; app: Movement → Out of bounds. A plain dvar (not in the packed store).
+- **Death barriers OFF** (2026-09-19, `gf_deathbarrier`, default 0 = stock, NOT run) — a different system from
+  the restricted area above: the instant death off a ledge / in water / under the floor is the engine's own
+  `trigger_hurt` kill volumes (stock: *kill brushes*, `weaponobjects.gsc:2969`), which `gf_oob` never touches and
+  which klaze measured god mode does NOT survive (the MP damage callback returns for an invulnerable player at
+  `player_damage.gsc:53`, so the kill does not depend on the script's verdict). No MP script kills at a map edge
+  (every `suicide()` caller checked). The switch acts on the entities, three ways, tried in order: 1
+  `triggerenable( 0 )` (stock's own inert-kill-brush predicate is `!istriggerenabled()`, `weaponobjects.gsc:2940`),
+  2 `delete()` (the BO1/BO2 mod shape; back next round), 3 sunk 40000u (`.origin`, `mp_russianbase_rm.gsc:91`).
+  `gf_dbg_barrier` = the BARRIER feed line: census + the host inside-a-hurt-volume/alive/god/z + the last death of
+  any player (MOD / attacker classname / god) — the one screenshot that names what killed someone. Menu: Movement
+  → Death barriers; app: Movement row. Plain dvars. → `death-barriers.md`
 - **Speed** = `setmovespeedscale()` per player, re-applied on `on_spawned` because `give_loadout` resets it
   (`player_loadout.gsc:1883-1887`; spawn order `globallogic_spawn.gsc:637` loadout → `:758` callback). `g_speed`
   has zero references in the dump and cannot be verified from script — not used.

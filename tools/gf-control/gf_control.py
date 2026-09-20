@@ -26,6 +26,7 @@ not loaded, a sent command simply sits unread in the buffer.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -278,6 +279,13 @@ CONFIG = {
         ("gf_falldamage", "Fall damage", "toggle", None, 0),
         ("gf_oob", "Out of bounds (restricted area)", "choice",
          [("Disabled - no warning, no death (default)", 1), ("Stock", 0)], 1),
+        # Death barriers = the map's trigger_hurt kill volumes (ledge / water / under the map), a
+        # different thing from the restricted area above; god mode does not survive them. Three
+        # ways off, try in order; the BARRIER debug line measures which the engine honours.
+        ("gf_deathbarrier", "Death barriers (kill volumes)", "choice",
+         [("Stock", 0), ("OFF - hurt volumes disabled", 1),
+          ("OFF - hurt volumes deleted (this round)", 2), ("OFF - hurt volumes sunk", 3)], 0),
+        ("gf_dbg_barrier", "Debug: BARRIER line", "choice", [("Off", 0), ("On", 1)], 0),
         ("gf_jump", "Jump height", "int", (-1, 1000, 10), -1),
         ("gf_fly_speed", "Fly speed", "choice",
          [("10", 10), ("20", 20), ("40", 40), ("80", 80)], 20),
@@ -297,6 +305,33 @@ CONFIG = {
         ("gf_veh_hp", "Vehicle HP %", "int", (10, 400, 10), 100),
         ("gf_veh_alt", "Heli spawn height (u)", "int", (40, 1500, 20), 300),
         ("gf_dbg_veh", "Debug: VEHMODE line", "choice", [("Off", 0), ("On", 1)], 0),
+    ],
+    "Race": [
+        # gunfight_menu Race page (docs/notes/racing.md, prototype 2026-09-19, never run). Plain
+        # dvars read when a race STARTS (Actions -> Race -> START), so plain "Apply now" is enough.
+        ("gf_race_laps", "Laps", "choice", [("1", 1), ("2", 2), ("3", 3), ("5", 5)], 1),
+        ("gf_race_sprint", "Course", "choice",
+         [("Circuit - laps, the start gate is the finish", 0), ("A to B - separate finish = the last gate placed", 1)], 0),
+        ("gf_race_end", "After the race", "choice",
+         [("End the match - stock podium", 1), ("Keep playing - races add up, End match for the podium", 0)], 1),
+        ("gf_race_grace", "Finish timer (s after the first finish)", "choice",
+         [("30", 30), ("45", 45), ("60", 60), ("90", 90)], 45),
+        ("gf_race_width", "Gate width (u, next gates placed)", "choice",
+         [("400", 400), ("600", 600), ("800", 800), ("1200", 1200)], 600),
+        ("gf_race_corridor", "Track boundary width (u, 0 = off)", "choice",
+         [("Off", 0), ("800 tight", 800), ("1200", 1200), ("1600", 1600), ("2400 loose", 2400)], 1600),
+        ("gf_race_reset", "Off track: reset after (s, 0 = warn only)", "choice",
+         [("Warn only", 0), ("3", 3), ("5", 5), ("8", 8)], 5),
+        ("gf_race_posts", "Gate posts (palm trees) with the markers", "toggle", None, 1),
+        ("gf_race_grid", "Start grid: line up behind the start gate at START", "toggle", None, 1),
+        ("gf_race_vehicle", "Grid vehicle", "choice",
+         [("AUTO - this map's lightest ride", 9), ("None - on foot / keep your ride", 0), ("Motorcycles", 1),
+          ("Snowmobiles", 4), ("Quads + buggies", 5), ("Cars + trucks", 7), ("Tanks + APCs", 6),
+          ("Care package heli", 3), ("Attack heli (Hind)", 2)], 9),
+        ("gf_race_grid_gap", "Grid spacing (u)", "choice", [("160 tight", 160), ("220", 220), ("320 wide", 320)], 220),
+        ("gf_race_combat", "Combat during the race", "toggle", None, 0),
+        ("gf_race_markers", "Gate markers at race start", "toggle", None, 1),
+        ("gf_dbg_race", "Debug: RACE line", "choice", [("Off", 0), ("On", 1)], 0),
     ],
     "Overtime zone": [
         # gunfight_menu "Overtime zone" page (docs/notes/overtime-zone.md). ON by default (klaze
@@ -321,6 +356,8 @@ CONFIG = {
         ("gf_spawn_gap", "Guard gap (units between sides)", "choice",
          [("1200", 1200), ("1800", 1800), ("2400", 2400), ("3200", 3200)], 1800),
         ("gf_spawn_autospread", "Auto trip dist", "int", (0, 8000, 100), 2500),
+        ("gf_spawn_antistack", "Anti-stack net (fan out overlapping spawns)", "choice",
+         [("On (default)", 1), ("Off", 0)], 1),
         ("gf_spawn_diag", "Spawn diagnostics", "choice", [("Off", 0), ("On", 1)], 1),
     ],
     "Session / Map": [
@@ -363,6 +400,22 @@ TIPS = {
     "gf_jump_boost": "Extra up-velocity (u/s) added at takeoff. 0 = off.",
     "gf_falldamage": "Off pushes the fall-damage thresholds out of reach, so boosted jumps land clean.",
     "gf_oob": "Disabled = nobody gets the restricted-area warning, countdown or death (stock's own per-player disable_oob switch, re-set every spawn). Applies at the next spawn, or now with Apply now.",
+    "gf_deathbarrier": "The map's trigger_hurt kill volumes (the instant death off a ledge / in water / under the map) - NOT the restricted area, and god mode does not survive them. Disabled = triggerenable(0) on each (reversible). Deleted = delete() each (back next round). Sunk = moved 40000u down (reversible). Try in that order; switch the BARRIER line on to see the census and the last death's cause. Live with Apply now (movement), and every round.",
+    "gf_dbg_barrier": "One feed line every 3 s: trigger_hurt census (n / enabled / held off / deleted / sunk / named / dmg tallies), the host's state (inside how many hurt volumes, alive, god, z) and the last death of any player (name, MOD, attacker classname, god, z). Starts with the next Apply now (movement) or the next round.",
+    "gf_race_laps": "Laps through the start/finish gate (gate 0). Read when the race starts.",
+    "gf_race_sprint": "Circuit = every lap ends at gate 0. Sprint = one run, the finish is the LAST gate placed.",
+    "gf_race_grace": "The finish timer: starts when the FIRST racer finishes, shown on the stock match clock; the match ends when everyone has finished or it runs out. Placement = finishing order, unfinished racers ranked by progress.",
+    "gf_race_width": "Width of the gates placed from now on (a gate is placed across the host's direction of travel). Existing gates keep theirs.",
+    "gf_race_combat": "Off = nobody can damage anyone while the race runs (vehicles can still crash). On = a combat race.",
+    "gf_race_corridor": "The track is a corridor this wide around the line from each gate to the next (plus the leg before, so corners count). Outside it: OFF TRACK warning each second, then the reset. Read when the race starts.",
+    "gf_race_reset": "Seconds continuously off track before the racer is put back at the last gate passed, facing the course (a rider's vehicle is moved and levelled). 0 = warning only.",
+    "gf_race_posts": "A palm tree at both ends of every gate whenever the markers are shown (the first resident fallback elsewhere: street light, tire barricade, oil drum, hedgehog).",
+    "gf_race_grid": "At START everyone is placed in rows behind the start gate (columns at the grid spacing, rows 300 u apart), held until GO. A racer already in a vehicle brings it.",
+    "gf_race_vehicle": "The vehicle class spawned at each grid slot for racers on foot (bots stay on foot). AUTO = bikes, snowmobiles, quads, cars, tanks, else the care package heli - whatever this map has. None = no spawn.",
+    "gf_race_grid_gap": "Side-to-side spacing of the grid columns; wide for tanks. Columns per row = gate width / spacing.",
+    "gf_race_markers": "Put an objective icon on every gate when the race starts (the icon renders - measured 2026-09-19).",
+    "gf_race_end": "End = the race ends the match and the stock FFA end screen shows the placement. Keep = the match goes on, each race's points add to the standings (1st = N points ... last = 1), START again for the next race, and Actions -> Race -> End match shows the podium with the totals.",
+    "gf_dbg_race": "One feed line every 3 s: race state, gate count, settings, racers/finishers, the host's lap / next gate / side / lateral numbers and the last crossing.",
     "gf_jump": "Builtin jump height. -1 = engine default (untested).",
     "gf_vehmode": "Motorcycles: Diesel / Cartel / Collateral / Fireteam maps. Hind: Collateral + Fireteam maps. Care package heli: every map (flies, unarmed). Snowmobiles: Crossroads / Alpine. Quads + buggies: Collateral / Fireteam. Tanks: Crossroads (APC on Diesel / Checkmate). Cars: Cartel / Fireteam. A class this map lacks = everyone on foot.",
     "gf_veh_lock": "Riders cannot leave the seat (stock's disable_usability layer + a re-seat watcher). Live: applies to riders now.",
@@ -401,6 +454,7 @@ TIPS = {
     "gf_spec_slots": "Spectator/caster slots added on top of team size x 2 in the maxplayers write (capped at the lobby budget), so a spectator does not take a player slot when filling bots.",
     "gf_spawn_gap": "Target distance between the two sides the guard builds (tightest marker groups either side of the map centre, facing each other).",
     "gf_spawn_autospread": "AUTO trips when the nearest start spawn is farther than obj-radius + this (units).",
+    "gf_spawn_antistack": "On every spawn, if a player lands within 48u of another this round, relocate them (setorigin + a physics trace). Off = leave spawns exactly where the engine/guard put them. Turn OFF to isolate a spawn-time crash.",
     "gf_spawn_diag": "Print spawn diagnostics to the feed.",
     "gf_autoswitch": "On = auto-switch back to Gunfight when a non-GF gametype is injected.",
     "gf_switch_wait": "Seconds held during a session switch. 25 proven; 0 = cp-style, untested.",
@@ -1142,6 +1196,50 @@ class App:
         ttk.Button(rm5, text="Remove last", width=12, command=lambda: self._action("propundo")).pack(side="left", padx=3)
         ttk.Button(rm5, text="Remove all", width=12, command=lambda: self._action("propclear")).pack(side="left", padx=3)
 
+        # Race (2026-09-19, prototype, never run): the menu's Race page over gf_cmd_action "race".
+        # docs/notes/racing.md. Gates are placed where the HOST is (his vehicle when riding), across
+        # his direction of travel; laps / finish timer / width / combat live in Config → Race.
+        boxr = ttk.LabelFrame(body, text="Race  (prototype - a Free-for-all match; gates go where the host is)")
+        boxr.pack(fill="x", padx=12, pady=6)
+        rr1 = ttk.Frame(boxr)
+        rr1.pack(anchor="w", padx=10, pady=(10, 2))
+        ttk.Label(rr1, text="Track", width=13).pack(side="left")
+        for text, arg in [("gate here", "gate"), ("undo last gate", "undo"), ("clear track", "clear"),
+                          ("load saved", "load"), ("markers show/hide", "markers"), ("reset me", "resetme"),
+                          ("END MATCH (podium)", "endmatch")]:
+            ttk.Button(rr1, text=text, width=16,
+                       command=lambda a=arg: self._action("race", a)).pack(side="left", padx=3)
+        rr2 = ttk.Frame(boxr)
+        rr2.pack(anchor="w", padx=10, pady=(2, 10))
+        ttk.Label(rr2, text="Race", width=13).pack(side="left")
+        ttk.Button(rr2, text="START RACE (3-2-1-GO)", width=22,
+                   command=lambda: self._action("race", "start")).pack(side="left", padx=3)
+        ttk.Button(rr2, text="Stop / cancel", width=14,
+                   command=lambda: self._action("race", "stop")).pack(side="left", padx=3)
+        ttk.Label(rr2, text="  first gate = start/finish; the first finish starts the finish timer", foreground="#777").pack(side="left")
+        # Saved tracks (2026-09-20): the game publishes its gates in the GFCFG marker (trk=...),
+        # config_scan.read_track() pulls them out read-only, and they live in tracks.json next to
+        # this file keyed by map. Load = racetrack <map> (clears when the map matches) then one
+        # racegate per gate, paced past the GSC's 0.25 s command poll.
+        rr3 = ttk.Frame(boxr)
+        rr3.pack(anchor="w", padx=10, pady=(2, 2))
+        ttk.Label(rr3, text="Saved tracks", width=13).pack(side="left")
+        self.track_name = tk.StringVar(value="track 1")
+        ttk.Entry(rr3, textvariable=self.track_name, width=18).pack(side="left", padx=3)
+        ttk.Button(rr3, text="Save track from game", width=20,
+                   command=self._track_save).pack(side="left", padx=3)
+        rr4 = ttk.Frame(boxr)
+        rr4.pack(anchor="w", padx=10, pady=(2, 10))
+        ttk.Label(rr4, text="", width=13).pack(side="left")
+        self.track_pick = tk.StringVar(value="")
+        self.track_box = ttk.Combobox(rr4, state="readonly", values=[], textvariable=self.track_pick, width=40)
+        self.track_box.pack(side="left", padx=3)
+        ttk.Button(rr4, text="Load into game", width=16,
+                   command=self._track_load).pack(side="left", padx=3)
+        ttk.Button(rr4, text="Delete", width=8,
+                   command=self._track_delete).pack(side="left", padx=3)
+        self._track_refresh()
+
         # Per-player verbs (the menu's Players page): gf_cmd_target names the player as shown
         # in game - exact name or a case-insensitive prefix; the GSC resolves it.
         box6 = ttk.LabelFrame(body, text="Player by name  (as shown in game; a prefix is enough)")
@@ -1469,7 +1567,7 @@ class App:
     # are structural / next-round - cmd_apply_live never applies them, so they need no scope.
     LIVE_SCOPE = {
         "move": {"gf_gravity", "gf_jump", "gf_jump_boost", "gf_speed", "gf_falldamage",
-                 "gf_oob", "gf_fly_speed", "gf_fly_fast"},
+                 "gf_oob", "gf_deathbarrier", "gf_dbg_barrier", "gf_fly_speed", "gf_fly_fast"},
         "bots": {"gf_bot_diff_allies", "gf_bot_diff_axis", "gf_bot_passive",
                  "gf_bot_hit", "gf_bot_head", "gf_bot_react", "gf_bot_fire", "gf_bot_hip",
                  "gf_bot_far", "gf_bot_semi", "gf_bot_burst", "gf_bot_moveshoot", "gf_bot_fastaim",
@@ -1575,6 +1673,118 @@ class App:
             s["gf_cmd_arg"] = arg
         s["gf_cmd_go"] = 1
         self._write(s)
+
+    # ── saved race tracks ────────────────────────────────────────────────────
+    TRACKS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tracks.json")
+
+    def _tracks_read(self) -> dict:
+        try:
+            with open(self.TRACKS_FILE, encoding="utf-8") as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else {}
+        except Exception:
+            return {}
+
+    def _tracks_write(self, d: dict):
+        with open(self.TRACKS_FILE, "w", encoding="utf-8") as f:
+            json.dump(d, f, indent=1)
+
+    def _track_refresh(self):
+        d = self._tracks_read()
+        items = []
+        for m in sorted(d):
+            for name in sorted(d[m]):
+                items.append(f"{m}: {name}  ({len(d[m][name])} gates)")
+        self.track_box["values"] = items
+        if items and self.track_pick.get() not in items:
+            self.track_pick.set(items[0])
+
+    def _track_save(self):
+        # The game holds the track; read it out of the GFCFG marker (read-only sweep) and store it
+        # under this map and the typed name.
+        if config_scan is None or gf_native is None:
+            self._say("track save needs config_scan + gf_native (Windows, game running)")
+            return
+        name = self.track_name.get().strip() or "track"
+        self._say("reading the track out of the game...")
+
+        def worker():
+            try:
+                pid = gf_native.find_game_pid()
+                r = config_scan.read_track(pid) if pid else None
+            except Exception as e:
+                r = None
+                err = str(e)
+            else:
+                err = None
+            self.root.after(0, lambda: self._track_save_done(name, r, err))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _track_save_done(self, name, r, err):
+        if err:
+            self._say(f"track save failed: {err}")
+            return
+        if r is None:
+            self._say("no track found in the game (is the race build injected and a match running?)")
+            return
+        m, gates = r
+        if not gates:
+            self._say(f"the game holds no gates on {m} - place some first")
+            return
+        d = self._tracks_read()
+        d.setdefault(m, {})[name] = gates
+        self._tracks_write(d)
+        self._track_refresh()
+        self.track_pick.set(f"{m}: {name}  ({len(gates)} gates)")
+        self._say(f"saved {len(gates)} gates as '{name}' for {m} -> {self.TRACKS_FILE}")
+
+    def _track_selected(self):
+        pick = self.track_pick.get()
+        if ": " not in pick:
+            return None
+        m, rest = pick.split(": ", 1)
+        name = rest.rsplit("  (", 1)[0]
+        d = self._tracks_read()
+        gates = d.get(m, {}).get(name)
+        if gates is None:
+            return None
+        return m, name, gates
+
+    def _track_load(self):
+        sel = self._track_selected()
+        if sel is None:
+            self._say("pick a saved track first")
+            return
+        m, name, gates = sel
+        # One command per gf_cmd_go pulse: the GSC poller consumes a pulse every 0.25 s, so a
+        # second command sent before that is lost. 0.5 s apart is safe; 16 gates = 8 s.
+        cmds = [("racetrack", m)] + [("racegate", ",".join(str(int(v)) for v in g)) for g in gates]
+        self._say(f"loading '{name}' ({len(gates)} gates) into the game on {m}, {len(cmds)} commands 0.5 s apart...")
+
+        def worker():
+            import time
+            for i, (verb, arg) in enumerate(cmds):
+                self.root.after(0, lambda v=verb, a=arg: self._action(v, a))
+                time.sleep(0.5)
+            self.root.after(0, lambda: self._say(f"track '{name}' sent - the game says how many gates it took"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _track_delete(self):
+        sel = self._track_selected()
+        if sel is None:
+            self._say("pick a saved track first")
+            return
+        m, name, _g = sel
+        d = self._tracks_read()
+        d.get(m, {}).pop(name, None)
+        if m in d and not d[m]:
+            del d[m]
+        self._tracks_write(d)
+        self.track_pick.set("")
+        self._track_refresh()
+        self._say(f"deleted '{name}' ({m})")
 
     def _give_weapon(self):
         n = self._wpnlut.get(self.wpn_var.get())
