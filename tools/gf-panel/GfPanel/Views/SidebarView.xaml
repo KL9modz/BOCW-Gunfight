@@ -1,0 +1,141 @@
+<UserControl x:Class="GfPanel.Views.SidebarView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Border Background="{StaticResource Sf}" BorderBrush="{StaticResource Bd}" BorderThickness="0,0,1,0">
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" MinHeight="120" />
+        <RowDefinition Height="6" />
+        <RowDefinition x:Name="ActivityRow" Height="200" MinHeight="70" />
+      </Grid.RowDefinitions>
+
+      <!-- SERVER | SCOREBOARD (match control has its own tab) -->
+      <Grid Grid.Row="0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+          <Border Grid.Column="0" Style="{StaticResource Card}">
+            <StackPanel>
+              <TextBlock Text="SERVER" Style="{StaticResource CardTitle}" />
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                <TextBlock Text="Map" Style="{StaticResource Dim}" FontSize="11" Margin="0,1,10,1" />
+                <TextBlock Grid.Column="1" Text="{Binding MapText}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,1" />
+                <TextBlock Grid.Row="1" Text="Gametype" Style="{StaticResource Dim}" FontSize="11" Margin="0,1,10,1" />
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding GametypeText}" FontSize="11" Margin="0,1" />
+                <TextBlock Grid.Row="2" Text="Players" Style="{StaticResource Dim}" FontSize="11" Margin="0,1,10,1" />
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding PlayersText}" FontSize="11" TextWrapping="Wrap" Margin="0,1" />
+                <TextBlock Grid.Row="3" Text="Teams" Style="{StaticResource Dim}" FontSize="11" Margin="0,1,10,1" />
+                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding TeamsText}" FontSize="11" Margin="0,1" />
+                <TextBlock Grid.Row="4" Text="Phase" Style="{StaticResource Dim}" FontSize="11" Margin="0,1,10,1" />
+                <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding PhaseText}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource Wn}" Margin="0,1" />
+                <TextBlock Grid.Row="5" Text="Host" Style="{StaticResource Dim}" FontSize="11" Margin="0,1,10,1" />
+                <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding HostText}" FontSize="11" Margin="0,1" />
+              </Grid>
+              <TextBlock Text="{Binding StagedText}" Foreground="{StaticResource Wn}" FontSize="10.5" Margin="0,3,0,0" Visibility="{Binding StagedText, Converter={StaticResource NullVis}}" />
+            </StackPanel>
+          </Border>
+          <Border Grid.Column="1" Style="{StaticResource Card}" BorderThickness="1,0,0,1">
+            <StackPanel>
+              <TextBlock Text="SCOREBOARD" Style="{StaticResource CardTitle}" />
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                <Border Background="{StaticResource Bg}" BorderBrush="#5A2EC653" BorderThickness="1" CornerRadius="6" Padding="6,5">
+                  <StackPanel HorizontalAlignment="Center">
+                    <TextBlock Text="ALLIES" FontSize="9" FontWeight="Bold" Foreground="{StaticResource Dm}" HorizontalAlignment="Center" />
+                    <TextBlock Text="{Binding ScoreA}" FontSize="24" FontWeight="ExtraBold" Foreground="{StaticResource Ok}" HorizontalAlignment="Center" />
+                  </StackPanel>
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,0">
+                  <TextBlock Text=":" FontSize="16" Foreground="{StaticResource Bd}" HorizontalAlignment="Center" />
+                  <TextBlock Text="{Binding RoundText}" FontSize="9" Foreground="{StaticResource Dm}" HorizontalAlignment="Center" />
+                </StackPanel>
+                <Border Grid.Column="2" Background="{StaticResource Bg}" BorderBrush="#5AE63946" BorderThickness="1" CornerRadius="6" Padding="6,5">
+                  <StackPanel HorizontalAlignment="Center">
+                    <TextBlock Text="AXIS" FontSize="9" FontWeight="Bold" Foreground="{StaticResource Dm}" HorizontalAlignment="Center" />
+                    <TextBlock Text="{Binding ScoreX}" FontSize="24" FontWeight="ExtraBold" Foreground="{StaticResource Ng}" HorizontalAlignment="Center" />
+                  </StackPanel>
+                </Border>
+              </Grid>
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,5,0,0">
+                <TextBlock Text="Alive " Style="{StaticResource Dim}" FontSize="11" />
+                <TextBlock Text="{Binding AliveA}" Foreground="{StaticResource Ok}" FontWeight="Bold" FontSize="11" />
+                <TextBlock Text="  |  " Foreground="{StaticResource Bd}" FontSize="11" />
+                <TextBlock Text="{Binding AliveX}" Foreground="{StaticResource Ng}" FontWeight="Bold" FontSize="11" />
+                <TextBlock Text="      Timer " Style="{StaticResource Dim}" FontSize="11" />
+                <TextBlock Text="{Binding TimerText}" FontWeight="Bold" FontSize="12" FontFamily="{StaticResource Mono}" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+      </Grid>
+
+      <!-- PLAYERS / NEXT MATCH -->
+      <Border Grid.Row="1" Style="{StaticResource Card}" BorderThickness="0">
+        <Grid>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+          <TabControl x:Name="RosterTabs" Grid.RowSpan="2" Background="Transparent">
+            <TabControl.Resources>
+              <Style TargetType="{x:Type TabItem}" BasedOn="{StaticResource {x:Type TabItem}}">
+                <Setter Property="Padding" Value="6,4" />
+                <Setter Property="FontSize" Value="10" />
+              </Style>
+            </TabControl.Resources>
+            <TabItem Header="PLAYERS">
+              <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <TextBlock Text="{Binding Players.Summary}" Style="{StaticResource Dim}" FontSize="10" Margin="4,4,0,2" />
+                <TextBlock Text="right-click a player for actions" Style="{StaticResource Dim}" FontSize="10" HorizontalAlignment="Right" Margin="0,4,4,2" />
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                  <StackPanel>
+                    <Border Background="{StaticResource TeamADim}" BorderBrush="{StaticResource TeamA}" BorderThickness="3,0,0,0" Padding="6,2" Visibility="{Binding Players.Allies.Count, Converter={StaticResource CountVis}}">
+                      <TextBlock Text="◆ ALLIES" Foreground="{StaticResource TeamA}" FontSize="10" FontWeight="ExtraBold" />
+                    </Border>
+                    <ItemsControl ItemsSource="{Binding Players.Allies}" />
+                    <Border Background="{StaticResource TeamXDim}" BorderBrush="{StaticResource TeamX}" BorderThickness="3,0,0,0" Padding="6,2" Margin="0,4,0,0" Visibility="{Binding Players.Axis.Count, Converter={StaticResource CountVis}}">
+                      <TextBlock Text="◆ AXIS" Foreground="{StaticResource TeamX}" FontSize="10" FontWeight="ExtraBold" />
+                    </Border>
+                    <ItemsControl ItemsSource="{Binding Players.Axis}" />
+                    <Border Background="{StaticResource TeamSDim}" BorderBrush="{StaticResource TeamS}" BorderThickness="3,0,0,0" Padding="6,2" Margin="0,4,0,0" Visibility="{Binding Players.Spectators.Count, Converter={StaticResource CountVis}}">
+                      <TextBlock Text="◇ SPECTATOR / UNASSIGNED" Foreground="{StaticResource TeamS}" FontSize="10" FontWeight="ExtraBold" />
+                    </Border>
+                    <ItemsControl ItemsSource="{Binding Players.Spectators}" />
+                  </StackPanel>
+                </ScrollViewer>
+              </Grid>
+            </TabItem>
+            <TabItem Header="NEXT MATCH">
+              <StackPanel Margin="4">
+                <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,4,0,6">Stage each player's side for the next match: right-click a player → Next match → A / X / Spectator. The GSC seats a staged player at connect; Apply moves everyone present now; the panel re-sends the plan when a new match starts.</TextBlock>
+                <TextBlock Text="{Binding StagedPlanText}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+                <Grid>
+                  <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                  <Button Content="✔ Apply now" Style="{StaticResource Accent}" Command="{Binding StageApply}" Margin="0,0,3,0" />
+                  <Button Grid.Column="1" Content="✕ Clear plan" Command="{Binding StageClearAll}" Margin="3,0,0,0" />
+                </Grid>
+                <TextBlock Text="BANS (this session; re-sent at every match start)" Style="{StaticResource SubTitle}" />
+                <TextBlock Text="{Binding BansText}" FontSize="11" TextWrapping="Wrap" />
+                <Button Content="Clear bans" Style="{StaticResource SmallBtn}" Command="{Binding ClearBans}" HorizontalAlignment="Left" Margin="0,6,0,0" />
+              </StackPanel>
+            </TabItem>
+          </TabControl>
+        </Grid>
+      </Border>
+
+      <GridSplitter Grid.Row="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ShowsPreview="False" />
+
+      <!-- ACTIVITY -->
+      <Border Grid.Row="3" Style="{StaticResource Card}" BorderThickness="0,1,0,0">
+        <Grid>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+          <TextBlock Text="ACTIVITY" Style="{StaticResource CardTitle}" />
+          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding Link.Activity}" />
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
+  </Border>
+</UserControl>

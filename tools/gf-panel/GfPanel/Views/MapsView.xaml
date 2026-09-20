@@ -1,0 +1,72 @@
+<UserControl x:Class="GfPanel.Views.MapsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,12">
+    <StackPanel>
+      <!-- session switch bar -->
+      <Border Background="{StaticResource Sf}" BorderBrush="{StaticResource Bd}" BorderThickness="1" CornerRadius="7" Padding="12,9" Margin="0,0,0,10">
+        <StackPanel>
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="Selected" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+              <TextBlock Text="{Binding Maps.SelectionText}" FontWeight="SemiBold" />
+              <Button Content="✕" Style="{StaticResource SmallBtn}" Command="{Binding Maps.ClearSelection}" Margin="8,0,0,0" Padding="4,0" ToolTip="keep the current map (switch the gametype alone)" />
+            </StackPanel>
+            <TextBlock Grid.Column="2" Text="Gametype" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="12,0,6,0" />
+            <ComboBox Grid.Column="3" ItemsSource="{Binding Maps.Gametypes}" DisplayMemberPath="Label" SelectedItem="{Binding Maps.Gametype}" Width="190" />
+            <Button Grid.Column="4" Content="Stage for lobby (next match)" Command="{Binding Maps.Stage}" Margin="10,0,0,0"
+                    ToolTip="gf_cmd_stage 1: switchmap_load only. The match keeps running and the pregame lobby shows this map when it ends (measured 2026-09-12). Wait for the game's STAGE READY line before ending the match." />
+            <Button Grid.Column="5" Content="Switch NOW" Style="{StaticResource Accent}" Command="{Binding Maps.SwitchNow}" Margin="6,0,0,0"
+                    ToolTip="gf_cmd_stage 0: switchmap_load + switchmap_switch - the in-match session switch; the lobby follows. Ends the running match." />
+          </Grid>
+          <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+            <TextBlock Text="{Binding Maps.StagedText}" Foreground="{StaticResource Wn}" FontSize="11" />
+            <Button Content="↻ Restart match" Style="{StaticResource SmallBtn}" Command="{Binding Maps.RestartMatch}" Margin="12,0,0,0" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- rotation -->
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="MAP ROTATION (PLAYLIST)" Style="{StaticResource BlockTitle}" />
+            <TextBlock Text="{Binding Maps.PlaylistStatus}" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" />
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel>
+          <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,0,0,6">Private matches have no engine rotation, so the panel drives one: with the rotation ON, 20 s into every new match it STAGES the next entry for the lobby (a stage takes ~25 s to become ready). Click a map below, then Add.</TextBlock>
+          <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+            <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Maps.PlaylistEnabled}" VerticalAlignment="Center" />
+            <TextBlock Text=" rotation on" VerticalAlignment="Center" Margin="4,0,14,0" FontSize="12" />
+            <Button Content="+ Add selected" Style="{StaticResource SmallAccent}" Command="{Binding Maps.AddToPlaylist}" Margin="0,0,4,0" />
+            <Button Content="⏭ Stage next now" Style="{StaticResource SmallBtn}" Command="{Binding Maps.StageNextNow}" Margin="0,0,4,0" ToolTip="stage the NEXT entry for the lobby right now and advance the pointer" />
+            <Button Content="Clear" Style="{StaticResource SmallBtn}" Command="{Binding Maps.ClearPlaylist}" />
+          </StackPanel>
+          <ItemsControl ItemsSource="{Binding Maps.Playlist}" />
+        </StackPanel>
+      </Expander>
+
+      <!-- grids -->
+      <TextBlock Text="6v6 maps — what the switch actually loads under Gunfight is in the label (Armada / Collateral come up as their Strike layouts)" Style="{StaticResource SubTitle}" />
+      <ItemsControl ItemsSource="{Binding Maps.Maps6v6}">
+        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+      </ItemsControl>
+      <TextBlock Text="Gunfight / Face Off maps" Style="{StaticResource SubTitle}" />
+      <ItemsControl ItemsSource="{Binding Maps.MapsGf}">
+        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+      </ItemsControl>
+      <TextBlock Text="12v12 layouts — switch the session to map + tdm10v10 (the gametype box follows the pick)" Style="{StaticResource SubTitle}" />
+      <ItemsControl ItemsSource="{Binding Maps.Maps12}">
+        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+      </ItemsControl>
+      <TextBlock Text="Fireteam maps — 40-player dedicated modes; loading one this way is untested" Style="{StaticResource SubTitle}" />
+      <ItemsControl ItemsSource="{Binding Maps.MapsFt}">
+        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+      </ItemsControl>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

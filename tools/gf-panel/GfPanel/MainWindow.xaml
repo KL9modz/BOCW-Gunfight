@@ -1,0 +1,115 @@
+<Window x:Class="GfPanel.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:v="clr-namespace:GfPanel.Views"
+        Title="Gunfight Host Panel" Width="1440" Height="900" MinWidth="1000" MinHeight="620"
+        Background="{StaticResource Bg}" FontFamily="{StaticResource Font}" FontSize="13"
+        Icon="Assets/logo.ico" WindowStartupLocation="CenterScreen">
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <!-- ═══ header ═══ -->
+    <Border Grid.Row="0" Background="{StaticResource Sf}" BorderBrush="{StaticResource Bd}" BorderThickness="0,0,0,1" Padding="14,7">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
+          <Image Source="Assets/logo.png" Height="30" Margin="0,0,9,0" />
+          <StackPanel VerticalAlignment="Center">
+            <TextBlock Text="GUNFIGHT" FontSize="15" FontWeight="ExtraBold" Foreground="{StaticResource Ac}" />
+            <TextBlock Text="HOST PANEL  ·  by KL9" FontSize="8.5" Foreground="{StaticResource Dm}" Margin="0,1,0,0" />
+          </StackPanel>
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+          <Border Style="{StaticResource Badge}" BorderBrush="{Binding StatusKind, Converter={StaticResource KeyBrush}}" Margin="0,0,8,0">
+            <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="Bold" Foreground="{Binding StatusKind, Converter={StaticResource KeyBrush}}" />
+          </Border>
+          <Border Style="{StaticResource Badge}" BorderBrush="{StaticResource Wn}" Visibility="{Binding DryRunBadge, Converter={StaticResource NullVis}}" Margin="0,0,8,0">
+            <TextBlock Text="{Binding DryRunBadge}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource Wn}" />
+          </Border>
+          <TextBlock Text="{Binding SweepText}" Style="{StaticResource Dim}" FontSize="10" VerticalAlignment="Center" Margin="4,0,0,0" />
+        </StackPanel>
+        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+          <Button Content="↻ Apply all live" Style="{StaticResource SmallBtn}" Command="{Binding ApplyAllLive}" ToolTip="Re-assert every live subsystem (movement / bots / periods / timer) from the current dvars - the old app's Apply now." Margin="0,0,8,0" />
+          <Grid Width="280">
+            <TextBox x:Name="SearchBox" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" Padding="26,4,8,4" ToolTip="Search every setting by label, dvar or tooltip. Press / anywhere to focus." />
+            <TextBlock Text="⌕" Foreground="{StaticResource Dm}" Margin="8,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False" FontSize="14" />
+            <TextBlock Text="Search settings   /" Foreground="{StaticResource Dm}" Margin="26,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False" FontSize="12"
+                       Visibility="{Binding Search, Converter={StaticResource NullVisInv}}" />
+          </Grid>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- ═══ body: sidebar | splitter | tabs ═══ -->
+    <Grid Grid.Row="1">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition x:Name="SidebarCol" Width="440" MinWidth="300" MaxWidth="760" />
+        <ColumnDefinition Width="6" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+
+      <v:SidebarView Grid.Column="0" />
+      <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ShowsPreview="False" DragCompleted="Splitter_DragCompleted" />
+
+      <TabControl x:Name="Tabs" Grid.Column="2" SelectionChanged="Tabs_SelectionChanged">
+        <TabItem Header="★ FAVORITES" Tag="favorites">
+          <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,12">
+            <StackPanel>
+              <Border Background="{StaticResource Sf}" BorderBrush="{StaticResource Bd}" BorderThickness="1" CornerRadius="7" Padding="12,9" Margin="0,0,0,10">
+                <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="11.5">Pinned settings - the same live controls, on loan from DASHBOARD / ADVANCED. Click ☆ on a row to pin one setting, or ☆ on a section title to pin the whole panel. Right-click any row: copy dvar · pin · reset.</TextBlock>
+              </Border>
+              <ItemsControl ItemsSource="{Binding Favorites}" />
+              <TextBlock Text="Nothing pinned yet." Style="{StaticResource Dim}" Visibility="{Binding HasFavorites, Converter={StaticResource VisInv}}" />
+            </StackPanel>
+          </ScrollViewer>
+        </TabItem>
+        <TabItem Header="DASHBOARD" Tag="dashboard">
+          <v:DashboardView />
+        </TabItem>
+        <TabItem Header="MATCH" Tag="match">
+          <v:MatchView />
+        </TabItem>
+        <TabItem Header="MAPS" Tag="maps">
+          <v:MapsView />
+        </TabItem>
+        <TabItem Header="ADVANCED" Tag="advanced">
+          <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,12">
+            <v:ColumnsPanel ItemsSource="{Binding AdvancedSections}" />
+          </ScrollViewer>
+        </TabItem>
+        <TabItem Header="TOOLS" Tag="tools">
+          <v:ToolsView />
+        </TabItem>
+        <TabItem Header="CONSOLE" Tag="console">
+          <v:ConsoleView />
+        </TabItem>
+        <TabItem Header="SETUP" Tag="setup">
+          <v:SetupView />
+        </TabItem>
+      </TabControl>
+
+      <!-- search results dropdown -->
+      <Border Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,14,0" Width="480" MaxHeight="420"
+              Background="{StaticResource Sf}" BorderBrush="{StaticResource Bd}" BorderThickness="1" CornerRadius="6" Padding="4"
+              Visibility="{Binding SearchOpen, Converter={StaticResource Vis}}" Panel.ZIndex="50">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <ItemsControl ItemsSource="{Binding SearchHits}" />
+        </ScrollViewer>
+      </Border>
+
+      <!-- toasts (top-right) -->
+      <ItemsControl Grid.Column="2" ItemsSource="{Binding Toasts.Items}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,44,18,0" Panel.ZIndex="60" IsHitTestVisible="False" />
+
+      <!-- command queue (bottom-left of the main area) -->
+      <ItemsControl Grid.Column="2" ItemsSource="{Binding Link.Queue}" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="14,0,0,12" Panel.ZIndex="60" IsHitTestVisible="False" />
+    </Grid>
+  </Grid>
+</Window>

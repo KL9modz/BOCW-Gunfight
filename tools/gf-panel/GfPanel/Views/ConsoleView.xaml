@@ -1,0 +1,52 @@
+<UserControl x:Class="GfPanel.Views.ConsoleView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid Margin="14,12">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+    <Expander Style="{StaticResource Block}">
+      <Expander.Header>
+        <StackPanel Orientation="Horizontal">
+          <TextBlock Text="CONSOLE" Style="{StaticResource BlockTitle}" />
+          <TextBlock Text="any console command, run in-game through cwpatch's executor (the F4/F6/F7 slot). No echo comes back: the readback lines and the game are the confirmation. ≤ 47 bytes per command." Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="900" />
+        </StackPanel>
+      </Expander.Header>
+      <StackPanel>
+        <TextBlock Text="Quick commands — click runs it with a go pulse (seq + gf_cmd_go), ✎ just fills the box" Style="{StaticResource SubTitle}" />
+        <ItemsControl ItemsSource="{Binding Console.Quick}">
+          <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <StackPanel Orientation="Horizontal" Margin="0,2,6,2">
+                <Button Content="{Binding Label}" Style="{StaticResource Chip}" ToolTip="{Binding Tip}" Command="{Binding DataContext.Console.Run, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                <Button Content="✎" Style="{StaticResource Chip}" Padding="4,3" Command="{Binding DataContext.Console.Fill, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </Expander>
+    <Border Grid.Row="1" Background="#FF0A0C14" BorderBrush="{StaticResource Bd}" BorderThickness="1" CornerRadius="6" Padding="8">
+      <ScrollViewer x:Name="LogScroll" VerticalScrollBarVisibility="Auto">
+        <ItemsControl ItemsSource="{Binding Console.Lines}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding}" FontFamily="{StaticResource Mono}" FontSize="11.5" Foreground="#FFB8C0E0" TextWrapping="Wrap" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Border>
+    <Grid Grid.Row="2" Margin="0,8,0,0">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+      <TextBox x:Name="Input" Text="{Binding Console.Input, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource MonoBox}" PreviewKeyDown="Input_PreviewKeyDown" />
+      <TextBlock Grid.Column="1" Text="{Binding Console.ByteCount}" Style="{StaticResource Dim}" FontSize="10" VerticalAlignment="Center" Margin="8,0" />
+      <Button Grid.Column="2" Content="Send" Style="{StaticResource Accent}" Command="{Binding Console.Send}" ToolTip="run the line as-is (a plain `set` or any console command)" />
+      <Button Grid.Column="3" Content="Send + go" Command="{Binding Console.SendPulsed}" Margin="4,0,0,0" ToolTip="run the line, then gf_cmd_seq + gf_cmd_go 1 (for a gf_cmd_action / gf_cmd_map line)" />
+      <Button Grid.Column="4" Content="Clear" Command="{Binding Console.Clear}" Margin="4,0,0,0" />
+    </Grid>
+  </Grid>
+</UserControl>

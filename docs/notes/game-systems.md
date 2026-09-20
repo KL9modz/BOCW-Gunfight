@@ -400,6 +400,12 @@ setting), the first-round forfeit clock (`function_67ed6c46` `:875`, reads the l
   has zero references in the dump and cannot be verified from script — not used.
 - **Broadcast** = `player iprintlnbold( msg )` per player (centre) / `iprintln` (feed). Presets + a `gf_cmd_say`
   dvar channel for the bridge; "BLINKER CHECKPOINT" is re-sent every 3 s while paused because the centre print fades.
+  At resume the last one was still fading under the MATCH STARTING IN countdown (klaze's screenshot 2026-09-20), so
+  `match_resume` now sends a blank bold print (`"^7"`, a lone colour code: non-empty, renders as nothing) to every
+  player before the countdown and the re-send loop endons `gf_pause_resume`. Relies on a bold print REPLACING the
+  one on screen (single slot) and on the client accepting a blank one - both unmeasured; side payload
+  `gunfight_menu.pauseclear.gscc`. Fallback if it does not clear: hold the banner on the hint channel
+  (`broadcast_hint_start/stop`) instead, which is cleared deterministically.
 - **Weapons**: all 64 MP loadout names — `docs/reference/bocw-weapons.md` (and why there is no gulag rock in T9).
 - **Teleport** (2026-09-15, [[teleport]]) = stock's fast-travel idiom on a live player, `red_door.gsc:492`
   (`dontinterpolate` → `setorigin` → `setvelocity( (0,0,0) )` → `setplayerangles`); destinations floored with

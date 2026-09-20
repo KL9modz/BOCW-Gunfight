@@ -1,0 +1,89 @@
+<UserControl x:Class="GfPanel.Views.SetupView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:v="clr-namespace:GfPanel.Views">
+  <UserControl.Resources>
+    <DataTemplate x:Key="StatusRow">
+      <StackPanel Orientation="Horizontal" Margin="0,3" />
+    </DataTemplate>
+  </UserControl.Resources>
+  <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,12">
+    <v:ColumnsPanel>
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header><TextBlock Text="STATUS" Style="{StaticResource BlockTitle}" /></Expander.Header>
+        <StackPanel>
+          <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="18" /><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+            <Ellipse Width="9" Height="9" Fill="{Binding Inject.GameOk, Converter={StaticResource KeyBrush}}" />
+            <TextBlock Grid.Column="1" Text="Game" Style="{StaticResource Dim}" />
+            <TextBlock Grid.Column="2" Text="{Binding Inject.GameText}" />
+            <Ellipse Grid.Row="1" Width="9" Height="9" Fill="{Binding Inject.CwpatchOk, Converter={StaticResource KeyBrush}}" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="cwpatch" Style="{StaticResource Dim}" />
+            <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding Inject.CwpatchText}" TextWrapping="Wrap" />
+            <Ellipse Grid.Row="2" Width="9" Height="9" Fill="{Binding Inject.BridgeOk, Converter={StaticResource KeyBrush}}" />
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="Bridge DLL" Style="{StaticResource Dim}" />
+            <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding Inject.BridgeText}" />
+            <Ellipse Grid.Row="3" Width="9" Height="9" Fill="{Binding Inject.MenuOk, Converter={StaticResource KeyBrush}}" />
+            <TextBlock Grid.Row="3" Grid.Column="1" Text="Mod menu" Style="{StaticResource Dim}" />
+            <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding Inject.MenuText}" TextWrapping="Wrap" />
+          </Grid>
+          <TextBlock Text="{Binding SweepText}" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,6,0,0" />
+          <TextBlock Text="{Binding Inject.Busy}" Foreground="{StaticResource Wn}" FontSize="11" Margin="0,4,0,0" />
+        </StackPanel>
+      </Expander>
+
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header><TextBlock Text="INJECT — ONE PAYLOAD PER GAME LAUNCH" Style="{StaticResource BlockTitle}" /></Expander.Header>
+        <StackPanel>
+          <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="11" Margin="0,0,0,8">Sequence: launch the game with cwpatch in the discord slot → load a private MATCH once (puts bb.gsc in the pool) → Set up all → restart the match (F7 / Restart match) to link the menu. The bridge DLL loads immediately; the menu links at the next match start. A different payload needs a game relaunch.</TextBlock>
+          <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+            <Button Content="Set up all  (cwpatch + bridge + menu)" Style="{StaticResource Accent}" Command="{Binding Inject.SetupAll}" />
+            <TextBlock Text="one click, then restart the match" Style="{StaticResource Dim}" FontSize="10.5" VerticalAlignment="Center" Margin="10,0,0,0" />
+          </StackPanel>
+          <WrapPanel Margin="0,0,0,8">
+            <Button Content="Inject mod menu" Command="{Binding Inject.InjectMenuCmd}" Margin="0,0,6,0" />
+            <Button Content="Inject bridge DLL" Command="{Binding Inject.InjectBridge}" Margin="0,0,6,0" />
+            <Button Content="Install / reinstall cwpatch" Command="{Binding Inject.InstallCwpatch}" ToolTip="Battle.net writes the stock SDK back over cwpatch on updates / repairs - re-install it (loads at the next launch)" />
+          </WrapPanel>
+          <TextBlock Text="Payload" Style="{StaticResource SubTitle}" />
+          <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBox Text="{Binding Inject.Payload, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource MonoBox}" FontSize="11" />
+            <Button Grid.Column="1" Content="Pick…" Style="{StaticResource SmallBtn}" Command="{Binding Inject.PickPayload}" Margin="4,0,0,0" />
+          </Grid>
+          <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+            <TextBlock Text="{Binding Inject.PayloadInfo}" Style="{StaticResource Dim}" FontSize="10.5" VerticalAlignment="Center" />
+            <Button Content="Use live slot" Style="{StaticResource SmallBtn}" Command="{Binding Inject.UseLive}" Margin="10,0,0,0" Visibility="{Binding Inject.PayloadIsLive, Converter={StaticResource VisInv}}" ToolTip="back to payloads\gunfight_menu.gscc - the one build in play" />
+          </StackPanel>
+          <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,6,0,0">Default = the LIVE slot (payloads\gunfight_menu.gscc), the one build in play. A side build (.panel / .props / …) is an explicit Pick. The panel's scoreboard, timer, acks and the everyone / match-control verbs need a build that publishes GFSTATE; an older payload still gives the roster, the config readback and every menu verb.</TextBlock>
+        </StackPanel>
+      </Expander>
+
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header><TextBlock Text="PANEL" Style="{StaticResource BlockTitle}" /></Expander.Header>
+        <StackPanel>
+          <StackPanel Orientation="Horizontal" Margin="0,2">
+            <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Prefs.ApplyLiveOnChange}" VerticalAlignment="Center" />
+            <TextBlock Text=" apply live on change (one apply pulse after a setting that a live subsystem owns)" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="12" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Margin="0,2">
+            <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Prefs.JoinToast}" VerticalAlignment="Center" />
+            <TextBlock Text=" toast when a player joins" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="12" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Margin="0,2">
+            <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Prefs.JoinBeep}" VerticalAlignment="Center" />
+            <TextBlock Text=" beep when a player joins" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="12" />
+          </StackPanel>
+          <WrapPanel Margin="0,8,0,0">
+            <Button Content="Open data folder (prefs, tracks, log)" Style="{StaticResource SmallBtn}" Command="{Binding Inject.OpenDataDir}" Margin="0,0,6,0" />
+            <Button Content="Open bundle folder" Style="{StaticResource SmallBtn}" Command="{Binding Inject.OpenBundleDir}" />
+          </WrapPanel>
+          <TextBlock Text="{Binding Inject.Acts, StringFormat='acts: {0}'}" Style="{StaticResource Dim}" FontSize="10" Margin="0,8,0,0" TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{Binding Inject.BridgeDll, StringFormat='bridge: {0}'}" Style="{StaticResource Dim}" FontSize="10" TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{Binding Inject.CwpatchSrc, StringFormat='cwpatch: {0}'}" Style="{StaticResource Dim}" FontSize="10" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+      </Expander>
+    </v:ColumnsPanel>
+  </ScrollViewer>
+</UserControl>

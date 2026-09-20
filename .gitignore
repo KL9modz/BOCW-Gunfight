@@ -35,6 +35,12 @@ bin/
 tools/gf-control/build/
 tools/gf-control/dist/
 obj/
+# The native panel's publish output (rebuild with tools/gf-panel/publish.ps1)
+tools/gf-panel/dist/
+
+# Local backup snapshots (.pre-*.bak / .bak-* etc.) - scratch, never committed
+*.bak
+*.bak-*
 
 # Local-only notes and anything account-shaped
 *.local.json

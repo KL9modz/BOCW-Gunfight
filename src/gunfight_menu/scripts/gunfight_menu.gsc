@@ -139,6 +139,7 @@
 //     gf_zone_capture   seconds standing in the zone to capture it, default 5
 //     gf_zone_radius    trigger radius (units) when no map trigger can be reused, default 128
 //     gf_roundwinlimit  -1 leave stock (default) / N first-to-N rounds
+//     gf_respawns       0 lobby's value (default) / 1 respawns ON (playernumlives 0 = unlimited) / 2 OFF (one life)
 //     gf_roundlimit     -1 leave stock (default) / N round cap
 //     gf_rounds_loadout -1 leave stock (default) / N = rotate loadout AND switch sides
 //                       every N rounds (stock couples both; mod_apply sets the live level
@@ -275,7 +276,9 @@
 //                       link+move shape Prop Hunt's _prop_controls.gsc uses). disable_oob is
 //                       set while flying so the out-of-bounds timer leaves the host alone.
 //                       While paused, "BLINKER CHECKPOINT" is held on every screen (re-sent
-//                       every 3 s, pause_banner_think) until the 5 s resume countdown.
+//                       every 3 s, pause_banner_think) until the 5 s resume countdown, where a
+//                       blank bold print ("^7") replaces it at once so the fading text does not
+//                       sit under the MATCH STARTING IN countdown (klaze 2026-09-20).
 //     gf_cmd_say        app/bridge channel: a non-empty string is broadcast to every player
 //                       and cleared. gf_cmd_say_loc 0 = centre (bold) / 1 = feed / 2 = a held
 //                       HINT banner (persistent, per-player glued trigger; gf_say_hint_indent
@@ -466,7 +469,11 @@ function private autoexec __init__system__()
 function private __init__()
 {
     callback::on_start_gametype( &mod_apply );
+    callback::on_start_gametype( &forge_respawn_saved );
     callback::on_connect( &on_player_connect );
+    // App channel v2 (tools/gf-panel): joiner order, the private-match ban list, the staged
+    // next-match side, and the everyone-state a late joiner missed. Every player, host too.
+    callback::on_connect( &app_on_connect );
     callback::on_spawned( &mod_spawn_place );
     // Anti-stack net (F5b, 2026-09-18): right after the guard/engine placement, for EVERY spawn
     // path and every map - if a player lands on top of one already placed this round, fan them out
@@ -480,6 +487,7 @@ function private __init__()
     // Vehicle mode (docs/notes/vehicle-mode.md): everyone spawns already riding. After the
     // movement handler so the rider's speed / oob / fall-damage state is in place first.
     callback::on_spawned( &mod_spawn_vehicle );
+    callback::on_spawned( &forge_on_spawned );
     // Death-barrier diagnosis (2026-09-19): every death's MOD / attacker classname / god flag,
     // read by the BARRIER debug line. Cheap, every gametype.
     callback::on_player_killed( &mod_on_player_killed );
@@ -724,6 +732,7 @@ function private cfg_zone_radius()   { return cfg_geti( #"gf_zone_radius", 128 )
 // Match-length knobs. Sentinel -1 = leave the lobby's value untouched (only an explicit
 // menu pick asserts control). Keys verified against gunfight.gsc / globallogic.gsc.
 function private cfg_roundwinlimit()  { return cfg_geti( #"gf_roundwinlimit", -1 ); }
+function private cfg_respawns()       { return cfg_geti( #"gf_respawns", 0 ); }
 function private cfg_roundlimit()     { return cfg_geti( #"gf_roundlimit", -1 ); }
 function private cfg_rounds_loadout() { return cfg_geti( #"gf_rounds_loadout", -1 ); }
 function private cfg_switch_sides()   { return cfg_geti( #"gf_switch_sides", 1 ); }
@@ -864,6 +873,8 @@ function private dvars_register()
     dvar_reg( #"gf_caster_probe", 1 );
     dvar_reg( #"gf_menu_hspan", 4 );
     dvar_reg( #"gf_hint_lines", 8 );
+    dvar_reg( #"gf_hint_glyphs", 0 );
+    dvar_reg( #"gf_hint_others_on", 1 );
     dvar_reg( #"gf_hint_newlines", 0 );
     dvar_reg( #"gf_spawn_diag", 1 );
     dvar_reg( #"gf_mapscan", 0 );
@@ -872,6 +883,7 @@ function private dvars_register()
     dvar_reg( #"gf_zone_capture", 5 );
     dvar_reg( #"gf_zone_radius", 128 );
     dvar_reg( #"gf_roundwinlimit", -1 );
+    dvar_reg( #"gf_respawns", 0 );
     dvar_reg( #"gf_roundlimit", -1 );
     dvar_reg( #"gf_rounds_loadout", -1 );
     dvar_reg( #"gf_switch_sides", 1 );
@@ -980,6 +992,8 @@ function private mod_apply()
     if ( cfg_mapscan() )
         level thread mapdata_publish();     // GAME->APP map census (mapdata_scan.py)
     level thread config_publish();     // GAME->APP live config readback (config_scan.py -> app "Load current")
+    level thread state_publish();      // GAME->APP live state line (GFSTATE, tools/gf-panel)
+    level thread players_publish();    // GAME->APP rich roster (GFPLAYERS, tools/gf-panel)
 
     // Movement mods apply in EVERY gametype, so they run before the Gunfight gate.
     mod_movement();
@@ -1095,6 +1109,23 @@ function private mod_apply()
         gts_set( #"roundwinlimit", cfg_roundwinlimit() );
     if ( cfg_roundlimit() >= 0 )
         gts_set( #"roundlimit", cfg_roundlimit() );
+    // Respawns = the rules menu's player-lives row (playernumlives): 0 lives = unlimited respawns,
+    // 1 = Gunfight's one life per round. globallogic::init() copied the setting into level.numlives
+    // (util::registernumlives) BEFORE this callback, and every player_connect copies level.numlives
+    // into pers["lives"] - so write the setting (the next map load), the level var (this one) and the
+    // lives already dealt. With unlimited lives no "team dead" event fires: the round runs to the
+    // timer and ends the way a timed-out round does (overtime zone / HP tiebreak). Sentinel 0 leaves
+    // the lobby's value alone - note a written value persists in the session, so after ON use OFF,
+    // not "lobby's value", to get one life back. NEVER RUN (2026-09-20).
+    if ( cfg_respawns() > 0 )
+    {
+        lives = ( cfg_respawns() == 1 ) ? 0 : 1;
+        gts_set( #"playernumlives", lives );
+        level.numlives = lives;
+
+        foreach ( p in getplayers() )
+            p.pers[ #"lives" ] = lives;
+    }
     // Loadout rotation AND side switch, both driven by this one setting: gunfight.gsc
     // onendround rotates the loadout and calls on_round_switch() (the side swap) inside a
     // single check on level.gunfightroundsperloadout. TWO reasons a menu pick did nothing:
@@ -2854,6 +2885,7 @@ function private mod_spawn_movement()
     // Out of bounds: stock val::nuke()s every disable_oob layer at :612, before this
     // callback (:758) - so the flag is re-set here, every life, for every player.
     self mod_oob_apply();
+    perks_apply( self, 1 );   // the everyone-perks set (tools/gf-panel), re-given each life
 }
 
 // gf_speed percent -> setmovespeedscale, on top of the loadout's own modifier exactly the
@@ -3015,7 +3047,7 @@ function private match_pause()
 // so it is re-sent every 3 s until the resume countdown takes the centre over.
 function private pause_banner_think()
 {
-    level endon( #"game_ended" );
+    level endon( #"game_ended", #"gf_pause_resume" );
 
     while ( isdefined( level.gf_paused ) && level.gf_paused && !( isdefined( level.gf_resuming ) && level.gf_resuming ) )
     {
@@ -3032,6 +3064,12 @@ function private match_resume()
 
     level endon( #"game_ended" );
     level.gf_resuming = 1;
+    level notify( #"gf_pause_resume" );
+    // The banner sent up to 3 s ago is still fading on every screen and sat under the
+    // countdown (klaze's screenshot 2026-09-20). A bold print replaces the one on screen, so a
+    // print that renders as nothing - a lone colour code, non-empty for any blank filter on
+    // the way - blanks it the same frame. Unmeasured whether the client keeps a blank one.
+    broadcast_bold( "^7" );
     thread globallogic::matchstarttimer( 5 );
     wait 5;
 
@@ -6296,7 +6334,30 @@ function private cmd_poll()
         if ( cfg_geti( #"gf_cmd_go", 0 ) == 1 )
         {
             cfg_seti( #"gf_cmd_go", 0 );   // clear FIRST so a slow action cannot re-fire
-            self cmd_dispatch();
+            // App command acks (tools/gf-panel): the app stamps gf_cmd_seq before the pulse and
+            // GFSTATE echoes the last one dispatched. A pulse that REPEATS the acked seq is a
+            // re-sent packet (the app retries a drop) - swallow its payload, never run it twice.
+            seq = cfg_geti( #"gf_cmd_seq", 0 );
+
+            if ( seq > 0 && isdefined( level.gf_ack_seq ) && seq == level.gf_ack_seq )
+            {
+                cfg_seti( #"gf_cmd_action", "" );
+                cfg_seti( #"gf_cmd_arg", "" );
+                cfg_seti( #"gf_cmd_target", "" );
+                cfg_seti( #"gf_cmd_say", "" );
+                cfg_seti( #"gf_cmd_map", "" );
+                cfg_seti( #"gf_cmd_gametype", "" );
+            }
+            else
+            {
+                // child thread: a runtime error inside one verb kills only that verb, not this
+                // poller (which otherwise stays dead until the next match). The child runs to its
+                // first wait before `thread` returns, so short verbs have finished here already.
+                self thread cmd_dispatch_once();
+
+                if ( seq > 0 )
+                    level.gf_ack_seq = seq;
+            }
         }
 
         wait( 0.25 );
@@ -6307,6 +6368,12 @@ function private cmd_poll()
 // gametype present means a SESSION switch (the app's proper path - the map() carry
 // cannot carry a gametype), or with gf_cmd_stage=1 a stage: the load half only, for
 // the lobby to show when the match ends. Each trigger is cleared as it is consumed.
+function private cmd_dispatch_once()
+{
+    self endon( #"disconnect" );
+    self cmd_dispatch();
+}
+
 function private cmd_dispatch()
 {
     cfg_load();
@@ -6317,6 +6384,17 @@ function private cmd_dispatch()
         cfg_seti( #"gf_cmd_say", "" );
         loc = cfg_geti( #"gf_cmd_say_loc", 0 );   // 0 centre (iprintlnbold), 1 feed (iprintln)
         dur = cfg_geti( #"gf_cmd_say_dur", 0 );   // 0 once; > 0 hold N s; < 0 fixed until Clear
+        // Audience (tools/gf-panel composer): all (default) / allies / axis / a player name.
+        aud = tolower( getdvarstring( #"gf_cmd_say_aud", "" ) );
+        cfg_seti( #"gf_cmd_say_aud", "" );
+
+        if ( aud != "" && aud != "all" && loc != 2 )
+        {
+            level notify( #"gf_say_stop" );
+            level thread broadcast_aud( say, loc, dur, aud );
+            return;
+        }
+
         level thread broadcast_hold( say, loc, dur );   // no prefix - shows exactly what was typed
         return;
     }
@@ -6532,6 +6610,13 @@ function private cmd_action( action, arg )
         case "prop":        self cmd_prop( arg );                                              break;
         case "propundo":    self act_prop_delete( it, 0 );                                     break;
         case "propclear":   self act_prop_delete( it, 1 );                                     break;
+        case "propidx":     self cmd_propidx( arg );                                            break;
+        case "barrelidx":   self cmd_barrelidx( arg );                                          break;
+        case "propname":    self cmd_propname( 0 );                                             break;
+        case "barrelname":  self cmd_propname( 1 );                                             break;
+        case "propfavs":    self prop_favs_set();                                               break;
+        case "forge":       self cmd_forge( arg );                                              break;
+        case "hintset":     self cmd_hintset( arg );                                            break;
         // Vehicles (the Vehicles page, app parity 2026-09-18): arg = the veh_master() INDEX - a
         // vehicle asset name does not fit the 47-byte bridge slot - spawned ahead of the host
         // exactly like the page row (isassetloaded-gated, so a non-resident pick just says so);
@@ -6545,7 +6630,16 @@ function private cmd_action( action, arg )
         case "race":        self cmd_race( tolower( arg ) );                              break;
         case "racetrack":   self cmd_race_track( arg );                                   break;
         case "racegate":    self cmd_race_gate( arg );                                    break;
-        default:            self menu_say( "^1app: unknown action '" + action + "'" ); break;
+        default:
+            // App channel v2 verbs (tools/gf-panel): everyone-state, fun & vision, match control.
+            r = self panel_verb( action, arg );
+
+            if ( isdefined( r ) )
+                self menu_say( "^2app: " + r );
+            else
+                self menu_say( "^1app: unknown action '" + action + "'" );
+
+            break;
     }
 }
 
@@ -6681,6 +6775,9 @@ function private menu_toast( txt )
 function private menu_draw( txt ) { self menu_paint( txt ); }
 function private menu_say( txt )
 {
+    // Echoed by the GFSTATE line (say=) so the app sees the confirmation with the menu closed.
+    level.gf_lastsay = txt;
+
     // HINT: the panel has room for a last-action row that persists until the next action
     // (the widget does not fade), so a confirmation folds into it while the menu is open.
     // With the menu closed there is no panel, so it goes to the centre - the same one-line
@@ -6909,6 +7006,12 @@ function private menu_think()
     {
         m = self.gfmenu;
 
+        if ( self forge_active() )
+        {
+            waitframe( 1 );
+            continue;
+        }
+
         if ( m.current !== "" && !isdefined( m.menus[ m.current ] ) )
         {
             m.current = "";
@@ -6925,7 +7028,7 @@ function private menu_think()
                 // in SPLIT it would land in the left details pane (menu_say folds to the
                 // status there) and klaze wants that pane to stay pure state, no controls.
                 if ( cfg_menu_region() < 2 )
-                    self menu_say( "^7RMB^8 up  ^7LMB^8 down  ^7R^8 select  ^7V^8 back" );
+                    self menu_say( menu_nav_hint() );
                 render = 1;
             }
             else
@@ -7157,7 +7260,7 @@ function private menu_render_split( lines, list_center )
         if ( isdefined( menu ) )
         {
             n = menu.items.size;
-            info = "^2" + self menu_page_title( menu ) + " " + ( ( n == 0 ) ? "-/-" : ( "" + ( menu.cursor + 1 ) + "/" + n ) ) + " | " + self menu_state_compact();
+            info = menu_nav_hint() + " ^8| ^2" + self menu_page_title( menu ) + " " + ( ( n == 0 ) ? "-/-" : ( "" + ( menu.cursor + 1 ) + "/" + n ) ) + " | " + self menu_state_compact();
             if ( isdefined( self.gfmenu.lastmsg ) && self.gfmenu.lastmsg != "" )
                 info += " | " + self.gfmenu.lastmsg;
             trig = self menu_hint_trigger();
@@ -8072,6 +8175,9 @@ function private build_tree()
     self menu_item( "match", "First to 10", &act_roundwinlimit, 10, undefined, #"gf_roundwinlimit", 10 );
     self menu_item( "match", "Round cap 6", &act_roundlimit, 6, undefined, #"gf_roundlimit", 6 );
     self menu_item( "match", "Round cap 10", &act_roundlimit, 10, undefined, #"gf_roundlimit", 10 );
+    // Respawns: the player-lives row. 1 = unlimited lives (rounds end on the timer), 2 = one life.
+    self menu_item( "match", "Respawns ON - unlimited lives", &act_respawns, 1, undefined, #"gf_respawns", 1 );
+    self menu_item( "match", "Respawns OFF - one life", &act_respawns, 2, undefined, #"gf_respawns", 2 );
     // Rotates the loadout AND switches sides every N rounds - stock couples both to this one
     // setting (gunfight.gsc onendround). "Rotate 1" = switch every round.
     self menu_item( "match", "Loadout+sides every 1", &act_rounds_loadout, 1, undefined, #"gf_rounds_loadout", 1 );
@@ -8276,7 +8382,8 @@ function private build_tree()
     //    placed where the host looks. Rebuilt on entry. ─────────────────────────────────────
     self menu_add( "props", "Props", "start_menu", 1, &props_enter );
     self menu_add( "props_map", "This map's Prop Hunt set", "props", 0, &props_map_enter );
-    self menu_add( "props_univ", "Universal props", "props", 0, &props_univ_enter );
+    self menu_add( "props_univ", "Favourite props", "props", 0, &props_univ_enter );
+    self menu_add( "props_barrels", "Explosive barrels", "props", 0, &props_barrels_enter );
 
     // ── Player tools — host only ─────────────────────────────────────────────
     self menu_add( "player", "Player", "start_menu", 1 );
@@ -9432,6 +9539,15 @@ function private config_publish()
         s += "|veh=" + cfg_vehmode() + "," + cfg_veh_lock() + "," + cfg_veh_hp() + "," + cfg_veh_alt();
         s += "|bot=" + getdvarstring( #"gf_bot", "" );
         s += "|bot2=" + getdvarstring( #"gf_bot2", "" );
+        // The remaining plain (unpacked) dvars, for tools/gf-panel's readback (config_scan.py
+        // ignores extras it does not know). race = the 15 race settings in the panel's order.
+        s += "|race=" + cfg_race_laps() + "," + cfg_race_grace() + "," + cfg_race_width() + "," + cfg_race_combat()
+            + "," + cfg_race_markers() + "," + cfg_race_end() + "," + cfg_race_corridor() + "," + cfg_race_posts()
+            + "," + cfg_race_grid() + "," + cfg_race_vehicle() + "," + cfg_race_grid_gap() + "," + cfg_race_score()
+            + "," + cfg_race_oobhud() + "," + cfg_race_reset() + "," + cfg_race_sprint();
+        s += "|dbg=" + cfg_dbg_race() + "," + cfg_dbg_veh() + "," + cfg_dbg_barrier() + "," + cfg_mapscan();
+        s += "|misc=" + cfg_spawn_antistack() + "," + cfg_hint_lines() + "," + cfg_respawns()
+            + "," + cfg_geti( #"gf_hint_others_on", 1 ) + "," + cfg_geti( #"gf_hint_glyphs", 0 );   // append-only list
         s += "|" + "END";
         level.gf_cfgpub = s;
         wait 2;
@@ -10497,6 +10613,13 @@ function private act_roundwinlimit( item, value )
     cfg_seti( #"gf_roundwinlimit", value );
     gts_set( #"roundwinlimit", value );
     self menu_say( "^2first to " + value + " rounds - applies next round" );
+    return true;
+}
+
+function private act_respawns( item, value )
+{
+    cfg_seti( #"gf_respawns", value );
+    self menu_say( value == 1 ? "^2respawns ON - unlimited lives from next round (rounds end on the timer)" : "^2respawns OFF - one life per round from next round" );
     return true;
 }
 
@@ -14702,6 +14825,483 @@ function private menu_mark_only( page, item )
 // level.gf_props for delete-last / delete-all; level is rebuilt per round, so a round
 // boundary clears the list (the engine deletes the entities with the level).
 
+function private forge_state()
+{
+    if ( !isdefined( self.gf_forge ) )
+    {
+        s = spawnstruct();
+        s.active = 0;
+        s.idx = 0;
+        s.dist = 120;
+        s.zoff = 0;
+        s.yaw = 0;
+        s.scale = 1;
+        s.preview = undefined;
+        self.gf_forge = s;
+    }
+    return self.gf_forge;
+}
+
+function private forge_active()
+{
+    return isdefined( self.gf_forge ) && self.gf_forge.active;
+}
+
+function private forge_enter( item )
+{
+    fg = self forge_state();
+
+    if ( fg.active )
+        return true;
+
+    fg.active = 1;
+    self disableweapons();
+    self disableoffhandweapons();
+    self others_hint_update();                 // flip the others line to the build warning
+    fg.preview = self forge_spawn_preview( fg.idx );
+    self thread forge_loop();
+    self menu_say( "^2FORGE on - look to aim, [attack] place, [melee]/[use] cycle, [frag] exit" );
+
+    if ( isdefined( self.gfmenu ) )
+        self.gfmenu.current = "";              // close the menu; menu_think yields while forge_active
+
+    return true;
+}
+
+function private forge_exit( item )
+{
+    fg = self forge_state();
+
+    if ( !fg.active )
+        return true;
+
+    fg.active = 0;
+    self notify( #"gf_forge_stop" );
+    self enableweapons();
+    self enableoffhandweapons();
+
+    if ( isdefined( fg.preview ) )
+        fg.preview delete();
+
+    fg.preview = undefined;
+    self others_hint_update();                 // back to the welcome line
+    self menu_say( "^2FORGE off" );
+    return true;
+}
+
+function private forge_spawn_preview( idx )
+{
+    m = prop_master();
+
+    if ( idx < 0 || idx >= m.size )
+        idx = 0;
+
+    p = spawn( "script_model", self.origin );
+    p setmodel( m[ idx ].model );
+    p.targetname = "gf_forge_preview";
+    p notsolid();
+    return p;
+}
+
+function private forge_loop()
+{
+    self notify( #"gf_forge_loop2" );
+    self endon( #"gf_forge_stop" );
+    self endon( #"gf_forge_loop2" );
+    self endon( #"death" );
+    self endon( #"disconnect" );
+
+    fg = self forge_state();
+    pa = 0;
+    pmel = 0;
+    puse = 0;
+    pfrag = 0;
+
+    for ( ;; )
+    {
+        if ( !fg.active )
+            return;
+
+        mv = self getnormalizedmovement();
+        fast = self sprintbuttonpressed();
+        ads = self adsbuttonpressed();
+
+        if ( isdefined( mv ) )
+        {
+            if ( ads )
+            {
+                fg.scale += mv[ 0 ] * ( fast ? 0.05 : 0.02 );
+
+                if ( fg.scale < 0.1 )
+                    fg.scale = 0.1;
+
+                if ( fg.scale > 8 )
+                    fg.scale = 8;
+            }
+            else
+            {
+                fg.dist += mv[ 0 ] * ( fast ? 16 : 6 );
+
+                if ( fg.dist < 40 )
+                    fg.dist = 40;
+
+                if ( fg.dist > 2000 )
+                    fg.dist = 2000;
+
+                fg.yaw += mv[ 1 ] * ( fast ? 6 : 3 );
+            }
+        }
+
+        if ( self jumpbuttonpressed() )
+            fg.zoff += fast ? 12 : 4;
+        else if ( self stancebuttonpressed() )
+            fg.zoff -= fast ? 12 : 4;
+
+        a = self attackbuttonpressed();
+        mel = self meleebuttonpressed();
+        use = self usebuttonpressed();
+        frag = self fragbuttonpressed();
+
+        if ( a && !pa )
+            self forge_place();
+
+        if ( mel && !pmel )
+            self forge_cycle( 1 );
+
+        if ( use && !puse )
+            self forge_cycle( -1 );
+
+        if ( frag && !pfrag )
+        {
+            self forge_exit( self );
+            return;
+        }
+
+        pa = a;
+        pmel = mel;
+        puse = use;
+        pfrag = frag;
+
+        self forge_update_preview();
+        self forge_hint_paint();
+        waitframe( 1 );
+    }
+}
+
+function private forge_update_preview()
+{
+    fg = self forge_state();
+
+    if ( !isdefined( fg.preview ) )
+        return;
+
+    ang = self getplayerangles();
+    fwd = anglestoforward( ang );
+    pos = self geteye() + fwd * fg.dist + ( 0, 0, fg.zoff );
+    fg.preview.origin = pos;
+    fg.preview.angles = ( 0, ang[ 1 ] + 180 + fg.yaw, 0 );
+    fg.preview setscale( fg.scale );
+}
+
+function private forge_cycle( dir )
+{
+    fg = self forge_state();
+    m = prop_master();
+    fg.idx = ( fg.idx + dir + m.size ) % m.size;
+
+    if ( isdefined( fg.preview ) )
+        fg.preview setmodel( m[ fg.idx ].model );
+
+    self menu_say( "^2" + ( fg.idx + 1 ) + "/" + m.size + " " + m[ fg.idx ].label + ( m[ fg.idx ].barrel ? " ^1(barrel)" : "" ) );
+}
+
+function private forge_place()
+{
+    fg = self forge_state();
+    m = prop_master();
+    model = m[ fg.idx ].model;
+
+    if ( !isassetloaded( "xmodel", model ) )
+    {
+        self menu_say( "^1not resident here: " + prop_short( model ) );
+        return;
+    }
+
+    ang = self getplayerangles();
+    org = self geteye() + anglestoforward( ang ) * fg.dist + ( 0, 0, fg.zoff );
+    pang = ( 0, ang[ 1 ] + 180 + fg.yaw, 0 );
+
+    p = spawn( "script_model", org );
+    p setmodel( model );
+    p.angles = pang;
+
+    if ( fg.scale != 1 )
+        p setscale( fg.scale );
+
+    p.targetname = "gf_prop";
+
+    if ( !isdefined( level.gf_props ) )
+        level.gf_props = [];
+
+    level.gf_props[ level.gf_props.size ] = p;
+
+    if ( m[ fg.idx ].barrel )
+    {
+        p setcandamage( 1 );
+        p.health = 1000;
+        p.gf_barrel = 1;
+        p thread barrel_think();
+    }
+
+    self forge_save_one( model, org, pang, fg.scale, m[ fg.idx ].barrel );
+    self menu_say( "^2placed " + prop_short( model ) + " (" + level.gf_props.size + " up)" );
+}
+
+// ── Persistence: game.gf_forge[map] = array of packed "model;x;y;z;yaw;scale100;barrel" strings.
+// game (not level) survives Gunfight's per-round level rebuild; forge_respawn_saved re-places them
+// on round start. Strings (not struct ents) so they survive reliably and the app can read them.
+
+function private forge_mapkey()
+{
+    if ( isdefined( level.script ) )
+        return level.script;
+
+    return util::get_map_name();
+}
+
+function private forge_save_one( model, org, ang, scale, barrel )
+{
+    mapn = forge_mapkey();
+
+    if ( !isdefined( game.gf_forge ) )
+        game.gf_forge = [];
+
+    if ( !isdefined( game.gf_forge[ mapn ] ) )
+        game.gf_forge[ mapn ] = [];
+
+    rec = model + ";" + int( org[ 0 ] ) + ";" + int( org[ 1 ] ) + ";" + int( org[ 2 ] ) + ";" + int( ang[ 1 ] ) + ";" + int( scale * 100 ) + ";" + ( barrel ? 1 : 0 );
+    game.gf_forge[ mapn ][ game.gf_forge[ mapn ].size ] = rec;
+}
+
+function private forge_respawn_saved()
+{
+    mapn = forge_mapkey();
+
+    if ( !isdefined( game.gf_forge ) || !isdefined( game.gf_forge[ mapn ] ) )
+        return;
+
+    if ( !isdefined( level.gf_props ) )
+        level.gf_props = [];
+
+    foreach ( rec in game.gf_forge[ mapn ] )
+    {
+        t = strtok( rec, ";" );
+
+        if ( t.size < 7 )
+            continue;
+
+        model = t[ 0 ];
+
+        if ( !isassetloaded( "xmodel", model ) )
+            continue;
+
+        org = ( int( t[ 1 ] ), int( t[ 2 ] ), int( t[ 3 ] ) );
+        ang = ( 0, int( t[ 4 ] ), 0 );
+        scale = int( t[ 5 ] ) / 100.0;
+        barrel = int( t[ 6 ] );
+
+        p = spawn( "script_model", org );
+        p setmodel( model );
+        p.angles = ang;
+
+        if ( scale != 1 )
+            p setscale( scale );
+
+        p.targetname = "gf_prop";
+        level.gf_props[ level.gf_props.size ] = p;
+
+        if ( barrel )
+        {
+            p setcandamage( 1 );
+            p.health = 1000;
+            p.gf_barrel = 1;
+            p thread barrel_think();
+        }
+    }
+}
+
+function private forge_clear()
+{
+    mapn = forge_mapkey();
+
+    if ( isdefined( game.gf_forge ) )
+        game.gf_forge[ mapn ] = [];
+
+    self act_prop_delete( spawnstruct(), 1 );      // delete the live props too
+    self menu_say( "^2forge: cleared saved layout for " + mapn );
+}
+
+// ── The forge control hint (host only) — painted on the menu hint trigger while forge runs.
+function private forge_hint_paint()
+{
+    fg = self forge_state();
+    trig = self menu_hint_trigger();
+    trig sethintstring( self forge_controls_hint( fg ) );
+}
+
+function private forge_controls_hint( fg )
+{
+    m = prop_master();
+    lbl = ( fg.idx >= 0 && fg.idx < m.size ) ? m[ fg.idx ].label : "?";
+    return "^3FORGE ^7" + ( fg.idx + 1 ) + "/" + m.size + " ^2" + lbl +
+           "  ^7dist " + int( fg.dist ) + " scale " + int( fg.scale * 100 ) + "%  ^5" +
+           forge_key( "attack" ) + "^7place " + forge_key( "melee" ) + "^7next " +
+           forge_key( "use" ) + "^7prev " + forge_key( "frag" ) + "^7exit  " +
+           "^7move=dist/turn jump/crouch=height ADS+move=scale";
+}
+
+// Device glyph or plain text per gf_hint_glyphs. ⚠ Whether sethintstring renders bind tokens on
+// this retail build is UNMEASURED - default 0 (plain text, always works); flip gf_hint_glyphs 1 to
+// test the [{+bind}] glyphs in-game. docs/notes/forge.md.
+function private forge_key( name )
+{
+    if ( cfg_geti( #"gf_hint_glyphs", 0 ) )
+        return "[{+" + forge_bind( name ) + "}]";
+
+    return "[" + name + "]";
+}
+
+function private forge_bind( name )
+{
+    switch ( name )
+    {
+        case "attack":  return "attack";
+        case "melee":   return "melee";
+        case "use":     return "activate";
+        case "frag":    return "frag";
+        case "ads":     return "speed_throw";
+        default:        return name;
+    }
+}
+
+// ── The others-facing hint: a second per-player trigger on the host, visible to everyone EXCEPT
+// the host (distinct field self.gf_others_hint so the app's broadcast Clear never drops it). Shows
+// the app-set welcome line normally, the build warning while forge is active. App sets the strings
+// chunked (they exceed the 47-byte bridge slot). docs/notes/forge.md.
+function private others_hint_show()
+{
+    if ( isdefined( self.gf_others_hint ) )
+    {
+        self others_hint_update();
+        return;
+    }
+
+    t = spawn( "trigger_radius", self.origin, 0, 96, 128 );
+    t triggerignoreteam();
+    t setvisibletoall();
+    t setinvisibletoplayer( self );
+    t setmovingplatformenabled( 1 );
+    t enablelinkto();
+    t.origin = self.origin;
+    t linkto( self );
+    self.gf_others_hint = t;
+    self thread others_hint_cleanup( t );
+    self others_hint_update();
+}
+
+function private others_hint_hide()
+{
+    if ( isdefined( self.gf_others_hint ) )
+        self.gf_others_hint delete();
+
+    self.gf_others_hint = undefined;
+}
+
+function private others_hint_cleanup( t )
+{
+    self waittill( #"death", #"disconnect" );
+
+    if ( isdefined( t ) )
+        t delete();
+
+    self.gf_others_hint = undefined;
+}
+
+function private others_hint_update()
+{
+    if ( !cfg_geti( #"gf_hint_others_on", 1 ) )
+    {
+        self others_hint_hide();
+        return;
+    }
+
+    if ( !isdefined( self.gf_others_hint ) )
+    {
+        self others_hint_show();
+        return;
+    }
+
+    self.gf_others_hint sethintstring( self others_hint_text() );
+}
+
+function private others_hint_text()
+{
+    if ( self forge_active() )
+        return getdvarstring( #"gf_hint_build", "^1DO NOT KILL - host is building" );
+
+    return getdvarstring( #"gf_hint_others", "Welcome to ^3KL9^7's Gunfight lobby! Join us at ^4discord.gg/blackops" );
+}
+
+// ── App verbs ───────────────────────────────────────────────────────────────────────────────
+function private cmd_forge( arg )
+{
+    switch ( tolower( arg ) )
+    {
+        case "enter":
+        case "on":      self forge_enter( spawnstruct() );   break;
+        case "exit":
+        case "off":     self forge_exit( spawnstruct() );    break;
+        case "place":   self forge_place();                  break;
+        case "next":    self forge_cycle( 1 );               break;
+        case "prev":    self forge_cycle( -1 );              break;
+        case "clear":   self forge_clear();                  break;
+        default:        self menu_say( "^1forge: enter|exit|place|next|prev|clear" ); break;
+    }
+}
+
+// Set an others/build/welcome hint string from chunks (gf_ho0/1/2, <=36 chars each, beats the
+// 47-byte slot); arg selects which: "others" (welcome) | "build". docs/notes/prop-catalog.md.
+function private cmd_hintset( arg )
+{
+    txt = getdvarstring( #"gf_ho0", "" ) + getdvarstring( #"gf_ho1", "" ) + getdvarstring( #"gf_ho2", "" );
+    cfg_seti( #"gf_ho0", "" );
+    cfg_seti( #"gf_ho1", "" );
+    cfg_seti( #"gf_ho2", "" );
+
+    if ( tolower( arg ) == "build" )
+        cfg_seti( #"gf_hint_build", txt );
+    else
+        cfg_seti( #"gf_hint_others", txt );
+
+    self others_hint_update();
+    self menu_say( "^2hint set: " + txt );
+}
+
+// on_spawned callback: (re)create the host's others-facing welcome hint each life.
+function private forge_on_spawned()
+{
+    if ( self ishost() )
+        self others_hint_show();
+}
+
+// The menu navigation legend, editable via gf_hint_nav - shown on the hint bar while the menu is
+// open (menu_render_split) and as the open toast (menu_think). "edit hint line for the default
+// menu layout". docs/notes/forge.md.
+function private menu_nav_hint()
+{
+    return getdvarstring( #"gf_hint_nav", "^7RMB^8 up  ^7LMB^8 down  ^7R^8 select  ^7V^8 back" );
+}
+
 function private prop_universal()
 {
     if ( isdefined( level.gf_prop_universal ) )
@@ -14774,6 +15374,787 @@ function private prop_def( m, model, label )
 }
 
 // This map's Prop Hunt table as rows (model, size text, scale), or an empty array.
+// [props-gen BEGIN]
+// GENERATED by tools/props-gen.py from the T9 dump - DO NOT EDIT BY HAND. 546 universal props.
+// prop_master()[i] == docs/data/map-props.json universal[i] == the app's cmd_propidx arg.
+function private prop_master()
+{
+    if ( isdefined( level.gf_prop_master ) )
+        return level.gf_prop_master;
+
+    m = [];
+    m = pm( m, "p7_bag_cement_stacked_01", "Bag cement stacked 01", 0 );
+    m = pm( m, "p7_barrel_keg_beer_metal", "Barrel keg beer metal", 1 );
+    m = pm( m, "p7_box_cardboard_d_closed", "Box cardboard d closed", 0 );
+    m = pm( m, "p7_crate_wood_01", "Crate wood 01", 0 );
+    m = pm( m, "p7_crate_wood_01_short", "Crate wood 01 short", 0 );
+    m = pm( m, "p7_debris_concrete_rubble_sm_10", "Debris concrete rubble sm 10", 0 );
+    m = pm( m, "p7_debris_concrete_rubble_sm_10_warm", "Debris concrete rubble sm 10 warm", 0 );
+    m = pm( m, "p7_debris_junkyard_scrap_bit_02", "Debris junkyard scrap bit 02", 0 );
+    m = pm( m, "p7_debris_rockychunks_small_01", "Debris rockychunks small 01", 0 );
+    m = pm( m, "p7_debris_rockychunks_small_02", "Debris rockychunks small 02", 0 );
+    m = pm( m, "p7_debris_rockychunks_small_12", "Debris rockychunks small 12", 0 );
+    m = pm( m, "p7_emergency_flare", "Emergency flare", 0 );
+    m = pm( m, "p7_fir_steps_wood_sml", "Fir steps wood sml", 0 );
+    m = pm( m, "p7_fir_targetdummy_stand_back", "Fir targetdummy stand back", 0 );
+    m = pm( m, "p7_fir_tire_single_02", "Fir tire single 02", 0 );
+    m = pm( m, "p7_fxanim_gp_trash_bag_large_01_blue_s3_mod", "Trash bag large 01 blue s3 mod", 0 );
+    m = pm( m, "p7_fxanim_gp_trash_bag_large_04_green_s3_mod", "Trash bag large 04 green s3 mod", 0 );
+    m = pm( m, "p7_fxp_debris_car_glass_shatter_01", "Fxp debris car glass shatter 01", 0 );
+    m = pm( m, "p7_fxp_debris_car_glass_shatter_02", "Fxp debris car glass shatter 02", 0 );
+    m = pm( m, "p7_fxp_debris_car_glass_shatter_03", "Fxp debris car glass shatter 03", 0 );
+    m = pm( m, "p7_fxp_debris_dirt_clod_01", "Fxp debris dirt clod 01", 0 );
+    m = pm( m, "p7_fxp_debris_dirt_clod_01_brown", "Fxp debris dirt clod 01 brown", 0 );
+    m = pm( m, "p7_fxp_debris_dirt_clod_02_brown", "Fxp debris dirt clod 02 brown", 0 );
+    m = pm( m, "p7_fxp_debris_dirt_clod_03", "Fxp debris dirt clod 03", 0 );
+    m = pm( m, "p7_fxp_debris_metal_scrap_01", "Fxp debris metal scrap 01", 0 );
+    m = pm( m, "p7_fxp_debris_metal_scrap_02", "Fxp debris metal scrap 02", 0 );
+    m = pm( m, "p7_fxp_debris_rock_01", "Fxp debris rock 01", 0 );
+    m = pm( m, "p7_fxp_debris_rock_02", "Fxp debris rock 02", 0 );
+    m = pm( m, "p7_fxp_debris_rock_03", "Fxp debris rock 03", 0 );
+    m = pm( m, "p7_fxp_debris_wood_splinter_01", "Fxp debris wood splinter 01", 0 );
+    m = pm( m, "p7_fxp_debris_wood_splinter_02", "Fxp debris wood splinter 02", 0 );
+    m = pm( m, "p7_fxp_debris_wood_splinter_03", "Fxp debris wood splinter 03", 0 );
+    m = pm( m, "p7_fxp_sphere_belt_trophy_system", "Fxp sphere belt trophy system", 0 );
+    m = pm( m, "p7_gib_chunk_bone_01", "Gib chunk bone 01", 0 );
+    m = pm( m, "p7_gib_chunk_bone_02", "Gib chunk bone 02", 0 );
+    m = pm( m, "p7_gib_chunk_bone_03", "Gib chunk bone 03", 0 );
+    m = pm( m, "p7_gib_chunk_fat", "Gib chunk fat", 0 );
+    m = pm( m, "p7_gib_chunk_flesh_01", "Gib chunk flesh 01", 0 );
+    m = pm( m, "p7_gib_chunk_flesh_02", "Gib chunk flesh 02", 0 );
+    m = pm( m, "p7_gib_chunk_flesh_03", "Gib chunk flesh 03", 0 );
+    m = pm( m, "p7_gib_chunk_meat_01", "Gib chunk meat 01", 0 );
+    m = pm( m, "p7_gib_chunk_meat_02", "Gib chunk meat 02", 0 );
+    m = pm( m, "p7_gib_chunk_meat_03", "Gib chunk meat 03", 0 );
+    m = pm( m, "p7_jun_altar_ruins", "Jun altar ruins", 0 );
+    m = pm( m, "p7_jun_barrel_wood_full", "Jun barrel wood full", 1 );
+    m = pm( m, "p7_jun_barrel_wood_lid", "Jun barrel wood lid", 0 );
+    m = pm( m, "p7_jun_basket_fisherman_01", "Jun basket fisherman 01", 0 );
+    m = pm( m, "p7_jun_bench_wood", "Jun bench wood", 0 );
+    m = pm( m, "p7_laundry_cart_01", "Laundry cart 01", 0 );
+    m = pm( m, "p7_meat_chicken_wing", "Meat chicken wing", 0 );
+    m = pm( m, "p7_medical_stretcher_set", "Medical stretcher set", 0 );
+    m = pm( m, "p7_mou_barrel_metal_02_dmg_wet_tan", "Mou barrel metal 02 dmg wet tan", 1 );
+    m = pm( m, "p7_mou_cabinet_filing_02", "Mou cabinet filing 02", 0 );
+    m = pm( m, "p7_mou_chair_computer", "Mou chair computer", 0 );
+    m = pm( m, "p7_mp_suitcase_bomb", "Mp suitcase bomb", 0 );
+    m = pm( m, "p7_ntx_tool_wrench_sml", "Ntx tool wrench sml", 0 );
+    m = pm( m, "p7_ris_welding_arc_cart_wheel", "Ris welding arc cart wheel", 0 );
+    m = pm( m, "p7_rus_beam_stack_snow_cap", "Beam stack snow cap", 0 );
+    m = pm( m, "p7_rus_crate_wood_02_snow", "Crate wood 02 snow", 0 );
+    m = pm( m, "p7_shelf_industrial_vintage_96", "Shelf industrial vintage 96", 0 );
+    m = pm( m, "p7_slu_bucket_plastic_orange_sml", "Slu bucket plastic orange sml", 0 );
+    m = pm( m, "p7_slu_bucket_plastic_white_sml", "Slu bucket plastic white sml", 0 );
+    m = pm( m, "p7_slu_chair_lawn_plastic_white", "Slu chair lawn plastic white", 0 );
+    m = pm( m, "p7_water_cooler_box_dirty", "Water cooler box dirty", 0 );
+    m = pm( m, "p7_wz_barrel_metal_blue", "Barrel metal blue", 1 );
+    m = pm( m, "p7_zm_nac_barrel_explosive_red", "Zm nac barrel explosive red", 1 );
+    m = pm( m, "p7_zm_sha_foliage_tree_trunk_fallen", "Zm sha foliage tree trunk fallen", 0 );
+    m = pm( m, "p8_aml_chicken_female_03", "Aml chicken female 03", 0 );
+    m = pm( m, "p8_backpack_military", "Backpack military", 0 );
+    m = pm( m, "p8_bench_garden_divider", "Bench garden divider", 0 );
+    m = pm( m, "p8_bench_garden_endcap_lt", "Bench garden endcap lt", 0 );
+    m = pm( m, "p8_bench_garden_endcap_rt", "Bench garden endcap rt", 0 );
+    m = pm( m, "p8_bench_garden_wood_full", "Bench garden wood full", 0 );
+    m = pm( m, "p8_big_cylinder", "Big cylinder", 0 );
+    m = pm( m, "p8_big_sphere", "Big sphere", 0 );
+    m = pm( m, "p8_box_cardboard_d_closed", "Box cardboard d closed", 0 );
+    m = pm( m, "p8_cai_pole_utility_box", "Cai pole utility box", 0 );
+    m = pm( m, "p8_col_barrel_metal_02_tan_dmg", "Col barrel metal 02 tan dmg", 1 );
+    m = pm( m, "p8_col_nitrogen_tank_worn_01_no_labels", "Col nitrogen tank worn 01 no labels", 0 );
+    m = pm( m, "p8_col_nitrogen_tank_worn_welded_01_decals", "Col nitrogen tank worn welded 01 decals", 0 );
+    m = pm( m, "p8_cos_chair_console_old", "Cos chair console old", 0 );
+    m = pm( m, "p8_cos_tool_chest_rolling_lrg_full", "Cos tool chest rolling lrg full", 0 );
+    m = pm( m, "p8_cos_tool_chest_rolling_lrg_sml", "Cos tool chest rolling lrg sml", 0 );
+    m = pm( m, "p8_cos_tool_chest_rolling_lrg_wheel", "Cos tool chest rolling lrg wheel", 0 );
+    m = pm( m, "p8_crate_plastic_locking", "Crate plastic locking", 0 );
+    m = pm( m, "p8_fxanim_test_concertina_wire_mod", "Test concertina wire mod", 0 );
+    m = pm( m, "p8_fxanim_test_concertina_wire_mod_spawn_1", "Test concertina wire mod spawn 1", 0 );
+    m = pm( m, "p8_fxanim_test_concertina_wire_mod_spawn_2", "Test concertina wire mod spawn 2", 0 );
+    m = pm( m, "p8_fxanim_test_concertina_wire_mod_spawn_3", "Test concertina wire mod spawn 3", 0 );
+    m = pm( m, "p8_fxanim_test_concertina_wire_mod_spawn_4", "Test concertina wire mod spawn 4", 0 );
+    m = pm( m, "p8_fxanim_test_concertina_wire_mod_spawn_5", "Test concertina wire mod spawn 5", 0 );
+    m = pm( m, "p8_fxanim_wz_death_stash_mod", "Death stash mod", 0 );
+    m = pm( m, "p8_fxanim_wz_parachute_supplydrop_mod", "Parachute supplydrop mod", 0 );
+    m = pm( m, "p8_fxanim_wz_supply_stash_04_mod", "Supply stash 04 mod", 0 );
+    m = pm( m, "p8_fxp_fluid_clump_mud", "Fxp fluid clump mud", 0 );
+    m = pm( m, "p8_fxp_fluid_clump_mud_sm_hirez", "Fxp fluid clump mud sm hirez", 0 );
+    m = pm( m, "p8_fxp_fluid_clump_water", "Fxp fluid clump water", 0 );
+    m = pm( m, "p8_fxp_fluid_droplet_blood", "Fxp fluid droplet blood", 0 );
+    m = pm( m, "p8_fxp_fluid_droplet_blood_dark", "Fxp fluid droplet blood dark", 0 );
+    m = pm( m, "p8_fxp_fluid_droplet_blood_dark_hirez", "Fxp fluid droplet blood dark hirez", 0 );
+    m = pm( m, "p8_fxp_fluid_droplet_blood_hirez", "Fxp fluid droplet blood hirez", 0 );
+    m = pm( m, "p8_fxp_fluid_droplet_mud", "Fxp fluid droplet mud", 0 );
+    m = pm( m, "p8_fxp_fluid_droplet_mud_hirez", "Fxp fluid droplet mud hirez", 0 );
+    m = pm( m, "p8_fxp_fluid_droplet_water", "Fxp fluid droplet water", 0 );
+    m = pm( m, "p8_fxp_fluid_droplet_water_hirez", "Fxp fluid droplet water hirez", 0 );
+    m = pm( m, "p8_fxp_fluid_fall_1_blood_hirez", "Fxp fluid fall 1 blood hirez", 0 );
+    m = pm( m, "p8_fxp_fluid_fall_1_mud", "Fxp fluid fall 1 mud", 0 );
+    m = pm( m, "p8_fxp_fluid_fall_1_water", "Fxp fluid fall 1 water", 0 );
+    m = pm( m, "p8_fxp_fluid_spill_1_blood", "Fxp fluid spill 1 blood", 0 );
+    m = pm( m, "p8_fxp_fluid_spill_1_radioactive", "Fxp fluid spill 1 radioactive", 0 );
+    m = pm( m, "p8_fxp_fluid_spill_1_radioactive_raygun", "Fxp fluid spill 1 radioactive raygun", 0 );
+    m = pm( m, "p8_fxp_fluid_spill_2_blood", "Fxp fluid spill 2 blood", 0 );
+    m = pm( m, "p8_fxp_fluid_spill_2_radioactive", "Fxp fluid spill 2 radioactive", 0 );
+    m = pm( m, "p8_fxp_fluid_spill_2_radioactive_raygun", "Fxp fluid spill 2 radioactive raygun", 0 );
+    m = pm( m, "p8_fxp_fluid_spill_2_water_acid", "Fxp fluid spill 2 water acid", 0 );
+    m = pm( m, "p8_fxp_fluid_splash_blood", "Fxp fluid splash blood", 0 );
+    m = pm( m, "p8_fxp_fluid_splash_blood_hirez", "Fxp fluid splash blood hirez", 0 );
+    m = pm( m, "p8_fxp_fluid_splash_mud", "Fxp fluid splash mud", 0 );
+    m = pm( m, "p8_fxp_fluid_splash_water", "Fxp fluid splash water", 0 );
+    m = pm( m, "p8_fxp_fluid_string_1_blood", "Fxp fluid string 1 blood", 0 );
+    m = pm( m, "p8_fxp_fluid_string_1_blood_dark", "Fxp fluid string 1 blood dark", 0 );
+    m = pm( m, "p8_fxp_fluid_string_2_blood", "Fxp fluid string 2 blood", 0 );
+    m = pm( m, "p8_fxp_fluid_string_2_blood_dark", "Fxp fluid string 2 blood dark", 0 );
+    m = pm( m, "p8_fxp_fluid_string_3_blood", "Fxp fluid string 3 blood", 0 );
+    m = pm( m, "p8_fxp_fluid_string_3_blood_dark", "Fxp fluid string 3 blood dark", 0 );
+    m = pm( m, "p8_fxp_fluid_string_omni_blood", "Fxp fluid string omni blood", 0 );
+    m = pm( m, "p8_fxp_fluid_string_omni_blood_dark", "Fxp fluid string omni blood dark", 0 );
+    m = pm( m, "p8_fxp_fluid_string_omni_radioactive", "Fxp fluid string omni radioactive", 0 );
+    m = pm( m, "p8_fxp_fluid_string_omni_radioactive_raygun", "Fxp fluid string omni radioactive raygun", 0 );
+    m = pm( m, "p8_fxp_fluid_string_radioactive", "Fxp fluid string radioactive", 0 );
+    m = pm( m, "p8_fxp_fluid_string_radioactive_raygun", "Fxp fluid string radioactive raygun", 0 );
+    m = pm( m, "p8_fxp_fluid_tendril_1_blood", "Fxp fluid tendril 1 blood", 0 );
+    m = pm( m, "p8_fxp_fluid_tendril_1_water", "Fxp fluid tendril 1 water", 0 );
+    m = pm( m, "p8_fxp_fluid_tendril_2_blood", "Fxp fluid tendril 2 blood", 0 );
+    m = pm( m, "p8_fxp_fluid_tendril_2_water", "Fxp fluid tendril 2 water", 0 );
+    m = pm( m, "p8_fxp_mp_dom_belt", "Fxp mp dom belt", 0 );
+    m = pm( m, "p8_fxp_mp_dom_belt_enemy", "Fxp mp dom belt enemy", 0 );
+    m = pm( m, "p8_fxp_mp_dom_belt_enemy_md", "Fxp mp dom belt enemy md", 0 );
+    m = pm( m, "p8_fxp_mp_dom_belt_enemy_md_capture", "Fxp mp dom belt enemy md capture", 0 );
+    m = pm( m, "p8_fxp_mp_dom_belt_enemy_sm", "Fxp mp dom belt enemy sm", 0 );
+    m = pm( m, "p8_fxp_mp_dom_belt_friendly", "Fxp mp dom belt friendly", 0 );
+    m = pm( m, "p8_fxp_mp_dom_belt_friendly_md", "Fxp mp dom belt friendly md", 0 );
+    m = pm( m, "p8_fxp_mp_dom_belt_friendly_md_capture", "Fxp mp dom belt friendly md capture", 0 );
+    m = pm( m, "p8_fxp_mp_dom_belt_friendly_sm", "Fxp mp dom belt friendly sm", 0 );
+    m = pm( m, "p8_fxp_mp_dom_belt_md", "Fxp mp dom belt md", 0 );
+    m = pm( m, "p8_fxp_mp_dom_belt_sm", "Fxp mp dom belt sm", 0 );
+    m = pm( m, "p8_fxp_zm_energy_portal_alctrz", "Fxp zm energy portal alctrz", 0 );
+    m = pm( m, "p8_icbm_computer_decal_scratches_04", "Icbm computer decal scratches 04", 0 );
+    m = pm( m, "p8_jpn_ashtray_tall", "Jpn ashtray tall", 0 );
+    m = pm( m, "p8_jpn_tea_storage_sack_01", "Jpn tea storage sack 01", 0 );
+    m = pm( m, "p8_lab_smart_board_on", "Lab smart board on", 0 );
+    m = pm( m, "p8_missile_lrg", "Missile lrg", 0 );
+    m = pm( m, "p8_mou_crate_metal_01", "Mou crate metal 01", 0 );
+    m = pm( m, "p8_mp_spe_armor_light", "Mp spe armor light", 0 );
+    m = pm( m, "p8_mp_spe_armor_medium", "Mp spe armor medium", 0 );
+    m = pm( m, "p8_mphd_cargo_pallet_crate_02", "Mphd cargo pallet crate 02", 0 );
+    m = pm( m, "p8_mphd_generator", "Mphd generator", 0 );
+    m = pm( m, "p8_mphd_light_floodlight_sml", "Mphd light floodlight sml", 0 );
+    m = pm( m, "p8_mphd_tool_chest_rolling_lrg_b", "Mphd tool chest rolling lrg b", 0 );
+    m = pm( m, "p8_news_camera_broadcast", "News camera broadcast", 0 );
+    m = pm( m, "p8_news_mod_light_stagelight", "News mod light stagelight", 0 );
+    m = pm( m, "p8_nt4_bucket_janitor_rolling", "Nt4 bucket janitor rolling", 0 );
+    m = pm( m, "p8_nt4_console_green_01", "Nt4 console green 01", 0 );
+    m = pm( m, "p8_nt4_console_tall_grey_04", "Nt4 console tall grey 04", 0 );
+    m = pm( m, "p8_nt4_office_chair", "Nt4 office chair", 0 );
+    m = pm( m, "p8_nt4_radiator", "Nt4 radiator", 0 );
+    m = pm( m, "p8_sign_wet_floor_us", "Sign wet floor us", 0 );
+    m = pm( m, "p8_slu_crate_wood", "Slu crate wood", 0 );
+    m = pm( m, "p8_spa_pottery_terracotta_a", "Spa pottery terracotta a", 0 );
+    m = pm( m, "p8_spa_pottery_terracotta_c", "Spa pottery terracotta c", 0 );
+    m = pm( m, "p8_spa_trashcan_covered", "Spa trashcan covered", 0 );
+    m = pm( m, "p8_spa_trashcan_lid", "Spa trashcan lid", 0 );
+    m = pm( m, "p8_sta_trash_shredded_paper_bag_02", "Sta trash shredded paper bag 02", 0 );
+    m = pm( m, "p8_tire_old_dirty_01_dusty", "Tire old dirty 01 dusty", 0 );
+    m = pm( m, "p8_usa_lounge_ottoman_01_white", "Lounge ottoman 01 white", 0 );
+    m = pm( m, "p8_usa_wheelbarrow_full", "Wheelbarrow full", 0 );
+    m = pm( m, "p8_usa_wheelbarrow_tire", "Wheelbarrow tire", 0 );
+    m = pm( m, "p8_water_container_plastic_small", "Water container plastic small", 0 );
+    m = pm( m, "p8_wmd_box_cardboard_03", "Wmd box cardboard 03", 0 );
+    m = pm( m, "p8_wmd_generator", "Wmd generator", 0 );
+    m = pm( m, "p8_wmd_rocket_debris_metal_03_grime", "Wmd rocket debris metal 03 grime", 0 );
+    m = pm( m, "p8_wmd_sack_fertilizer_burlap_standup_01", "Wmd sack fertilizer burlap standup 01", 0 );
+    m = pm( m, "p8_wmd_table_steel", "Wmd table steel", 0 );
+    m = pm( m, "p8_wmd_tire_industrial_grime", "Wmd tire industrial grime", 0 );
+    m = pm( m, "p8_wz_ammo_pickup_50", "Ammo pickup 50", 0 );
+    m = pm( m, "p8_wz_ammo_pickup_556", "Ammo pickup 556", 0 );
+    m = pm( m, "p8_wz_ammo_pickup_762", "Ammo pickup 762", 0 );
+    m = pm( m, "p8_wz_ammo_pickup_9mm", "Ammo pickup 9mm", 0 );
+    m = pm( m, "p8_wz_ammo_pickup_rockets", "Ammo pickup rockets", 0 );
+    m = pm( m, "p8_wz_ammo_pickup_shotgun", "Ammo pickup shotgun", 0 );
+    m = pm( m, "p8_wz_debris_metal_door_scrap_01", "Debris metal door scrap 01", 0 );
+    m = pm( m, "p8_wz_debris_metal_door_scrap_02", "Debris metal door scrap 02", 0 );
+    m = pm( m, "p8_wz_debris_metal_door_scrap_04", "Debris metal door scrap 04", 0 );
+    m = pm( m, "p8_wz_foliage_cactus_cardon_lrg_optimized", "Cactus cardon lrg optimized", 0 );
+    m = pm( m, "p8_wz_perk_pickups_deadsilence", "Perk pickups deadsilence", 0 );
+    m = pm( m, "p8_wz_perk_pickups_engineer", "Perk pickups engineer", 0 );
+    m = pm( m, "p8_wz_perk_pickups_gungho", "Perk pickups gungho", 0 );
+    m = pm( m, "p8_wz_perk_pickups_medic", "Perk pickups medic", 0 );
+    m = pm( m, "p8_wz_skt_speaker_standing", "Skt speaker standing", 0 );
+    m = pm( m, "p8_wz_skt_trash_can_03", "Skt trash can 03", 0 );
+    m = pm( m, "p8_wz_snowball_pile_mound", "Snowball pile mound", 0 );
+    m = pm( m, "p8_wz_supply_stash_health_lvl3", "Supply stash health lvl3", 0 );
+    m = pm( m, "p8_zm_esc_piano", "Zm esc piano", 0 );
+    m = pm( m, "p8_zm_esc_piano_sheets", "Zm esc piano sheets", 0 );
+    m = pm( m, "p8_zm_esc_rope_spool", "Zm esc rope spool", 0 );
+    m = pm( m, "p8_zm_red_coin_gold", "Zm red coin gold", 0 );
+    m = pm( m, "p8_zm_zod_coffee_table_rectangle_door", "Zm zod coffee table rectangle door", 0 );
+    m = pm( m, "p8_zm_zod_coffee_table_rectangle_open", "Zm zod coffee table rectangle open", 0 );
+    m = pm( m, "p9_ame_telephone_booth_01_closed", "Ame telephone booth 01 closed", 0 );
+    m = pm( m, "p9_amk_heater_box_sml_on", "Heater box sml on", 0 );
+    m = pm( m, "p9_aml_bird_hawk_redtail_fin_move", "Aml bird hawk redtail fin move", 0 );
+    m = pm( m, "p9_aml_bird_hawk_redtail_front_end", "Aml bird hawk redtail front end", 0 );
+    m = pm( m, "p9_ams_bar_speakers_wood_01", "Ams bar speakers wood 01", 0 );
+    m = pm( m, "p9_ams_beer_box_01", "Ams beer box 01", 0 );
+    m = pm( m, "p9_ang_rock_layered_01_boulder_lrg_02_a1", "Rock layered 01 boulder lrg 02 a1", 0 );
+    m = pm( m, "p9_ang_rocket_wreckage_cone_bit_01", "Rocket wreckage cone bit 01", 0 );
+    m = pm( m, "p9_ang_satellite_capsule_plate_01", "Satellite capsule plate 01", 0 );
+    m = pm( m, "p9_ang_satellite_capsule_plate_02_prophunt", "Capsule plate (PH)", 0 );
+    m = pm( m, "p9_ang_satellite_debris_04", "Satellite debris 04", 0 );
+    m = pm( m, "p9_ang_satellite_panel_02_prophunt", "Satellite panel (PH)", 0 );
+    m = pm( m, "p9_ang_satellite_panel_03_prophunt", "Satellite panel 3 (PH)", 0 );
+    m = pm( m, "p9_apo_bomb_shell_bundle_02", "Apo bomb shell bundle 02", 0 );
+    m = pm( m, "p9_apo_crate_wood_01_short_fx", "Apo crate wood 01 short fx", 0 );
+    m = pm( m, "p9_apo_gold_bar_01", "Apo gold bar 01", 0 );
+    m = pm( m, "p9_apo_temple_pillar_broken_02", "Apo temple pillar broken 02", 0 );
+    m = pm( m, "p9_barrel_metal_rusted_01_prophunt", "Rusted barrel (PH)", 1 );
+    m = pm( m, "p9_bollard_concrete_01_grime", "Bollard concrete 01 grime", 0 );
+    m = pm( m, "p9_c_t9_usa_chopper_pilot_01_fb", "C t9 usa chopper pilot 01 fb", 0 );
+    m = pm( m, "p9_case_plastic_military_lrg_02", "Case plastic military lrg 02", 0 );
+    m = pm( m, "p9_cli_chemical_barrel_01", "Chemical barrel 01", 1 );
+    m = pm( m, "p9_cp_rus_amerika_moving_target", "Cp rus amerika moving target", 0 );
+    m = pm( m, "p9_crate_wood_shipping_01_large_squ_01_closed", "Crate wood shipping 01 large squ 01 closed", 0 );
+    m = pm( m, "p9_dogtags_adler_enemy", "Dogtags adler enemy", 0 );
+    m = pm( m, "p9_dogtags_adler_friendly", "Dogtags adler friendly", 0 );
+    m = pm( m, "p9_dogtags_baker_enemy", "Dogtags baker enemy", 0 );
+    m = pm( m, "p9_dogtags_baker_friendly", "Dogtags baker friendly", 0 );
+    m = pm( m, "p9_dogtags_beck_enemy", "Dogtags beck enemy", 0 );
+    m = pm( m, "p9_dogtags_beck_friendly", "Dogtags beck friendly", 0 );
+    m = pm( m, "p9_dogtags_garcia_enemy", "Dogtags garcia enemy", 0 );
+    m = pm( m, "p9_dogtags_garcia_friendly", "Dogtags garcia friendly", 0 );
+    m = pm( m, "p9_dogtags_hunter_enemy", "Dogtags hunter enemy", 0 );
+    m = pm( m, "p9_dogtags_hunter_friendly", "Dogtags hunter friendly", 0 );
+    m = pm( m, "p9_dogtags_park_enemy", "Dogtags park enemy", 0 );
+    m = pm( m, "p9_dogtags_park_friendly", "Dogtags park friendly", 0 );
+    m = pm( m, "p9_dogtags_portnova_enemy", "Dogtags portnova enemy", 0 );
+    m = pm( m, "p9_dogtags_portnova_friendly", "Dogtags portnova friendly", 0 );
+    m = pm( m, "p9_dogtags_powers_enemy", "Dogtags powers enemy", 0 );
+    m = pm( m, "p9_dogtags_powers_friendly", "Dogtags powers friendly", 0 );
+    m = pm( m, "p9_dogtags_sims_enemy", "Dogtags sims enemy", 0 );
+    m = pm( m, "p9_dogtags_sims_friendly", "Dogtags sims friendly", 0 );
+    m = pm( m, "p9_dogtags_song_enemy", "Dogtags song enemy", 0 );
+    m = pm( m, "p9_dogtags_song_friendly", "Dogtags song friendly", 0 );
+    m = pm( m, "p9_dogtags_stone_enemy", "Dogtags stone enemy", 0 );
+    m = pm( m, "p9_dogtags_stone_friendly", "Dogtags stone friendly", 0 );
+    m = pm( m, "p9_dogtags_vargas_enemy", "Dogtags vargas enemy", 0 );
+    m = pm( m, "p9_dogtags_vargas_friendly", "Dogtags vargas friendly", 0 );
+    m = pm( m, "p9_dogtags_woods_enemy", "Dogtags woods enemy", 0 );
+    m = pm( m, "p9_dogtags_woods_friendly", "Dogtags woods friendly", 0 );
+    m = pm( m, "p9_dun_drying_rack_01_only", "Dun drying rack 01 only", 0 );
+    m = pm( m, "p9_dun_stone_table_01", "Dun stone table 01", 0 );
+    m = pm( m, "p9_dun_wood_village_furniture_chair_01", "Dun wood village furniture chair 01", 0 );
+    m = pm( m, "p9_dun_wood_village_furniture_table_01", "Dun wood village furniture table 01", 0 );
+    m = pm( m, "p9_ech_ac_unit_wet", "Ech ac unit wet", 0 );
+    m = pm( m, "p9_ech_cardboard_box_open_01_wet", "Ech cardboard box open 01 wet", 0 );
+    m = pm( m, "p9_ech_duct_metal_square_elbow_right_90_dark_clean_wet", "Ech duct metal square elbow right 90 dark clean wet", 0 );
+    m = pm( m, "p9_ech_hvac_unit_lrg_01_wet", "Ech hvac unit lrg 01 wet", 0 );
+    m = pm( m, "p9_ech_roof_skylight_01_wet", "Ech roof skylight 01 wet", 0 );
+    m = pm( m, "p9_ech_shredded_paper_bin_01", "Ech shredded paper bin 01", 0 );
+    m = pm( m, "p9_foliage_tree_palm_coconut_lrg_01", "Palm tree", 0 );
+    m = pm( m, "p9_fxanim_gp_vehicle_heli_lrg_vip_rope_mod", "Vehicle heli lrg vip rope mod", 0 );
+    m = pm( m, "p9_fxanim_mp_dogfight_missile_mod", "Mp dogfight missile mod", 0 );
+    m = pm( m, "p9_fxanim_mp_objective_sat_link_mod", "Mp objective sat link mod", 0 );
+    m = pm( m, "p9_fxanim_mp_planemortar_01_mod", "Mp planemortar 01 mod", 0 );
+    m = pm( m, "p9_fxanim_wz_parachute_supplydrop_01_fade", "Parachute supplydrop 01 fade", 0 );
+    m = pm( m, "p9_fxanim_wz_parachute_supplydrop_01_mod", "Parachute supplydrop 01 mod", 0 );
+    m = pm( m, "p9_fxanim_wz_parachute_supplydrop_harness_01_mod", "Parachute supplydrop harness 01 mod", 0 );
+    m = pm( m, "p9_fxanim_wz_parachute_supplydrop_veh_fade", "Parachute supplydrop veh fade", 0 );
+    m = pm( m, "p9_fxanim_wz_parachute_supplydrop_veh_fav_harness_mod", "Parachute supplydrop veh fav harness mod", 0 );
+    m = pm( m, "p9_fxanim_wz_parachute_supplydrop_veh_mod", "Parachute supplydrop veh mod", 0 );
+    m = pm( m, "p9_fxanim_wz_parachute_supplydrop_veh_tank_harness_mod", "Parachute supplydrop veh tank harness mod", 0 );
+    m = pm( m, "p9_fxp_debris_mud_1", "Fxp debris mud 1", 0 );
+    m = pm( m, "p9_fxp_debris_mud_2", "Fxp debris mud 2", 0 );
+    m = pm( m, "p9_fxp_debris_mud_3", "Fxp debris mud 3", 0 );
+    m = pm( m, "p9_fxp_debris_snow_1", "Fxp debris snow 1", 0 );
+    m = pm( m, "p9_fxp_debris_snow_2", "Fxp debris snow 2", 0 );
+    m = pm( m, "p9_fxp_debris_snow_3", "Fxp debris snow 3", 0 );
+    m = pm( m, "p9_fxp_firestorm_flame_01", "Fxp firestorm flame 01", 0 );
+    m = pm( m, "p9_fxp_firestorm_flame_02", "Fxp firestorm flame 02", 0 );
+    m = pm( m, "p9_fxp_firestorm_flame_03", "Fxp firestorm flame 03", 0 );
+    m = pm( m, "p9_fxp_fluid_clump_snow", "Fxp fluid clump snow", 0 );
+    m = pm( m, "p9_fxp_fluid_clump_sparse_snow", "Fxp fluid clump sparse snow", 0 );
+    m = pm( m, "p9_fxp_sr_dark_aether_arc_offset_black", "Fxp sr dark aether arc offset black", 0 );
+    m = pm( m, "p9_fxp_sr_dark_aether_tendril_omni", "Fxp sr dark aether tendril omni", 0 );
+    m = pm( m, "p9_ger_kgb_mount_barrier_concrete_144", "Concrete barrier 144", 0 );
+    m = pm( m, "p9_ger_kgb_mout_barrier_concrete_48_d", "Mout barrier concrete 48 d", 0 );
+    m = pm( m, "p9_ger_tank_ac_unit_01", "Tank ac unit 01", 0 );
+    m = pm( m, "p9_ger_tank_barrel_metal_01", "Metal barrel", 1 );
+    m = pm( m, "p9_ger_tank_barrel_metal_01_btm", "Tank barrel metal 01 btm", 0 );
+    m = pm( m, "p9_ger_tank_barrel_metal_01_lid", "Tank barrel metal 01 lid", 0 );
+    m = pm( m, "p9_ger_tank_cabinet_metal_standing_01", "Tank cabinet metal standing 01", 0 );
+    m = pm( m, "p9_ger_tank_computer_server_diagnostic_01_silver_prophunt", "Server rack (PH)", 0 );
+    m = pm( m, "p9_ger_tank_gas_pump_01", "Gas pump", 0 );
+    m = pm( m, "p9_ger_tank_plastic_storage_bin_40x80x36", "Tank plastic storage bin 40x80x36", 0 );
+    m = pm( m, "p9_ger_tank_tank_tread_rolls_01_prophunt", "Tank tread rolls (PH)", 0 );
+    m = pm( m, "p9_heart_name_be_mine", "Heart name be mine", 0 );
+    m = pm( m, "p9_heart_name_dream_on", "Heart name dream on", 0 );
+    m = pm( m, "p9_heart_name_my_hero", "Heart name my hero", 0 );
+    m = pm( m, "p9_heart_name_no_thanks", "Heart name no thanks", 0 );
+    m = pm( m, "p9_heart_name_noob", "Heart name noob", 0 );
+    m = pm( m, "p9_heart_name_owned", "Heart name owned", 0 );
+    m = pm( m, "p9_heart_name_true_love", "Heart name true love", 0 );
+    m = pm( m, "p9_heart_name_xoxo", "Heart name xoxo", 0 );
+    m = pm( m, "p9_hue_sidewalk_sign_01", "Hue sidewalk sign 01", 0 );
+    m = pm( m, "p9_krail_concrete_worn_01", "Krail concrete worn 01", 0 );
+    m = pm( m, "p9_krail_concrete_worn_01_prophunt", "Concrete K-rail (PH)", 0 );
+    m = pm( m, "p9_lat_ammo_crate_01_grime", "Ammo crate 01 grime", 0 );
+    m = pm( m, "p9_lat_ammo_crate_32x48_grime", "Ammo crate 32x48 grime", 0 );
+    m = pm( m, "p9_lat_barrel_barrel_drum_metal_01_grime", "Barrel barrel drum metal 01 grime", 1 );
+    m = pm( m, "p9_lat_barrel_barrel_drum_metal_snow_cap", "Barrel barrel drum metal snow cap", 0 );
+    m = pm( m, "p9_lat_equipment_bag_first_aid_lrg", "Equipment bag first aid lrg", 0 );
+    m = pm( m, "p9_lat_hedgehog_metal_snow", "Czech hedgehog", 0 );
+    m = pm( m, "p9_lat_sandbag_cover_02_grime", "Sandbag cover", 0 );
+    m = pm( m, "p9_lat_sandbag_cover_scatter_01_grime", "Sandbag cover scatter 01 grime", 0 );
+    m = pm( m, "p9_lat_storage_tool_cart_clean_full", "Storage tool cart clean full", 0 );
+    m = pm( m, "p9_lat_storage_tool_cart_drawer_lrg", "Storage tool cart drawer lrg", 0 );
+    m = pm( m, "p9_lat_storage_tool_cart_drawer_lrg_clean", "Storage tool cart drawer lrg clean", 0 );
+    m = pm( m, "p9_lat_storage_tool_cart_drawer_sml_clean", "Storage tool cart drawer sml clean", 0 );
+    m = pm( m, "p9_lat_storage_tool_cart_wheel_lrg_clean", "Storage tool cart wheel lrg clean", 0 );
+    m = pm( m, "p9_lat_storage_tool_cart_wheel_sml_clean", "Storage tool cart wheel sml clean", 0 );
+    m = pm( m, "p9_m114_155mm_artillery_gun_01_pickup", "155mm artillery gun", 0 );
+    m = pm( m, "p9_mal_arcade_cabinet_08", "Arcade cabinet", 0 );
+    m = pm( m, "p9_mal_arcade_cabinet_09", "Arcade cabinet 09", 0 );
+    m = pm( m, "p9_mal_barrier_construction_01", "Barrier construction 01", 0 );
+    m = pm( m, "p9_mal_bean_bag_chair_sml", "Bean bag", 0 );
+    m = pm( m, "p9_mal_bench_painted_01", "Bench painted 01", 0 );
+    m = pm( m, "p9_mal_cardboard_box_xlrg_wide_brookmans", "Cardboard box xlrg wide brookmans", 0 );
+    m = pm( m, "p9_mal_change_machine_01", "Change machine 01", 0 );
+    m = pm( m, "p9_mal_chemical_bomb_01_close_barrel", "Chemical bomb 01 close barrel", 1 );
+    m = pm( m, "p9_mal_electronics_television_01_new", "Electronics television 01 new", 0 );
+    m = pm( m, "p9_mal_payphone_stand", "Payphone stand", 0 );
+    m = pm( m, "p9_mal_planter_trashcan", "Planter trashcan", 0 );
+    m = pm( m, "p9_mal_rocket_ride_01", "Kiddie rocket ride", 0 );
+    m = pm( m, "p9_mal_scissor_lift_01", "Scissor lift", 0 );
+    m = pm( m, "p9_mal_trash_bin_plastic", "Trash bin plastic", 0 );
+    m = pm( m, "p9_mal_trashcan_exterior_01", "Trashcan exterior 01", 0 );
+    m = pm( m, "p9_mal_vending_machine_soda_01", "Vending machine soda 01", 0 );
+    m = pm( m, "p9_mal_vending_machine_soda_02", "Vending machine soda 02", 0 );
+    m = pm( m, "p9_mal_vending_machine_soda_02_exp", "Vending machine soda 02 exp", 0 );
+    m = pm( m, "p9_mal_water_fountain_wall_01", "Water fountain wall 01", 0 );
+    m = pm( m, "p9_mkg_bamboo_baskets_stackable_01", "Mkg bamboo baskets stackable 01", 0 );
+    m = pm( m, "p9_mkg_wood_chopped_03", "Mkg wood chopped 03", 0 );
+    m = pm( m, "p9_nam_fr_col_bldg_wood_deco_cabinet_02", "Nam fr col bldg wood deco cabinet 02", 0 );
+    m = pm( m, "p9_nic_bale_cocaine_leaves_01", "Bale cocaine leaves 01", 0 );
+    m = pm( m, "p9_nic_bale_cocaine_leaves_01_top", "Bale cocaine leaves 01 top", 0 );
+    m = pm( m, "p9_nic_can_gas_metal_lrg", "Can gas metal lrg", 1 );
+    m = pm( m, "p9_nic_container_plastic_barrel", "Container plastic barrel", 1 );
+    m = pm( m, "p9_nic_jerrycan_fuel_sml", "Jerrycan fuel sml", 1 );
+    m = pm( m, "p9_nic_rock_smooth_set_02_03_grime", "Rock smooth set 02 03 grime", 0 );
+    m = pm( m, "p9_nt6_abandoned_mattress_01_prophunt", "Mattress (PH)", 0 );
+    m = pm( m, "p9_nt6_arcade_game", "Arcade game", 0 );
+    m = pm( m, "p9_nt6_barricade_tire_01", "Tire barricade", 0 );
+    m = pm( m, "p9_nt6_chair_wood", "Wooden chair", 0 );
+    m = pm( m, "p9_nt6_cork_board_standing", "Cork board standing", 0 );
+    m = pm( m, "p9_nt6_machine_washing_dirty", "Washing machine", 0 );
+    m = pm( m, "p9_nt6_mannequin_clothes_female_02_dmg_full_prophunt", "Mannequin F2 (PH)", 0 );
+    m = pm( m, "p9_nt6_mannequin_clothes_female_03_dirty_full_prophunt", "Mannequin F3 (PH)", 0 );
+    m = pm( m, "p9_nt6_mannequin_clothes_male_01_dirty_full_prophunt", "Mannequin M1 (PH)", 0 );
+    m = pm( m, "p9_nt6_mannequin_clothes_male_02_dmg_full", "Mannequin clothes male 02 dmg full", 0 );
+    m = pm( m, "p9_nt6_mannequin_clothes_male_02_head_dirty", "Mannequin clothes male 02 head dirty", 0 );
+    m = pm( m, "p9_nt6_mannequin_clothes_male_02_torso_dmg", "Mannequin clothes male 02 torso dmg", 0 );
+    m = pm( m, "p9_nt6_refrigerator_vintage_closed_02", "Vintage fridge", 0 );
+    m = pm( m, "p9_nt6_refrigerator_vintage_door_01", "Refrigerator vintage door 01", 0 );
+    m = pm( m, "p9_nt6_refrigerator_vintage_door_02", "Refrigerator vintage door 02", 0 );
+    m = pm( m, "p9_nt6_sofa_dmg_chair", "Sofa dmg chair", 0 );
+    m = pm( m, "p9_nt6_sofa_dmg_couch_full", "Sofa dmg couch full", 0 );
+    m = pm( m, "p9_nt6_sofa_dmg_couch_pillow", "Sofa dmg couch pillow", 0 );
+    m = pm( m, "p9_nt6_trashcan_rust_full", "Trashcan rust full", 0 );
+    m = pm( m, "p9_nt6_trashcan_rust_lid", "Trashcan rust lid", 0 );
+    m = pm( m, "p9_nt6_umbrella_beach_closed_01", "Umbrella beach closed 01", 0 );
+    m = pm( m, "p9_nt6_umbrella_beach_closed_02", "Umbrella beach closed 02", 0 );
+    m = pm( m, "p9_nt6h_hat_top_magician", "Nt6h hat top magician", 0 );
+    m = pm( m, "p9_nt6x_foliage_tree_christmas_lights_02", "Tree christmas lights 02", 0 );
+    m = pm( m, "p9_nt6x_foliage_tree_christmas_ornaments", "Tree christmas ornaments", 0 );
+    m = pm( m, "p9_nt6x_foliage_tree_christmas_stand", "Tree christmas stand", 0 );
+    m = pm( m, "p9_nt6x_foliage_tree_christmas_star", "Tree christmas star", 0 );
+    m = pm( m, "p9_nt6x_win_snowman", "Snowman", 0 );
+    m = pm( m, "p9_plywood_wood_48x96", "Plywood wood 48x96", 0 );
+    m = pm( m, "p9_pot_of_gold_pristine", "Pot of gold", 0 );
+    m = pm( m, "p9_rm_dwn_bench_landing", "Dwn bench landing", 0 );
+    m = pm( m, "p9_rm_dwn_chair_office_cushion_base_full", "Dwn chair office cushion base full", 0 );
+    m = pm( m, "p9_rm_dwn_chair_office_cushion_seat", "Dwn chair office cushion seat", 0 );
+    m = pm( m, "p9_rm_dwn_couch_01", "Dwn couch 01", 0 );
+    m = pm( m, "p9_rm_dwn_end_table_chalet_01", "Dwn end table chalet 01", 0 );
+    m = pm( m, "p9_rm_exp_bullet_train_food_cart", "Exp bullet train food cart", 0 );
+    m = pm( m, "p9_rm_exp_bullet_train_seat", "Exp bullet train seat", 0 );
+    m = pm( m, "p9_rm_exp_chair_waiting_row", "Exp chair waiting row", 0 );
+    m = pm( m, "p9_rm_exp_pot_short_palm", "Exp pot short palm", 0 );
+    m = pm( m, "p9_rm_exp_ticket_kiosk_03", "Exp ticket kiosk 03", 0 );
+    m = pm( m, "p9_rm_exp_trash_can_03", "Exp trash can 03", 0 );
+    m = pm( m, "p9_rm_exp_turnstile_01_full", "Exp turnstile 01 full", 0 );
+    m = pm( m, "p9_rm_exp_turnstile_turn", "Exp turnstile turn", 0 );
+    m = pm( m, "p9_rm_hjk_barrel_boat", "Barrel boat", 0 );
+    m = pm( m, "p9_rm_hjk_pillow_boat_long_01", "Pillow boat long 01", 0 );
+    m = pm( m, "p9_rm_pai_barrel_plastic", "Barrel plastic", 1 );
+    m = pm( m, "p9_rm_pai_barrier_sand", "Barrier sand", 0 );
+    m = pm( m, "p9_rm_pai_barrier_sand_top", "Barrier sand top", 0 );
+    m = pm( m, "p9_rm_pai_lawnchair_red", "Lawnchair red", 0 );
+    m = pm( m, "p9_rm_pai_paintball_boxes_01", "Paintball boxes 01", 0 );
+    m = pm( m, "p9_rm_pai_paintball_boxes_02", "Paintball boxes 02", 0 );
+    m = pm( m, "p9_rm_pai_paintball_boxes_03", "Paintball boxes 03", 0 );
+    m = pm( m, "p9_rm_pai_plywood_wood_48x96", "Plywood wood 48x96", 0 );
+    m = pm( m, "p9_rm_pai_sandbag_box_96x48", "Sandbag box 96x48", 0 );
+    m = pm( m, "p9_rm_pai_sandbag_can_64x96", "Sandbag can 64x96", 0 );
+    m = pm( m, "p9_rm_pai_sandbags_01", "Sandbags 01", 0 );
+    m = pm( m, "p9_rm_pai_tire_large_01", "Tire large 01", 0 );
+    m = pm( m, "p9_rm_pai_wooden_spool", "Wooden spool", 0 );
+    m = pm( m, "p9_rm_rai_bench_rounded", "Bench rounded", 0 );
+    m = pm( m, "p9_rm_rai_ceramic_planter_pot_painted", "Ceramic planter pot painted", 0 );
+    m = pm( m, "p9_rm_rai_chaise_lounge", "Chaise lounge", 0 );
+    m = pm( m, "p9_rm_rai_club_barstool", "Club barstool", 0 );
+    m = pm( m, "p9_rm_rai_dub_vase", "Dub vase", 0 );
+    m = pm( m, "p9_rm_rai_dub_vase_prophunt", "Vase (PH)", 0 );
+    m = pm( m, "p9_rm_rai_hamper_laundry", "Hamper laundry", 0 );
+    m = pm( m, "p9_rm_rai_heater_patio", "Heater patio", 0 );
+    m = pm( m, "p9_rm_rai_mural_painting_03", "Mural painting 03", 0 );
+    m = pm( m, "p9_rm_rai_potted_plant_palm_square", "Potted plant palm square", 0 );
+    m = pm( m, "p9_rm_rai_rock_chasm_rock_main", "Rock chasm rock main", 0 );
+    m = pm( m, "p9_rm_rai_sport_ball_basketball_01_new", "Sport ball basketball 01 new", 0 );
+    m = pm( m, "p9_rm_rai_trashbin_plastic", "Trashbin plastic", 0 );
+    m = pm( m, "p9_rm_rai_vase_china", "Vase china", 0 );
+    m = pm( m, "p9_rm_rai_water_cooler_metal_cup", "Water cooler metal cup", 0 );
+    m = pm( m, "p9_rm_rai_water_cooler_metal_cup_holder", "Water cooler metal cup holder", 0 );
+    m = pm( m, "p9_rm_rai_water_cooler_metal_full", "Water cooler", 0 );
+    m = pm( m, "p9_rm_rai_water_cooler_metal_line", "Water cooler metal line", 0 );
+    m = pm( m, "p9_rm_rai_water_cooler_metal_water_jug", "Water cooler metal water jug", 0 );
+    m = pm( m, "p9_rm_rwd_door_wood_rustic_01_bare", "Rwd door wood rustic 01 bare", 0 );
+    m = pm( m, "p9_rm_stm_bench_office", "Stm bench office", 0 );
+    m = pm( m, "p9_rm_stm_display_rack_postcard", "Stm display rack postcard", 0 );
+    m = pm( m, "p9_rm_stm_trash_can", "Stm trash can", 0 );
+    m = pm( m, "p9_rm_stm_vending_soda", "Stm vending soda", 0 );
+    m = pm( m, "p9_rm_stm_water_cooler_01a", "Stm water cooler 01a", 0 );
+    m = pm( m, "p9_rm_vlg_bale_hay", "Bale hay", 0 );
+    m = pm( m, "p9_rm_vlg_gas_station_price_sign", "Gas station price sign", 0 );
+    m = pm( m, "p9_rm_vlg_luggage_02", "Luggage 02", 0 );
+    m = pm( m, "p9_rm_vlg_pallet_cardboard", "Pallet cardboard", 0 );
+    m = pm( m, "p9_rm_zoo2_aml_cage_crate", "Zoo2 aml cage crate", 0 );
+    m = pm( m, "p9_rm_zoo2_food_stand", "Zoo2 food stand", 0 );
+    m = pm( m, "p9_rm_zoo2_food_stand_lid", "Zoo2 food stand lid", 0 );
+    m = pm( m, "p9_rm_zoo2_wood_crate", "Zoo2 wood crate", 0 );
+    m = pm( m, "p9_rm_zoo_coffee_urn", "Coffee urn", 0 );
+    m = pm( m, "p9_rm_zoo_column_sphere", "Column sphere", 0 );
+    m = pm( m, "p9_rm_zoo_hay_bale_sqr", "Hay bale", 0 );
+    m = pm( m, "p9_rm_zoo_trash_can_metal", "Trash can metal", 0 );
+    m = pm( m, "p9_rus_alpinist_container_01", "Alpinist container 01", 0 );
+    m = pm( m, "p9_rus_alpinist_container_04", "Alpinist container 04", 0 );
+    m = pm( m, "p9_rus_alpinist_rope_crane", "Alpinist rope crane", 0 );
+    m = pm( m, "p9_rus_amk_cart_metal_01", "Cart metal 01", 0 );
+    m = pm( m, "p9_rus_amk_facility_stl_crate_set_05_grime", "Facility stl crate set 05 grime", 0 );
+    m = pm( m, "p9_rus_amk_telephonebooth_01_closed_v2_wet", "Phone booth", 0 );
+    m = pm( m, "p9_rus_ammo_crate_01", "Ammo crate 01", 0 );
+    m = pm( m, "p9_rus_ammo_crate_03", "Ammo crate 03", 0 );
+    m = pm( m, "p9_rus_appliance_refrigeration_retail_freezer", "Appliance refrigeration retail freezer", 0 );
+    m = pm( m, "p9_rus_appliance_refrigeration_retail_freezer_door_left", "Appliance refrigeration retail freezer door left", 0 );
+    m = pm( m, "p9_rus_appliance_refrigeration_retail_freezer_door_right", "Appliance refrigeration retail freezer door right", 0 );
+    m = pm( m, "p9_rus_appliance_refrigeration_retail_freezer_tray", "Appliance refrigeration retail freezer tray", 0 );
+    m = pm( m, "p9_rus_bench_park_long", "Long park bench", 0 );
+    m = pm( m, "p9_rus_cabinet_wood_01", "Cabinet wood 01", 0 );
+    m = pm( m, "p9_rus_cart_utility_01", "Cart utility 01", 0 );
+    m = pm( m, "p9_rus_chair_office_swivel_01", "Chair office swivel 01", 0 );
+    m = pm( m, "p9_rus_computer_02b", "Computer 02b", 0 );
+    m = pm( m, "p9_rus_computer_server_02", "Computer server", 0 );
+    m = pm( m, "p9_rus_concrete_bench_01_decal", "Concrete bench 01 decal", 0 );
+    m = pm( m, "p9_rus_concrete_bench_01_wet", "Concrete bench 01 wet", 0 );
+    m = pm( m, "p9_rus_crate_wood_sml_grime", "Crate wood sml grime", 0 );
+    m = pm( m, "p9_rus_fire_extinguisher_police", "Fire extinguisher police", 0 );
+    m = pm( m, "p9_rus_kgb_shipping_crate_wood_01", "Shipping crate wood 01", 0 );
+    m = pm( m, "p9_rus_oil_drum_01", "Oil drum", 1 );
+    m = pm( m, "p9_rus_painting_wooden_frame_2x3_06", "Painting wooden frame 2x3 06", 0 );
+    m = pm( m, "p9_rus_shell_cover_soviet", "Shell cover soviet", 0 );
+    m = pm( m, "p9_rus_tank_welding_guage", "Tank welding guage", 0 );
+    m = pm( m, "p9_rus_tank_welding_med_full", "Tank welding med full", 0 );
+    m = pm( m, "p9_rus_tank_welding_valve", "Tank welding valve", 0 );
+    m = pm( m, "p9_rus_trashcan_full", "Trashcan full", 0 );
+    m = pm( m, "p9_rus_trashcan_lid", "Trashcan lid", 0 );
+    m = pm( m, "p9_rus_welding_arc_cart_set", "Welding arc cart set", 0 );
+    m = pm( m, "p9_ship_barrel_drum_metal_steel_01", "Barrel drum metal steel 01", 1 );
+    m = pm( m, "p9_ship_barrel_drum_metal_steel_btm_01", "Barrel drum metal steel btm 01", 0 );
+    m = pm( m, "p9_ship_barrel_drum_metal_steel_lid_01", "Barrel drum metal steel lid 01", 0 );
+    m = pm( m, "p9_ship_chair_metal_folding_open", "Chair metal folding open", 0 );
+    m = pm( m, "p9_ship_console_chair", "Console chair", 0 );
+    m = pm( m, "p9_ship_zipline_post_a", "Zipline post a", 0 );
+    m = pm( m, "p9_ship_zipline_post_a_light", "Zipline post a light", 0 );
+    m = pm( m, "p9_sm_gas_foliage_cactus_barrel_red_med_half_02", "Gas foliage cactus barrel red med half 02", 0 );
+    m = pm( m, "p9_snow_pile_01_plowed_02", "Snow pile 01 plowed 02", 0 );
+    m = pm( m, "p9_spy_ashtray_tall", "Spy ashtray tall", 0 );
+    m = pm( m, "p9_stk_heater_box_sml_dim_on", "Stk heater box sml dim on", 0 );
+    m = pm( m, "p9_stk_kitchen_fridge_old_01", "Stk kitchen fridge old 01", 0 );
+    m = pm( m, "p9_stk_trashbin_plastic", "Stk trashbin plastic", 0 );
+    m = pm( m, "p9_sur_ammo_box_01", "Sur ammo box 01", 0 );
+    m = pm( m, "p9_territory_cylinder", "Territory cylinder", 0 );
+    m = pm( m, "p9_tool_box_small_01", "Tool box small 01", 0 );
+    m = pm( m, "p9_tool_drill_press_01", "Tool drill press 01", 0 );
+    m = pm( m, "p9_tur_airf_military_hard_crate_01", "Tur airf military hard crate 01", 0 );
+    m = pm( m, "p9_usa_bench_01", "Park bench", 0 );
+    m = pm( m, "p9_usa_bicycle_01", "Bicycle", 0 );
+    m = pm( m, "p9_usa_chair_beach", "Beach chair", 0 );
+    m = pm( m, "p9_usa_chair_rolled_01", "Chair rolled 01", 0 );
+    m = pm( m, "p9_usa_couch_04", "Couch", 0 );
+    m = pm( m, "p9_usa_dumpster_01_full", "Dumpster", 0 );
+    m = pm( m, "p9_usa_dumpster_01_lid_lt", "Dumpster 01 lid lt", 0 );
+    m = pm( m, "p9_usa_dumpster_01_lid_rt", "Dumpster 01 lid rt", 0 );
+    m = pm( m, "p9_usa_electrical_box_d03", "Electrical box d03", 0 );
+    m = pm( m, "p9_usa_fuselage_cabinet_drawer_short", "Fuselage cabinet drawer short", 0 );
+    m = pm( m, "p9_usa_generator_mep_25a_01", "Generator mep 25a 01", 0 );
+    m = pm( m, "p9_usa_gunboat_buoy_01", "Gunboat buoy 01", 0 );
+    m = pm( m, "p9_usa_kgb_target_dummy_01", "Target dummy", 0 );
+    m = pm( m, "p9_usa_large_ammo_crate_01", "Large ammo crate", 0 );
+    m = pm( m, "p9_usa_laundry_cart_01", "Laundry cart 01", 0 );
+    m = pm( m, "p9_usa_luggage_02_lrg", "Luggage 02 lrg", 0 );
+    m = pm( m, "p9_usa_mailbox_01", "Mailbox", 0 );
+    m = pm( m, "p9_usa_payphone_stand_nohandset", "Payphone stand nohandset", 0 );
+    m = pm( m, "p9_usa_rooftop_ac_vista", "Rooftop ac vista", 0 );
+    m = pm( m, "p9_usa_stand_metal_newspaper_01_short", "Stand metal newspaper 01 short", 0 );
+    m = pm( m, "p9_usa_stand_metal_newspaper_01_wet", "Stand metal newspaper 01 wet", 0 );
+    m = pm( m, "p9_usa_stand_metal_newspaper_02", "Stand metal newspaper 02", 0 );
+    m = pm( m, "p9_usa_stand_metal_newspaper_02_wet", "Stand metal newspaper 02 wet", 0 );
+    m = pm( m, "p9_usa_stand_newspaper_01_red_3_lit", "Stand newspaper 01 red 3 lit", 0 );
+    m = pm( m, "p9_usa_street_light_01", "Street light", 0 );
+    m = pm( m, "p9_usa_street_trash_can_01_full", "Street trash can 01 full", 0 );
+    m = pm( m, "p9_usa_street_trash_can_bag", "Street trash can bag", 0 );
+    m = pm( m, "p9_usa_streetlamp_tall_01_mod", "Streetlamp tall 01 mod", 0 );
+    m = pm( m, "p9_usa_streetlamp_tall_cap_01", "Streetlamp tall cap 01", 0 );
+    m = pm( m, "p9_usa_surf_longboard_01", "Surfboard", 0 );
+    m = pm( m, "p9_usa_ticonderoga_stacked_crate_48", "Ticonderoga stacked crate 48", 0 );
+    m = pm( m, "p9_usa_vending_coffee", "Vending coffee", 0 );
+    m = pm( m, "p9_usa_vending_machine_soda_02", "Soda machine", 0 );
+    m = pm( m, "p9_vc_burlap_bag_upright_01", "Vc burlap bag upright 01", 0 );
+    m = pm( m, "p9_vc_woven_basket_backpack_01", "Vc woven basket backpack 01", 0 );
+    m = pm( m, "p9_wz_bucket_plastic_5_gal_closed_white", "Bucket plastic 5 gal closed white", 0 );
+    m = pm( m, "p9_wz_cafe_bench", "Cafe bench", 0 );
+    m = pm( m, "p9_wz_dirty_bomb_01", "Dirty bomb", 0 );
+    m = pm( m, "p9_wz_dirty_bomb_uranium", "Dirty bomb uranium", 0 );
+    m = pm( m, "p9_wz_industrial_wooden_pallet_stack_02", "Industrial wooden pallet stack 02", 0 );
+    m = pm( m, "p9_wz_sat_link_objective_battery_pack_01", "Sat link objective battery pack 01", 0 );
+    m = pm( m, "p9_wz_traffic_control_utility_box_painted_metal", "Traffic control utility box painted metal", 0 );
+    m = pm( m, "p9_wz_wheel_barrow_street_vendor", "Wheel barrow street vendor", 0 );
+    level.gf_prop_master = m;
+    return m;
+}
+// [props-gen END]
+
+// pm(): a prop_master row - like prop_def but carries the barrel/explodable flag. Used by the
+// GENERATED prop_master() block above. docs/notes/prop-catalog.md.
+function private pm( m, model, label, barrel )
+{
+    st = spawnstruct();
+    st.model = model;
+    st.label = label;
+    st.scale = 1;
+    st.barrel = barrel;
+    m[ m.size ] = st;
+    return m;
+}
+
+// The in-game menu's FAVOURITES: the app writes gf_prop_favs (+ gf_prop_favs2) as a CSV of
+// prop_master() indices; empty -> the curated default (prop_universal). docs/notes/prop-catalog.md.
+function private prop_favs()
+{
+    csv = getdvarstring( #"gf_prop_favs", "" );
+    csv2 = getdvarstring( #"gf_prop_favs2", "" );
+
+    if ( csv2 != "" )
+        csv = ( csv == "" ) ? csv2 : ( csv + "," + csv2 );
+
+    if ( csv == "" )
+        return prop_universal();
+
+    master = prop_master();
+    out = [];
+
+    foreach ( tok in strtok( csv, "," ) )
+    {
+        i = int( tok );
+
+        if ( i >= 0 && i < master.size )
+            out[ out.size ] = master[ i ];
+    }
+
+    if ( out.size == 0 )
+        return prop_universal();
+
+    return out;
+}
+
+function private prop_favs_set()
+{
+    self menu_say( "^2app: favourites set (" + prop_favs().size + ")" );
+    return true;
+}
+
+// App verb: spawn a universal prop by its prop_master INDEX (an index fits the 47-byte bridge slot
+// where a long model name would not; mirrors cmd_vehspawn). docs/notes/prop-catalog.md.
+function private cmd_propidx( arg )
+{
+    m = prop_master();
+
+    if ( !isdefined( arg ) || arg == "" )
+    {
+        self menu_say( "^1app: propidx needs an index" );
+        return;
+    }
+
+    i = int( arg );
+
+    if ( i < 0 || i >= m.size )
+    {
+        self menu_say( "^1app: no prop #" + arg + " (0-" + ( m.size - 1 ) + ")" );
+        return;
+    }
+
+    self act_prop_spawn( spawnstruct(), m[ i ].model, m[ i ].scale );
+}
+
+function private cmd_barrelidx( arg )
+{
+    m = prop_master();
+
+    if ( !isdefined( arg ) || arg == "" )
+    {
+        self menu_say( "^1app: barrelidx needs an index" );
+        return;
+    }
+
+    i = int( arg );
+
+    if ( i < 0 || i >= m.size )
+    {
+        self menu_say( "^1app: no prop #" + arg + " (0-" + ( m.size - 1 ) + ")" );
+        return;
+    }
+
+    self act_barrel_spawn( spawnstruct(), m[ i ].model, m[ i ].scale );
+}
+
+// App verb: spawn an arbitrary model by NAME, reassembled from gf_pn0/1/2 (the per-map models the
+// app has from map-props.json but that overflow the 47-byte slot). explosive=1 -> barrel.
+// gf_cmd_arg = scale*100 (0/empty -> 1). docs/notes/prop-catalog.md.
+function private cmd_propname( explosive )
+{
+    model = getdvarstring( #"gf_pn0", "" ) + getdvarstring( #"gf_pn1", "" ) + getdvarstring( #"gf_pn2", "" );
+    cfg_seti( #"gf_pn0", "" );
+    cfg_seti( #"gf_pn1", "" );
+    cfg_seti( #"gf_pn2", "" );
+
+    if ( model == "" )
+    {
+        self menu_say( "^1app: propname got an empty model" );
+        return;
+    }
+
+    a = getdvarstring( #"gf_cmd_arg", "0" );
+
+    if ( !isdefined( a ) || a == "" )
+        a = "0";
+
+    sc = int( a );
+    scale = 1;
+
+    if ( sc > 0 )
+        scale = sc / 100.0;
+
+    if ( explosive )
+        self act_barrel_spawn( spawnstruct(), model, scale );
+    else
+        self act_prop_spawn( spawnstruct(), model, scale );
+}
+
+// A spawned prop that explodes when shot - cp_explosive_barrel.gsc's core recipe, MP-portable
+// because the blast (physicsexplosionsphere + radiusdamage) is server-side. Tagged gf_prop so
+// undo/clear and the round-boundary sweep handle it. docs/notes/prop-catalog.md.
+function private act_barrel_spawn( item, model, scale )
+{
+    if ( !isdefined( scale ) )
+        scale = 1;
+
+    if ( !isassetloaded( "xmodel", model ) )
+    {
+        self menu_say( "^1model not resident on this map: " + model );
+        return true;
+    }
+
+    spot = self prop_spot();
+
+    if ( !isdefined( spot ) )
+    {
+        self menu_say( "^1no spot found" );
+        return true;
+    }
+
+    ang = self getplayerangles();
+    b = spawn( "script_model", spot );
+
+    if ( !isdefined( b ) )
+    {
+        self menu_say( "^1spawn failed" );
+        return true;
+    }
+
+    b.targetname = "gf_prop";
+    b setmodel( model );
+
+    if ( scale != 1 )
+        b setscale( scale );
+
+    b.angles = ( 0, ang[ 1 ] + 180, 0 );
+    b setcandamage( 1 );
+    b.health = 1000;
+    b.gf_barrel = 1;
+
+    if ( !isdefined( level.gf_props ) )
+        level.gf_props = [];
+
+    level.gf_props[ level.gf_props.size ] = b;
+    b thread barrel_think();
+    self menu_say( "^2placed explosive " + prop_short( model ) + " (" + level.gf_props.size + " this round)" );
+    return true;
+}
+
+function private barrel_think()
+{
+    self endon( #"death" );
+    level endon( #"game_ended" );
+
+    self waittill( #"damage" );
+    waitframe( 1 );
+
+    if ( !isdefined( self ) )
+        return;
+
+    org = self.origin;
+    playfxontag( "destruct/fx8_atk_chppr_smk_trail", self, "tag_origin" );
+    physicsexplosionsphere( org + ( 0, 0, 50 ), 350, 0.01, 1 );
+    radiusdamage( org + ( 0, 0, 25 ), 300, 200, 25, self, "MOD_EXPLOSIVE" );
+    earthquake( 0.6, 0.75, org, 400 );
+    wait 0.1;
+
+    if ( isdefined( self ) )
+        self delete();
+}
+
+function private props_barrels_enter( menu )
+{
+    self menu_clear_items( "props_barrels" );
+
+    n = 0;
+
+    foreach ( r in prop_master() )
+    {
+        if ( !r.barrel )
+            continue;
+
+        if ( !isassetloaded( "xmodel", r.model ) )
+            continue;
+
+        self menu_item( "props_barrels", "Place " + r.label, &act_barrel_spawn, r.model, r.scale );
+        n++;
+    }
+
+    if ( n == 0 )
+        self menu_item( "props_barrels", "(no barrel models resident here)", undefined );
+}
+
 function private prop_map_rows()
 {
     if ( isdefined( level.gf_prop_maprows ) )
@@ -14944,8 +16325,10 @@ function private props_enter( menu )
     rows = prop_map_rows();
     self menu_item( "props", "Remove the last prop I placed", &act_prop_delete, 0 );
     self menu_item( "props", "Remove every prop I placed", &act_prop_delete, 1 );
+    self menu_item( "props", "Favourites (" + prop_favs().size + ")", &menu_switch, "props_univ" );
+    self menu_item( "props", "Explosive barrels", &menu_switch, "props_barrels" );
+    self menu_item( "props", "Forge: build mode", &forge_enter );
     self menu_item( "props", "This map's Prop Hunt set (" + rows.size + ")", &menu_switch, "props_map" );
-    self menu_item( "props", "Universal props", &menu_switch, "props_univ" );
 }
 
 function private props_map_enter( menu )
@@ -14973,7 +16356,7 @@ function private props_univ_enter( menu )
 
     n = 0;
 
-    foreach ( r in prop_universal() )
+    foreach ( r in prop_favs() )
     {
         if ( !isassetloaded( "xmodel", r.model ) )
             continue;
@@ -14983,7 +16366,7 @@ function private props_univ_enter( menu )
     }
 
     if ( n == 0 )
-        self menu_item( "props_univ", "(none of the universal models read resident here)", undefined );
+        self menu_item( "props_univ", "(no favourites resident here - set some in the app)", undefined );
 }
 
 // App verb: place a universal prop by its model name or label prefix (case-insensitive).
@@ -15490,4 +16873,875 @@ function private act_gametype( item, gt )
 
     // Same stage/now page as a map pick, with the map kept and the gametype swapped.
     return self map_pick_open( tolower( getdvarstring( #"sv_mapname", "" ) ), gt, item.name );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// APP CHANNEL v2 — tools/gf-panel, the native control panel (2026-09-20). What the panel needs
+// that the menu did not publish or accept: a live STATE line, a rich PLAYERS line, command
+// acks, and the verbs an rcon-style dashboard adds (everyone-state, match control, fun &
+// vision). The read channels are marked strings kept alive in level fields, exactly the
+// roster's mechanism (roster_publish): the panel sweeps the game's memory read-only for them.
+// Markers are assembled at runtime so the payload's own string table carries no decoy.
+//
+//   GFSTATE|<tick>|k=v|k=v|...|say=<text>|END     every 1 s (the tick and the clock move anyway)
+//   GFPLAYERS|<tick>|<n>|<rec>|<rec>|...|END      rebuilt every 1 s, published only on change
+//     rec = entnum;name;team;kind;xuid;alive;score;kills;deaths;flags
+//     flags: g god  f fly  t third person  z frozen  v riding
+//
+// Command acks: the app writes `gf_cmd_seq N` before `gf_cmd_go 1`. cmd_poll records N in
+// level.gf_ack_seq once the command has been dispatched and IGNORES a pulse that repeats the
+// last seq - so the app may re-send a dropped packet without double-firing addbot / endround.
+// GFSTATE carries ack=N and say=<the last menu_say text>, so the panel can show the in-game
+// confirmation that is otherwise only visible with the menu open (region 2 folds it away).
+//
+// ⚠ Built 2026-09-20, NEVER RUN. Every verb below reuses a stock shape already in this file or
+// a builtin in funcs_cw.csv (check-gsc); the untested ones say so in their comment.
+// ═════════════════════════════════════════════════════════════════════════════
+
+function private state_publish()
+{
+    if ( isdefined( level.gf_state_on ) && level.gf_state_on )
+        return;
+
+    level.gf_state_on = 1;
+
+    // No game_ended endon on purpose: the "ended" phase must reach the panel. The thread dies
+    // with the level (round map_restart / lobby), and mod_apply restarts it on the next one.
+    //
+    // Each tick builds in a CHILD thread: a runtime error in state_build() kills only that child
+    // (measured 2026-09-20: the first build's loop died silently at level-time 750 s and the panel
+    // showed a stale line for the rest of the match). A child runs to completion before `thread`
+    // returns (no waits inside), so gf_state_done tells the loop whether it survived; when it did
+    // not, a short fallback line still goes out with err= (count) and st= (the stage that died).
+    level.gf_state_err = 0;
+
+    for ( ;; )
+    {
+        level.gf_state_done = 0;
+        level.gf_state_st = 0;
+        level thread state_publish_once();
+
+        if ( !is_true( level.gf_state_done ) )
+        {
+            level.gf_state_err++;
+            level.gf_statepub = "GF" + "STATE|" + gettime() + "|v=2|ph=" + state_phase() + "|err=" + level.gf_state_err
+                + "|st=" + level.gf_state_st + "|host=|say=" + "|" + "END";
+        }
+
+        wait 1;
+    }
+}
+
+function private state_publish_once()
+{
+    level.gf_statepub = "GF" + "STATE|" + gettime() + "|" + state_build() + "|" + "END";
+    level.gf_state_done = 1;
+}
+
+// k=v pairs; `say` is deliberately LAST because a menu_say text may itself contain '|'.
+function private state_build()
+{
+    s = "v=2";
+    level.gf_state_st = 1;
+    s += "|map=" + tolower( getdvarstring( #"sv_mapname", "" ) );
+    s += "|gt=" + tolower( getdvarstring( #"g_gametype", "" ) );
+    level.gf_state_st = 2;
+    s += "|rnd=" + info_round();
+    s += "|sa=" + info_score( #"allies" ) + "|sx=" + info_score( #"axis" );
+    level.gf_state_st = 3;
+
+    aa = 0; ax = 0; na = 0; nx = 0; ba = 0; bx = 0; sp = 0;
+
+    foreach ( p in getplayers() )
+    {
+        t = isdefined( p.team ) ? p.team : #"spectator";
+
+        if ( t == #"allies" )
+        {
+            na++;
+            if ( isbot( p ) ) ba++;
+            if ( isalive( p ) ) aa++;
+        }
+        else if ( t == #"axis" )
+        {
+            nx++;
+            if ( isbot( p ) ) bx++;
+            if ( isalive( p ) ) ax++;
+        }
+        else
+        {
+            sp++;
+        }
+    }
+
+    s += "|aa=" + aa + "|ax=" + ax + "|na=" + na + "|nx=" + nx + "|ba=" + ba + "|bx=" + bx + "|sp=" + sp;
+    level.gf_state_st = 4;
+    tl = isdefined( level.timelimit ) ? int( level.timelimit * 60000 ) : 0;
+    s += "|tl=" + tl;
+    level.gf_state_st = 5;
+    s += "|tp=" + globallogic_utils::gettimepassed();
+    level.gf_state_st = 6;
+    s += "|ph=" + state_phase();
+    s += "|ot=" + ( is_true( level.usingextratime ) ? 1 : 0 );
+    s += "|pz=" + ( ( is_true( level.gf_paused ) || is_true( level.timerpaused ) ) ? 1 : 0 );
+    s += "|frz=" + ( is_true( level.gf_frozen_all ) ? 1 : 0 );
+    s += "|stm=" + tolower( getdvarstring( #"gf_staged_map", "" ) );
+    s += "|stg=" + tolower( getdvarstring( #"gf_staged_gt", "" ) );
+    s += "|mc=" + getdvarint( #"com_maxclients", 0 );
+    level.gf_state_st = 7;
+    s += "|ts=" + cfg_team_size();
+    s += "|tmr=" + cfg_timer_seconds();
+    level.gf_state_st = 8;
+    s += "|ack=" + ( isdefined( level.gf_ack_seq ) ? level.gf_ack_seq : 0 );
+    s += "|drk=" + ( is_true( level.gf_drunk ) ? 1 : 0 );
+    s += "|inv=" + ( is_true( level.gf_invis_all ) ? 1 : 0 );
+    s += "|god=" + ( is_true( level.gf_god_all ) ? 1 : 0 );
+    s += "|tp3=" + ( is_true( level.gf_tp_all ) ? 1 : 0 );
+    s += "|prk=" + ( isdefined( level.gf_perks_all ) ? level.gf_perks_all.size : 0 );
+    s += "|ban=" + ( isdefined( game.gf_ban ) ? game.gf_ban.size : 0 );
+    s += "|stgd=" + ( isdefined( game.gf_stage ) ? game.gf_stage.size : 0 );
+    level.gf_state_st = 9;
+    host = util::gethostplayer();
+    s += "|host=" + ( ( isdefined( host ) && isdefined( host.name ) ) ? host.name : "" );
+    level.gf_state_st = 10;
+    say = ( isdefined( level.gf_lastsay ) && isstring( level.gf_lastsay ) ) ? level.gf_lastsay : "";
+
+    if ( say.size > 60 )
+        say = getsubstr( say, 0, 60 );
+
+    s += "|say=" + say;
+    level.gf_state_st = 11;
+    return s;
+}
+
+function private state_phase()
+{
+    if ( is_true( level.gameended ) )
+        return "ended";
+
+    if ( is_true( level.inprematchperiod ) )
+        return "prematch";
+
+    if ( is_true( level.roundending ) )
+        return "roundend";
+
+    if ( isdefined( game.state ) && game.state == #"playing" )
+        return "playing";
+
+    return "other";
+}
+
+function private players_publish()
+{
+    if ( isdefined( level.gf_players_on ) && level.gf_players_on )
+        return;
+
+    level.gf_players_on = 1;
+    level.gf_players_err = 0;
+
+    for ( ;; )
+    {
+        // child per tick, same reason as state_publish: an error must not stop the roster
+        level.gf_players_done = 0;
+        level thread players_publish_once();
+
+        if ( !is_true( level.gf_players_done ) )
+            level.gf_players_err++;
+
+        wait 1;
+    }
+}
+
+function private players_publish_once()
+{
+    body = players_build();
+
+    if ( !isdefined( level.gf_players_body ) || level.gf_players_body != body )
+    {
+        level.gf_players_body = body;
+        level.gf_players = "GF" + "PLAYERS|" + gettime() + "|" + body + "|" + "END";
+    }
+
+    level.gf_players_done = 1;
+}
+
+function private players_build()
+{
+    players = getplayers();
+    s = "" + players.size;
+
+    foreach ( p in players )
+    {
+        if ( !isdefined( p.name ) )
+            continue;
+
+        bot = isbot( p );
+        kind = bot ? "bot" : ( ( p ishost() ) ? "host" : "human" );
+        xuid = bot ? "" : p getxuid();
+        fl = "";
+
+        if ( is_true( p.gf_god ) )    fl += "g";
+        if ( is_true( p.gf_fly ) )    fl += "f";
+        if ( is_true( p.gf_tp ) )     fl += "t";
+        if ( is_true( p.gf_frozen ) ) fl += "z";
+        if ( isdefined( p.gf_veh ) )  fl += "v";
+
+        s += "|" + p getentitynumber() + ";" + p.name + ";" + team_tag( p ) + ";" + kind
+            + ";" + ( isdefined( xuid ) ? ( "" + xuid ) : "" )
+            + ";" + ( isalive( p ) ? 1 : 0 )
+            + ";" + ( isdefined( p.score ) ? p.score : 0 )
+            + ";" + ( isdefined( p.kills ) ? p.kills : 0 )
+            + ";" + ( isdefined( p.deaths ) ? p.deaths : 0 )
+            + ";" + fl;
+    }
+
+    return s;
+}
+
+// ── Everyone-state verbs (the rcon PLAYER STATE block, for ALL players) ──────────────────
+// Each is the per-client verb's exact mechanism, looped, with a level flag so the panel can
+// show the state and so a respawn (perks) or a joiner (god / third person) is caught up.
+
+function private all_god( on )
+{
+    level.gf_god_all = on;
+
+    foreach ( p in getplayers() )
+    {
+        p.gf_god = on;
+
+        if ( on )
+            p enableinvulnerability();
+        else
+            p disableinvulnerability();
+    }
+}
+
+function private all_ammo()
+{
+    n = 0;
+
+    foreach ( p in getplayers() )
+    {
+        if ( !isalive( p ) )
+            continue;
+
+        foreach ( w in p getweaponslist( 1 ) )
+        {
+            if ( isdefined( level.weaponbasemelee ) && w == level.weaponbasemelee )
+                continue;
+
+            p givemaxammo( w );
+        }
+
+        n++;
+    }
+
+    return n;
+}
+
+function private all_thirdperson( on )
+{
+    level.gf_tp_all = on;
+
+    foreach ( p in getplayers() )
+    {
+        p.gf_tp = on;
+        p setclientthirdperson( on );
+    }
+}
+
+// hide() / show() on every player model: invisible to each other (the rcon "invisible players"
+// toy). hide() is entity-wide, so a player's own third-person body vanishes too. Untested.
+function private all_invisible( on )
+{
+    level.gf_invis_all = on;
+
+    foreach ( p in getplayers() )
+    {
+        if ( on )
+            p hide();
+        else
+            p show();
+    }
+}
+
+// The perk keys the panel may name (short key -> the engine's specialty_ hash). Only names
+// present in perks_cw.txt; whether each one has an effect in MP is unmeasured per perk.
+function private perk_hash( key )
+{
+    switch ( key )
+    {
+        case "fastreload":       return #"specialty_fastreload";
+        case "fastads":          return #"specialty_fastads";
+        case "fastweaponswitch": return #"specialty_fastweaponswitch";
+        case "fastmantle":       return #"specialty_fastmantle";
+        case "fastmelee":        return #"specialty_fastmeleerecovery";
+        case "fasttoss":         return #"specialty_fasttoss";
+        case "quieter":          return #"specialty_quieter";
+        case "gpsjammer":        return #"specialty_gpsjammer";
+        case "flakjacket":       return #"specialty_flakjacket";
+        case "stunprotection":   return #"specialty_stunprotection";
+        case "flashprotection":  return #"specialty_flashprotection";
+        case "unlimitedsprint":  return #"specialty_unlimitedsprint";
+        case "longersprint":     return #"specialty_longersprint";
+        case "movefaster":       return #"specialty_movefaster";
+        case "scavenger":        return #"specialty_scavenger";
+        case "tracker":          return #"specialty_tracker";
+        case "bulletflinch":     return #"specialty_bulletflinch";
+        case "detectnearby":     return #"specialty_detectnearbyenemies";
+        case "showequipment":    return #"specialty_showenemyequipment";
+        case "immunecuav":       return #"specialty_immunecounteruav";
+        case "fallheight":       return #"specialty_fallheight";
+        case "holdbreath":       return #"specialty_holdbreath";
+        case "twogrenades":      return #"specialty_twogrenades";
+        case "extraammo":        return #"specialty_extraammo";
+        case "armorvest":        return #"specialty_armorvest";
+        case "healthregen":      return #"specialty_healthregen";
+        case "sprintfire":       return #"specialty_sprintfire";
+        case "sprintreload":     return #"specialty_sprintreload";
+        case "marksman":         return #"specialty_marksman";
+        case "deadshot":         return #"specialty_deadshot";
+        case "bulletdamage":     return #"specialty_bulletdamage";
+        case "penetration":      return #"specialty_bulletpenetration";
+        case "rof":              return #"specialty_rof";
+        case "lowgravity":       return #"specialty_lowgravity";
+        case "doublejump":       return #"specialty_doublejump";
+        case "wallrun":          return #"specialty_wallrun";
+        case "jetpack":          return #"specialty_jetpack";
+        case "phdflopper":       return #"specialty_mod_phdflopper";
+        case "staminup":         return #"specialty_mod_staminup";
+    }
+
+    return undefined;
+}
+
+// perkall <key> adds a perk to the everyone-set (re-applied on every spawn, mod_spawn_movement);
+// perkall -<key> removes it; perkall clear empties the set. perkone (target) gives the set +
+// the named perk to one player for this life.
+function private perks_all_set( arg )
+{
+    if ( !isdefined( level.gf_perks_all ) )
+        level.gf_perks_all = [];
+
+    if ( arg == "clear" )
+    {
+        foreach ( p in getplayers() )
+            perks_apply( p, 0 );
+
+        level.gf_perks_all = [];
+        return "perks cleared for everyone";
+    }
+
+    // "all" = every key perk_hash() knows, in ONE command (the panel's Select all button; 39 single
+    // commands would take ~30 s through the paced bridge)
+    if ( arg == "all" )
+    {
+        keys = perk_keys();
+
+        foreach ( key in keys )
+            level.gf_perks_all[ key ] = 1;
+
+        foreach ( p in getplayers() )
+            perks_apply( p, 1 );
+
+        return "all " + keys.size + " perks given to everyone";
+    }
+
+    remove = ( arg.size > 1 && getsubstr( arg, 0, 1 ) == "-" );
+    key = remove ? getsubstr( arg, 1, arg.size ) : arg;
+    h = perk_hash( key );
+
+    if ( !isdefined( h ) )
+        return "^1unknown perk " + key;
+
+    if ( remove )
+    {
+        level.gf_perks_all[ key ] = undefined;
+
+        foreach ( p in getplayers() )
+        {
+            if ( p hasperk( h ) )
+                p unsetperk( h );
+        }
+
+        return "perk " + key + " removed from everyone";
+    }
+
+    level.gf_perks_all[ key ] = 1;
+
+    foreach ( p in getplayers() )
+        perks_apply( p, 1 );
+
+    return "perk " + key + " given to everyone (" + level.gf_perks_all.size + " in the set)";
+}
+
+// Apply (on) or strip (off) the everyone-set on one player. Called per spawn too.
+// Every key perk_hash() resolves - keep the two lists in step.
+function private perk_keys()
+{
+    k = [];
+    k[ k.size ] = "fastreload";
+    k[ k.size ] = "fastads";
+    k[ k.size ] = "fastweaponswitch";
+    k[ k.size ] = "fastmantle";
+    k[ k.size ] = "fastmelee";
+    k[ k.size ] = "fasttoss";
+    k[ k.size ] = "quieter";
+    k[ k.size ] = "gpsjammer";
+    k[ k.size ] = "flakjacket";
+    k[ k.size ] = "stunprotection";
+    k[ k.size ] = "flashprotection";
+    k[ k.size ] = "unlimitedsprint";
+    k[ k.size ] = "longersprint";
+    k[ k.size ] = "movefaster";
+    k[ k.size ] = "scavenger";
+    k[ k.size ] = "tracker";
+    k[ k.size ] = "bulletflinch";
+    k[ k.size ] = "detectnearby";
+    k[ k.size ] = "showequipment";
+    k[ k.size ] = "immunecuav";
+    k[ k.size ] = "fallheight";
+    k[ k.size ] = "holdbreath";
+    k[ k.size ] = "twogrenades";
+    k[ k.size ] = "extraammo";
+    k[ k.size ] = "armorvest";
+    k[ k.size ] = "healthregen";
+    k[ k.size ] = "sprintfire";
+    k[ k.size ] = "sprintreload";
+    k[ k.size ] = "marksman";
+    k[ k.size ] = "deadshot";
+    k[ k.size ] = "bulletdamage";
+    k[ k.size ] = "penetration";
+    k[ k.size ] = "rof";
+    k[ k.size ] = "lowgravity";
+    k[ k.size ] = "doublejump";
+    k[ k.size ] = "wallrun";
+    k[ k.size ] = "jetpack";
+    k[ k.size ] = "phdflopper";
+    k[ k.size ] = "staminup";
+    return k;
+}
+
+function private perks_apply( p, on )
+{
+    if ( !isdefined( level.gf_perks_all ) || !isdefined( p ) || !isplayer( p ) )
+        return;
+
+    foreach ( key, _ in level.gf_perks_all )
+    {
+        h = perk_hash( key );
+
+        if ( !isdefined( h ) )
+            continue;
+
+        if ( on )
+            p setperk( h );
+        else if ( p hasperk( h ) )
+            p unsetperk( h );
+    }
+}
+
+// ── Fun & vision ────────────────────────────────────────────────────────────────────────
+// visionsetnaked( name, time ) is the stock level-wide call (globallogic.gsc:1518 "default",
+// :2390 "mpOutro"). Which other vision set names exist on a given map is unmeasured - the
+// panel offers the two stock ones plus a free-text box; a name the map lacks is a no-op.
+function private vision_set( name )
+{
+    if ( name == "" )
+        name = "default";
+
+    level.gf_vision = name;
+    visionsetnaked( name, 1 );
+}
+
+// Continuous mild camera shake on every living player (the rcon "drunk mode").
+function private drunk_think()
+{
+    level endon( #"gf_drunk_stop" );
+    level endon( #"game_ended" );
+
+    for ( ;; )
+    {
+        foreach ( p in getplayers() )
+        {
+            if ( isalive( p ) )
+                earthquake( 0.25, 0.6, p.origin, 200 );
+        }
+
+        wait 0.5;
+    }
+}
+
+function private drunk_set( on )
+{
+    level notify( #"gf_drunk_stop" );
+    level.gf_drunk = on;
+
+    if ( on )
+        level thread drunk_think();
+}
+
+function private quake_all()
+{
+    foreach ( p in getplayers() )
+        earthquake( 0.9, 1.5, p.origin, 400 );
+}
+
+// A stock engine sound alias, to everyone. String aliases are the form the dump uses
+// (playsoundtoplayer( "uin_kls_generic" ...)); the panel lists the ones read out of the MP scripts.
+function private sound_all( alias )
+{
+    foreach ( p in getplayers() )
+        p playsoundtoplayer( alias, p );
+}
+
+// Everyone alive gets the weapon and switches to it (act_giveweapon's exact form, looped).
+function private give_all( wname )
+{
+    w = getweapon( wname );
+
+    if ( !isdefined( w ) )
+        return -1;
+
+    n = 0;
+
+    foreach ( p in getplayers() )
+    {
+        if ( !isalive( p ) )
+            continue;
+
+        p giveweapon( w );
+        p switchtoweapon( w );
+        n++;
+    }
+
+    return n;
+}
+
+// Timescale: setslowmotion( start, end, transition ) is the engine's slow-motion ramp (the
+// final-killcam shape, globallogic.gsc:2439). 1 = normal. Untested as a standing timescale.
+function private slowmo_set( pct )
+{
+    if ( pct < 10 )
+        pct = 10;
+
+    if ( pct > 300 )
+        pct = 300;
+
+    level.gf_timescale = pct;
+    setslowmotion( 1, pct / 100.0, 0.5 );
+}
+
+// ── Match control ──────────────────────────────────────────────────────────────────────
+// End the round for a team = gunfight's own endround minus its page dressing: round::set_winner
+// + globallogic::function_a3e3bd39( team, reason 1 ) (gunfight.gsc:1163-1174 is exactly that;
+// reason 1 = the health-tiebreak path, which scores the round). "draw" = end_round( 2 ) with
+// no winner (gunfight.gsc:1130). Guarded by level.gameended like the stock path. Untested.
+function private round_end_for( who )
+{
+    if ( is_true( level.gameended ) )
+        return "^1round already ending";
+
+    if ( who == "allies" || who == "axis" )
+    {
+        team = ( who == "allies" ) ? #"allies" : #"axis";
+        round::set_winner( team );
+        thread globallogic::function_a3e3bd39( team, 1 );
+        return "round -> " + who;
+    }
+
+    thread globallogic::end_round( 2 );
+    return "round -> draw";
+}
+
+// Replay the CURRENT round: map_restart( true ) keeps game.* (scores, round count) - the
+// between-rounds restart the engine itself does - so the round starts over with the score
+// intact. Untested here; map_restart() (no persist) is the whole-match restart.
+function private round_restart()
+{
+    veh_sweep_for_transition( "roundrestart" );
+    map_restart( true );
+}
+
+// Even the HUMAN split (bots aside): move the most recently connected human from the bigger
+// side until the sides differ by at most one. The joiner order is stamped in app_on_connect.
+function private balance_humans()
+{
+    moved = 0;
+
+    for ( guard = 0; guard < 6; guard++ )
+    {
+        ha = humans_on( #"allies" );
+        hx = humans_on( #"axis" );
+
+        if ( abs( ha - hx ) < 2 )
+            break;
+
+        from = ( ha > hx ) ? #"allies" : #"axis";
+        to = ( ha > hx ) ? #"axis" : #"allies";
+        pick = undefined;
+
+        foreach ( p in getplayers( from ) )
+        {
+            if ( isbot( p ) )
+                continue;
+
+            if ( !isdefined( pick ) || ( isdefined( p.gf_join_seq ) && isdefined( pick.gf_join_seq ) && p.gf_join_seq > pick.gf_join_seq ) )
+                pick = p;
+        }
+
+        if ( !isdefined( pick ) || !isdefined( level.autoassign ) )
+            break;
+
+        pick [[ level.autoassign ]]( 0, to, undefined );
+        moved++;
+    }
+
+    return moved;
+}
+
+// Next-match team plan: xuid -> a|x|s, kept in game. (survives rounds) and applied to a player
+// on connect (app_on_connect) and by stageapply to everyone present. The panel re-sends the
+// plan at every new match, so it survives a map change through the app, not through here.
+function private stage_set( player, code )
+{
+    if ( !isdefined( player ) || isbot( player ) )
+        return "^1no such human";
+
+    if ( !isdefined( game.gf_stage ) )
+        game.gf_stage = [];
+
+    raw = player getxuid();
+
+    if ( !isdefined( raw ) )
+        return "^1no xuid for " + player.name;
+
+    xuid = "" + raw;
+
+    if ( code == "" || code == "-" )
+    {
+        game.gf_stage[ xuid ] = undefined;
+        return player.name + " unstaged";
+    }
+
+    game.gf_stage[ xuid ] = code;
+    return player.name + " staged -> " + code;
+}
+
+// Move one player to his staged side (the plan's a / x / s). Returns 1 when a move happened.
+function private stage_apply_one( player )
+{
+    if ( !isdefined( game.gf_stage ) || !isdefined( player ) || isbot( player ) )
+        return 0;
+
+    raw = player getxuid();
+
+    if ( !isdefined( raw ) )
+        return 0;
+
+    xuid = "" + raw;
+
+    if ( !isdefined( game.gf_stage[ xuid ] ) )
+        return 0;
+
+    code = game.gf_stage[ xuid ];
+
+    if ( code == "s" )
+    {
+        if ( isdefined( player.team ) && player.team == #"spectator" )
+            return 0;
+
+        if ( isdefined( level.spectator ) )
+            player [[ level.spectator ]]();
+
+        return 1;
+    }
+
+    team = ( code == "a" ) ? #"allies" : #"axis";
+
+    if ( isdefined( player.team ) && player.team == team )
+        return 0;
+
+    if ( !isdefined( level.autoassign ) )
+        return 0;
+
+    player [[ level.autoassign ]]( 0, team, undefined );
+    return 1;
+}
+
+function private stage_apply_all()
+{
+    n = 0;
+
+    foreach ( p in getplayers() )
+        n += stage_apply_one( p );
+
+    return n;
+}
+
+// Private-match "ban": kick now + refuse the xuid at connect (app_on_connect) for this
+// session. banx / unbanx take a raw xuid (an absent player); the panel re-sends its list
+// at every new match.
+function private ban_xuid( xuid, on )
+{
+    if ( !isdefined( game.gf_ban ) )
+        game.gf_ban = [];
+
+    if ( xuid == "" )
+        return;
+
+    if ( on )
+        game.gf_ban[ xuid ] = 1;
+    else
+        game.gf_ban[ xuid ] = undefined;
+}
+
+function private ban_player( player )
+{
+    if ( !isdefined( player ) || isbot( player ) )
+        return "^1no such human";
+
+    if ( player ishost() )
+        return "^1not banning the host";
+
+    xuid = player getxuid();
+    name = player.name;
+    ban_xuid( isdefined( xuid ) ? ( "" + xuid ) : "", 1 );
+    kick( player getentitynumber(), "GAME/DROPPEDFORINACTIVITY" );
+    return "banned " + name + " (kicked; refused at connect this session)";
+}
+
+// Every connect, every player (the host's own on_player_connect returns for non-hosts):
+// joiner order for balance, the ban refusal, then the staged side once the engine has seated
+// the player (the same autoassign the Players page uses, after a short settle).
+function private app_on_connect()
+{
+    self endon( #"disconnect" );
+
+    if ( !isdefined( level.gf_join_seq ) )
+        level.gf_join_seq = 0;
+
+    level.gf_join_seq++;
+    self.gf_join_seq = level.gf_join_seq;
+
+    if ( isbot( self ) )
+        return;
+
+    xuid = self getxuid();
+
+    if ( isdefined( game.gf_ban ) && isdefined( xuid ) && isdefined( game.gf_ban[ "" + xuid ] ) )
+    {
+        wait 0.5;
+        kick( self getentitynumber(), "GAME/DROPPEDFORINACTIVITY" );
+        return;
+    }
+
+    // Everyone-state a late joiner missed (god / third person are per-entity, not per-spawn).
+    if ( is_true( level.gf_god_all ) )
+    {
+        self.gf_god = 1;
+        self enableinvulnerability();
+    }
+
+    if ( is_true( level.gf_tp_all ) )
+    {
+        self.gf_tp = 1;
+        self setclientthirdperson( 1 );
+    }
+
+    if ( isdefined( game.gf_stage ) )
+    {
+        wait 1.5;
+        stage_apply_one( self );
+    }
+}
+
+// Broadcast to a subset: allies / axis / one player (a name, prefix accepted) - the composer's
+// audience. dur 0 = once; > 0 = re-printed every 2 s for dur seconds (the centre print fades).
+function private broadcast_aud( msg, loc, dur, aud )
+{
+    level endon( #"gf_say_stop" );
+    level endon( #"game_ended" );
+
+    end = ( dur > 0 ) ? ( gettime() + dur * 1000 ) : 0;
+
+    for ( ;; )
+    {
+        foreach ( p in getplayers() )
+        {
+            if ( !isdefined( p.name ) )
+                continue;
+
+            hit = false;
+
+            if ( aud == "allies" || aud == "axis" )
+                hit = ( isdefined( p.team ) && p.team == ( ( aud == "allies" ) ? #"allies" : #"axis" ) );
+            else
+            {
+                pn = tolower( p.name );
+                hit = ( pn == aud || ( pn.size >= aud.size && getsubstr( pn, 0, aud.size ) == aud ) );
+            }
+
+            if ( !hit )
+                continue;
+
+            if ( loc == 1 )
+                p iprintln( msg );
+            else
+                p iprintlnbold( msg );
+        }
+
+        if ( end == 0 )
+            break;
+
+        wait 2.0;
+
+        if ( gettime() >= end )
+            break;
+    }
+}
+
+// The panel's verbs, dispatched from cmd_action (arg = gf_cmd_arg, target = gf_cmd_target).
+// Returns the confirmation text for menu_say (which GFSTATE echoes as say=).
+function private panel_verb( action, arg )
+{
+    on = ( arg == "on" || arg == "1" );
+
+    switch ( action )
+    {
+        case "godall":       all_god( on );          return "godmode " + ( on ? "ON" : "OFF" ) + " for everyone";
+        case "ammoall":      n = all_ammo();          return "max ammo for " + n + " players";
+        case "thirdall":     all_thirdperson( on );   return ( on ? "third person" : "first person" ) + " for everyone";
+        case "invisall":     all_invisible( on );     return "players " + ( on ? "hidden" : "shown" );
+        case "freezeall":    freeze_all_set( on );    return "everyone " + ( on ? "frozen" : "unfrozen" );
+        case "perkall":      return perks_all_set( arg );
+        case "vision":       vision_set( arg );       return "vision set " + ( arg == "" ? "default" : arg );
+        case "drunk":        drunk_set( on );         return "drunk mode " + ( on ? "ON" : "OFF" );
+        case "quake":        quake_all();             return "earthquake";
+        case "sound":        sound_all( arg );        return "sound " + arg;
+        case "giveall":      n = give_all( arg );     return ( n < 0 ) ? ( "^1weapon not found: " + arg ) : ( "gave " + arg + " to " + n + " players" );
+        case "slowmo":       slowmo_set( int( arg ) ); return "timescale " + level.gf_timescale + "%";
+        case "endround":     return round_end_for( tolower( arg ) );
+        case "restartround": round_restart();         return "restarting the round";
+        case "balance":      n = balance_humans();    return "balance: moved " + n + " human(s)";
+        case "stage":        return stage_set( cmd_target(), tolower( arg ) );
+        case "stageapply":   n = stage_apply_all();   return "staged plan applied: " + n + " moved";
+        case "stageclear":   game.gf_stage = [];      return "staged plan cleared";
+        case "ban":          return ban_player( cmd_target() );
+        case "banx":         ban_xuid( arg, 1 );      return "xuid " + arg + " refused at connect";
+        case "unbanx":       ban_xuid( arg, 0 );      return "xuid " + arg + " allowed again";
+        case "banclear":     game.gf_ban = [];        return "ban list cleared";
+        case "perkone":
+            p = cmd_target();
+            if ( !isdefined( p ) )
+                return "^1no such player";
+            h = perk_hash( arg );
+            if ( isdefined( h ) )
+                p setperk( h );
+            perks_apply( p, 1 );
+            return p.name + " perks given";
+    }
+
+    return undefined;
 }

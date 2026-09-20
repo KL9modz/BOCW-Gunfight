@@ -1,0 +1,129 @@
+<UserControl x:Class="GfPanel.Views.MatchView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:v="clr-namespace:GfPanel.Views">
+  <UserControl.Resources>
+    <!-- one action: a wide button with a one-line explanation under it -->
+    <Style x:Key="ActionBtn" TargetType="{x:Type Button}" BasedOn="{StaticResource BigBtn}">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="MinHeight" Value="44" />
+    </Style>
+    <Style x:Key="ActionOk" TargetType="{x:Type Button}" BasedOn="{StaticResource OkBtn}">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="MinHeight" Value="44" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+    <Style x:Key="ActionNg" TargetType="{x:Type Button}" BasedOn="{StaticResource NgBtn}">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="MinHeight" Value="44" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+    <Style x:Key="ActionWn" TargetType="{x:Type Button}" BasedOn="{StaticResource WnBtn}">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="MinHeight" Value="44" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+    <Style x:Key="ActionNote" TargetType="{x:Type TextBlock}" BasedOn="{StaticResource Dim}">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Margin" Value="2,3,2,10" />
+    </Style>
+  </UserControl.Resources>
+
+  <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,12">
+    <v:ColumnsPanel>
+
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header><TextBlock Text="ROUND" Style="{StaticResource BlockTitle}" /></Expander.Header>
+        <StackPanel>
+          <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+            <Button Content="⏸  PAUSE MATCH" Style="{StaticResource ActionBtn}" Command="{Binding PauseCmd}" Margin="0,0,3,0" />
+            <Button Grid.Column="1" Content="▶  RESUME MATCH" Style="{StaticResource ActionOk}" Command="{Binding ResumeCmd}" Margin="3,0,0,0" />
+          </Grid>
+          <TextBlock Style="{StaticResource ActionNote}">Pause freezes everyone, holds the round timer and shows the stock esports TIMEOUT overlay + the CHECKPOINT banner; Resume = a 5 s ROUND STARTING IN countdown. (pause / resume — proven verbs)</TextBlock>
+
+          <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+            <Button Content="END → ALLIES" Style="{StaticResource ActionOk}" Command="{Binding EndRoundAllies}" Margin="0,0,3,0" />
+            <Button Grid.Column="1" Content="END → AXIS" Style="{StaticResource ActionNg}" Command="{Binding EndRoundAxis}" Margin="3,0" />
+            <Button Grid.Column="2" Content="DRAW" Style="{StaticResource ActionBtn}" Command="{Binding EndRoundDraw}" Margin="3,0,0,0" />
+          </Grid>
+          <TextBlock Style="{StaticResource ActionNote}">End the round now for a side (round::set_winner + gunfight's own round end, reason 1) or as a draw (end_round(2), no winner). The score and the round count move like a normal round end. Untested in-game.</TextBlock>
+
+          <Button Content="↺  RESTART ROUND" Style="{StaticResource ActionWn}" Command="{Binding RestartRound}" />
+          <TextBlock Style="{StaticResource ActionNote}">map_restart(true): the current round starts over, scores and the round count kept. Untested in-game — whether game.* really survives is the first thing to check.</TextBlock>
+        </StackPanel>
+      </Expander>
+
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header><TextBlock Text="MATCH" Style="{StaticResource BlockTitle}" /></Expander.Header>
+        <StackPanel>
+          <Button Content="↻  RESTART MATCH" Style="{StaticResource ActionWn}" Command="{Binding RestartMatchCmd}" />
+          <TextBlock Style="{StaticResource ActionNote}">map_restart(): scores 0-0, round 1, same map — the same F7 restart cwpatch binds. Also what links a freshly injected menu.</TextBlock>
+
+          <Button Content="{Binding FreezeLabel}" Style="{StaticResource ActionWn}" Command="{Binding FreezeAll}" />
+          <TextBlock Style="{StaticResource ActionNote}">freezeall: everyone can look, not move, and takes no damage — until UNFREEZE. Use it before a reload-style test so a round end cannot confound it.</TextBlock>
+
+          <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+            <Button Content="BALANCE HUMANS" Style="{StaticResource ActionBtn}" Command="{Binding BalanceHumans}" Margin="0,0,3,0" />
+            <Button Grid.Column="1" Content="5..1 GO" Style="{StaticResource ActionBtn}" Command="{Binding Countdown}" Margin="3,0,0,0" />
+          </Grid>
+          <TextBlock Style="{StaticResource ActionNote}">Balance evens the HUMAN split (the most recent joiner moves from the bigger side; bots aside — Even up bots is below). 5..1 GO prints a bold countdown to everyone.</TextBlock>
+        </StackPanel>
+      </Expander>
+
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header><TextBlock Text="BOTS — QUICK" Style="{StaticResource BlockTitle}" /></Expander.Header>
+        <StackPanel>
+          <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+            <Button Content="+ FILL BOTS" Style="{StaticResource ActionBtn}" Command="{Binding FillBots}" Margin="0,0,3,0" />
+            <Button Grid.Column="1" Content="EVEN UP" Style="{StaticResource ActionBtn}" Command="{Binding Bots.EvenUp}" Margin="3,0" />
+            <Button Grid.Column="2" Content="− REMOVE ALL" Style="{StaticResource ActionBtn}" Command="{Binding RemoveBots}" Margin="3,0,0,0" />
+          </Grid>
+          <TextBlock Style="{StaticResource ActionNote}">Fill both sides to the team size · even an odd human count with one bot · remove every bot. Per-side add / remove, difficulty, CUSTOM tuning and profiles are on DASHBOARD → BOTS.</TextBlock>
+        </StackPanel>
+      </Expander>
+
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header><TextBlock Text="LIVE" Style="{StaticResource BlockTitle}" /></Expander.Header>
+        <StackPanel>
+          <Grid Margin="0,0,0,6">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <Border Background="{StaticResource Bg}" BorderBrush="#5A2EC653" BorderThickness="1" CornerRadius="8" Padding="10,8">
+              <StackPanel HorizontalAlignment="Center">
+                <TextBlock Text="ALLIES" FontSize="10" FontWeight="Bold" Foreground="{StaticResource Dm}" HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding ScoreA}" FontSize="36" FontWeight="ExtraBold" Foreground="{StaticResource Ok}" HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding AliveA, StringFormat='alive {0}'}" FontSize="11" Foreground="{StaticResource Dm}" HorizontalAlignment="Center" />
+              </StackPanel>
+            </Border>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="14,0">
+              <TextBlock Text="{Binding RoundText}" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Dm}" HorizontalAlignment="Center" />
+              <TextBlock Text="{Binding TimerText}" FontSize="26" FontWeight="Bold" FontFamily="{StaticResource Mono}" HorizontalAlignment="Center" />
+              <TextBlock Text="{Binding PhaseText}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource Wn}" HorizontalAlignment="Center" />
+            </StackPanel>
+            <Border Grid.Column="2" Background="{StaticResource Bg}" BorderBrush="#5AE63946" BorderThickness="1" CornerRadius="8" Padding="10,8">
+              <StackPanel HorizontalAlignment="Center">
+                <TextBlock Text="AXIS" FontSize="10" FontWeight="Bold" Foreground="{StaticResource Dm}" HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding ScoreX}" FontSize="36" FontWeight="ExtraBold" Foreground="{StaticResource Ng}" HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding AliveX, StringFormat='alive {0}'}" FontSize="11" Foreground="{StaticResource Dm}" HorizontalAlignment="Center" />
+              </StackPanel>
+            </Border>
+          </Grid>
+          <TextBlock Text="{Binding MapText, StringFormat='Map  {0}'}" FontSize="11" />
+          <TextBlock Text="{Binding GametypeText, StringFormat='Gametype  {0}'}" FontSize="11" />
+          <TextBlock Text="{Binding PlayersText, StringFormat='Players  {0}'}" FontSize="11" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding TeamsText}" FontSize="11" />
+          <TextBlock Text="{Binding StagedText}" Foreground="{StaticResource Wn}" FontSize="11" Visibility="{Binding StagedText, Converter={StaticResource NullVis}}" />
+          <TextBlock Text="Every verb here needs the GFSTATE build linked (● Connected in the header); the buttons still send on an older payload but only pause / resume / restart / bots answer." Style="{StaticResource ActionNote}" Margin="2,8,2,0" />
+        </StackPanel>
+      </Expander>
+
+    </v:ColumnsPanel>
+  </ScrollViewer>
+</UserControl>

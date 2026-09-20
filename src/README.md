@@ -36,6 +36,10 @@ gunfight_menu/    ⬅ THE HOSTING PAYLOAD. gunfight_mod's fixes + team size + an
                   never run) destructibles + radiant exploders, projectiles, props.
                   Settings are dvars so they survive rounds AND matches.
                   One payload - B9 says nothing can be injected on top of it.
+                  2026-09-20 (never run): the APP CHANNEL v2 block for tools/gf-panel -
+                  GFSTATE + GFPLAYERS publishers, gf_cmd_seq acks, gf_cmd_say_aud, and the
+                  everyone-state / match-control / fun verbs (panel_verb). Side payload
+                  gunfight_menu.panel.gscc; docs/notes/gf-panel.md.
 gunfight_menu_c/  the CLIENT-side LUI-element probe. DIFFERENT PAIR: load_shared.csc ->
                   radiation_debug.csc, coexists with gunfight_menu (measured). ✅ RAN 2026-09-13:
                   LUIelemText renders in MP (stock key) — 💥 a plain string in it is a FATAL LUI
