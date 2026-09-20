@@ -6539,6 +6539,7 @@ function private cmd_action( action, arg )
         // spawned (page rows + vehicle mode), stock's streak vehicles untouched.
         case "vehspawn":    self cmd_vehspawn( arg );                                          break;
         case "vehenter":    self veh_enter( it );                                              break;
+        case "vehleave":    self act_vehleave( it );                                           break;
         case "vehclear":    self act_vehclear( it );                                           break;
         // Race (docs/notes/racing.md): arg = start|stop|gate|undo|clear|load|markers.
         case "race":        self cmd_race( tolower( arg ) );                              break;
@@ -10897,6 +10898,7 @@ function private veh_page_build()
         self menu_item( "vehicles", "(no drivable vehicle assets on this map)", undefined );
 
     self menu_item( "vehicles", "Enter vehicle I am aiming at", &veh_enter );
+    self menu_item( "vehicles", "Leave vehicle - safe exit, no engine exit path", &act_vehleave );
     self menu_item( "vehicles", "Remove empty spawned vehicles", &act_vehclear );
     self menu_add( "veh_other", "Other resident vehicles - streaks / intro, untested", "vehicles", 1 );
 
@@ -11008,6 +11010,10 @@ function private veh_spawn( item, type )
 
     veh makeusable();
     veh.gf_spawned = 1;                        // ours: the round-end sweep / act_vehclear delete it
+    veh.gf_kind = veh_kind_of( type );         // 1 = streak / intro / turret asset: no engine exit (crash 2026-09-20)
+
+    if ( veh.gf_kind == 1 )
+        veh thread veh_noexit_think();
 
     if ( isdefined( veh.isphysicsvehicle ) && veh.isphysicsvehicle )
         veh setbrake( 1 );
@@ -11768,6 +11774,113 @@ function private act_dbg_veh( item ) { return self act_dbg( item, #"gf_dbg_veh",
 // The app names a vehicle by its veh_master() index (tools/gf-control reads the same list out of
 // this file at startup, so the two cannot drift); veh_spawn does the residency check and the
 // "no vehicle assets on this map" answer itself.
+// ── No-exit guard for the "Other" assets (2026-09-20) ───────────────────────────────────
+// klaze exited a streak-only aircraft (the VTOL Forger; its script player_vtol.gsc was the VM's
+// position in the crash report) with the use key and the engine died: an access violation in
+// the exit path, a bit-set store with index -1 (crash 20260920-104228). Those assets are
+// flown by AI or as remote weapons in stock and carry no player exit; stock takes their
+// occupants OUT with unlink() (player_vehicle.gsc:707), never through the exit path. So:
+// a rider of a kind-1 page vehicle gets the disable_usability layer (the vehicle mode's own
+// "cannot get off" lock; leaving is a hold-Use action, vehicle_shared.gsc:90) for as long as
+// he sits in it, and leaves through "Leave vehicle" = unlink() + a tp_place beside the ride.
+function private veh_kind_of( type )
+{
+    foreach ( e in veh_master() )
+    {
+        if ( e.key == type )
+            return e.kind;
+    }
+
+    return 0;
+}
+
+function private veh_noexit_think()
+{
+    self endon( #"death" );
+    last = undefined;
+
+    for ( ;; )
+    {
+        wait 0.25;
+
+        if ( !isdefined( self ) )
+            return;
+
+        occ = self getseatoccupant( 0 );
+
+        if ( isdefined( occ ) && isplayer( occ ) && ( !isdefined( last ) || occ != last ) )
+        {
+            last = occ;
+            occ thread veh_noexit_rider( self );
+        }
+        else if ( !isdefined( occ ) )
+        {
+            last = undefined;
+        }
+    }
+}
+
+// On the rider: hold the lock while he is in THIS vehicle, drop it the moment he is not (a
+// leave, a death, the vehicle gone) - never left dangling on a player.
+function private veh_noexit_rider( veh )
+{
+    self endon( #"death", #"disconnect" );
+    self notify( #"gf_noexit_restart" );
+    self endon( #"gf_noexit_restart" );
+    self val::set( #"gf_noexit", "disable_usability", 1 );
+    self iprintlnbold( "^3no exit on this ride ^7- Vehicles -> Leave vehicle" );
+
+    while ( isdefined( veh ) && self isinvehicle() && self getvehicleoccupied() == veh )
+        wait 0.25;
+
+    self val::reset( #"gf_noexit", "disable_usability" );
+}
+
+// Leave any vehicle without the engine's exit path: stock's occupant detach (unlink, the
+// player_vehicle.gsc:707 shape), then beside the ride on the floor. The vehicle mode's re-seat
+// watcher is released first so it does not put the rider straight back. A kind-1 ride is
+// deleted once empty (it is the crash class); a drivable stays.
+function private act_vehleave( item )
+{
+    v = self getvehicleoccupied();
+
+    if ( !isdefined( v ) )
+    {
+        self menu_say( "^1you are not in a vehicle" );
+        return true;
+    }
+
+    self notify( #"gf_veh_release" );
+    self notify( #"gf_noexit_restart" );
+    self val::reset( #"gf_veh", "disable_usability" );
+    self val::reset( #"gf_noexit", "disable_usability" );
+    ang = self getplayerangles();
+    flat = ( 0, ang[ 1 ], 0 );
+    spot = tp_floor( v.origin + vectorscale( anglestoright( flat ), 160 ) + ( 0, 0, 40 ) );
+    self unlink();
+    waitframe( 1 );
+
+    if ( self isinvehicle() )
+    {
+        self menu_say( "^1still seated after unlink - not forcing the engine exit (that is the crash)" );
+        return true;
+    }
+
+    tp_place( self, spot, flat );
+
+    if ( isdefined( v ) && is_true( v.gf_spawned ) && v.gf_kind === 1 && !isdefined( v getseatoccupant( 0 ) ) )
+    {
+        v delete();
+        self menu_say( "^2out - the streak asset is removed" );
+    }
+    else
+    {
+        self menu_say( "^2out" );
+    }
+
+    return true;
+}
+
 function private cmd_vehspawn( arg )
 {
     m = veh_master();
