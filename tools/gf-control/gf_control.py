@@ -130,25 +130,38 @@ class BridgeBackend:
             items.append(("gf_cmd_go", settings["gf_cmd_go"]))
         return [f"set {k} {v}" for k, v in items]
 
+    # ONE command per bridge message, spaced past the DLL's 50ms poll. MEASURED 2026-09-19: the
+    # gf_bridge.dll loaded in the game runs only the FIRST line of a multi-line block (the console
+    # slot stops at the first '\n'), so a batched config+apply block landed the first `set` and
+    # silently dropped everything after it - the gf_cmd_go that fires the apply never ran, which is
+    # why "Apply now" set the config dvar but nothing took effect live. Sending each line as its own
+    # seq-bumped message (proven end to end: gravity floaty, addbot/removebot moved the roster) makes
+    # the loaded DLL consume every command. (bridge.c's run_block iterates lines, but that build is
+    # not the one loaded; this fix needs no DLL rebuild or reload.)
+    _SEND_GAP = 0.08            # > the DLL's 50ms poll, so each seq is consumed before the next bump
+    _CMD_MAX = 47               # a `set` >47 B overflows the cmd slot and hard-crashes (bridge limit)
+
     def apply(self, settings: dict):
         lines = self._lines(settings)
         if self.dry_run:
-            self.log.append("[dry-run] would send:")
+            self.log.append("[dry-run] would send (one message each):")
             self.log.extend("  " + ln for ln in lines)
             return
         if bridge_channel is None:
             self.log.append("no bridge transport - nothing sent")
             return
-        # Never send an oversize block: bridge_channel would truncate it mid-line, and a torn
-        # `set` can set a dvar to a garbage value and hang the game. Refuse and say so instead.
-        cap = bridge_channel.SIZE - bridge_channel.HDR - 1
-        if len("\n".join(lines).encode("ascii", "replace")) > cap:
-            self.log.append(f"NOT sent: {len(lines)} commands exceed the bridge buffer "
-                            f"({cap} B) - apply fewer settings at once.")
-            return
-        seq, listening = bridge_channel.send(lines, quiet=True)
-        self.log.append(f"sent #{seq}" + ("" if listening
-                        else "  (gf_bridge.dll not detected - is it loaded?)"))
+        import time
+        sent = 0
+        listening = True
+        for ln in lines:
+            if len(ln.encode("ascii", "replace")) > self._CMD_MAX:
+                self.log.append(f"NOT sent (>{self._CMD_MAX} B, would corrupt the cmd slot): {ln}")
+                continue
+            _seq, listening = bridge_channel.send(ln, quiet=True)
+            sent += 1
+            time.sleep(self._SEND_GAP)
+        self.log.append(f"sent {sent} command(s) line-by-line"
+                        + ("" if listening else "  (gf_bridge.dll not detected - is it loaded?)"))
         self.log.extend("  " + ln for ln in lines)
 
 
@@ -1339,7 +1352,17 @@ class App:
     RESTART_REQUIRED = {"gf_roundwinlimit", "gf_roundlimit", "gf_team_size", "gf_spec_slots"}
 
     def _is_changed(self, dvar, val):
-        return (val != self._defaults.get(dvar) or dvar in self._sent or dvar in self._touched)
+        # A field is "changed" only when it differs from the game's LIVE baseline (_applied,
+        # which _sync_untouched refreshes from config_scan before every apply) or the user
+        # explicitly touched it. It used to compare against the app's HARDCODED default, so any
+        # field whose live value differed from that default (e.g. this host's strike=1 / round-
+        # win-limit=0 / timer) was re-sent on EVERY apply, dragging its whole packed chunk -
+        # including the gametype-setting-bearing chunks gf_c5/gf_c7 - into an unrelated (e.g.
+        # gravity-only) apply. That is the F4 "packed-chunk contamination" that made a movement
+        # apply re-write gts chunks and reload the match. Comparing to _applied sends only the
+        # chunk the user actually changed. (_sent was also sticky and caused the same re-send.)
+        baseline = self._applied.get(dvar, self._defaults.get(dvar))
+        return (val != baseline or dvar in self._touched)
 
     def _apply_config(self, trailer=None, force=False, exclude=None):
         # trailer (optional) rides in the SAME message so the config lands before the command
@@ -1486,22 +1509,43 @@ class App:
         # limits / spec_slots / spyplane / team_size), which is why almost every app apply
         # restarted while the same change from the in-game menu did not. config_scan is the read
         # path (app<-game); if it is unavailable we apply UNSYNCED (old behaviour, no worse).
+        # INSTANT APPLY (Fable 2026-09-19): fire the apply NOW - never block on the pre-apply memory
+        # scan. That scan only guards against a next-round mod_apply re-asserting a stale packed-chunk
+        # neighbour; it can take 6-54s when the game's config publisher is down (freezing the app),
+        # and the reload it guards is moot while mod_apply / the publisher aren't running. So apply
+        # immediately, then refresh our live-value baseline in the BACKGROUND for the next apply.
+        then()
         if config_scan is None or gf_native is None:
-            then()
             return
         if getattr(self, "_sync_busy", False):
-            return                              # a sync is already in flight; drop this click
+            return                              # a background refresh is already in flight
         self._sync_busy = True
 
         def worker():
             try:
                 pid = gf_native.find_game_pid()
                 live = config_scan.read_config(pid, self._defaults) if pid else None
-            except Exception:                   # noqa: BLE001 - reported below, then apply unsynced
+            except Exception:                   # noqa: BLE001 - best-effort; next apply just re-tries
                 live = None
-            self.root.after(0, lambda: self._sync_untouched_done(live, then))
+            self.root.after(0, lambda: self._sync_bg_refresh(live))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _sync_bg_refresh(self, live):
+        # Background-only: refresh our knowledge of the game's live values so the NEXT apply's
+        # change-detection is accurate. Does NOT re-apply and only touches fields the user has not
+        # edited, so it can never fight what the user is currently picking.
+        self._sync_busy = False
+        if not live:
+            return
+        _tick, cfg = live
+        for dvar, val in cfg.items():
+            if dvar not in self.vars or dvar in self._touched:
+                continue
+            try:
+                self._applied[dvar] = val
+            except Exception:                   # noqa: BLE001 - one bad field must not matter
+                pass
 
     def _sync_untouched_done(self, live, then):
         self._sync_busy = False

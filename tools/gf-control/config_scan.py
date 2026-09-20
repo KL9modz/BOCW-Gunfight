@@ -148,6 +148,13 @@ class ConfigScanner(rs.Scanner):
             defaults = _defaults()
         t0 = time.perf_counter()
         for base, size in regions:
+            # Time budget: when GFCFG is PRESENT it lives in the first-ranked region and is found in
+            # ~1 s. When it is ABSENT (config_publish not running in the game) the old loop swept all
+            # ~12k regions (~54 s), which froze the app on every Apply / Load-current (klaze reported
+            # "extremely delayed", 2026-09-19). Bail after a few seconds instead - a present marker is
+            # always found well before this, so this only shortens the not-found case.
+            if best is None and time.perf_counter() - t0 > 6.0:
+                break
             off = 0
             while off < size:
                 want = min(step + MAX_LEN, size - off)

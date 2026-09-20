@@ -126,6 +126,31 @@ restart path already calls on a known thread. Deferred until T1 decides we need 
 - Whether an in-process (non-main-thread) `set` is safe mid-match, or needs the main-thread hook.
 - Whether a single main-thread hook point exists that is cheap to find and stable across patches.
 
+## ⚠ LOADED-DLL BEHAVIOR — one command per message (MEASURED 2026-09-19)
+
+The bridge is live and working, but the **DLL currently loaded in the game runs only the FIRST
+`set` line of a multi-line (`\n`-separated) message** — every line after the first is dropped
+(the console command slot stops at the first `\n`). This silently broke every app live-apply for
+days: `gf_control.py` batched `set gf_c<n> <chunk>` + `set gf_cmd_action apply` +
+`set gf_cmd_arg <scope>` + `set gf_cmd_go 1` into ONE `bridge_channel.send([...])`, so only the
+config chunk landed and the `gf_cmd_go` that fires `cmd_apply_live()` never ran. The config dvar
+changed; nothing applied live.
+
+**Proof:** a two-line batch `set gf_c3 …777…` + `set gf_c3 …888…` left the readback at **777**
+(2nd line dropped, not last-wins). The same commands sent as **separate** messages worked end to
+end (gravity floaty; addbot/removebot moved the roster).
+
+`bridge.c` in the repo already fixes this — `run_block()` iterates the `\n`-separated lines and
+runs each through `run_console_command()`, plus the RESTORE_LEN slot pad — **but that build was
+never compiled/loaded** (see [[bridge-apply-restart-bug]]). Two ways forward:
+- **App-side (done, no DLL work):** `BridgeBackend.apply` now sends **one command per bridge
+  message**, `_SEND_GAP = 0.08 s` apart (> the DLL's 50 ms poll so each seq is consumed), keeping
+  the `_CMD_MAX = 47 B` per-command guard and `gf_cmd_go` last. Relaunch the app to load it.
+- **DLL-side (optional):** build + load the current `bridge.c`; then a batched message works too.
+
+⚠ `cmd_poll` and `config_publish` are **match threads** — they die when the match ends, freezing
+the GFCFG tick. A frozen tick is a dead publisher, **not** a send failure.
+
 ## Sources / anchors (this build; resolve by signature in practice)
 - cwpatch executor `+0x3ace080`, command-string slots `+0xd6a5cb0/cc8/d88`; signatures in
   `tools/gf-control/dvar_backend.py` (`CWPATCH_SIGS`), mechanism in [[unlock-dlls]].
