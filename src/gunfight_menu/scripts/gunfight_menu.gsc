@@ -873,8 +873,14 @@ function private dvars_register()
     dvar_reg( #"gf_caster_probe", 1 );
     dvar_reg( #"gf_menu_hspan", 4 );
     dvar_reg( #"gf_hint_lines", 8 );
-    dvar_reg( #"gf_hint_glyphs", 0 );
+    dvar_reg( #"gf_hint_glyphs", 1 );
     dvar_reg( #"gf_hint_others_on", 1 );
+    dvar_reg( #"gf_hint_self_on", 1 );
+    dvar_reg( #"gf_forge_pin", 0 );
+    dvar_reg( #"gf_forge_movestep", 6 );
+    dvar_reg( #"gf_forge_rotstep", 3 );
+    dvar_reg( #"gf_forge_scalestep", 2 );
+    dvar_reg( #"gf_forge_zstep", 4 );
     dvar_reg( #"gf_hint_newlines", 0 );
     dvar_reg( #"gf_spawn_diag", 1 );
     dvar_reg( #"gf_mapscan", 0 );
@@ -6617,6 +6623,7 @@ function private cmd_action( action, arg )
         case "propfavs":    self prop_favs_set();                                               break;
         case "forge":       self cmd_forge( arg );                                              break;
         case "hintset":     self cmd_hintset( arg );                                            break;
+        case "forgegrant":  self cmd_forgegrant( arg );                                         break;
         // Vehicles (the Vehicles page, app parity 2026-09-18): arg = the veh_master() INDEX - a
         // vehicle asset name does not fit the 47-byte bridge slot - spawned ahead of the host
         // exactly like the page row (isassetloaded-gated, so a non-resident pick just says so);
@@ -7012,6 +7019,8 @@ function private menu_think()
             continue;
         }
 
+        self others_hint_update();       // keep the others-facing line flipped to the menu/idle state
+
         if ( m.current !== "" && !isdefined( m.menus[ m.current ] ) )
         {
             m.current = "";
@@ -7023,7 +7032,7 @@ function private menu_think()
         {
             if ( self key_pressed( #"open_menu", 1 ) )
             {
-                m.current = "start_menu";
+                m.current = is_true( self.gf_client_menu ) ? "start_client" : "start_menu";
                 // The key legend is a transient centre toast in the non-split layouts only;
                 // in SPLIT it would land in the left details pane (menu_say folds to the
                 // status there) and klaze wants that pane to stay pure state, no controls.
@@ -7033,6 +7042,9 @@ function private menu_think()
             }
             else
             {
+                if ( cfg_geti( #"gf_hint_self_on", 1 ) )
+                    self menu_idle_hint();      // always-on: your controls / how to open the menu
+
                 waitframe( 1 );
                 continue;
             }
@@ -7041,6 +7053,10 @@ function private menu_think()
         {
             menu = self menu_current();
             m.current = isdefined( menu ) ? menu.parent_id : "";
+
+            if ( is_true( self.gf_client_menu ) && m.current == "start_menu" )
+                m.current = "start_client";      // granted players can't back out into the host tree
+
             render = 1;
         }
         else if ( self key_pressed( #"last_item", 1 ) )
@@ -7260,7 +7276,7 @@ function private menu_render_split( lines, list_center )
         if ( isdefined( menu ) )
         {
             n = menu.items.size;
-            info = menu_nav_hint() + " ^8| ^2" + self menu_page_title( menu ) + " " + ( ( n == 0 ) ? "-/-" : ( "" + ( menu.cursor + 1 ) + "/" + n ) ) + " | " + self menu_state_compact();
+            info = "^3Controls: ^7" + menu_nav_hint() + " ^8| ^2" + self menu_page_title( menu ) + " " + ( ( n == 0 ) ? "-/-" : ( "" + ( menu.cursor + 1 ) + "/" + n ) ) + " | " + self menu_state_compact();
             if ( isdefined( self.gfmenu.lastmsg ) && self.gfmenu.lastmsg != "" )
                 info += " | " + self.gfmenu.lastmsg;
             trig = self menu_hint_trigger();
@@ -8589,6 +8605,7 @@ function private build_tree()
 
     // ── Outfit — by id (per-operator outfits) ─────────────────────────────────
     self menu_add( "outfit", "Outfit", "start_menu", 1 );
+    self menu_add( "start_client", "Client Menu", "", 0, &client_start_enter );
     for ( oi = 0; oi < 24; oi++ )
         self menu_item( "outfit", "Outfit " + oi, &act_outfit, oi );
 
@@ -9547,7 +9564,10 @@ function private config_publish()
             + "," + cfg_race_oobhud() + "," + cfg_race_reset() + "," + cfg_race_sprint();
         s += "|dbg=" + cfg_dbg_race() + "," + cfg_dbg_veh() + "," + cfg_dbg_barrier() + "," + cfg_mapscan();
         s += "|misc=" + cfg_spawn_antistack() + "," + cfg_hint_lines() + "," + cfg_respawns()
-            + "," + cfg_geti( #"gf_hint_others_on", 1 ) + "," + cfg_geti( #"gf_hint_glyphs", 0 );   // append-only list
+            + "," + cfg_geti( #"gf_hint_others_on", 1 ) + "," + cfg_geti( #"gf_hint_glyphs", 0 )   // append-only list
+            + "," + cfg_geti( #"gf_forge_pin", 1 ) + "," + cfg_geti( #"gf_forge_movestep", 6 ) + "," + cfg_geti( #"gf_forge_rotstep", 3 )
+            + "," + cfg_geti( #"gf_forge_scalestep", 2 ) + "," + cfg_geti( #"gf_forge_zstep", 4 )
+            + "," + cfg_geti( #"gf_hint_self_on", 1 );
         s += "|" + "END";
         level.gf_cfgpub = s;
         wait 2;
@@ -14837,6 +14857,7 @@ function private forge_state()
         s.yaw = 0;
         s.scale = 1;
         s.preview = undefined;
+        s.anchor = undefined;
         self.gf_forge = s;
     }
     return self.gf_forge;
@@ -14857,10 +14878,24 @@ function private forge_enter( item )
     fg.active = 1;
     self disableweapons();
     self disableoffhandweapons();
+
+    if ( cfg_geti( #"gf_forge_pin", 0 ) )      // opt-in: pin the player so WASD sculpts the prop
+    {
+        fg.anchor = spawn( "script_origin", self.origin );
+        fg.anchor.angles = self.angles;
+        self playerlinkto( fg.anchor );
+        fg.dist = 120;
+    }
+    else
+    {
+        fg.dist = 0;                           // free-walk: prop sits on the aimed surface, no push
+        fg.zoff = 0;
+    }
+
     self others_hint_update();                 // flip the others line to the build warning
     fg.preview = self forge_spawn_preview( fg.idx );
     self thread forge_loop();
-    self menu_say( "^2FORGE on - look to aim, [attack] place, [melee]/[use] cycle, [frag] exit" );
+    self menu_say( "^2FORGE on - walk freely; D-pad / Action-Slots move + turn the prop, FIRE place, weapon-switch model, FRAG exit" );
 
     if ( isdefined( self.gfmenu ) )
         self.gfmenu.current = "";              // close the menu; menu_think yields while forge_active
@@ -14879,6 +14914,13 @@ function private forge_exit( item )
     self notify( #"gf_forge_stop" );
     self enableweapons();
     self enableoffhandweapons();
+
+    if ( isdefined( fg.anchor ) )
+    {
+        self unlink();
+        fg.anchor delete();
+        fg.anchor = undefined;
+    }
 
     if ( isdefined( fg.preview ) )
         fg.preview delete();
@@ -14913,63 +14955,94 @@ function private forge_loop()
 
     fg = self forge_state();
     pa = 0;
-    pmel = 0;
-    puse = 0;
     pfrag = 0;
+    pws = 0;
+    p1 = 0;
+    p2 = 0;
+    p3 = 0;
+    p4 = 0;
 
     for ( ;; )
     {
         if ( !fg.active )
             return;
 
-        mv = self getnormalizedmovement();
-        fast = self sprintbuttonpressed();
+        movestep = cfg_geti( #"gf_forge_movestep", 6 );
+        rotstep = cfg_geti( #"gf_forge_rotstep", 3 );
+        scalestep = cfg_geti( #"gf_forge_scalestep", 2 ) / 100.0;
+        zstep = cfg_geti( #"gf_forge_zstep", 4 );
+        pinned = isdefined( fg.anchor );
         ads = self adsbuttonpressed();
+        fast = self sprintbuttonpressed();
 
-        if ( isdefined( mv ) )
+        // PIN mode (opt-in, gf_forge_pin 1): WASD sculpts the prop - fwd/back = distance, strafe =
+        // turn, jump/crouch = height, ADS+WASD = scale. Skipped in FREE-WALK (default) so WASD / the
+        // left stick walks the PLAYER and the prop just rides the crosshair onto surfaces.
+        if ( pinned )
         {
-            if ( ads )
+            mv = self getnormalizedmovement();
+
+            if ( isdefined( mv ) )
             {
-                fg.scale += mv[ 0 ] * ( fast ? 0.05 : 0.02 );
+                if ( ads )
+                    fg.scale += mv[ 0 ] * scalestep * ( fast ? 2.5 : 1 );
+                else
+                {
+                    fg.dist += mv[ 0 ] * movestep * ( fast ? 2.5 : 1 );
+                    fg.yaw += mv[ 1 ] * rotstep * ( fast ? 2 : 1 );
+                }
 
-                if ( fg.scale < 0.1 )
-                    fg.scale = 0.1;
-
-                if ( fg.scale > 8 )
-                    fg.scale = 8;
-            }
-            else
-            {
-                fg.dist += mv[ 0 ] * ( fast ? 16 : 6 );
-
-                if ( fg.dist < 40 )
-                    fg.dist = 40;
-
-                if ( fg.dist > 2000 )
-                    fg.dist = 2000;
-
-                fg.yaw += mv[ 1 ] * ( fast ? 6 : 3 );
+                if ( self jumpbuttonpressed() )
+                    fg.zoff += zstep * ( fast ? 3 : 1 );
+                else if ( self stancebuttonpressed() )
+                    fg.zoff -= zstep * ( fast ? 3 : 1 );
             }
         }
 
-        if ( self jumpbuttonpressed() )
-            fg.zoff += fast ? 12 : 4;
-        else if ( self stancebuttonpressed() )
-            fg.zoff -= fast ? 12 : 4;
-
+        // The discrete adjust, identical on controller and keyboard - the D-pad IS Action Slots 1-4:
+        //   slot1 (D-pad up)    distance out  | ADS = scale up
+        //   slot2 (D-pad down)  distance in   | ADS = scale down
+        //   slot3 (D-pad left)  rotate left   (bind Left Arrow to Action Slot 3 for arrow-key turn)
+        //   slot4 (D-pad right) rotate right  (bind Right Arrow to Action Slot 4)
+        // weapon-switch (Y / scroll) = cycle model, ADS = previous. Fire = place, Frag = exit,
+        // hold sprint = big steps. All work while you walk with WASD / the stick.
+        s1 = self actionslotonebuttonpressed();
+        s2 = self actionslottwobuttonpressed();
+        s3 = self actionslotthreebuttonpressed();
+        s4 = self actionslotfourbuttonpressed();
+        ws = self weaponswitchbuttonpressed();
         a = self attackbuttonpressed();
-        mel = self meleebuttonpressed();
-        use = self usebuttonpressed();
         frag = self fragbuttonpressed();
+        big = movestep * ( fast ? 20 : 8 );
+        turn = fast ? 45 : rotstep * 5;
+
+        if ( s1 && !p1 )
+        {
+            if ( ads )
+                fg.scale += scalestep * 5;
+            else
+                fg.dist += big;
+        }
+
+        if ( s2 && !p2 )
+        {
+            if ( ads )
+                fg.scale -= scalestep * 5;
+            else
+                fg.dist -= big;
+        }
+
+        if ( s3 && !p3 )
+            fg.yaw -= turn;
+
+        if ( s4 && !p4 )
+            fg.yaw += turn;
+
+        if ( ws && !pws )
+            self forge_cycle( ads ? -1 : 1 );
 
         if ( a && !pa )
             self forge_place();
-
-        if ( mel && !pmel )
-            self forge_cycle( 1 );
-
-        if ( use && !puse )
-            self forge_cycle( -1 );
 
         if ( frag && !pfrag )
         {
@@ -14977,9 +15050,26 @@ function private forge_loop()
             return;
         }
 
+        if ( fg.scale < 0.1 )
+            fg.scale = 0.1;
+
+        if ( fg.scale > 8 )
+            fg.scale = 8;
+
+        distlo = pinned ? 40 : -400;
+
+        if ( fg.dist < distlo )
+            fg.dist = distlo;
+
+        if ( fg.dist > 2000 )
+            fg.dist = 2000;
+
+        p1 = s1;
+        p2 = s2;
+        p3 = s3;
+        p4 = s4;
+        pws = ws;
         pa = a;
-        pmel = mel;
-        puse = use;
         pfrag = frag;
 
         self forge_update_preview();
@@ -14997,7 +15087,12 @@ function private forge_update_preview()
 
     ang = self getplayerangles();
     fwd = anglestoforward( ang );
-    pos = self geteye() + fwd * fg.dist + ( 0, 0, fg.zoff );
+
+    if ( isdefined( fg.anchor ) )
+        pos = self geteye() + fwd * fg.dist + ( 0, 0, fg.zoff );        // pin: carry ahead of the view
+    else
+        pos = self prop_spot() + fwd * fg.dist + ( 0, 0, fg.zoff );     // free-walk: on the aimed surface + push
+
     fg.preview.origin = pos;
     fg.preview.angles = ( 0, ang[ 1 ] + 180 + fg.yaw, 0 );
     fg.preview setscale( fg.scale );
@@ -15155,9 +15250,9 @@ function private forge_controls_hint( fg )
     lbl = ( fg.idx >= 0 && fg.idx < m.size ) ? m[ fg.idx ].label : "?";
     return "^3FORGE ^7" + ( fg.idx + 1 ) + "/" + m.size + " ^2" + lbl +
            "  ^7dist " + int( fg.dist ) + " scale " + int( fg.scale * 100 ) + "%  ^5" +
-           forge_key( "attack" ) + "^7place " + forge_key( "melee" ) + "^7next " +
-           forge_key( "use" ) + "^7prev " + forge_key( "frag" ) + "^7exit  " +
-           "^7move=dist/turn jump/crouch=height ADS+move=scale";
+           forge_key( "place" ) + "^7place " + forge_key( "up" ) + forge_key( "down" ) + "^7dist " +
+           forge_key( "left" ) + forge_key( "right" ) + "^7turn " + forge_key( "ads" ) + forge_key( "up" ) + "^7scale " +
+           forge_key( "swap" ) + "^7model " + forge_key( "frag" ) + "^7exit ^2walk to move";
 }
 
 // Device glyph or plain text per gf_hint_glyphs. ⚠ Whether sethintstring renders bind tokens on
@@ -15165,22 +15260,49 @@ function private forge_controls_hint( fg )
 // test the [{+bind}] glyphs in-game. docs/notes/forge.md.
 function private forge_key( name )
 {
-    if ( cfg_geti( #"gf_hint_glyphs", 0 ) )
-        return "[{+" + forge_bind( name ) + "}]";
+    // Real device glyph (controller button / keyboard key, resolved client-side) via the engine's
+    // [{+bind}] markup - the same tokens stock interaction prompts use, so they show the R3 icon,
+    // D-pad icons, etc. per the player's current device. Default ON; gf_hint_glyphs 0 = text fallback.
+    if ( cfg_geti( #"gf_hint_glyphs", 1 ) )
+        return "[{" + forge_bind( name ) + "}]";
 
-    return "[" + name + "]";
+    return forge_txt( name );
+}
+
+function private forge_txt( name )
+{
+    switch ( name )
+    {
+        case "place":  return "^7[fire]";
+        case "melee":  return "^7[R3]";
+        case "frag":   return "^7[frag]";
+        case "ads":    return "^7[ADS]";
+        case "reload": return "^7[R]";
+        case "swap":   return "^7[swap]";
+        case "up":     return "^7[D-up]";
+        case "down":   return "^7[D-dn]";
+        case "left":   return "^7[D-L]";
+        case "right":  return "^7[D-R]";
+        default:       return "^7[" + name + "]";
+    }
 }
 
 function private forge_bind( name )
 {
     switch ( name )
     {
-        case "attack":  return "attack";
-        case "melee":   return "melee";
-        case "use":     return "activate";
-        case "frag":    return "frag";
-        case "ads":     return "speed_throw";
-        default:        return name;
+        case "place":   return "+attack";
+        case "melee":   return "+melee";
+        case "use":     return "+activate";
+        case "frag":    return "+frag";
+        case "ads":     return "+speed_throw";
+        case "reload":  return "+reload";
+        case "swap":    return "weapnext";
+        case "up":      return "+actionslot 1";      // D-pad up
+        case "down":    return "+actionslot 2";      // D-pad down
+        case "left":    return "+actionslot 3";      // D-pad left
+        case "right":   return "+actionslot 4";      // D-pad right
+        default:        return "+" + name;
     }
 }
 
@@ -15246,7 +15368,11 @@ function private others_hint_update()
 
 function private others_hint_text()
 {
-    if ( self forge_active() )
+    // Flip to the build warning whenever the host is in ANY menu (mod menu open OR forge); otherwise
+    // the always-on welcome line. docs/notes/forge.md.
+    in_menu = self forge_active() || ( isdefined( self.gfmenu ) && self.gfmenu.current != "" );
+
+    if ( in_menu )
         return getdvarstring( #"gf_hint_build", "^1DO NOT KILL - host is building" );
 
     return getdvarstring( #"gf_hint_others", "Welcome to ^3KL9^7's Gunfight lobby! Join us at ^4discord.gg/blackops" );
@@ -15290,16 +15416,147 @@ function private cmd_hintset( arg )
 // on_spawned callback: (re)create the host's others-facing welcome hint each life.
 function private forge_on_spawned()
 {
-    if ( self ishost() )
-        self others_hint_show();
+    self others_hint_show();      // EVERY player projects the outward welcome line (gated gf_hint_others_on)
 }
 
 // The menu navigation legend, editable via gf_hint_nav - shown on the hint bar while the menu is
 // open (menu_render_split) and as the open toast (menu_think). "edit hint line for the default
 // menu layout". docs/notes/forge.md.
+// The menu navigation controls with real glyphs (keys_init maps: up=ADS, down=attack, select=reload,
+// back=melee, open=ADS+melee). gf_hint_glyphs 0 falls back to the editable gf_hint_nav text line.
 function private menu_nav_hint()
 {
+    if ( cfg_geti( #"gf_hint_glyphs", 1 ) )
+        return forge_key( "ads" ) + "^7up " + forge_key( "place" ) + "^7dn " +
+               forge_key( "reload" ) + "^7sel " + forge_key( "melee" ) + "^7back";
+
     return getdvarstring( #"gf_hint_nav", "^7RMB^8 up  ^7LMB^8 down  ^7R^8 select  ^7V^8 back" );
+}
+
+// Always-on host hint while idle (menu closed, not forging): how to open the menu, with glyphs.
+// gf_hint_self_on gates the whole always-on self hint. docs/notes/forge.md.
+function private menu_idle_hint()
+{
+    self menu_hint_trigger() sethintstring( "^3Open menu: ^7" + forge_key( "ads" ) + "+" + forge_key( "melee" ) );
+}
+
+// ============================================================================================
+// GRANTED CLIENT MENU — the host grants a player their own mini mod-menu (self-features only, no
+// admin). They open/close it with the mod-menu key (ADS+Melee) on their own screen. The menu system
+// (menu_init/keys_init/build_tree/menu_think) runs for a non-host player exactly as for the host -
+// their inputs read server-side, their hint/menu render on their screen. Their tree is rooted at
+// start_client (a curated page reusing the host's self-verbs); a back-nav gate in menu_think keeps
+// them out of the host admin tree. docs/notes/forge.md / grant. ⚠ menu-for-non-host is NEW.
+// ============================================================================================
+
+// App verb (forgegrant on|off, gf_cmd_target = the player): grant/revoke the client menu.
+function private cmd_forgegrant( arg )
+{
+    p = self cmd_target();
+
+    if ( !isdefined( p ) || !isplayer( p ) )
+    {
+        self menu_say( "^1grant: no such player" );
+        return;
+    }
+
+    if ( p == self )
+    {
+        self menu_say( "^1grant: that is you (host)" );
+        return;
+    }
+
+    if ( tolower( arg ) == "off" )
+    {
+        p client_menu_revoke();
+        self menu_say( "^2revoked client menu from " + p.name );
+    }
+    else
+    {
+        p thread client_menu_grant();
+        self menu_say( "^2gave client menu to " + p.name );
+    }
+}
+
+function private client_menu_grant()      // runs ON the granted (non-host) player
+{
+    if ( is_true( self.gf_client_menu ) )
+        return;
+
+    self.gf_client_menu = 1;
+
+    if ( !isdefined( self.gfmenu ) )
+    {
+        self menu_init( "Client Menu" );
+        self keys_init();
+        self build_tree();
+    }
+
+    self thread menu_think();
+    self others_hint_show();
+    self iprintlnbold( "^2Client menu granted - hold " + forge_key( "ads" ) + "+" + forge_key( "melee" ) + " to open" );
+}
+
+function private client_menu_revoke()
+{
+    if ( !is_true( self.gf_client_menu ) )
+        return;
+
+    self.gf_client_menu = 0;
+    self forge_exit( self );
+
+    if ( isdefined( self.gfmenu ) )
+        self.gfmenu.current = "";
+
+    self notify( #"gfmenu_restart" );          // stops their menu_think loop
+    self iprintlnbold( "^1Your client menu was removed" );
+}
+
+// The granted player's root page: self-features only, reusing the host verbs/pages. A back-out from
+// any of these lands back here (menu_think's gate redirects a start_menu parent to start_client).
+function private client_start_enter( menu )
+{
+    self menu_clear_items( "start_client" );
+    self menu_item( "start_client", "Forge: build mode", &forge_enter );
+    self menu_item( "start_client", "Props", &menu_switch, "props" );
+    self menu_item( "start_client", "Vehicles", &menu_switch, "vehicles" );
+    self menu_item( "start_client", "God mode", &act_godmode );
+    self menu_item( "start_client", "Max ammo", &act_maxammo );
+    self menu_item( "start_client", "Third person", &act_thirdperson );
+    self menu_item( "start_client", "Fly mode", &act_fly );
+    self menu_item( "start_client", "Teleport me to host", &act_ctp_host );
+    self menu_item( "start_client", "Teleport me to crosshair", &act_tp_me, "aim" );
+    self menu_item( "start_client", "Save my point", &act_tp_save );
+    self menu_item( "start_client", "Me to saved point", &act_tp_me, "saved" );
+    self menu_item( "start_client", "Weapons", &menu_switch, "weapons" );
+    self menu_item( "start_client", "Camo", &menu_switch, "camo" );
+    self menu_item( "start_client", "Operator", &menu_switch, "operator" );
+    self menu_item( "start_client", "Outfit / skin", &menu_switch, "outfit" );
+    self menu_item( "start_client", "Unlock all", &act_unlockall );
+    self menu_item( "start_client", "Display / controls", &menu_switch, "display" );
+}
+
+// Teleport a granted player to the host.
+function private act_ctp_host( item )
+{
+    if ( !isalive( self ) )
+    {
+        self menu_say( "^1spawn first" );
+        return true;
+    }
+
+    h = util::gethostplayer();
+
+    if ( !isdefined( h ) || h == self )
+    {
+        self menu_say( "^1no host to go to" );
+        return true;
+    }
+
+    if ( tp_place( self, h.origin, h.angles ) )
+        self menu_say( "^2teleported to host" );
+
+    return true;
 }
 
 function private prop_universal()

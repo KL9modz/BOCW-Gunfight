@@ -53,6 +53,12 @@ public sealed class PlayerRowVM : ObservableObject
     public RelayCommand Kill => new(() => Do("Kill", "killone"));
     public RelayCommand TakeWeapon => new(() => Do("Take weapon", "takeone"));
     public RelayCommand Strip => new(() => Do("Strip weapons", "stripone"));
+    // forge session 2026-09-20 (klaze: a FULL personal client menu, not just forge): a granted player opens
+    // their own mini mod-menu with ADS + Melee - Forge (props + vehicles), Teleport, God / Ammo / 3rd person /
+    // Fly, personal speed + jump, Weapons / Camo / Operator / Skin, soft Unlock-all, Display - NOT host admin
+    // (kick / team / match) and NOT the globals (gravity / vision). Verb unchanged: forgegrant on|off + target.
+    public RelayCommand ForgeGrant => new(() => Do("Give client menu", "forgegrant", "on"));
+    public RelayCommand ForgeRevoke => new(() => Do("Revoke client menu", "forgegrant", "off"));
     public RelayCommand Kick => new(() => { if (_main.Confirm($"Kick {Name}?")) Do("Kick", "kickone"); });
     public RelayCommand Ban => new(() => { if (_main.Confirm($"Ban {Name}?\n\nKicks now and refuses this XUID at connect (this session, and re-sent by the panel at every match start).")) _main.BanPlayer(this); });
     public RelayCommand Unban => new(() => _main.UnbanXuid(P.Xuid));

@@ -129,6 +129,10 @@
             <MenuItem Header="Operator" Command="{Binding Operator}" />
             <MenuItem Header="Outfit" Command="{Binding Outfit}" />
           </MenuItem>
+          <MenuItem Header="Client menu (their own mini mod-menu, no admin)">
+            <MenuItem Header="Give client menu" Command="{Binding ForgeGrant}" ToolTip="forgegrant on - they hold ADS + Melee for their own menu: Forge / Props / Vehicles, God / Ammo / 3rd person / Fly / Unlock, Teleport (me to host / crosshair / save / load), Weapons / Camo / Operator / Outfit, Display. No admin, no globals. NEVER RUN for a non-host - first test = do they see and navigate it; may need re-granting after a round." />
+            <MenuItem Header="Revoke client menu" Command="{Binding ForgeRevoke}" ToolTip="forgegrant off" />
+          </MenuItem>
           <MenuItem Header="Take current weapon" Command="{Binding TakeWeapon}" />
           <MenuItem Header="Strip all weapons" Command="{Binding Strip}" />
           <MenuItem Header="Kill" Command="{Binding Kill}" />

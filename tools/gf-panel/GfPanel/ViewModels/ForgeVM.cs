@@ -20,6 +20,13 @@ public sealed class ForgeVM : ObservableObject
     public RelayCommand Prev => new(() => Do("Forge: previous model", "forge", "prev"));
     public RelayCommand Clear => new(() => { if (_m.Confirm("Clear the forge layout on this map?\n\nRemoves every placed prop and the saved layout (game.gf_forge) for this map.")) Do("Forge: clear layout", "forge", "clear"); });
 
+    // ── grant forge to a non-host player (forgegrant on|off + target; forge session) ──
+    public PlayerRowVM? GrantTarget { get; set; }
+    public IEnumerable<PlayerRowVM> Humans => _m.Players.Rows.Where(r => !r.IsBot && !r.IsHost);
+    public void RefreshHumans() => OnPropertyChanged(nameof(Humans));
+    public RelayCommand GrantOn => new(() => { if (GrantTarget == null) { _m.Toasts.Show("Pick a player first", LogLevel.Warn); return; } GrantTarget.ForgeGrant.Execute(null); });
+    public RelayCommand GrantOff => new(() => { if (GrantTarget == null) { _m.Toasts.Show("Pick a player first", LogLevel.Warn); return; } GrantTarget.ForgeRevoke.Execute(null); });
+
     // ── hint bar ──
     public const int ChunkChars = 34;   // `set gf_ho0 "` (12) + 34 + `"` = 47
     private string _others = "Welcome to ^3KL9^7's Gunfight lobby! Join us at ^4discord.gg/blackops";

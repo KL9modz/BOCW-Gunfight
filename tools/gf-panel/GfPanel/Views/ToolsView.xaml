@@ -325,14 +325,22 @@
         <StackPanel>
           <TextBlock Text="PLACE MODE" Style="{StaticResource SubTitle}" />
           <WrapPanel>
-            <Button Content="▶ Enter forge" Style="{StaticResource Accent}" Command="{Binding Forge.Enter}" Margin="0,0,6,4" ToolTip="forge enter - a ghost of the current model rides your view; weapons off while active. W/S distance · A/D yaw · jump/crouch height · sprint faster · ADS+W/S scale · ATTACK place · MELEE next · USE prev · FRAG exit" />
+            <Button Content="▶ Enter forge" Style="{StaticResource Accent}" Command="{Binding Forge.Enter}" Margin="0,0,6,4" ToolTip="forge enter - a ghost of the current model rides your crosshair onto surfaces while you walk normally (WASD / stick). D-pad or Action Slots 1-4: distance up/down, rotate left/right · ADS + up/down: scale · weapon switch: cycle model · FIRE: place · FRAG: exit - same on controller and keyboard. Weapons off while active." />
             <Button Content="■ Exit" Command="{Binding Forge.Exit}" Margin="0,0,6,4" ToolTip="forge exit - drop the preview, weapons back" />
-            <Button Content="Place" Command="{Binding Forge.Place}" Margin="0,0,6,4" ToolTip="forge place - drop the preview where it is (same as ATTACK in place mode)" />
+            <Button Content="Place" Command="{Binding Forge.Place}" Margin="0,0,6,4" ToolTip="forge place - drop the preview where it is (same as FIRE in place mode)" />
             <Button Content="◀ Prev" Command="{Binding Forge.Prev}" Margin="0,0,6,4" ToolTip="forge prev - previous model in the universal list" />
             <Button Content="Next ▶" Command="{Binding Forge.Next}" Margin="0,0,6,4" ToolTip="forge next - next model" />
             <Button Content="Clear layout" Style="{StaticResource NgBtn}" Command="{Binding Forge.Clear}" Margin="0,0,6,4" ToolTip="forge clear - every placed prop AND the saved layout for this map (game.gf_forge). Placed props otherwise re-appear every round." />
           </WrapPanel>
           <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,2,0,8">Placed props join the props list (Undo / Remove all above work on them) and persist across rounds on this map. Edit-placed (select / nudge / rotate / delete) and layout save/load = phase 2, not built.</TextBlock>
+
+          <TextBlock Text="GIVE A PLAYER THEIR OWN CLIENT MENU" Style="{StaticResource SubTitle}" />
+          <WrapPanel Style="{StaticResource Row}">
+            <ComboBox ItemsSource="{Binding Forge.Humans}" DisplayMemberPath="Name" SelectedItem="{Binding Forge.GrantTarget}" Width="200" Margin="0,0,6,0" ToolTip="humans in the match (not you)" />
+            <Button Content="Give client menu" Style="{StaticResource SmallAccent}" Command="{Binding Forge.GrantOn}" Margin="0,0,4,0" ToolTip="forgegrant on - their own mini mod-menu (hold ADS + Melee): Forge / Props / Vehicles, God / Ammo / 3rd person / Fly / Unlock, Teleport (me to host / crosshair / save / load), Weapons / Camo / Operator / Outfit, Display. No admin, no globals. NEVER RUN for a non-host; may need re-granting after a round (v2: persistence, personal speed / jump, me-to-a-player, teleport gun)." />
+            <Button Content="Revoke" Style="{StaticResource SmallBtn}" Command="{Binding Forge.GrantOff}" ToolTip="forgegrant off" />
+            <TextBlock Text="also: right-click a player → Client menu" Style="{StaticResource Dim}" FontSize="10.5" VerticalAlignment="Center" Margin="8,0,0,0" />
+          </WrapPanel>
 
           <TextBlock Text="HINT BAR — LINES" Style="{StaticResource SubTitle}" />
           <Grid Margin="0,2">
@@ -356,6 +364,9 @@
           <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,4,0,0">The on/off for the others line and the bind-glyph test are settings: ADVANCED → IN-GAME MENU DISPLAY.</TextBlock>
         </StackPanel>
       </Expander>
+
+      <!-- FORGE CONTROLS - a data-driven settings section (Schema.cs, Tab = "tools") so the rows get readback + pills -->
+      <ItemsControl ItemsSource="{Binding ToolsSections}" />
 
       <!-- RACE -->
       <Expander Style="{StaticResource Block}">

@@ -308,9 +308,11 @@ public static class Schema
                 new() { Dvar = "gf_feed_lines", Label = "Feed lines", Kind = SettingKind.Int, Default = 14, Min = 1, Max = 24, Tip = "gf_feed_lines\ncom_gameMsgWindow1LineCount the menu primes (latched at HUD build; ~4-5 visible)." },
                 new() { Dvar = "gf_hint_lines", Label = "Hint rows (region 4)", Kind = SettingKind.Int, Default = 8, Min = 1, Max = 15, Tip = "gf_hint_lines\nRegion-4 rows per page (the HINT panel is one non-wrapping line on retail - kept for completeness)." },
                 new() { Dvar = "gf_hint_others_on", Label = "Others-facing hint line", Kind = SettingKind.Toggle, Default = 1,
-                        Tip = "gf_hint_others_on\nThe welcome / discord line other players see when they approach the host (a per-player hint trigger, host excluded); flips to the build warning while forge is active. Created per host spawn - a change lands at the next spawn. Text: TOOLS -> FORGE & HINT BAR." },
-                new() { Dvar = "gf_hint_glyphs", Label = "Bind glyphs in hints", Kind = SettingKind.Toggle, Default = 0,
-                        Tip = "gf_hint_glyphs\n1 = the forge hint emits [{+attack}]-style bind tokens (device glyphs IF sethintstring renders them on retail - unmeasured); 0 = plain [attack] text." },
+                        Tip = "gf_hint_others_on\nThe welcome / discord line other players see when they approach the host (a per-player hint trigger, host excluded); flips to the build warning while ANY menu (mod menu or forge) is open. Created per host spawn - a change lands at the next spawn. Text: TOOLS -> FORGE & HINT BAR." },
+                new() { Dvar = "gf_hint_self_on", Label = "Host's own hint bar", Kind = SettingKind.Toggle, Default = 1,
+                        Tip = "gf_hint_self_on\nThe host's always-on hint bar: the menu controls while the menu is open, the forge controls while building, 'hold ADS + Melee to open' when idle. 0 = off." },
+                new() { Dvar = "gf_hint_glyphs", Label = "Bind glyphs in hints", Kind = SettingKind.Toggle, Default = 1,
+                        Tip = "gf_hint_glyphs\n1 (default) = hints carry [{+bind}] tokens the client renders as the right icon per device (R3, D-pad, RT, LT, Y / their keyboard binds). UNMEASURED on retail: if the bar shows literal '[{+melee}]' text, set 0 for the plain-text fallback." },
                 new() { Dvar = "gf_caster_probe", Label = "Caster input probe", Kind = SettingKind.Toggle, Default = 1, Tip = "gf_caster_probe\nWhile the host is a CoD Caster, print a probe line listing every button pressed." },
             },
         },
@@ -331,6 +333,20 @@ public static class Schema
                 new() { Dvar = "gf_dbg_veh", Label = "Vehicle mode (VEHMODE)", Kind = SettingKind.Toggle, Default = 0, Eff = Eff.Live, Tip = "gf_dbg_veh" },
                 new() { Dvar = "gf_dbg_race", Label = "Race (RACE)", Kind = SettingKind.Toggle, Default = 0, Eff = Eff.Live, Tip = "gf_dbg_race\nRace state, gate count, settings, racers / finishers, the host's lap / gate / lateral numbers." },
                 new() { Dvar = "gf_mapscan", Label = "Map census harvest (GFMAP*)", Kind = SettingKind.Toggle, Default = 0, Tip = "gf_mapscan\nPublish the per-map vehicle / prop / spawn / destructible census for the app's map database. OFF by default: its entity scan tripped the 0x91f84370 fatal on big maps before it was yield-guarded; opt in to document a map." },
+            },
+        },
+        new()
+        {
+            Title = "FORGE CONTROLS", Tab = "tools",
+            Note = "Place-mode feel (forge session, 2026-09-20). Read live every tick of the forge loop - a change applies while you build. Default = free-walk: you move normally (WASD / stick) and the prop rides your crosshair onto surfaces; D-pad / Action Slots 1-4 = distance up/down + rotate left/right, ADS + up/down = scale, weapon switch = cycle model, fire = place, frag = exit - the same on controller and keyboard.",
+            Rows = new SettingDef[]
+            {
+                new() { Dvar = "gf_forge_pin", Label = "Pin the player while placing", Kind = SettingKind.Toggle, Default = 0, Eff = Eff.Live,
+                        Tip = "gf_forge_pin\n0 (default - klaze: 'i need to be able to move while placing props') = free-walk: WASD / stick moves YOU, the prop rides the crosshair, adjustments on the D-pad / Action Slots. 1 = pinned in place with WASD driving the prop instead (the earlier scheme)." },
+                new() { Dvar = "gf_forge_movestep", Label = "Distance step", Kind = SettingKind.Int, Default = 6, Min = 1, Max = 30, Step = 1, Eff = Eff.Live, Tip = "gf_forge_movestep\nFree-walk: units per D-pad / Action Slot press (x8 internally, x20 with sprint held). Pinned mode: units per tick of W/S." },
+                new() { Dvar = "gf_forge_rotstep", Label = "Turn step", Kind = SettingKind.Int, Default = 3, Min = 1, Max = 30, Step = 1, Eff = Eff.Live, Tip = "gf_forge_rotstep\nFree-walk: degrees per D-pad / Action Slot press (x5; sprint held = a 45-degree snap). Pinned mode: degrees per tick of A/D." },
+                new() { Dvar = "gf_forge_scalestep", Label = "Scale step (% per tick)", Kind = SettingKind.Int, Default = 2, Min = 1, Max = 20, Step = 1, Eff = Eff.Live, Tip = "gf_forge_scalestep\nADS + distance adjust = scale change per tick, in percent." },
+                new() { Dvar = "gf_forge_zstep", Label = "Height step (u per tick)", Kind = SettingKind.Int, Default = 4, Min = 1, Max = 30, Step = 1, Eff = Eff.Live, Tip = "gf_forge_zstep\nHeight change per tick where the scheme offers a height adjust (pinned mode: jump / crouch)." },
             },
         },
     };

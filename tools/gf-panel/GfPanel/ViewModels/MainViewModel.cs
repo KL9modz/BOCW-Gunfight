@@ -41,6 +41,7 @@ public sealed class MainViewModel : ObservableObject
     public List<SectionVM> Sections { get; } = new();
     public IEnumerable<SectionVM> DashboardSections => Sections.Where(s => s.Tab == "dashboard");
     public IEnumerable<SectionVM> AdvancedSections => Sections.Where(s => s.Tab == "advanced");
+    public IEnumerable<SectionVM> ToolsSections => Sections.Where(s => s.Tab == "tools");
     public ObservableCollection<FavGroupVM> Favorites { get; } = new();
     public ObservableCollection<SearchHit> SearchHits { get; } = new();
     private readonly Dictionary<string, SettingRowVM> _rows = new();
@@ -234,6 +235,7 @@ public sealed class MainViewModel : ObservableObject
     {
         Players.Update(all, Link.PlayersRich);
         Message.RefreshAudiences();
+        Forge.RefreshHumans();
         foreach (var p in joined)
         {
             Link.Log(p.Name + " joined", LogLevel.Ok);
@@ -393,7 +395,7 @@ public sealed class MainViewModel : ObservableObject
             .OrderByDescending(x => x.r.Label.ToLowerInvariant().StartsWith(q) ? 3 : x.r.Dvar.Contains(q) ? 2 : x.r.Label.ToLowerInvariant().Contains(q) ? 1 : 0)
             .Take(12);
         foreach (var (s, r, _) in hits)
-            SearchHits.Add(new SearchHit { Label = r.Label, Sub = r.Dvar, Where = (s.Tab == "advanced" ? "ADVANCED › " : "DASHBOARD › ") + s.Title, Row = r, Tab = s.Tab });
+            SearchHits.Add(new SearchHit { Label = r.Label, Sub = r.Dvar, Where = (s.Tab == "advanced" ? "ADVANCED › " : s.Tab == "tools" ? "TOOLS › " : "DASHBOARD › ") + s.Title, Row = r, Tab = s.Tab });
         OnPropertyChanged(nameof(SearchOpen));
     }
     public event Action<SettingRowVM>? RevealRow;
