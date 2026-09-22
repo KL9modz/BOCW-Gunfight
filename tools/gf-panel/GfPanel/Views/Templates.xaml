@@ -123,11 +123,22 @@
             <MenuItem Header="Back to global" Command="{Binding Speed0}" />
           </MenuItem>
           <MenuItem Header="Give the picked weapon (Tools)" Command="{Binding GiveWeapon}" />
+          <MenuItem Header="Give streak">
+            <MenuItem Header="RC-XD" Command="{Binding StreakRcxd}" ToolTip="streak recon_car - the stock care-package give; they use it with the normal streak button" />
+            <MenuItem Header="Bow (Sparrow)" Command="{Binding StreakBow}" ToolTip="streak sig_bow_flame" />
+            <MenuItem Header="Nuke" Command="{Binding StreakNuke}" ToolTip="streak nuke" />
+            <Separator />
+            <MenuItem Header="The one picked in Tools → Streaks" Command="{Binding StreakPicked}" />
+          </MenuItem>
           <MenuItem Header="Give the picked perk (Tools)" Command="{Binding GivePerks}" />
           <MenuItem Header="Cosmetics (ids from Tools)">
             <MenuItem Header="Camo" Command="{Binding Camo}" />
             <MenuItem Header="Operator" Command="{Binding Operator}" />
             <MenuItem Header="Outfit" Command="{Binding Outfit}" />
+          </MenuItem>
+          <MenuItem Header="Forge mode (grab + edit props)">
+            <MenuItem Header="On" Command="{Binding ForgeModeOn}" ToolTip="forgemode on - they get tap-to-grab prompts on props (ours + map props within the grab reach) and can move / turn / scale / delete them" />
+            <MenuItem Header="Off" Command="{Binding ForgeModeOff}" ToolTip="forgemode off" />
           </MenuItem>
           <MenuItem Header="Client menu (their own mini mod-menu, no admin)">
             <MenuItem Header="Give client menu" Command="{Binding ForgeGrant}" ToolTip="forgegrant on - they hold ADS + Melee for their own menu: Forge / Props / Vehicles, God / Ammo / 3rd person / Fly / Unlock, Teleport (me to host / crosshair / save / load), Weapons / Camo / Operator / Outfit, Display. No admin, no globals. NEVER RUN for a non-host - first test = do they see and navigate it; may need re-granting after a round." />

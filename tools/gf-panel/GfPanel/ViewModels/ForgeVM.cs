@@ -18,7 +18,7 @@ public sealed class ForgeVM : ObservableObject
     public RelayCommand Place => new(() => Do("Forge: place", "forge", "place"));
     public RelayCommand Next => new(() => Do("Forge: next model", "forge", "next"));
     public RelayCommand Prev => new(() => Do("Forge: previous model", "forge", "prev"));
-    public RelayCommand Clear => new(() => { if (_m.Confirm("Clear the forge layout on this map?\n\nRemoves every placed prop and the saved layout (game.gf_forge) for this map.")) Do("Forge: clear layout", "forge", "clear"); });
+    public RelayCommand Clear => new(() => { if (_m.Confirm("Delete ALL props on this map?\n\nRemoves every placed prop and the saved forge layout (game.gf_forge) for this map, so nothing comes back next round.")) Do("Delete all props (forge clear)", "forge", "clear"); });
 
     // ── grant forge to a non-host player (forgegrant on|off + target; forge session) ──
     public PlayerRowVM? GrantTarget { get; set; }
@@ -27,13 +27,22 @@ public sealed class ForgeVM : ObservableObject
     public RelayCommand GrantOn => new(() => { if (GrantTarget == null) { _m.Toasts.Show("Pick a player first", LogLevel.Warn); return; } GrantTarget.ForgeGrant.Execute(null); });
     public RelayCommand GrantOff => new(() => { if (GrantTarget == null) { _m.Toasts.Show("Pick a player first", LogLevel.Warn); return; } GrantTarget.ForgeRevoke.Execute(null); });
 
+    // ── forge MODE (bocw-1c 2026-09-22): tap-to-grab prompts on props (ours + map props within gf_grab_dist)
+    //    and move / turn / scale / delete for whoever has it; host grants, not a client-menu feature ──
+    public RelayCommand ModeHostOn => new(() => Do("Forge mode ON (host)", "forgemode", "on"));
+    public RelayCommand ModeHostOff => new(() => Do("Forge mode OFF (host)", "forgemode", "off"));
+    public RelayCommand ModeAllOn => new(() => _m.Link.Send("Forge mode ON for everyone", Commands.Action("forgemode", "all on")));
+    public RelayCommand ModeAllOff => new(() => _m.Link.Send("Forge mode OFF for everyone", Commands.Action("forgemode", "all off")));
+    public RelayCommand ModeTargetOn => new(() => { if (GrantTarget == null) { _m.Toasts.Show("Pick a player first", LogLevel.Warn); return; } GrantTarget.ForgeModeOn.Execute(null); });
+    public RelayCommand ModeTargetOff => new(() => { if (GrantTarget == null) { _m.Toasts.Show("Pick a player first", LogLevel.Warn); return; } GrantTarget.ForgeModeOff.Execute(null); });
+
     // ── hint bar ──
     public const int ChunkChars = 34;   // `set gf_ho0 "` (12) + 34 + `"` = 47
     private string _others = "Welcome to ^3KL9^7's Gunfight lobby! Join us at ^4discord.gg/blackops";
     public string OthersText { get => _others; set => Set(ref _others, value); }
     private string _build = "^1DO NOT KILL - host is building";
     public string BuildText { get => _build; set => Set(ref _build, value); }
-    private string _nav = "RMB up  LMB down  R select  V back";
+    private string _nav = "R select   RMB last   LMB next   V back";
     public string NavText { get => _nav; set => Set(ref _nav, value); }
     public int MaxHintChars => ChunkChars * 3;
     public int MaxNavChars => 47 - "set gf_hint_nav ".Length;

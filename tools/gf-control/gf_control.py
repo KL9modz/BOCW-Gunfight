@@ -202,6 +202,12 @@ CONFIG = {
          [("2v2", 2), ("3v3", 3), ("4v4", 4), ("5v5", 5), ("6v6", 6)], 4),
         ("gf_spec_slots", "Spectator slots (added to maxplayers)", "choice",
          [("0", 0), ("2", 2), ("4", 4)], 2),
+        # LATE JOIN (klaze 2026-09-21): a human who joins mid-match with no lobby side is
+        # placed, not benched. Plain dvars, read on each connect / each round.
+        ("gf_latejoin", "Late joiners", "choice",
+         [("Place: fewer humans > losing side > tie: they pick", 1), ("Stock (spectator)", 0)], 1),
+        ("gf_teamchange", "Pause-menu CHANGE TEAM", "choice",
+         [("On for everyone", 1), ("Off", 0)], 1),
     ],
     "Round": [
         ("gf_timer_seconds", "Round timer (s)", "int", (0, 1440, 10), 60),
@@ -280,11 +286,11 @@ CONFIG = {
         ("gf_oob", "Out of bounds (restricted area)", "choice",
          [("Disabled - no warning, no death (default)", 1), ("Stock", 0)], 1),
         # Death barriers = the map's trigger_hurt kill volumes (ledge / water / under the map), a
-        # different thing from the restricted area above; god mode does not survive them. Three
-        # ways off, try in order; the BARRIER debug line measures which the engine honours.
+        # different thing from the restricted area above; god mode does not survive them. Disabled
+        # = measured working (klaze 2026-09-21) and the default; deleted / sunk stay as fallbacks.
         ("gf_deathbarrier", "Death barriers (kill volumes)", "choice",
-         [("Stock", 0), ("OFF - hurt volumes disabled", 1),
-          ("OFF - hurt volumes deleted (this round)", 2), ("OFF - hurt volumes sunk", 3)], 0),
+         [("OFF - hurt volumes disabled", 1), ("Stock", 0),
+          ("OFF - hurt volumes deleted (this round)", 2), ("OFF - hurt volumes sunk", 3)], 1),
         ("gf_dbg_barrier", "Debug: BARRIER line", "choice", [("Off", 0), ("On", 1)], 0),
         ("gf_jump", "Jump height", "int", (-1, 1000, 10), -1),
         ("gf_fly_speed", "Fly speed", "choice",
@@ -400,7 +406,7 @@ TIPS = {
     "gf_jump_boost": "Extra up-velocity (u/s) added at takeoff. 0 = off.",
     "gf_falldamage": "Off pushes the fall-damage thresholds out of reach, so boosted jumps land clean.",
     "gf_oob": "Disabled = nobody gets the restricted-area warning, countdown or death (stock's own per-player disable_oob switch, re-set every spawn). Applies at the next spawn, or now with Apply now.",
-    "gf_deathbarrier": "The map's trigger_hurt kill volumes (the instant death off a ledge / in water / under the map) - NOT the restricted area, and god mode does not survive them. Disabled = triggerenable(0) on each (reversible). Deleted = delete() each (back next round). Sunk = moved 40000u down (reversible). Try in that order; switch the BARRIER line on to see the census and the last death's cause. Live with Apply now (movement), and every round.",
+    "gf_deathbarrier": "The map's trigger_hurt kill volumes (the instant death off a ledge / in water / under the map) - NOT the restricted area, and god mode does not survive them. Disabled = triggerenable(0) on each (reversible) - measured working 2026-09-21, the default. Deleted = delete() each (back next round). Sunk = moved 40000u down (reversible); both fallbacks. Switch the BARRIER line on to see the census and the last death's cause. Live with Apply now (movement), and every round.",
     "gf_dbg_barrier": "One feed line every 3 s: trigger_hurt census (n / enabled / held off / deleted / sunk / named / dmg tallies), the host's state (inside how many hurt volumes, alive, god, z) and the last death of any player (name, MOD, attacker classname, god, z). Starts with the next Apply now (movement) or the next round.",
     "gf_race_laps": "Laps through the start/finish gate (gate 0). Read when the race starts.",
     "gf_race_sprint": "Circuit = every lap ends at gate 0. Sprint = one run, the finish is the LAST gate placed.",
@@ -452,6 +458,8 @@ TIPS = {
     "gf_fly_fast": "Fly mode speed while sprinting.",
     "gf_menu_hspan": "How many menu items the centre carousel shows side by side (default 4).",
     "gf_spec_slots": "Spectator/caster slots added on top of team size x 2 in the maxplayers write (capped at the lobby budget), so a spectator does not take a player slot when filling bots.",
+    "gf_latejoin": "A human who joins mid-match with no lobby side gets the side with fewer humans, then the losing side; on a full tie he is benched with a reminder to use the pause menu's CHANGE TEAM. One bot leaves the joined side if it became the bigger one. The host feed shows one line per join: JOIN <name> lobby=<side> humans A/X score A-X -> <pick> (<reason>). Stock = the spectator bench.",
+    "gf_teamchange": "Writes the hidden 'Team Change In-Game' match setting (allowingameteamchange) so the pause menu's CHANGE TEAM button exists - for everyone, any time (klaze's call). Off = the stock default; a full-tie late joiner is then auto-placed. Takes effect at the next round when changed from here.",
     "gf_spawn_gap": "Target distance between the two sides the guard builds (tightest marker groups either side of the map centre, facing each other).",
     "gf_spawn_autospread": "AUTO trips when the nearest start spawn is farther than obj-radius + this (units).",
     "gf_spawn_antistack": "On every spawn, if a player lands within 48u of another this round, relocate them (setorigin + a physics trace). Off = leave spawns exactly where the engine/guard put them. Turn OFF to isolate a spawn-time crash.",

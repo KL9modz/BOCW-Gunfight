@@ -175,6 +175,11 @@ rule; once the match starts, a team can hold up to eight.
 (`party.var_a15e4438 == 1`) it fails only when the team already holds 8, exactly like the first check.
 **Both gates are 8.** Full trace: [`gametype-settings-map.md`](gametype-settings-map.md).
 
+> **2026-09-21:** the mod now writes this setting itself — `gf_teamchange` 1 (default) sets
+> `allowingameteamchange` + `level.allow_teamchange` from `mod_apply`, because the pause-menu CHANGE
+> TEAM is the picker for a tied late joiner ([`late-join.md`](late-join.md) §3). Whether the write
+> fast-restarts the match is unmeasured.
+
 ### 🔓 Route A — 4v4 in a Gunfight lobby, with no code at all
 
 1. Gunfight (or 3v3 Gunfight) private lobby

@@ -623,3 +623,54 @@ self-correcting across content patches in a way a baked per-map table is not. Th
 `vehicle_t9_mil_snowmobile_alt_single_seat` (drivable) and `vehicle_t8_mil_air_transport_infiltration`
 (other, untested). The `gf_dbg_assets` candidate list (index 105+) keeps the dead names on purpose —
 its indices are the documented probe order.
+
+---
+
+## 8. ⭐ Hash resolution BY CONSTRUCTION — 24 of 56 hashed vehicle names, 2026-09-21
+
+§6 declared hash resolution dead (1 of 147 through the community index). It is not dead, it just
+needs the right candidates: vehicle asset names follow strict patterns, so candidates BUILT from the
+xmodel table stems (`veh_*` → `vehicle_*`, every prefix length) × a suffix vocabulary (map tokens,
+`_intro`, `_mp`, `_alt`, `_player`, `_sr` …) plus the quoted vehicle strings in the scripts, hashed
+with the 63-bit FNV1a-64 over the lower-cased name, match a good share. `tools/veh-hash-resolve.py`
+does it (≈3 M candidates, a minute) and writes `docs/data/vehicle-assets.json` — the inventory of
+the `mp_*` / `wz_*` (Fireteam) / `core_*` zones: **42 plain + 56 hashed names, 24 resolved**; 9 of
+the unresolved are `wz_doa` (Dead Ops), not MP.
+
+| hash | name | where |
+|---|---|---|
+| `1a60a087a340574b` | `vehicle_t9_mil_ru_apc_heavy` | KGB, Gas Station |
+| `7c54a264a26cb1eb` | `vehicle_t9_mil_ru_apc_heavy_open_turret` | KGB, Gas Station |
+| `1bdb534f1e8e23f5` | `vehicle_t9_mil_ru_truck_light` | Cartel |
+| `4b89aa566bff8383` | `vehicle_motorcycle_mil_us_offroad_slow` | Cartel |
+| `28d512b739c9d9c1` | `vehicle_t9_mil_ru_tank_t72` | Tundra, Fireteam |
+| `6595f5efe62a4ec` | `vehicle_t9_mil_ru_heli_gunship_hind` | Dune, Fireteam |
+| `1f5c1aa7b1348d33` / `61b8f8f61f4b9ce7` | `vehicle_t9_mil_truck_mobile_icbm` / `_snow` | Tundra (new — not in the menu list) |
+| `581bb1b0fa4a3139` | `vehicle_t9_mil_ru_truck_light_mp_tundra_intro_snow` | Tundra intro |
+| `550d303ee2de9a65` | `vehicle_t9_mil_us_tank_m1a1` | Amerika, Garrison (the menu called it "intro cinematic tank") |
+| `62d385495a2ba813` | `vehicle_t9_mil_us_helicopter_light_mp_moscow` | Moscow |
+| `4c21aec4081d030d` | `vehicle_civ_eu_van_kgb_moscow` | Moscow |
+| `17e868e0ebf3c1d6` | `vehicle_t9_mil_us_helicopter_light` | Sanatorium |
+| `631691623ad368bd` | `veh_t9_mil_us_helicopter_large_mp_intro` | Fireteam maps |
+| `7c74af55b6caaaf5` | `vehicle_t9_mil_us_helicopter_large_mp_echelon_intro` | Echelon |
+| `13c60e71eef46ebb` / `4dfaa11717f3881` / `c07fec522db452c` | `vehicle_t9_mil_ru_heli_transport_mp_<mall|tank|cliffhanger>_intro` | The Pines, Garrison, Cliffhanger |
+| `1e00d92ee0b1bf4c` | `vehicle_t9_civ_us_van_miami_intro` | Miami |
+| `4209c5ff3b969c7a` | `vehicle_t9_mil_ru_heli_transport_vehicle_drop` | mp_common (the vehicle-drop streak) |
+| `5477254cf96259f4` | `veh_boct_train` | Express |
+| `536eec4bf6424551` | `veh_boct_turret_manned_tripod_mp` | Black Sea, Cartel, Tundra |
+| `51c4f4dc2591b475` | `vehicle_boct_mil_boat_tactical_raft_gry` | Black Sea, Miami, Garrison |
+| `d57fa1b1aacffc7` | `veh_ultimate_turret_zm` | core_common |
+
+Still unresolved (22 non-DOA): five on Black Sea, three on Tundra, two on Dune, one each on Cartel /
+Apocalypse / The Pines / Amerika (the BTR-40 §7 names) / KGB+Satellite, the two `mp_common` exfil
+choppers (`58cc8ce25d32031f`, `437293ae239af1ab`), two in `core_common`, three Fireteam-only
+(`3effd1dd89ee3d36` = `flying_camera_drone_wz_escape_infil` per §6, `3d2bbfdb89093d91`,
+`2a439b0890fe07d8`). They are intro props and system vehicles; nothing drivable is missing.
+
+**What the assets do NOT tell us offline:** the vehicle *definition* (seats, health, speed, weapons,
+the xmodel it uses) is a binary asset in the fastfiles, not in the dump — the bgcache rows are names
+only. A spawned vehicle exposes it at runtime (`.model`, `.health` / `.healthdefault`, seats via
+`vehicleseatexists` / `isvehicleseatoccupied`, `isairborne`, `isphysicsvehicle`, `.vehicletype`),
+so a one-shot census probe (spawn each resident asset, read, safe-delete) is the way to a full table;
+the dev-only enumerator `function_951b4205()` (name / model / type per asset) would give it in one
+call if it survives retail — unmeasured, the `sethighlighted` risk class.

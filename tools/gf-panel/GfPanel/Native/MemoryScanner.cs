@@ -114,7 +114,11 @@ public sealed class MemoryScanner : IDisposable
 
     /// <summary>Sweep for the given markers (names like "GFSTATE"). Returns the newest hit per marker found.
     /// <paramref name="allowFull"/> permits the whole-process sweep (slow); <paramref name="budgetMs"/> time-boxes it.</summary>
-    public Dictionary<string, Hit> Sweep(IReadOnlyList<string> markers, bool allowFull, int budgetMs = 4000)
+    /// <param name="force">Do not trust a quick-probe hit that merely EQUALS the last tick: a line that
+    /// publishes on change (GFPLAYERS) leaves its old copy intact at the remembered address while the new
+    /// one lands elsewhere, so the quick probe keeps "finding" the stale roster (measured 2026-09-21: the
+    /// panel's player list never updated). With force the window / region steps run for every marker.</param>
+    public Dictionary<string, Hit> Sweep(IReadOnlyList<string> markers, bool allowFull, int budgetMs = 4000, bool force = false)
     {
         var sw = Stopwatch.StartNew();
         var best = new Dictionary<string, Hit>();
@@ -141,7 +145,7 @@ public sealed class MemoryScanner : IDisposable
         // reused slot carries an old tick). Markers that changed since then fall through to the sweep.
         (string Marker, byte[] Bytes)[] Missing() => patterns.Where(p => !best.TryGetValue(p.Marker, out var h)
                                           || (_lastTick.TryGetValue(p.Marker, out var lt) && h.Tick < lt)).ToArray();
-        var missing = Missing();
+        var missing = force ? patterns : Missing();
         if (missing.Length == 0) goto done;
 
         // 1b. a window around the remembered addresses: the pool hands out nearby slots, so a

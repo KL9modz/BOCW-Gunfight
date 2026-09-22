@@ -60,6 +60,7 @@
             <Button Content="Drop weapon" Style="{StaticResource Chip}" Command="{Binding Tools.DropWeapon}" Margin="0,2,4,2" />
             <Button Content="Unlock all" Style="{StaticResource Chip}" Command="{Binding Tools.UnlockAll}" Margin="0,2,4,2" ToolTip="best-effort" />
             <Button Content="Freeze toggle (menu verb)" Style="{StaticResource Chip}" Command="{Binding Tools.FreezeToggle}" Margin="0,2,4,2" />
+            <Button Content="Fade probe" Style="{StaticResource Chip}" Command="{Binding Tools.FadeProbe}" Margin="0,2,4,2" ToolTip="fadeprobe - prints ONE stamped line on the feed and ONE in the centre; time each until it vanishes = the engine's hold. Set 'Menu repaint (ms)' (ADVANCED → IN-GAME MENU DISPLAY) just under the shorter one." />
           </WrapPanel>
         </StackPanel>
       </Expander>
@@ -182,6 +183,31 @@
         </StackPanel>
       </Expander>
 
+      <!-- STREAKS (bocw-1c 2026-09-21) -->
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="STREAKS" Style="{StaticResource BlockTitle}" />
+            <TextBlock Text="killstreaks::give - the care-package path; used with the normal streak button · NEVER RUN" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" />
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Give to" Style="{StaticResource RowLabel}" />
+            <ComboBox ItemsSource="{Binding Tools.StreakTargets}" DisplayMemberPath="Name" SelectedItem="{Binding Tools.StreakTarget}" Width="200" Margin="0,0,6,0" ToolTip="a human in the match; empty = you (the host)" />
+            <Button Content="RC-XD" Style="{StaticResource SmallAccent}" Command="{Binding Tools.StreakRcxd}" Margin="0,0,4,0" ToolTip="streak recon_car" />
+            <Button Content="Bow (Sparrow)" Style="{StaticResource SmallAccent}" Command="{Binding Tools.StreakBow}" Margin="0,0,4,0" ToolTip="streak sig_bow_flame" />
+            <Button Content="Nuke" Style="{StaticResource NgBtn}" Command="{Binding Tools.StreakNuke}" ToolTip="streak nuke" />
+            <TextBlock Text="also: right-click a player → Give streak" Style="{StaticResource Dim}" FontSize="10.5" VerticalAlignment="Center" Margin="8,0,0,0" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Any streak" Style="{StaticResource RowLabel}" />
+            <ComboBox ItemsSource="{Binding Tools.StreakList}" DisplayMemberPath="Label" SelectedItem="{Binding Tools.SelectedStreak}" Width="220" Margin="0,0,6,0" ToolTip="the full stock set (streak_master): UAV, H.A.R.P., care package, armor, turrets, napalm, artillery, cruise missile, air patrol, strafe run, attack heli, VTOL, chopper gunner, gunship, war machine, hand cannon, death machine, flamethrower, ray gun…" />
+            <Button Content="Give" Style="{StaticResource SmallAccent}" Command="{Binding Tools.StreakGive}" ToolTip="streak &lt;kstype&gt; to the picked player (or you)" />
+          </WrapPanel>
+        </StackPanel>
+      </Expander>
+
       <!-- VEHICLES -->
       <Expander Style="{StaticResource Block}">
         <Expander.Header>
@@ -204,7 +230,9 @@
           <WrapPanel Style="{StaticResource Row}">
             <TextBlock Text="" Style="{StaticResource RowLabel}" />
             <Button Content="Enter the vehicle I aim at" Style="{StaticResource Chip}" Command="{Binding Tools.VehEnter}" Margin="0,2,4,2" />
-            <Button Content="Remove empty spawned vehicles" Style="{StaticResource Chip}" Command="{Binding Tools.VehClear}" Margin="0,2,4,2" ToolTip="sweeps every empty vehicle the menu spawned - do this before any map switch" />
+            <Button Content="Livery ◀" Style="{StaticResource Chip}" Command="{Binding Tools.VehLiveryPrev}" Margin="0,2,4,2" ToolTip="vehlivery prev - the previous model variant of the same body (T-72 Dead Ops colours, sedan police / KGB, van colours, FAV black, Hind, truck canvas / flatbed): the vehicle you sit in, else the one aimed at / nearest within 300 u. Feed ack names the variant; 'none on this map' if the body has no variants resident." />
+            <Button Content="Livery ▶" Style="{StaticResource Chip}" Command="{Binding Tools.VehLiveryNext}" Margin="0,2,10,2" ToolTip="vehlivery next" />
+            <Button Content="Delete all vehicles" Style="{StaticResource NgBtn}" Command="{Binding Tools.VehClear}" Margin="0,2,4,2" ToolTip="vehclear all - deletes every vehicle the menu / app spawned that is EMPTY; an occupied one is never deleted (get out first). Do this before any map switch." />
           </WrapPanel>
           <TextBlock Text="spawn-riding modes: ADVANCED → VEHICLE MODE" Style="{StaticResource Dim}" FontSize="10.5" Margin="110,2,0,0" />
         </StackPanel>
@@ -294,7 +322,7 @@
             <TextBox Text="{Binding Props.Scale, UpdateSourceTrigger=PropertyChanged}" Width="46" Margin="0,0,12,0" />
             <Button Content="☆ favourite" Style="{StaticResource SmallBtn}" Command="{Binding Props.ToggleFav}" Margin="0,2,12,2" ToolTip="a universal prop the in-game menu's Props page shows" />
             <Button Content="Remove last" Style="{StaticResource SmallBtn}" Command="{Binding Props.Undo}" Margin="0,2,4,2" />
-            <Button Content="Remove all" Style="{StaticResource SmallBtn}" Command="{Binding Props.Clear}" Margin="0,2,4,2" />
+            <Button Content="Delete all props" Style="{StaticResource NgBtn}" Command="{Binding Forge.Clear}" Margin="0,2,4,2" ToolTip="forge clear - every placed prop AND the saved forge layout for this map (propclear alone only deletes the live entities and the saved ones come back next round)" />
           </WrapPanel>
           <TextBlock Text="{Binding Props.FavText}" Style="{StaticResource SubTitle}" />
           <ItemsControl ItemsSource="{Binding Props.Favorites}">
@@ -334,6 +362,23 @@
           </WrapPanel>
           <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,2,0,8">Placed props join the props list (Undo / Remove all above work on them) and persist across rounds on this map. Edit-placed (select / nudge / rotate / delete) and layout save/load = phase 2, not built.</TextBlock>
 
+          <TextBlock Text="FORGE MODE — GRAB + EDIT PROPS" Style="{StaticResource SubTitle}" />
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Me (host)" Style="{StaticResource RowLabel}" />
+            <Button Content="On" Style="{StaticResource SmallAccent}" Command="{Binding Forge.ModeHostOn}" Margin="0,0,4,0" ToolTip="forgemode on - tap-to-grab prompts on props (ours + map props within Grab reach) and move / turn / scale / delete; nobody else sees the prompts" />
+            <Button Content="Off" Style="{StaticResource SmallBtn}" Command="{Binding Forge.ModeHostOff}" Margin="0,0,12,0" />
+            <TextBlock Text="Everyone" Style="{StaticResource RowLabel}" />
+            <Button Content="On" Style="{StaticResource SmallAccent}" Command="{Binding Forge.ModeAllOn}" Margin="0,0,4,0" ToolTip="forgemode all on" />
+            <Button Content="Off" Style="{StaticResource SmallBtn}" Command="{Binding Forge.ModeAllOff}" ToolTip="forgemode all off" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="A player" Style="{StaticResource RowLabel}" />
+            <ComboBox ItemsSource="{Binding Forge.Humans}" DisplayMemberPath="Name" SelectedItem="{Binding Forge.GrantTarget}" Width="200" Margin="0,0,6,0" ToolTip="humans in the match (not you)" />
+            <Button Content="On" Style="{StaticResource SmallAccent}" Command="{Binding Forge.ModeTargetOn}" Margin="0,0,4,0" />
+            <Button Content="Off" Style="{StaticResource SmallBtn}" Command="{Binding Forge.ModeTargetOff}" />
+            <TextBlock Text="also: right-click a player → Forge mode" Style="{StaticResource Dim}" FontSize="10.5" VerticalAlignment="Center" Margin="8,0,0,0" />
+          </WrapPanel>
+
           <TextBlock Text="GIVE A PLAYER THEIR OWN CLIENT MENU" Style="{StaticResource SubTitle}" />
           <WrapPanel Style="{StaticResource Row}">
             <ComboBox ItemsSource="{Binding Forge.Humans}" DisplayMemberPath="Name" SelectedItem="{Binding Forge.GrantTarget}" Width="200" Margin="0,0,6,0" ToolTip="humans in the match (not you)" />
@@ -345,15 +390,9 @@
           <TextBlock Text="HINT BAR — LINES" Style="{StaticResource SubTitle}" />
           <Grid Margin="0,2">
             <Grid.ColumnDefinitions><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-            <TextBlock Text="Others see" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" ToolTip="what other players read when they approach you (per-player hint trigger, you excluded); ^colour codes work; up to 102 chars, sent as 3 chunks" />
+            <TextBlock Text="Others see" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" ToolTip="the one outward-facing line: what other players read when they approach you (per-player hint trigger, you excluded), always - no automatic build warning; ^colour codes work; up to 102 chars, sent as 3 chunks" />
             <TextBox Grid.Column="1" Text="{Binding Forge.OthersText, UpdateSourceTrigger=PropertyChanged}" MaxLength="{Binding Forge.MaxHintChars}" />
             <Button Grid.Column="2" Content="Set" Style="{StaticResource SmallAccent}" Command="{Binding Forge.SetOthers}" Margin="4,0,0,0" ToolTip="gf_ho0/1/2 + hintset others" />
-          </Grid>
-          <Grid Margin="0,2">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-            <TextBlock Text="While building" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" ToolTip="replaces the others line while forge is active" />
-            <TextBox Grid.Column="1" Text="{Binding Forge.BuildText, UpdateSourceTrigger=PropertyChanged}" MaxLength="{Binding Forge.MaxHintChars}" />
-            <Button Grid.Column="2" Content="Set" Style="{StaticResource SmallAccent}" Command="{Binding Forge.SetBuild}" Margin="4,0,0,0" ToolTip="gf_ho0/1/2 + hintset build" />
           </Grid>
           <Grid Margin="0,2">
             <Grid.ColumnDefinitions><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>

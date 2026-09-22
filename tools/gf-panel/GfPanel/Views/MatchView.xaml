@@ -54,16 +54,21 @@
           </Grid>
           <TextBlock Style="{StaticResource ActionNote}">End the round now for a side (round::set_winner + gunfight's own round end, reason 1) or as a draw (end_round(2), no winner). The score and the round count move like a normal round end. Untested in-game.</TextBlock>
 
-          <Button Content="↺  RESTART ROUND" Style="{StaticResource ActionWn}" Command="{Binding RestartRound}" />
-          <TextBlock Style="{StaticResource ActionNote}">map_restart(true): the current round starts over, scores and the round count kept. Untested in-game — whether game.* really survives is the first thing to check.</TextBlock>
+          <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+            <Button Content="↺  RESTART ROUND" Style="{StaticResource ActionWn}" Command="{Binding RestartRound}" Margin="0,0,3,0" />
+            <Button Grid.Column="1" Content="↻  RESET MATCH" Style="{StaticResource ActionWn}" Command="{Binding RestartMatchCmd}" Margin="3,0" />
+            <Button Grid.Column="2" Content="⟳  RELAUNCH MATCH" Style="{StaticResource ActionWn}" Command="{Binding RelaunchMatch}" Margin="3,0,0,0" />
+          </Grid>
+          <TextBlock Style="{StaticResource ActionNote}">Restart round = map_restart(true): this round over, scores + round count kept. Reset match = the quick map_restart(): 0-0, round 1, same map. Relaunch match = the full reload F7 gives (a session switch to the current map + mode, ~25 s). All three are sent ONCE and never retried - a retry after the reload used to fire a second restart (klaze 2026-09-22).</TextBlock>
         </StackPanel>
       </Expander>
 
       <Expander Style="{StaticResource Block}">
         <Expander.Header><TextBlock Text="MATCH" Style="{StaticResource BlockTitle}" /></Expander.Header>
         <StackPanel>
-          <Button Content="↻  RESTART MATCH" Style="{StaticResource ActionWn}" Command="{Binding RestartMatchCmd}" />
-          <TextBlock Style="{StaticResource ActionNote}">map_restart(): scores 0-0, round 1, same map — the same F7 restart cwpatch binds. Also what links a freshly injected menu.</TextBlock>
+          <Button Content="■  END MATCH" Style="{StaticResource ActionNg}" Command="{Binding EndMatch}" />
+          <TextBlock Style="{StaticResource ActionNote}">The host end (globallogic::forceend, what the pause menu's End Game does): the match ends now, scoreboard, back to the lobby. Sent once, never retried.</TextBlock>
 
           <Button Content="{Binding FreezeLabel}" Style="{StaticResource ActionWn}" Command="{Binding FreezeAll}" />
           <TextBlock Style="{StaticResource ActionNote}">freezeall: everyone can look, not move, and takes no damage — until UNFREEZE. Use it before a reload-style test so a round end cannot confound it.</TextBlock>

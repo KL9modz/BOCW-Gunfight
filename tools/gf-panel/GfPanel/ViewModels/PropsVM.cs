@@ -39,8 +39,40 @@ public sealed class PropsVM : ObservableObject
     public PropsVM(MainViewModel m)
     {
         _m = m;
+        MigrateFavorites();
         RebuildFavorites();
         Refilter();
+    }
+
+    /// <summary>Favourites survive a catalog renumbering: names are the truth, indices are derived.</summary>
+    private void MigrateFavorites()
+    {
+        var p = _m.Prefs;
+        var byModel = new Dictionary<string, int>();
+        foreach (var u in Catalog.Universal) byModel.TryAdd(u.Model, u.Index);
+        // prefs written before this field existed carry indices against the 546-entry catalog of 2026-09-20
+        if (p.PropCatalogCount == 0 && p.PropFavoriteModels.Count == 0 && p.PropFavorites.Count > 0) p.PropCatalogCount = 546;
+        if (p.PropFavoriteModels.Count == 0 && p.PropFavorites.Count > 0 && p.PropCatalogCount == Catalog.Universal.Count)
+            p.PropFavoriteModels = p.PropFavorites.Select(i => Catalog.Universal.FirstOrDefault(u => u.Index == i)?.Model).Where(m => m != null).Select(m => m!).ToList();
+        if (p.PropFavoriteModels.Count > 0)
+        {
+            var before = p.PropFavorites.Count;
+            p.PropFavorites = p.PropFavoriteModels.Where(byModel.ContainsKey).Select(m => byModel[m]).Distinct().ToList();
+            if (p.PropCatalogCount != 0 && p.PropCatalogCount != Catalog.Universal.Count)
+                _m.Link.Log($"prop catalog changed ({p.PropCatalogCount} -> {Catalog.Universal.Count} universal): {p.PropFavorites.Count}/{before} favourites re-resolved by model name", LogLevel.Warn);
+        }
+        else if (p.PropCatalogCount != 0 && p.PropCatalogCount != Catalog.Universal.Count && p.PropFavorites.Count > 0)
+        {
+            _m.Link.Log("prop catalog renumbered and the favourites had no model names - cleared, re-pick them", LogLevel.Warn);
+            p.PropFavorites.Clear();
+        }
+        p.PropCatalogCount = Catalog.Universal.Count;
+        p.Save();
+    }
+
+    private void SyncFavoriteModels()
+    {
+        _m.Prefs.PropFavoriteModels = _m.Prefs.PropFavorites.Select(i => Catalog.Universal.FirstOrDefault(u => u.Index == i)?.Model).Where(m => m != null).Select(m => m!).ToList();
     }
 
     private string CurrentMap => _m.Link.State?.Map ?? "";
@@ -96,9 +128,9 @@ public sealed class PropsVM : ObservableObject
     {
         if (Selected is not { IsUniversal: true } s) { _m.Toasts.Show("Only universal props (present on every map) can be menu favourites", LogLevel.Warn); return; }
         if (_m.Prefs.PropFavorites.Contains(s.Index)) _m.Prefs.PropFavorites.Remove(s.Index); else _m.Prefs.PropFavorites.Add(s.Index);
-        _m.Prefs.Save(); RebuildFavorites();
+        SyncFavoriteModels(); _m.Prefs.Save(); RebuildFavorites();
     });
-    public RelayCommand RemoveFav => new(p => { if (p is PropEntry e) { _m.Prefs.PropFavorites.Remove(e.Index); _m.Prefs.Save(); RebuildFavorites(); } });
+    public RelayCommand RemoveFav => new(p => { if (p is PropEntry e) { _m.Prefs.PropFavorites.Remove(e.Index); SyncFavoriteModels(); _m.Prefs.Save(); RebuildFavorites(); } });
     public RelayCommand PushFavs => new(() =>
     {
         var (lines, dropped) = PropCatalog.FavLines(_m.Prefs.PropFavorites);

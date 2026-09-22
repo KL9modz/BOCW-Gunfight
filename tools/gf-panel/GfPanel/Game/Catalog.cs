@@ -97,24 +97,23 @@ public static class Catalog
     };
 
     // veh_master() in gunfight_menu.gsc: the app names a vehicle by its INDEX (an asset name does not fit the slot).
+    /// <summary>Mirror of the GSC veh_master() order (vehspawn is BY MASTER INDEX): regenerate from the .gsc whenever a row is added or removed (last sync 2026-09-22, 67 rows).</summary>
     public static readonly VehicleDef[] Vehicles =
     {
         new(0, "Light buggy (FAV)", 0), new(1, "Light buggy (FAV) alt", 0), new(2, "Heavy buggy (FAV)", 0), new(3, "Motorcycle", 0), new(4, "Motorcycle alt", 0),
         new(5, "Motorcycle (slow)", 0), new(6, "Quad / ATV", 0), new(7, "Snowmobile", 0), new(8, "Snowmobile alt", 0), new(9, "Snowmobile (single seat)", 0),
         new(10, "Sedan", 0), new(11, "Sedan alt", 0), new(12, "Sedan (BO4 midsize)", 0), new(13, "Light truck", 0), new(14, "Light truck alt", 0),
-        new(15, "Light truck (base)", 0), new(16, "Transport truck", 0), new(17, "Transport truck alt", 0), new(18, "Transport truck (objective)", 0),
-        new(19, "Tank T-72", 0), new(20, "Tank T-72 alt", 0), new(21, "Tank T-72 (base)", 0), new(22, "APC (heavy)", 0), new(23, "APC (heavy, open turret)", 0),
-        new(24, "Hind gunship", 0), new(25, "Armada heli (campaign)", 0), new(26, "Jetski", 0), new(27, "Jetski alt", 0), new(28, "Tactical raft", 0),
-        new(29, "Tactical raft alt", 0), new(30, "Tactical raft (grey)", 0), new(31, "Tactical raft (grey, base)", 0), new(32, "PBR gunboat", 0), new(33, "PBR gunboat alt", 0),
-        new(34, "Chopper Gunner (streak)", 1), new(35, "Care package heli - FLIES ON EVERY MAP", 0), new(36, "Vehicle-drop heli (streak)", 1), new(37, "RC-XD", 1),
-        new(38, "RC-XD alt", 1), new(39, "Exfil chopper (VIP escort)", 1), new(40, "Exfil helicopter (Fireteam)", 1), new(41, "AC-130 gunship (streak)", 1),
-        new(42, "Attack helicopter (streak)", 1), new(43, "Attack helicopter guard (streak)", 1), new(44, "VTOL Forger (streak)", 1), new(45, "Strafe run plane (streak)", 1),
-        new(46, "Air transport (intro)", 1), new(47, "Air transport (infiltration, BO4)", 1), new(48, "Mounted MG tripod", 1), new(49, "Express train", 1),
-        new(50, "Intro vehicle (Checkmate / Satellite)", 1), new(51, "Intro tank (Garrison / Amerika)", 1), new(52, "Intro vehicle (Garrison)", 1), new(53, "Intro vehicle (Miami)", 1),
-        new(54, "Intro vehicle (Moscow cia)", 1), new(55, "Intro vehicle (Moscow kgb)", 1), new(56, "Intro helicopter (The Pines)", 1), new(57, "Intro APC (The Pines)", 1),
-        new(58, "Intro APC (Amerika)", 1), new(59, "Intro vehicle (Echelon)", 1), new(60, "Intro vehicle (Yamantau)", 1), new(61, "Intro vehicle (Apocalypse)", 1),
-        new(62, "Intro vehicle (Cartel)", 1), new(63, "Intro vehicle (Collateral cia)", 1), new(64, "Intro vehicle (Collateral kgb)", 1), new(65, "Intro vehicle (Crossroads kgb)", 1),
-        new(66, "Intro vehicle (Crossroads)", 1), new(67, "Intro vehicle (Crossroads kgb 2)", 1), new(68, "Intro vehicle (Crossroads cia)", 1),
+        new(15, "Light truck (base)", 0), new(16, "Transport truck", 0), new(17, "Transport truck alt", 0), new(18, "Transport truck (objective)", 0), new(19, "Tank T-72", 0),
+        new(20, "Tank T-72 alt", 0), new(21, "Tank T-72 (base)", 0), new(22, "APC (heavy)", 0), new(23, "APC (heavy, open turret)", 0), new(24, "Hind gunship", 0),
+        new(25, "Armada heli (campaign)", 0), new(26, "Jetski", 0), new(27, "Jetski alt", 0), new(28, "Tactical raft", 0), new(29, "Tactical raft alt", 0),
+        new(30, "Tactical raft (grey)", 0), new(31, "PBR gunboat", 0), new(32, "PBR gunboat alt", 0), new(33, "Chopper Gunner", 1), new(34, "Care package heli", 0),
+        new(35, "Vehicle-drop heli", 1), new(36, "RC-XD", 1), new(37, "RC-XD alt", 1), new(38, "Exfil helicopter (Fireteam)", 1), new(39, "AC-130 gunship", 1),
+        new(40, "Attack helicopter", 1), new(41, "Attack helicopter guard", 1), new(42, "VTOL Forger", 1), new(43, "Strafe run plane", 1), new(44, "Air transport (intro)", 1),
+        new(45, "Air transport (infiltration, BO4)", 1), new(46, "Mounted MG tripod", 1), new(47, "Express train", 1), new(48, "Intro cinematic vehicle (Checkmate / Satellite)", 1), new(49, "Intro cinematic tank (Garrison / Amerika)", 1),
+        new(50, "Intro cinematic vehicle (Garrison)", 1), new(51, "Intro cinematic vehicle (Miami)", 1), new(52, "Intro cinematic vehicle (Moscow cia)", 1), new(53, "Intro cinematic vehicle (Moscow kgb)", 1), new(54, "Intro cinematic helicopter (The Pines)", 1),
+        new(55, "Intro cinematic APC (The Pines)", 1), new(56, "Intro cinematic APC (Amerika)", 1), new(57, "Intro cinematic vehicle (Echelon)", 1), new(58, "Intro cinematic vehicle (Yamantau)", 1), new(59, "Intro cinematic vehicle (Apocalypse)", 1),
+        new(60, "Intro cinematic vehicle (Cartel)", 1), new(61, "Intro cinematic vehicle (Collateral cia)", 1), new(62, "Intro cinematic vehicle (Collateral kgb)", 1), new(63, "Intro cinematic vehicle (Crossroads kgb)", 1), new(64, "Intro cinematic vehicle (Crossroads)", 1),
+        new(65, "Intro cinematic vehicle (Crossroads kgb 2)", 1), new(66, "Intro cinematic vehicle (Crossroads cia)", 1),
     };
 
     public static readonly Named[] Camos =
@@ -151,6 +150,17 @@ public static class Catalog
     };
 
     // sound aliases the stock MP scripts play by STRING (the form playsoundtoplayer accepts)
+    /// <summary>`streak &lt;kstype&gt;` = killstreaks::give, the full stock set (bocw-1c streak_master, 2026-09-22).</summary>
+    public static readonly Named[] Streaks =
+    {
+        new("RC-XD", "recon_car"), new("UAV", "uav"), new("Counter UAV", "counteruav"), new("H.A.R.P.", "recon_plane"),
+        new("Care Package", "supply_drop"), new("Armor", "weapon_armor"), new("Sentry Turret", "ultimate_turret"), new("Missile Turret", "missile_turret"),
+        new("Napalm Strike", "napalm_strike"), new("Artillery", "planemortar"), new("Cruise Missile", "remote_missile"), new("Air Patrol", "jetfighter"),
+        new("Strafe Run", "straferun"), new("Attack Helicopter", "helicopter_comlink"), new("VTOL Escort", "hoverjet"), new("Chopper Gunner", "chopper_gunner"),
+        new("Gunship", "ac130"), new("War Machine", "hero_pineapplegun"), new("Hand Cannon", "hero_annihilator"), new("Death Machine", "sig_lmg"),
+        new("Flamethrower", "hero_flamethrower"), new("Sparrow (bow)", "sig_bow_flame"), new("Nuke", "nuke"),   // ray_gun: killstreaks::give refused it (removed 2026-09-22)
+    };
+
     public static readonly Named[] Sounds =
     {
         new("Timer beep", "uin_timer_5"), new("Action denied", "uin_default_action_denied"), new("Kill confirmed tags", "mpl_killconfirm_tags_pickup"),

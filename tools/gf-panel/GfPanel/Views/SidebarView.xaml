@@ -87,7 +87,10 @@
               <Grid>
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
                 <TextBlock Text="{Binding Players.Summary}" Style="{StaticResource Dim}" FontSize="10" Margin="4,4,0,2" />
-                <TextBlock Text="right-click a player for actions" Style="{StaticResource Dim}" FontSize="10" HorizontalAlignment="Right" Margin="0,4,4,2" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,2,4,2">
+                  <TextBlock Text="right-click a player for actions" Style="{StaticResource Dim}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0" />
+                  <Button Content="↻" Style="{StaticResource SmallBtn}" Command="{Binding RefreshPlayers}" Padding="6,0" ToolTip="re-scan the game now for the current roster / state (the panel also re-checks every 5 s)" />
+                </StackPanel>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                   <StackPanel>
                     <Border Background="{StaticResource TeamADim}" BorderBrush="{StaticResource TeamA}" BorderThickness="3,0,0,0" Padding="6,2" Visibility="{Binding Players.Allies.Count, Converter={StaticResource CountVis}}">

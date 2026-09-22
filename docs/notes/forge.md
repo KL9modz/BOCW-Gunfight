@@ -67,3 +67,16 @@ In-game grab-edit of placed props (aim → nearest-to-ray pick → carry → re-
 (select by index, XYZ nudge, rotation, scale, delete); cross-match layout save/load/share via the
 app (read game.gf_forge, store JSON). See [[prop-catalog-barrels]], [[teleport-feature]] (setorigin/
 floor idiom), racing "saved tracks" (the save/respawn pattern).
+
+## ⚠ GSC trap that bit forge exit TWICE — "notify kills its own notifier's thread"
+`forge_exit` is called FROM inside `forge_loop`, and it did `self notify(#"gf_forge_stop")` while the
+loop carried `self endon(#"gf_forge_stop")`. A notify runs its endon handlers SYNCHRONOUSLY, so the
+notify terminated the very thread executing `forge_exit`, at that line — everything after it (the
+weapon re-enable, unlink, preview delete, the whole restore) never ran. Symptom: exit forge and you
+stay stuck — no weapon, view frozen, ghost lingering. The switchtoweapon "fix" and the forge_restore
+refactor both sat AFTER the notify, so neither ever executed; each attempt looked like it made it
+worse. **Fix: do the cleanup FIRST, then notify a DIFFERENT event the running thread does NOT endon**
+(`#gf_forge_done`), and point the death/disconnect cleanup net's endon at that instead.
+This is the identical trap the racing prototype hit 2026-09-19 (the race-over path died because the
+notifier's thread carried the endon it fired). If a "stop/exit/end" handler mysteriously half-runs,
+check whether it notifies an event its own thread endon's. Live build with the fix: cbfb7fe5.

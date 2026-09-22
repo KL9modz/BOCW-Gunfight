@@ -210,6 +210,7 @@ public sealed class MainViewModel : ObservableObject
         if (Prefs.PropFavorites.Count > 0) _ = Link.SendRaw(PropCatalog.FavLines(Prefs.PropFavorites).Lines, 3);
     }
 
+    public RelayCommand RefreshPlayers => new(() => { Link.RequestRefresh(); Toasts.Show("Re-scanning for the current roster", LogLevel.Info); });
     public RelayCommand PauseResume => new(() => Link.Send(Paused ? "Resume match" : "Pause match", Commands.Action(Paused ? "resume" : "pause")));
     // explicit pair (the toggle label only flips on a GFSTATE readback, which an older payload never sends);
     // the flag flips optimistically on the click and the next state line corrects it
@@ -220,7 +221,9 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand EndRoundAxis => new(() => Link.Send("End round → axis", Commands.Action("endround", "axis")));
     public RelayCommand EndRoundDraw => new(() => Link.Send("End round → draw", Commands.Action("endround", "draw")));
     public RelayCommand RestartRound => new(() => { if (Confirm("Restart the ROUND?\n\nmap_restart(true): the current round starts over, scores and round count kept.")) Link.Send("Restart round", Commands.Action("restartround")); });
+    public RelayCommand RelaunchMatch => new(() => { if (Confirm("RELAUNCH the match?\n\nThe full reload F7 gives: a session switch to the current map + mode. Takes ~25 s (the switch wait) - everyone sees the loading screen.")) Link.Send("Relaunch match", Commands.Action("relaunch")); });
     public RelayCommand RestartMatchCmd => new(RestartMatch);
+    public RelayCommand EndMatch => new(() => { if (Confirm("END the match now?\n\nThe host end (globallogic::forceend): the match ends immediately with the host-ended reason, the scoreboard shows, everyone returns to the lobby.")) Link.Send("End match", Commands.Action("endmatch")); });
     public void RestartMatch() { if (Confirm("Restart the MATCH?\n\nScores go back to 0-0 and the match starts again at round 1 on the same map.")) Link.Send("Restart match", Commands.Action("restart")); }
     public RelayCommand BalanceHumans => new(() => Link.Send("Balance humans", Commands.Action("balance")));
     public RelayCommand FillBots => new(() => Link.Send("Fill with bots", Commands.Action("fillbots")));
@@ -236,6 +239,7 @@ public sealed class MainViewModel : ObservableObject
         Players.Update(all, Link.PlayersRich);
         Message.RefreshAudiences();
         Forge.RefreshHumans();
+        Tools.RefreshStreakTargets();
         foreach (var p in joined)
         {
             Link.Log(p.Name + " joined", LogLevel.Ok);

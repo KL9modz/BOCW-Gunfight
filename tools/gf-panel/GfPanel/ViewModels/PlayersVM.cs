@@ -57,6 +57,12 @@ public sealed class PlayerRowVM : ObservableObject
     // their own mini mod-menu with ADS + Melee - Forge (props + vehicles), Teleport, God / Ammo / 3rd person /
     // Fly, personal speed + jump, Weapons / Camo / Operator / Skin, soft Unlock-all, Display - NOT host admin
     // (kick / team / match) and NOT the globals (gravity / vision). Verb unchanged: forgegrant on|off + target.
+    public RelayCommand StreakRcxd => new(() => Do("Give RC-XD", "streak", "recon_car"));
+    public RelayCommand StreakBow => new(() => Do("Give Bow (Sparrow)", "streak", "sig_bow_flame"));
+    public RelayCommand StreakNuke => new(() => Do("Give Nuke", "streak", "nuke"));
+    public RelayCommand StreakPicked => new(() => Do("Give " + _main.Tools.SelectedStreak.Label, "streak", _main.Tools.SelectedStreak.Value));
+    public RelayCommand ForgeModeOn => new(() => Do("Forge mode ON", "forgemode", "on"));
+    public RelayCommand ForgeModeOff => new(() => Do("Forge mode OFF", "forgemode", "off"));
     public RelayCommand ForgeGrant => new(() => Do("Give client menu", "forgegrant", "on"));
     public RelayCommand ForgeRevoke => new(() => Do("Revoke client menu", "forgegrant", "off"));
     public RelayCommand Kick => new(() => { if (_main.Confirm($"Kick {Name}?")) Do("Kick", "kickone"); });

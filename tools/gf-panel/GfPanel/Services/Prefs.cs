@@ -56,7 +56,12 @@ public sealed class Prefs
     public bool JoinToast { get; set; } = true;
     public bool ApplyLiveOnChange { get; set; } = true;
     public List<string> Bans { get; set; } = new();          // xuid list re-sent at match start
-    public List<int> PropFavorites { get; set; } = new();     // universal prop indices the in-game menu shows
+    public List<int> PropFavorites { get; set; } = new();     // universal prop indices the in-game menu shows (the GSC contract)
+    // The same favourites by MODEL name: the universal list gets renumbered when the catalog is regenerated
+    // (2026-09-21: 546 -> 514 when the debris props were dropped), so indices alone go stale; at startup the
+    // index list is rebuilt from these names against the embedded catalog.
+    public List<string> PropFavoriteModels { get; set; } = new();
+    public int PropCatalogCount { get; set; }
     public Dictionary<string, string> TeamPlan { get; set; } = new();   // xuid -> a|x|s, re-sent at match start
     public Dictionary<string, string> KnownNames { get; set; } = new(); // xuid -> last seen name
 

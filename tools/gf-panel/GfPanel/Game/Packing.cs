@@ -38,7 +38,7 @@ public static class Packing
         "gf_race_posts", "gf_race_grid", "gf_race_vehicle", "gf_race_grid_gap", "gf_race_score", "gf_race_oobhud", "gf_race_reset", "gf_race_sprint",
     };
     public static readonly string[] DbgOrder = { "gf_dbg_race", "gf_dbg_veh", "gf_dbg_barrier", "gf_mapscan" };
-    public static readonly string[] MiscOrder = { "gf_spawn_antistack", "gf_hint_lines", "gf_respawns", "gf_hint_others_on", "gf_hint_glyphs", "gf_forge_pin", "gf_forge_movestep", "gf_forge_rotstep", "gf_forge_scalestep", "gf_forge_zstep", "gf_hint_self_on" };   // append-only (the GSC misc= list)
+    public static readonly string[] MiscOrder = { "gf_spawn_antistack", "gf_hint_lines", "gf_respawns", "gf_hint_others_on", "gf_hint_glyphs", "gf_forge_pin", "gf_forge_movestep", "gf_forge_rotstep", "gf_forge_scalestep", "gf_forge_zstep", "gf_hint_self_on", "gf_menu_repaint", "gf_rounds_sides", "gf_friendlyfire", "gf_latejoin", "gf_teamchange", "gf_place_dist", "gf_grab_dist", "gf_ahint" };   // append-only (the GSC misc= list)
     public static readonly string[] VehOrder = { "gf_vehmode", "gf_veh_lock", "gf_veh_hp", "gf_veh_alt" };
 
     private static readonly Dictionary<string, int> Index = Packed.Select((k, i) => (k, i)).ToDictionary(x => x.k, x => x.i);

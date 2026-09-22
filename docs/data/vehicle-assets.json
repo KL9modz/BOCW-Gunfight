@@ -1,0 +1,874 @@
+{
+ "generated": "2026-09-21",
+ "source": "tables/bgcache vehicle rows; hashes resolved by FNV1a construction",
+ "assets": [
+  {
+   "name": "defaultvehicle_mp",
+   "hashed": false,
+   "zones": [
+    "core_bootstrap"
+   ]
+  },
+  {
+   "name": "fake_vehicle",
+   "hashed": false,
+   "zones": [
+    "core_common"
+   ]
+  },
+  {
+   "name": "heli_ai_mp",
+   "hashed": false,
+   "zones": [
+    "core_common"
+   ]
+  },
+  {
+   "name": "spawner_zombietron_veh_meatball",
+   "hashed": false,
+   "zones": [
+    "wz_doa"
+   ]
+  },
+  {
+   "name": "spawner_zombietron_veh_meatball_med",
+   "hashed": false,
+   "zones": [
+    "wz_doa"
+   ]
+  },
+  {
+   "name": "spawner_zombietron_veh_meatball_small",
+   "hashed": false,
+   "zones": [
+    "wz_doa"
+   ]
+  },
+  {
+   "name": "veh_missile_turret",
+   "hashed": false,
+   "zones": [
+    "core_common"
+   ]
+  },
+  {
+   "name": "veh_quad_player_wz_pc",
+   "hashed": false,
+   "zones": [
+    "mp_dune"
+   ]
+  },
+  {
+   "name": "veh_t8_ac130_gunship_mp",
+   "hashed": false,
+   "zones": [
+    "core_common",
+    "mp_common"
+   ]
+  },
+  {
+   "name": "veh_t8_helicopter_gunship_mp",
+   "hashed": false,
+   "zones": [
+    "mp_common"
+   ]
+  },
+  {
+   "name": "veh_t8_helicopter_gunship_mp_guard",
+   "hashed": false,
+   "zones": [
+    "core_common"
+   ]
+  },
+  {
+   "name": "veh_t9_mil_us_helicopter_large_chopper_gunner",
+   "hashed": false,
+   "zones": [
+    "core_common",
+    "mp_common"
+   ]
+  },
+  {
+   "name": "veh_ultimate_turret",
+   "hashed": false,
+   "zones": [
+    "core_common"
+   ]
+  },
+  {
+   "name": "veh_ultimate_turret_wz",
+   "hashed": false,
+   "zones": [
+    "core_common",
+    "wz_doa"
+   ]
+  },
+  {
+   "name": "vehicle_boct_mil_boat_tactical_raft_gry_pc",
+   "hashed": false,
+   "zones": [
+    "mp_black_sea",
+    "mp_miami",
+    "mp_tank"
+   ]
+  },
+  {
+   "name": "vehicle_motorcycle_mil_us_offroad",
+   "hashed": false,
+   "zones": [
+    "mp_dune",
+    "mp_sm_gas_station",
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_zoo"
+   ]
+  },
+  {
+   "name": "vehicle_motorcycle_mil_us_offroad_alt",
+   "hashed": false,
+   "zones": [
+    "mp_cartel",
+    "mp_dune",
+    "mp_sm_gas_station",
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_zoo"
+   ]
+  },
+  {
+   "name": "vehicle_straferun_mp",
+   "hashed": false,
+   "zones": [
+    "core_common"
+   ]
+  },
+  {
+   "name": "vehicle_t9_civ_ru_sedan_80s_player",
+   "hashed": false,
+   "zones": [
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_ski_slopes",
+    "wz_zoo"
+   ]
+  },
+  {
+   "name": "vehicle_t9_civ_ru_sedan_80s_player_alt",
+   "hashed": false,
+   "zones": [
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_ski_slopes",
+    "wz_zoo"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_air_transport_hpc_intro",
+   "hashed": false,
+   "zones": [
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_ski_slopes"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_boat_jetski",
+   "hashed": false,
+   "zones": [
+    "mp_black_sea",
+    "wz_sanatorium"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_boat_jetski_alt",
+   "hashed": false,
+   "zones": [
+    "mp_black_sea",
+    "wz_sanatorium"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_boat_tactical_raft",
+   "hashed": false,
+   "zones": [
+    "mp_black_sea",
+    "wz_sanatorium"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_boat_tactical_raft_alt",
+   "hashed": false,
+   "zones": [
+    "mp_black_sea",
+    "wz_sanatorium"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_fav_light",
+   "hashed": false,
+   "zones": [
+    "mp_dune",
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_ski_slopes",
+    "wz_zoo"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_fav_light_alt",
+   "hashed": false,
+   "zones": [
+    "mp_dune",
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_ski_slopes",
+    "wz_zoo"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_helicopter_care_package",
+   "hashed": false,
+   "zones": [
+    "core_common"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_ru_air_vtol_forger",
+   "hashed": false,
+   "zones": [
+    "mp_common"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_ru_tank_t72_alt",
+   "hashed": false,
+   "zones": [
+    "mp_tundra",
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_ski_slopes",
+    "wz_zoo"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_ru_tank_t72_sr",
+   "hashed": false,
+   "zones": [
+    "mp_tundra",
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_ski_slopes",
+    "wz_zoo"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_ru_truck_light_player",
+   "hashed": false,
+   "zones": [
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_ski_slopes",
+    "wz_zoo"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_ru_truck_light_player_alt",
+   "hashed": false,
+   "zones": [
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_ski_slopes",
+    "wz_zoo"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_ru_truck_transport_player",
+   "hashed": false,
+   "zones": [
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_ski_slopes",
+    "wz_zoo"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_ru_truck_transport_player_alt",
+   "hashed": false,
+   "zones": [
+    "mp_dune",
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_ski_slopes",
+    "wz_zoo"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_ru_truck_transport_player_obj_sr",
+   "hashed": false,
+   "zones": [
+    "mp_dune",
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_ski_slopes",
+    "wz_zoo"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_snowmobile",
+   "hashed": false,
+   "zones": [
+    "mp_tundra",
+    "wz_ski_slopes"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_snowmobile_alt",
+   "hashed": false,
+   "zones": [
+    "mp_tundra",
+    "wz_ski_slopes"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_us_boat_pgb_double_gun",
+   "hashed": false,
+   "zones": [
+    "mp_black_sea",
+    "wz_sanatorium"
+   ]
+  },
+  {
+   "name": "vehicle_t9_mil_us_boat_pgb_double_gun_alt",
+   "hashed": false,
+   "zones": [
+    "mp_black_sea",
+    "wz_sanatorium"
+   ]
+  },
+  {
+   "name": "vehicle_t9_rcxd_racing",
+   "hashed": false,
+   "zones": [
+    "core_common",
+    "mp_common"
+   ]
+  },
+  {
+   "name": "vehicle_t9_rcxd_racing_alt",
+   "hashed": false,
+   "zones": [
+    "core_common"
+   ]
+  },
+  {
+   "name": "hash_101e80cf4fc32645",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_black_sea"
+   ]
+  },
+  {
+   "name": "hash_13c60e71eef46ebb",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_ru_heli_transport_mp_mall_intro",
+   "zones": [
+    "mp_mall"
+   ]
+  },
+  {
+   "name": "hash_15e59336c36ee995",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_amerika"
+   ]
+  },
+  {
+   "name": "hash_163d315aaa1f8fd9",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "wz_doa"
+   ]
+  },
+  {
+   "name": "hash_17e868e0ebf3c1d6",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_us_helicopter_light",
+   "zones": [
+    "wz_sanatorium"
+   ]
+  },
+  {
+   "name": "hash_1a60a087a340574b",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_ru_apc_heavy",
+   "zones": [
+    "mp_kgb",
+    "mp_sm_gas_station"
+   ]
+  },
+  {
+   "name": "hash_1bdb534f1e8e23f5",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_ru_truck_light",
+   "zones": [
+    "mp_cartel"
+   ]
+  },
+  {
+   "name": "hash_1c5963188cf189df",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_apocalypse"
+   ]
+  },
+  {
+   "name": "hash_1e00d92ee0b1bf4c",
+   "hashed": true,
+   "resolved": "vehicle_t9_civ_us_van_miami_intro",
+   "zones": [
+    "mp_miami"
+   ]
+  },
+  {
+   "name": "hash_1f5c1aa7b1348d33",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_truck_mobile_icbm",
+   "zones": [
+    "mp_tundra"
+   ]
+  },
+  {
+   "name": "hash_20966d639ebe6604",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_cartel"
+   ]
+  },
+  {
+   "name": "hash_257823c5143a9b45",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "wz_doa"
+   ]
+  },
+  {
+   "name": "hash_28d512b739c9d9c1",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_ru_tank_t72",
+   "zones": [
+    "mp_tundra",
+    "wz_forest",
+    "wz_golova",
+    "wz_ski_slopes"
+   ]
+  },
+  {
+   "name": "hash_2a439b0890fe07d8",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "wz_forest"
+   ]
+  },
+  {
+   "name": "hash_2db015dc967ccf56",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "wz_doa"
+   ]
+  },
+  {
+   "name": "hash_2fc8835276d8b7a4",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_tundra"
+   ]
+  },
+  {
+   "name": "hash_3153ab4305e299b8",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "wz_doa"
+   ]
+  },
+  {
+   "name": "hash_3463002d802c1a98",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_tundra"
+   ]
+  },
+  {
+   "name": "hash_3665b873bf14aff4",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_tundra"
+   ]
+  },
+  {
+   "name": "hash_3d2bbfdb89093d91",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_ski_slopes"
+   ]
+  },
+  {
+   "name": "hash_3efa223f4a0bffcd",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_dune"
+   ]
+  },
+  {
+   "name": "hash_3effd1dd89ee3d36",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_ski_slopes"
+   ]
+  },
+  {
+   "name": "hash_4209c5ff3b969c7a",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_ru_heli_transport_vehicle_drop",
+   "zones": [
+    "mp_common"
+   ]
+  },
+  {
+   "name": "hash_437293ae239af1ab",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_black_sea",
+    "mp_dune",
+    "mp_tundra",
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_ski_slopes",
+    "wz_zoo"
+   ]
+  },
+  {
+   "name": "hash_444804d03bdda785",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "core_common"
+   ]
+  },
+  {
+   "name": "hash_4b89aa566bff8383",
+   "hashed": true,
+   "resolved": "vehicle_motorcycle_mil_us_offroad_slow",
+   "zones": [
+    "mp_cartel"
+   ]
+  },
+  {
+   "name": "hash_4bfd80fe09072db3",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_dune"
+   ]
+  },
+  {
+   "name": "hash_4c21aec4081d030d",
+   "hashed": true,
+   "resolved": "vehicle_civ_eu_van_kgb_moscow",
+   "zones": [
+    "mp_moscow"
+   ]
+  },
+  {
+   "name": "hash_4dfaa11717f3881",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_ru_heli_transport_mp_tank_intro",
+   "zones": [
+    "mp_tank"
+   ]
+  },
+  {
+   "name": "hash_51c4f4dc2591b475",
+   "hashed": true,
+   "resolved": "vehicle_boct_mil_boat_tactical_raft_gry",
+   "zones": [
+    "mp_black_sea",
+    "mp_miami",
+    "mp_tank"
+   ]
+  },
+  {
+   "name": "hash_536eec4bf6424551",
+   "hashed": true,
+   "resolved": "veh_boct_turret_manned_tripod_mp",
+   "zones": [
+    "mp_black_sea",
+    "mp_cartel",
+    "mp_tundra"
+   ]
+  },
+  {
+   "name": "hash_53a9cce5dd1ea567",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "wz_doa"
+   ]
+  },
+  {
+   "name": "hash_5405b8cdc93df2b4",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_mall"
+   ]
+  },
+  {
+   "name": "hash_5477254cf96259f4",
+   "hashed": true,
+   "resolved": "veh_boct_train",
+   "zones": [
+    "mp_express_rm"
+   ]
+  },
+  {
+   "name": "hash_550d303ee2de9a65",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_us_tank_m1a1",
+   "zones": [
+    "mp_amerika",
+    "mp_tank"
+   ]
+  },
+  {
+   "name": "hash_560e28482947adbc",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "wz_doa"
+   ]
+  },
+  {
+   "name": "hash_581bb1b0fa4a3139",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_ru_truck_light_mp_tundra_intro_snow",
+   "zones": [
+    "mp_tundra"
+   ]
+  },
+  {
+   "name": "hash_58cc8ce25d32031f",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_common"
+   ]
+  },
+  {
+   "name": "hash_60868aaa45d05ffe",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_kgb",
+    "mp_satellite"
+   ]
+  },
+  {
+   "name": "hash_61b8f8f61f4b9ce7",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_truck_mobile_icbm_snow",
+   "zones": [
+    "mp_tundra"
+   ]
+  },
+  {
+   "name": "hash_62d385495a2ba813",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_us_helicopter_light_mp_moscow",
+   "zones": [
+    "mp_moscow"
+   ]
+  },
+  {
+   "name": "hash_631691623ad368bd",
+   "hashed": true,
+   "resolved": "veh_t9_mil_us_helicopter_large_mp_intro",
+   "zones": [
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_ski_slopes"
+   ]
+  },
+  {
+   "name": "hash_6595f5efe62a4ec",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_ru_heli_gunship_hind",
+   "zones": [
+    "mp_dune",
+    "wz_duga",
+    "wz_forest",
+    "wz_golova",
+    "wz_sanatorium",
+    "wz_ski_slopes"
+   ]
+  },
+  {
+   "name": "hash_67288fb18d632568",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "wz_doa"
+   ]
+  },
+  {
+   "name": "hash_6a3338f16c953a89",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_black_sea"
+   ]
+  },
+  {
+   "name": "hash_6be593a62b8b87a5",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "wz_doa"
+   ]
+  },
+  {
+   "name": "hash_7bf9ca71584bd31d",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_black_sea"
+   ]
+  },
+  {
+   "name": "hash_7c54a264a26cb1eb",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_ru_apc_heavy_open_turret",
+   "zones": [
+    "mp_kgb",
+    "mp_sm_gas_station"
+   ]
+  },
+  {
+   "name": "hash_7c74af55b6caaaf5",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_us_helicopter_large_mp_echelon_intro",
+   "zones": [
+    "mp_echelon"
+   ]
+  },
+  {
+   "name": "hash_7dd2944ddf7cc7e9",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "core_common"
+   ]
+  },
+  {
+   "name": "hash_962ecc6fc2eca01",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "wz_doa"
+   ]
+  },
+  {
+   "name": "hash_aad641e4079b83b",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "wz_doa"
+   ]
+  },
+  {
+   "name": "hash_c07fec522db452c",
+   "hashed": true,
+   "resolved": "vehicle_t9_mil_ru_heli_transport_mp_cliffhanger_intro",
+   "zones": [
+    "mp_cliffhanger"
+   ]
+  },
+  {
+   "name": "hash_d57fa1b1aacffc7",
+   "hashed": true,
+   "resolved": "veh_ultimate_turret_zm",
+   "zones": [
+    "core_common"
+   ]
+  },
+  {
+   "name": "hash_edcdd6027aeb112",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_black_sea"
+   ]
+  },
+  {
+   "name": "hash_fae102f13c58e9e",
+   "hashed": true,
+   "resolved": null,
+   "zones": [
+    "mp_black_sea"
+   ]
+  }
+ ]
+}

@@ -23,6 +23,10 @@ public sealed class QueuedCommand : ObservableObject
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime SentAt { get; set; } = DateTime.UtcNow;
     public int Tries { get; set; } = 1;
+    /// <summary>One pulse only, never re-sent: a level-changing verb (restart / relaunch / switch / end) whose
+    /// ack is lost in the reload - a retry ran map_restart AGAIN (klaze 2026-09-22: "restart round and restart
+    /// match fire multiple quick restarts in a row and leave the match glitched with no HUD").</summary>
+    public bool NoRetry { get; init; }
     private string _state = "sent";
     public string State { get => _state; set => Set(ref _state, value); }
     private string _detail = "";
@@ -42,8 +46,11 @@ public sealed class GameLink : IDisposable
     private readonly Timer _timer;
     private MemoryScanner? _scanner;
     private int _busy;
-    private DateTime _scannerSince = DateTime.MinValue, _lastSweep = DateTime.MinValue;
+    private DateTime _scannerSince = DateTime.MinValue, _lastSweep = DateTime.MinValue, _lastForce = DateTime.MinValue;
     private bool _fullDone;
+    private int _refreshRequested;
+    /// <summary>The PLAYERS ↻ button: the next tick sweeps for NEWER copies of every marker (see MemoryScanner.Sweep force).</summary>
+    public void RequestRefresh() { Interlocked.Exchange(ref _refreshRequested, 1); Log("re-scanning the game for the current roster / state", LogLevel.Info); }
     private DateTime _lastStateAt = DateTime.MinValue;
     private long _lastStateTick = -1;
     private long _lastPlayersTick = -1;
@@ -158,11 +165,15 @@ public sealed class GameLink : IDisposable
                 // process, a minute in, then never again.
                 var now = DateTime.UtcNow;
                 var idle = !_scanner.LastSweepHit && _lastSweep != DateTime.MinValue;
-                if (!idle || now - _lastSweep >= TimeSpan.FromSeconds(5))
+                // every 5 s (or on the ↻ button) distrust the quick probes and look for newer copies:
+                // an on-change line's old copy stays put while the new one lands elsewhere
+                var force = Interlocked.Exchange(ref _refreshRequested, 0) == 1 || (_scanner.HasEverHit && now - _lastForce >= TimeSpan.FromSeconds(5));
+                if (force) _lastForce = now;
+                if (!idle || force || now - _lastSweep >= TimeSpan.FromSeconds(5))
                 {
                     var allowFull = !_fullDone && !_scanner.HasEverHit && now - _scannerSince > TimeSpan.FromSeconds(60);
                     if (allowFull) _fullDone = true;
-                    hits = _scanner.Sweep(Markers, allowFull, allowFull ? 20000 : 4000);
+                    hits = _scanner.Sweep(Markers, allowFull, allowFull ? 20000 : 4000, force);
                     _lastSweep = now;
                 }
                 sweepInfo = $"{_scanner.LastSweepHow} {_scanner.LastSweepBytes / 1048576} MB";
@@ -195,12 +206,13 @@ public sealed class GameLink : IDisposable
 
         if (hits != null)
         {
-            if (hits.TryGetValue("GFSTATE", out var st) && st.Tick != _lastStateTick)
+            if (hits.TryGetValue("GFSTATE", out var st) && st.Tick > _lastStateTick)   // ticks are getrealtime() ms: monotonic, so only NEWER lines are taken
             {
                 var s = GfState.Parse(st.Tick, st.Body);
                 if (s != null)
                 {
                     var prev = State;
+                    _retryPausedUntil = DateTime.MinValue;   // a state line from the (new) level: retries may resume
                     // a fallback line (the GSC's state_build died this tick) keeps the tick fresh but has no
                     // fields: keep the previous full state's values, surface the error count + stage
                     if (s.IsFallback && prev != null) s = prev with { Tick = s.Tick, Phase = s.Phase, Err = s.Err, Stage = s.Stage };
@@ -212,17 +224,17 @@ public sealed class GameLink : IDisposable
                     StateChanged?.Invoke(s);
                 }
             }
-            if (hits.TryGetValue("GFPLAYERS", out var pl) && pl.Tick != _lastPlayersTick)
+            if (hits.TryGetValue("GFPLAYERS", out var pl) && pl.Tick > _lastPlayersTick)
             {
                 var list = Roster.ParsePlayers(pl.Body);
                 if (list != null) { _lastPlayersTick = pl.Tick; PlayersRich = true; UpdatePlayers(list); }
             }
-            else if (!PlayersRich && hits.TryGetValue("GFROSTER", out var ro) && ro.Tick != _lastRosterTick)
+            else if (!PlayersRich && hits.TryGetValue("GFROSTER", out var ro) && ro.Tick > _lastRosterTick)
             {
                 var list = Roster.ParseRoster(ro.Body);
                 if (list != null) { _lastRosterTick = ro.Tick; UpdatePlayers(list); }
             }
-            if (hits.TryGetValue("GFCFG", out var cf) && cf.Tick != _lastCfgTick)
+            if (hits.TryGetValue("GFCFG", out var cf) && cf.Tick > _lastCfgTick)
             {
                 var c = GfConfig.Parse(cf.Tick, cf.Body);
                 if (c != null)
@@ -266,13 +278,20 @@ public sealed class GameLink : IDisposable
     // writes
     // ─────────────────────────────────────────────────────────────────────────
     private const int RetryAfterMs = 5000, MaxTries = 3, GiveUpMs = 16000;
+    /// <summary>Verbs that change or end the level: sent once, never retried, and every retry is paused
+    /// until the NEXT state line arrives from the new level (or 40 s pass).</summary>
+    private static readonly HashSet<string> OneShot = new(StringComparer.OrdinalIgnoreCase) { "restart", "restartround", "relaunch", "endmatch", "endround", "switch" };
+    private DateTime _retryPausedUntil = DateTime.MinValue;
 
     /// <summary>Queue a command: payload lines + seq + go. Returns the queue entry (state flips on the ack).</summary>
     public QueuedCommand Send(string label, IEnumerable<string> payload, int priority = 10)
     {
         var seq = ++_prefs.CommandSeq;
         var lines = Commands.Fire(payload, seq);
-        var q = new QueuedCommand { Seq = seq, Label = label, Lines = lines };
+        var action = lines.Select(l => l.StartsWith("set gf_cmd_action ", StringComparison.Ordinal) ? l["set gf_cmd_action ".Length..].Trim() : null).FirstOrDefault(a => a != null);
+        var oneShot = action != null && OneShot.Contains(action);
+        if (oneShot) _retryPausedUntil = DateTime.UtcNow.AddSeconds(40);
+        var q = new QueuedCommand { Seq = seq, Label = label, Lines = lines, NoRetry = oneShot };
         Queue.Insert(0, q);
         while (Queue.Count > 8) Queue.RemoveAt(Queue.Count - 1);
         Dispatch(q, priority);
@@ -320,6 +339,8 @@ public sealed class GameLink : IDisposable
         {
             if (!StateFreshNow) continue;   // no ack channel at all (old payload / no match): leave it as sent
             if ((now - q.SentAt).TotalMilliseconds < RetryAfterMs) continue;
+            if (q.NoRetry) { if ((now - q.CreatedAt).TotalMilliseconds > GiveUpMs) { q.State = "ack"; q.Detail = "one-shot (no retry)"; } continue; }
+            if (now < _retryPausedUntil) continue;   // a level change is in flight: its acks are lost, retries would re-fire
             if (q.Tries < MaxTries)
             {
                 q.Tries++; q.SentAt = now; q.Detail = $"retry {q.Tries}/{MaxTries}";

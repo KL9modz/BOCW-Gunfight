@@ -530,6 +530,15 @@ Teams come from `level.teams` (masked in `init_teams`); size is bounded by `maxp
 (§1, §13). Team-change/assignment is `gamemodeismode(1|7)`-aware for custom matches (globallogic). For 4v4+
 the ceiling is the session's `com_maxclients` — not a spawn limit.
 
+**Late joiners (2026-09-21, [`late-join.md`](late-join.md)):** a human who connects mid-match with no
+lobby side is benched by stock — `player_connect.gsc:283` → `menuautoassign` → the
+`team_assignment.gsc:602` gate answers `spectator` for a non-host human in an unranked match once the
+countdown is over, and nothing revisits it. The mod hooks `level.autoassign` (`gf_autoassign`, installed
+each round from `mod_apply`) and hands stock a side as if the lobby had assigned it: fewer humans → losing
+side → tie: benched with a CHANGE TEAM reminder (`gf_teamchange` writes the hidden `allowingameteamchange`
+setting that makes the pause-menu button exist). One bot leaves the joined side if it became the bigger
+one. Built, not run.
+
 ### 16b. 🐛 The combined-arms / large-variant spawn bug (klaze report, 2026-09-11)
 **Symptom:** on SOME carried maps, players spawn out of bounds or in odd spots, "as if using the combined
 arms playlist version of the map."

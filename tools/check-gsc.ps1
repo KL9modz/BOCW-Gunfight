@@ -102,6 +102,22 @@ if (-not $Source -or -not (Test-Path "$Source\scripts")) {
     exit 1
 }
 
+# ⚠ THE #USING TRAP (2026-09-21, four game crashes, every match load): a namespace::fn call
+# whose script is NOT in this file's #using list compiles clean, passes the existence check
+# below, and FAILS TO LINK at map load - "Script Runtime Error" 0x6394f836 with no sre_stack,
+# 6-8 s after the map switch, every mode. gametype::on_round_switch() was called with no
+# `#using scripts\mp_common\gametypes\gametype;` (reports 20260921-121217 / -122215,
+# docs/notes/crash-decode.md). The compiled include table IS the #using list, and the linker
+# resolves imports through it; "the function exists somewhere in the dump" is not enough.
+# So: every namespace called must be declared by at least one #used script.
+$usings = @{}
+[regex]::Matches($text, '(?m)^\s*#using\s+([^;\s]+)\s*;') | ForEach-Object {
+    $u = $_.Groups[1].Value.ToLower().Replace('/', '\')
+    if ($u.EndsWith('.gsc')) { $u = $u.Substring(0, $u.Length - 4) }
+    $usings[$u] = 1
+}
+$srcRoot = (Resolve-Path $Source).Path.TrimEnd('\').ToLower()
+
 $bad = 0
 foreach ($c in $calls) {
     # find the file(s) declaring this namespace, then look for the function in them
@@ -109,6 +125,29 @@ foreach ($c in $calls) {
                            -Pattern "^#namespace\s+$($c.ns)\s*;" -List -ErrorAction SilentlyContinue
     if (-not $files) {
         Write-Host ("  MISSING NAMESPACE  {0}::{1}" -f $c.ns, $c.fn) -ForegroundColor Red; $bad++; continue
+    }
+    # the #using gate: one of the declaring scripts must be in this file's #using list
+    $used = $false
+    foreach ($f in $files) {
+        $rel = $f.Path.ToLower()
+        if ($rel.StartsWith($srcRoot)) { $rel = $rel.Substring($srcRoot.Length).TrimStart('\') }
+        if ($rel.EndsWith('.gsc')) { $rel = $rel.Substring(0, $rel.Length - 4) }
+        if ($usings.ContainsKey($rel)) { $used = $true; break }
+    }
+    if (-not $used) {
+        # suggest the declaring script that actually DEFINES the function (a namespace can span
+        # several files - gametype is core_common\gametype_shared AND mp_common\gametypes\gametype)
+        $defs = Select-String -Path $files.Path -Pattern "^function\s+(private\s+|autoexec\s+)*$($c.fn)\s*\(" -List -ErrorAction SilentlyContinue
+        $pick = if ($defs) { $defs } else { $files }
+        $want = @($pick | ForEach-Object {
+            $r = $_.Path.ToLower()
+            if ($r.StartsWith($srcRoot)) { $r = $r.Substring($srcRoot.Length).TrimStart('\') }
+            if ($r.EndsWith('.gsc')) { $r = $r.Substring(0, $r.Length - 4) }
+            $r
+        })
+        Write-Host ("  NO #USING  {0}::{1}  - defined in {2}, which this script does not #using. It will FAIL TO LINK at map load. Add:  #using {3};" -f $c.ns, $c.fn, ($want -join ' / '), $want[0]) -ForegroundColor Red
+        $bad++
+        continue
     }
     $hit = Select-String -Path $files.Path -Pattern "^function\s+(private\s+|autoexec\s+)*$($c.fn)\s*\(" -List -ErrorAction SilentlyContinue
     if ($hit) {

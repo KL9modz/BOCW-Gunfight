@@ -1,10 +1,11 @@
 # Death barriers — the map's kill volumes, and the `gf_deathbarrier` switch (2026-09-19)
 
-> **Status: researched + built, NOT run in-game.** Side payload
-> `C:\bocw\payloads\gunfight_menu.deathbarrier.gscc` (397,995 B / 2,265 strings, check-gsc PASS zero
-> notes, check-args 0 mismatches). The live slot `gunfight_menu.gscc` is still 454705d (391,566 B).
-> Which of the three "off" mechanisms the engine honours is a MEASUREMENT this note is waiting for —
-> §5 is the one-match test sheet.
+> **Status: MEASURED 2026-09-21 — mode 1 (hurt volumes disabled) works** (klaze: *"hurt volumns
+> disabled works so just make that on by default"*) and is now the **default** (`gf_deathbarrier` 1)
+> in the menu, the Tk app row and the gf-panel schema. Modes 2 (deleted) and 3 (sunk) stay in as
+> unmeasured fallbacks. With barriers off a fall off the map never ends on its own — Teleport →
+> *me to centre* is the way back. The original 2026-09-19 build notes and the test sheet (§5) are
+> kept below as written.
 
 klaze, 2026-09-19: *"we already have a toggle for oob but not for the real death barriers. god mode
 doesn't prevent them."* Two facts in one line: [[game-systems]] §14d's `gf_oob` (the restricted-area
@@ -45,9 +46,9 @@ So the "real death barrier" is the engine's own `trigger_hurt` handling. The scr
 ## 3. The switch — `gf_deathbarrier`, Movement → Death barriers, app Movement row
 
 Plain dvar (not the packed store — inserting a packed key shifts chunk positions for a stale app,
-the `gf_oob` precedent). Default **0 = stock**: a player who leaves the map with barriers off falls
-until something stops him, so this is opt-in, unlike `gf_oob`. Applied from `mod_movement()` — every
-round (the level is rebuilt per round) and live from Apply-now (scope `move`).
+the `gf_oob` precedent). Default **1 = disabled** since 2026-09-21 (was 0 = stock while unmeasured):
+a player who leaves the map with barriers off falls until something stops him. Applied from
+`mod_movement()` — every round (the level is rebuilt per round) and live from Apply-now (scope `move`).
 
 | Mode | What it does | Reversible? | Stock precedent |
 |---|---|---|---|
@@ -55,9 +56,9 @@ round (the level is rebuilt per round) and live from Apply-now (scope `move`).
 | 2 deleted | `delete()` every `trigger_hurt` | next round (level rebuild) | the BO1/BO2 mod-menu shape; stock deletes brush triggers freely (`mp_black_sea.gsc:136` `12v12_bounds`). Stock readers re-fetch the array each pass (`weaponobjects.gsc:2978`) or `isdefined()` a cached one (`:2938`); `supplydrop.gsc:199` / `qrdrone.gsc:667` hold a cached list on killstreak paths a Gunfight match does not run |
 | 3 sunk | `.origin -= (0,0,40000)`; start origin kept in `gf_kb_org` | yes — "stock" puts them back | `mp/mp_russianbase_rm.gsc:91` parks its train hurt trigger by writing `.origin` |
 
-Try them **in that order** — 1 is the clean one if the engine's hurt touch honours the trigger-enabled
-flag, 2 is the fallback if it does not, 3 is the fallback if a delete upsets something. Not touched
-on purpose: the Express train crusher (a script kill, §1), vehicles, AI.
+**1 is measured working (2026-09-21)** — the engine's hurt touch honours the trigger-enabled flag.
+2 and 3 stay as fallbacks, unmeasured. Not touched on purpose: the Express train crusher (a script
+kill, §1), vehicles, AI.
 
 Bridge: `set gf_deathbarrier 1` (21 B) then `apply move` — or the app row + Apply now.
 

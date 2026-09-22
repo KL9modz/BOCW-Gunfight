@@ -60,6 +60,17 @@ FAMILIES = ("p9_", "p8_", "p7_")
 BARREL_RE = re.compile(r"(barrel|_drum|jerrycan|jerry_can|propane|gas_can|fuel_can|canister|gas_metal)", re.I)
 BARREL_NO = re.compile(r"(foliage|cactus|_boat|_btm|_lid|_top|_cap\b|_lids|vault|cannon|gun_barrel)", re.I)
 
+# Models dropped from the catalog entirely (klaze 2026-09-21): "remove debris props" (rubble / scrap /
+# glass-shatter / dirt-clod, p*_debris_* / p*_fxp_debris_*) + "remove fluids from props" (fx-particle
+# fluid droplets / spills / clumps - p*_fxp_fluid_*) + the 26 character dogtags ("keep 2, 1 friendly 1
+# enemy" - kept via EXCLUDE_KEEP below) + p9_heart_name_* valentine hearts ("don't seem to work"). Only
+# the spawnable PROP families; exploder FX (fxexp_) and vehicle wreck parts (veh_) are separate, untouched.
+EXCLUDE_RE = re.compile(r"debris|fluid|dogtag|heart_name|gib_chunk|decal_scratches|supplydrop.*(harness|fade)", re.I)   # gib chunks, decal scratches, supply-drop harness/fade rigs out (klaze 2026-09-22)
+
+# Kept despite EXCLUDE_RE (klaze "only keep 2 dog tags, 1 friendly 1 enemy"): one enemy + one friendly
+# (Adler). Lowercase - matched against the lowercased model name.
+EXCLUDE_KEEP = {"p9_dogtags_adler_enemy", "p9_dogtags_adler_friendly"}
+
 # Region/theme tokens that lead a prop name and carry no meaning for a human label.
 REGION = {
     "usa", "rus", "ger", "lat", "nic", "cli", "ang", "mal", "nt6", "nt6x", "ship", "kgb", "amk",
@@ -118,6 +129,8 @@ CURATED = {
     "p9_pot_of_gold_pristine": "Pot of gold",
     "p9_wz_dirty_bomb_01": "Dirty bomb",
     "p9_m114_155mm_artillery_gun_01_pickup": "155mm artillery gun",
+    "p9_dogtags_adler_enemy": "Dog tags (enemy)",
+    "p9_dogtags_adler_friendly": "Dog tags (friendly)",
 }
 
 # The in-game menu's DEFAULT favourites when the app has set none: the curated scenery slice, by
@@ -143,7 +156,7 @@ def zone_props(dump: str, zone: str) -> set[str]:
                 continue
             name = row[c + 1:].lstrip("#").strip()
             low = name.lower()
-            if low.startswith(FAMILIES):
+            if low.startswith(FAMILIES) and (not EXCLUDE_RE.search(low) or low in EXCLUDE_KEEP):
                 out.add(name)
     return out
 

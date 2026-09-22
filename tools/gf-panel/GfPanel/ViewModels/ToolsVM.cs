@@ -49,6 +49,7 @@ public sealed class ToolsVM : ObservableObject
     public RelayCommand DrunkOn => new(() => Do("Drunk mode on", "drunk", "on"));
     public RelayCommand DrunkOff => new(() => Do("Drunk mode off", "drunk", "off"));
     public RelayCommand Quake => new(() => Do("Earthquake", "quake"));
+    public RelayCommand FadeProbe => new(() => Do("Fade probe (time the two lines)", "fadeprobe"));
     public RelayCommand PlaySound => new(() => Do("Sound " + SelectedSound.Label, "sound", SelectedSound.Value));
     public RelayCommand VisionApply => new(() => Do("Vision " + VisionName, "vision", VisionName));
     public RelayCommand VisionDefault => new(() => Do("Vision default", "vision", "default"));
@@ -126,10 +127,27 @@ public sealed class ToolsVM : ObservableObject
     private VehicleDef _veh = null!, _vehOther = null!;
     public VehicleDef SelectedVehicle { get => _veh; set => Set(ref _veh, value); }
     public VehicleDef SelectedOtherVehicle { get => _vehOther; set => Set(ref _vehOther, value); }
+    // ── streaks (bocw-1c 2026-09-21): `streak <kstype>` = killstreaks::give (the care-package inventory path);
+    //    target = a named player via gf_cmd_target, else the host. Host + client pages in-game; not the client menu.
+    public PlayerRowVM? StreakTarget { get; set; }
+    public IEnumerable<PlayerRowVM> StreakTargets => _m.Players.Rows.Where(r => !r.IsBot);
+    public void RefreshStreakTargets() => OnPropertyChanged(nameof(StreakTargets));
+    private void Streak(string label, string kstype) => Do("Streak " + label + (StreakTarget != null ? " -> " + StreakTarget.Name : " -> host"), "streak", kstype, StreakTarget?.Name);
+    public RelayCommand StreakRcxd => new(() => Streak("RC-XD", "recon_car"));
+    public RelayCommand StreakBow => new(() => Streak("Bow (Sparrow)", "sig_bow_flame"));
+    public RelayCommand StreakNuke => new(() => Streak("Nuke", "nuke"));
+    public Named[] StreakList => Catalog.Streaks;
+    public Named SelectedStreak { get; set; } = Catalog.Streaks[0];
+    public RelayCommand StreakGive => new(() => Streak(SelectedStreak.Label, SelectedStreak.Value));
+
     public RelayCommand VehSpawn => new(() => Do("Spawn " + SelectedVehicle.Label, "vehspawn", SelectedVehicle.Index.ToString()));
     public RelayCommand VehSpawnOther => new(() => Do("Spawn " + SelectedOtherVehicle.Label, "vehspawn", SelectedOtherVehicle.Index.ToString()));
     public RelayCommand VehEnter => new(() => Do("Enter aimed vehicle", "vehenter"));
-    public RelayCommand VehClear => new(() => Do("Remove spawned vehicles", "vehclear"));
+    public RelayCommand VehClear => new(() => Do("Delete all vehicles (empty ones)", "vehclear"));
+    // liveries (bocw-1c 2026-09-21): model variants of the same body - steps the vehicle the host sits in,
+    // else the one aimed at / nearest within 300 u (the vehicle placer is gone since 2026-09-22). Host-only.
+    public RelayCommand VehLiveryPrev => new(() => Do("Vehicle livery: previous", "vehlivery", "prev"));
+    public RelayCommand VehLiveryNext => new(() => Do("Vehicle livery: next", "vehlivery", "next"));
     public string VehicleNote => _m.Link.State is { } s && _m.Link.MapVeh.TryGetValue(s.Map, out var d)
         ? "resident here: " + string.Join(", ", d.VehiclesDrive) : "spawns ahead of you (aircraft above); a class this map lacks just says so";
 
