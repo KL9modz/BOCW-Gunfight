@@ -45,6 +45,11 @@ gunfight_menu_c/  the CLIENT-side LUI-element probe. DIFFERENT PAIR: load_shared
                   LUIelemText renders in MP (stock key) — 💥 a plain string in it is a FATAL LUI
                   error (localizeentry). Now draws two stock-key rows, prints 77LCOPnn every 5s.
                   Stock keys only, ever. docs/notes/lui-elems.md
+subtitle_probe_c/ CLIENT pair (like gunfight_menu_c). subtitleprint( lcn, msec, text ), the client-only
+                  subtitle channel: step 1 passes the key NAME "mp/match_starting" as a plain string
+                  (crash-safe: localized -> "Match starting", raw -> "mp/match_starting"), step 2 the
+                  noAutoHide hold + flushsubtitles; free text / colours / width / newline only with
+                  gf_sub_plain / gf_sub_nl. Host-only. Built 2026-09-23, NEVER RUN. hud-channels.md §9
 hud_probe/        every display channel the menu does not use yet, one ~7 s stage each: screen
                   flash + drawHUD veil, lower message, announcement, N-v-M banner, EMP overlay,
                   objective progress/per-player markers, HUD switches, the EVENT-BACKED luielems

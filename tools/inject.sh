@@ -97,7 +97,7 @@ fi
 # docs/notes/lui-elems.md
 CLIENT=0
 case "$NAME" in
-    gunfight_menu_c|gf_luiload)
+    gunfight_menu_c|gf_luiload|subtitle_probe_c)
         PAYLOAD="$SP/$NAME.cscc"
         TARGET='scripts\core_common\load_shared.csc'
         REPLACE='scripts\core_common\radiation_debug.csc'
@@ -168,6 +168,8 @@ case "$NAME" in
     test_sessionswitch) echo "  read_only=1 FIRST: 40 must not be 99999. Live: read 41 before judging presence" ;;
     gunfight_menu)     echo "  RMB+V opens. RMB up / LMB down / R select / V back. Settings persist as gf_* dvars" ;;
     gunfight_menu_c)   echo "  78 T B nn every 5s: 2 text rows + a 10-box material-form column at x25. WHITE bar filling = int-index material works (pos=index); RED bar = raw-string name works; nothing = boxes blocked. lui-elems.md" ;;
+    subtitle_probe_c)  echo "  Settings -> Subtitles ON first. GF SUB steps from gf_sub_delay (20s) in: step 1 bottom centre reads 'Match starting' (localized - stop) or 'mp/match_starting' (RAW - relaunch with gf_sub_plain 1). hud-channels.md §9" ;;
+    hud_probe)         echo "  GF HUD <n>/<last> <name> every 3s; 18 stages, ~4 min, host alone. Record sheet: hud-channels.md §6. After a crash at stage k: gf_hud_from k+1" ;;
     gf_luiload)        echo "  GF LUILOAD att:N ok:R every 2s (from 6s in). Inject the pool chunk (luapool.py --inject), then watch: ok: advancing + ESC shows GUNFIGHT MENU LOADED = luiload reaches the pool. att: climbing while ok:0 = luiload does not load our injected entry" ;;
     lobby_state)       echo "  start the match FROM THE LOBBY, not F7. LS1-LS3 name the map the lobby believes in" ;;
     vehicle_probe)     echo "  two lines every 3s from 8s in: VPROBE3 (G must be 0, N 105, M names the resident vehicle) + PPROBE (tbl=0 means no prop table on this map)" ;;

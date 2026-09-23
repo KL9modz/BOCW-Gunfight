@@ -61,6 +61,7 @@ answers go.
 | 13 | `MPHintText` | hint box | ❓ | — | per player | ❓ probes 14 / 21 (listed untried in [lui-elems](lui-elems.md)) |
 | 14 | **`TempDialog`** | title + one line | ✅ by stock precedent | ✅ | per player | 🔓 NEW · probe 15 |
 | 15 | **a menu made of world markers** — a board of icons, a view-locked icon, the on-screen "using" bar | icons, rings, states; one screen bar | ✗ (words stay in the feed / centre line) | rings | chosen players | 🔓 NEW · probes 16–18, §8 |
+| 16 | **the subtitle channel** — `subtitleprint( lcn, msec, text )` | a bottom-centre line | ✅ if it prints raw | ✅ | **host only** (client builtin) | 🔓 NEW · `src/subtitle_probe_c/`, §9 |
 
 ## 1. Event-backed luielems — `LUIelemBar`, `LUIelemCounter` (the headline)
 
@@ -402,6 +403,66 @@ unknown). Anyone sees a marker you do not hide. **If the event-backed `LUIelemBa
 draw, they beat markers for a HUD panel** — fixed on screen, no world clutter, no id pool. Markers stay
 the better tool for things that belong in the world: look-to-select, per-player waypoints, a board a
 joiner can see.
+
+## 9. Subtitle text (klaze, 2026-09-23)
+
+*"What about subtitle text?"* Three different things answer to "subtitles", and they reach different
+people:
+
+| route | text | who sees it | status |
+|---|---|---|---|
+| **`subtitleprint( lcn, msec, text )`** — the subtitle channel itself | free text **if** the channel prints raw; stock keys if it localizes | **host only** — a client builtin, joiners run stock CSC | 🔓 NEW · `src/subtitle_probe_c/` |
+| a **voice line whose sound alias carries a subtitle** (stock plays aliases built as `… + "_subtitle_" + …`, `hashed/script/script_18723fb52cbb6224.gsc:357`) | the alias's own line — stock, localized | everyone who hears it; server-driven | untried; which MP aliases carry subtitles is not in the dump |
+| **`TempDialog`** — the stock "temp VO" box a missing voice line falls back to | **runtime-built strings, by design** (`ai/systems/face.gsc:233-272`) | per player, server-driven, so joiners too — if the menu ships in MP | 🔓 probe stage 15 (§3) |
+
+**The evidence.**
+
+- `subtitleprint` and `flushsubtitles` exist **only in the client table** (`funcs_cw.csv`: `exe+2ab2460` /
+  `exe+2ab2440`, both type 0, retail). No server builtin prints a subtitle, so **the server cannot put
+  subtitle text in front of a joiner** except through a stock voice line.
+- The signature: Black Ops 3's official script API (the mod tools' reference, republished as data in
+  `EHDSeven/BlackOps3-Scripting-API`) documents `SubtitlePrint( localClientNum, msec, subtitle )` —
+  client, *"print to the subtitle channel"*. Cold War and BO4 keep the same three arguments. There is no
+  stock caller in the Cold War dump; `flushsubtitles( lcn )` is stock (`scene_shared.csc:2410`, `:2560`, on
+  scene skips).
+- Stock subtitle text is always a localized key (`scriptbundle/collectible/*` `"subtitle":
+  "localized18#hash_…"`). The print family takes both forms — 33 stock `iprintln( #"mp/…" )` calls, and the
+  menu's plain strings. What `subtitleprint` does with a plain string is the one unknown that matters:
+  `LUIelemText` put a plain string through the localizer and the game died ([lui-elems](lui-elems.md)).
+- Campaign keeps subtitles on screen with a HUD model, **`hudItems.subtitles.noAutoHide`**
+  (`cp_common/dialog_tree.gsc:777`), written straight from script with `createuimodel( function_5c2e399f(),
+  … )` + `setuimodelvalue` (`cp_common/gametypes/globallogic_ui.gsc:1445`, the create at `:1465`, the write at `:1499`), and clears them with
+  `ForceClearSubtitles` (`:1628`). If the MP subtitle widget honours the same model, a subtitle becomes a
+  **persistent** line instead of a timed one.
+
+**The probe's first step is crash-safe by construction.** It passes the key's *name* as a plain string,
+`"mp/match_starting"`. A localizing channel hashes it into a real key (`73938fd7959ab087`, the key that
+rendered in [lui-elems](lui-elems.md)) and shows *Match starting*; a raw channel shows
+*mp/match_starting*. Either way nothing unknown reaches the localizer. Only a raw result justifies the
+free-text steps (`gf_sub_plain 1`), and the newline step needs `gf_sub_nl 1` on top — a raw `\n` closed the
+match in the hint widget ([hint-panel](hint-panel.md)).
+
+**What it would give, and the pushback.** A bottom-centre free-text line, independent of the feed — a
+status line or toast that never scrolls the menu away, persistent if `noAutoHide` works. But it is
+**host-only**, it shares its spot with real voice-line subtitles, and players who turn subtitles off may not
+get it at all (the channel may follow that setting; BO4 had a `settings_defaultsubtitles` option). For
+text a joiner must read, the feed, the centre line and `TempDialog` remain the routes.
+
+**Run it** on its own launch (or after `hud_probe` in the same one: `gf_sub_delay 260`), Settings →
+Subtitles **on**; build + inject lines are in `src/subtitle_probe_c/gsc.conf`, and `bash tools/inject.sh
+subtitle_probe_c` knows the client pair.
+
+| step | look for | seen? | notes |
+|---|---|---|---|
+| 1 keyname | bottom centre: *Match starting* (localized) or *mp/match_starting* (raw) or nothing | | |
+| 2 hold | the 1-second line still up after 1 s? cleared by the flush? | | |
+| 3 plain (`gf_sub_plain 1`) | *GF subtitle free text t=…* | | |
+| 4 styled | colours? the long line wraps or clips — at which character? | | |
+| 5 newline (`gf_sub_nl 1`) | two lines, or a closed match? | | |
+
+**Untried — not ruled out:** which MP voice lines carry subtitles (a `globallogic_audio::leader_dialog` line
+with Subtitles on is the cheap test — joiner-visible, stock text); `cg_subtitlewidthwidescreen` (a BO4 dvar)
+as the width control; the subtitle widget's own UI models (grep `subtitle` in `C:\bocw\lui-source\`).
 
 ## Not in T9 — do not re-look
 
