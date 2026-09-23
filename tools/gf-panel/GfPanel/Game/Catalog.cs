@@ -97,7 +97,7 @@ public static class Catalog
     };
 
     // veh_master() in gunfight_menu.gsc: the app names a vehicle by its INDEX (an asset name does not fit the slot).
-    /// <summary>Mirror of the GSC veh_master() order (vehspawn is BY MASTER INDEX): regenerate from the .gsc whenever a row is added or removed (last sync 2026-09-22, 67 rows).</summary>
+    /// <summary>Mirror of the GSC veh_master() order (vehspawn is BY MASTER INDEX): regenerate from the .gsc whenever a row is added or removed (last sync 2026-09-23, 76 rows).</summary>
     public static readonly VehicleDef[] Vehicles =
     {
         new(0, "Light buggy (FAV)", 0), new(1, "Light buggy (FAV) alt", 0), new(2, "Heavy buggy (FAV)", 0), new(3, "Motorcycle", 0), new(4, "Motorcycle alt", 0),
@@ -114,6 +114,9 @@ public static class Catalog
         new(55, "Intro cinematic APC (The Pines)", 1), new(56, "Intro cinematic APC (Amerika)", 1), new(57, "Intro cinematic vehicle (Echelon)", 1), new(58, "Intro cinematic vehicle (Yamantau)", 1), new(59, "Intro cinematic vehicle (Apocalypse)", 1),
         new(60, "Intro cinematic vehicle (Cartel)", 1), new(61, "Intro cinematic vehicle (Collateral cia)", 1), new(62, "Intro cinematic vehicle (Collateral kgb)", 1), new(63, "Intro cinematic vehicle (Crossroads kgb)", 1), new(64, "Intro cinematic vehicle (Crossroads)", 1),
         new(65, "Intro cinematic vehicle (Crossroads kgb 2)", 1), new(66, "Intro cinematic vehicle (Crossroads cia)", 1),
+        // fun pack 2026-09-23: appended in the GSC too - resident on MP maps, missing until PHA V1.00's list showed them
+        new(67, "AI helicopter", 1), new(68, "Anti-air missile turret", 1), new(69, "Sentry turret", 1), new(70, "Drone squad - PHA's name", 1), new(71, "RC-XD streak - PHA's name", 1),
+        new(72, "Helicopter (Sanatorium)", 1), new(73, "Fireteam reinsertion vehicle", 1), new(74, "Napalm strike plane, hpc intro", 1), new(75, "Outro helicopter (hpc/sl)", 1),
     };
 
     public static readonly Named[] Camos =

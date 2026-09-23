@@ -628,7 +628,7 @@ carries the gametype switch: [[atian-menu-source]].
 
 Lower-value references: `shiversoftdev/t9-src` (alternate dump, more hashed — cross-check only),
 `ModzCentral01/Cold-war-Mods` (working example of the load path; Zombies-weighted),
-`ProjectHiNAtyu/T9_BOCW_GSC_Wiki` (notes only, withholds usable files).
+`ProjectHiNAtyu/T9_BOCW_GSC_Wiki` (notes, plus one compiled ready-to-inject menu, PHA V1.00 — source withheld; decoded in [[fun-pack]]).
 
 ⚠ **Every public BOCW GSC workflow primes through a ZOMBIES match** (`scripts/zm_common/load.gsc`).
 The MP path is the undocumented one. **Validate it with a hello-world before writing the real mod.**

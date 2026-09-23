@@ -124,3 +124,16 @@ DvarData*@0x10 (4 × 0x20: current/latched/reset/spare), type@0x18, flags@0x1c, 
   dictionary passes with ~250 words failed; the first is the chain-penalty gate by disassembly.
 - `weaponScale` (`weaponDef+0xa38 → +0xcbc`): which weapons/attachments actually differ (a per-weapon
   `v0` on the line would show it).
+
+## 6. In the menu — the fun pack (2026-09-23, never run)
+`gunfight_menu.gsc` Movement → **Slide**: speed 150 / 200 / 300 % (lever 1, the boost at the slide's start),
+**Long slide** (lever 1's hold), **No chain penalty** (lever 2, `slide_subsequentslidescale 0`), and
+**Super slide** — Project HiNAtyu's idea (it adds +125 u/s along the view every 0.05 s, no ceiling),
+rebuilt as a fixed glide speed along the view until JUMP. [[fun-pack]]
+
+⚠ **The menu detects the slide with `issliding()`, not `isonslide()`.** `issliding()` is what stock's own
+slide-kill challenge reads (`challenges_shared.gsc:2729` / `:2754`), and `bot_stance.gsc:58`. `isonslide()`
+has one stock caller, a vehicle's `touch` handler (`player_vehicle.gsc:1962`), and may mean something
+else (on a slide *surface*?). `src/slide_probe/` polls `isonslide()` — **if its `poll` counter stays at 0
+while `ev` counts, this is why**; switch the probe to `issliding()` before concluding anything.
+

@@ -412,3 +412,12 @@ say, because the single `last:` field was overwritten.
 | 4 | *Projectile → Frag grenade*, one shot | launched (m4), fuse, explodes away from you |
 
 Record: `______`
+
+## 10. 2026-09-23 — fun-pack extras beside the diagnostic (never run)
+None of these change a run-2 step: **Shots per trigger** defaults to 1, which is the single spawn run 2
+measures. Added: *Shots per trigger* 3 / 5 / 8 (the extras jittered ±6°); seven more *Projectile* rows, all
+`core_common` (War Machine grenade, cruise missile, Hand Cannon, Death Machine, ballistic knife, napalm bomb,
+artillery shell) — `hero_pineapplegun` joins `proj_is_nade` because run 1 showed a launcher round via
+`magicbullet` drops at the feet; **Grenade swap** (`grenade_fire` → delete → `magicgrenadeplayer`); the
+**Model cannon** (a prop flown from the muzzle to the impact, optional explosive-rounds blast). [[fun-pack]]
+

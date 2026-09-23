@@ -80,3 +80,11 @@ worse. **Fix: do the cleanup FIRST, then notify a DIFFERENT event the running th
 This is the identical trap the racing prototype hit 2026-09-19 (the race-over path died because the
 notifier's thread carried the endon it fired). If a "stop/exit/end" handler mysteriously half-runs,
 check whether it notifies an event its own thread endon's. Live build with the fix: cbfb7fe5.
+
+## Forge tools — the fun pack (2026-09-23, never run)
+Forge mode → **Forge tools**: spin / bob / slide / link / solid / delete on the aimed prop (else our prop
+nearest the aim line, which reaches non-solid ones, else the last placed); **Tilt new props** (the preview
+takes pitch / roll; a grabbed prop stays flat as before); **Prop gun** (each shot places your forge pick,
+floored, 250 ms apart, cap 200). ⚠ Motion and tilt are **not saved** by `forge_resave` (position / yaw /
+scale only). Design + test sheet: [[fun-pack]]
+

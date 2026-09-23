@@ -169,6 +169,11 @@ Each map switch is a session write: **lobby return check after the last one.** �
 | M3.7 | **Zone census** during overtime | `live: level.zones 1, extratime 20s, capture 5s` | |
 | M3.9 | **Zone OFF** → lobby | clean lobby return | |
 
+## M4 — fun pack (fun-pack.md, built 2026-09-23)
+One Gunfight match, host + bots: the 14-step sheet in [[fun-pack]] — fast restart, fly bind, slide page,
+disco camo, disguise, forge tools + prop gun, shots per trigger, grenade swap, model cannon, the new vehicle
+rows (step 14 needs Collateral or Crossroads). Its joiner row folds into J below.
+
 ## J — joiner session (needs a friend on a vanilla install)
 
 | # | do | expect | result |

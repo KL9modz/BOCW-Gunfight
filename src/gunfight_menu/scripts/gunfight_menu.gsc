@@ -420,6 +420,10 @@
 //       map's _ph.csv table + a universal p9_* set, isassetloaded-gated  Prop Hunt's recipe (prop.gsc
 //                                                                       :1946); "xmodel" residency
 //                                                                       read measured 2026-09-15.
+//     FUN PACK (docs/notes/fun-pack.md): fast restart row, fly bind,  ⚠ built 2026-09-23, never run.
+//       slide page (speed / long / super / chain), disco camo, prop      Stock shapes: prop.gsc setupprop
+//       disguise, forge tools + prop gun + tilt, shots per trigger,      (disguise), challenges issliding,
+//       grenade swap, model cannon, 9 appended vehicle rows              dev.gsc magicgrenadeplayer.
 //
 // ⚠ ONE CONTRADICTION THIS FILE HAD TO ROUTE AROUND. A4 diagnosed its map-switch
 //   failure as `level endon( #"game_ended" )` killing the thread inside wait(1).
@@ -2936,6 +2940,7 @@ function private mod_spawn_movement()
 
     self speed_apply();
     self thread jump_boost_think();
+    self thread slide_think();       // fun pack: slide speed / long slide / super slide
 
     // Fall damage off, the engine-native way (2026-09-15): specialty_fallheight is the engine
     // perk behind "no fall damage" - Infected grants it to the infected (infect.gsc:87),
@@ -5332,6 +5337,7 @@ function private mod_spawn_place()
     // re-arm for whoever wants them.
     self tp_spawn_rearm();
     self proj_spawn_rearm();
+    self fun_spawn_rearm();          // fun pack: disco camo, prop gun, grenade swap, model cannon
 
     // Loadout-pool camo: the stock give is done by now (give_loadout ran at
     // globallogic_spawn.gsc:637, this callback fires at :758), so repaint on top of it.
@@ -8325,6 +8331,9 @@ function private build_tree()
     self menu_item( "periods", "Pre-round 10s", &act_preround, 10, undefined, #"gf_preround", 10 );
     self menu_item( "periods", "Pre-round lobby's value", &act_preround, -1, undefined, #"gf_preround", -1 );
     self menu_item( "round", "Restart match", &act_restart );
+    // Fun pack: PHA's "Fast restart" - replay THIS round, score kept (round_restart, map_restart( true )).
+    it = self menu_item( "round", "Fast restart", &act_round_restart );
+    it.detail = "replay this round, score kept";
 
     // ── Loadout set — B6, never run ──────────────────────────────────────────
     self menu_add( "loadout", "Loadout", "start_menu", 1 );
@@ -8539,6 +8548,9 @@ function private build_tree()
     // (setmovespeedscale, stock's scaler), fall damage, and the host's fly mode. ─────────
     self menu_add( "movement", "Movement", "start_menu", 1 );
     self menu_item( "movement", "Fly mode - host", &act_fly );
+    // Fun pack: PHA's noclip bind - Tactical + Melee toggles fly with the menu closed.
+    it = self menu_item( "movement", "Fly bind: Tac + Melee", &act_fly_bind );
+    it.detail = "toggle fly with the menu closed";
     self menu_add( "mv_gravity", "Gravity", "movement", 1 );
     self menu_item( "mv_gravity", "Gravity normal 800", &act_gravity, 800, undefined, #"gf_gravity", 800 );
     self menu_item( "mv_gravity", "Gravity low 400", &act_gravity, 400, undefined, #"gf_gravity", 400 );
@@ -8596,6 +8608,23 @@ function private build_tree()
     self menu_item( "mv_fly", "Fly 20 / sprint 60", &act_fly_speed, 20, 60, #"gf_fly_speed", 20 );
     self menu_item( "mv_fly", "Fly 40 / sprint 120", &act_fly_speed, 40, 120, #"gf_fly_speed", 40 );
     self menu_item( "mv_fly", "Fly 80 / sprint 240", &act_fly_speed, 80, 240, #"gf_fly_speed", 80 );
+    // ── Slide (fun pack: PHA's super slide + slide.md's levers). Everyone, per match. Never run. ──
+    self menu_add( "mv_slide", "Slide", "movement", 1 );
+    self menu_add( "mv_slide_spd", "Slide speed", "mv_slide", 1 );
+    self menu_item( "mv_slide_spd", "Slide speed: stock", &act_slide_pct, 100 );
+    self menu_item( "mv_slide_spd", "Slide speed 150%", &act_slide_pct, 150 );
+    self menu_item( "mv_slide_spd", "Slide speed 200%", &act_slide_pct, 200 );
+    self menu_item( "mv_slide_spd", "Slide speed 300%", &act_slide_pct, 300 );
+    self menu_add( "mv_slide_sup", "Super slide", "mv_slide", 1 );
+    self menu_item( "mv_slide_sup", "Super slide OFF", &act_slide_super, 0 );
+    it = self menu_item( "mv_slide_sup", "Super slide 600", &act_slide_super, 600 );
+    it.detail = "glide along the view until JUMP";
+    self menu_item( "mv_slide_sup", "Super slide 1000", &act_slide_super, 1000 );
+    self menu_item( "mv_slide_sup", "Super slide 1600", &act_slide_super, 1600 );
+    it = self menu_item( "mv_slide", "Long slide", &act_slide_hold );
+    it.detail = "keeps the start speed";
+    it = self menu_item( "mv_slide", "No chain penalty", &act_slide_chain );
+    it.detail = "chained slides keep full speed";
 
     // ── Race (docs/notes/racing.md) — track editor + the race itself, prototype ──────
     self menu_add( "race", "Race", "start_menu", 1 );
@@ -8745,6 +8774,32 @@ function private build_tree()
     self menu_item( "forgemode", "Me: toggle", &act_forgemode_me );
     self menu_item( "forgemode", "Everyone: ON", &act_forgemode_all, 1 );
     self menu_item( "forgemode", "Everyone: OFF", &act_forgemode_all, 0 );
+    // ── Forge tools (fun pack: PHA's advanced-forge extras). Act on the aimed prop, else the last
+    //    placed. Motion is not saved across rounds. Never run. ─────────────────────────────────────
+    self menu_add( "forgetools", "Forge tools", "forgemode", 1 );
+    it = self menu_item( "forgetools", "Prop gun", &act_propgun );
+    it.detail = "each shot places your forge pick";
+    self menu_item( "forgetools", "Spin yaw", &act_ft_spin, 0 );
+    self menu_item( "forgetools", "Spin roll", &act_ft_spin, 1 );
+    self menu_item( "forgetools", "Spin pitch", &act_ft_spin, 2 );
+    self menu_item( "forgetools", "Spin stop", &act_ft_spin, -1 );
+    it = self menu_item( "forgetools", "Bob up/down", &act_ft_move, "updown" );
+    it.detail = "a moving platform";
+    self menu_item( "forgetools", "Slide left/right", &act_ft_move, "leftright" );
+    self menu_item( "forgetools", "Slide fwd/back", &act_ft_move, "fwdback" );
+    self menu_item( "forgetools", "Move stop", &act_ft_move, "stop" );
+    it = self menu_item( "forgetools", "Link to previous", &act_ft_link, 1 );
+    it.detail = "rides the prop placed before it";
+    self menu_item( "forgetools", "Unlink", &act_ft_link, 0 );
+    it = self menu_item( "forgetools", "Solid on/off", &act_ft_solid );
+    it.detail = "walk-through props";
+    self menu_item( "forgetools", "Delete aimed prop", &act_ft_delete );
+    self menu_add( "forge_tilt", "Tilt new props", "forgetools", 1 );
+    self menu_item( "forge_tilt", "Flat", &act_ft_tilt, 0, 0 );
+    self menu_item( "forge_tilt", "Tilt 45", &act_ft_tilt, 45, 0 );
+    self menu_item( "forge_tilt", "On its side", &act_ft_tilt, 0, 90 );
+    self menu_item( "forge_tilt", "Upside down", &act_ft_tilt, 0, 180 );
+    self menu_item( "forge_tilt", "Nose up", &act_ft_tilt, -90, 0 );
 
     self menu_add( "streaks", "Streaks", "start_menu", 1 );
     self menu_item( "streaks", "RC-XD", &act_streak, "recon_car", "RC-XD" );
@@ -8781,6 +8836,14 @@ function private build_tree()
     self menu_item( "proj_weapon", "Cruise missile bomblet", &act_proj_weapon, #"remote_missile_bomblet", "cruise missile bomblets" );
     self menu_item( "proj_weapon", "Jet fighter missile", &act_proj_weapon, #"jetfighter_missile", "jet fighter missiles" );
     self menu_item( "proj_weapon", "Frag grenade", &act_proj_weapon, #"frag_grenade", "frag grenades" );
+    // Fun pack: PHA's extra bullet types - every one resident on every MP map (bgcache core_common).
+    self menu_item( "proj_weapon", "War Machine grenade", &act_proj_weapon, #"hero_pineapplegun", "War Machine grenades" );
+    self menu_item( "proj_weapon", "Cruise missile", &act_proj_weapon, #"remote_missile_missile", "cruise missiles" );
+    self menu_item( "proj_weapon", "Hand Cannon round", &act_proj_weapon, #"hero_annihilator", "Hand Cannon rounds" );
+    self menu_item( "proj_weapon", "Death Machine round", &act_proj_weapon, #"sig_lmg", "Death Machine rounds" );
+    self menu_item( "proj_weapon", "Ballistic knife", &act_proj_weapon, #"special_ballisticknife_t9_dw", "ballistic knives" );
+    self menu_item( "proj_weapon", "Napalm bomb", &act_proj_weapon, #"napalm_strike", "napalm bombs" );
+    self menu_item( "proj_weapon", "Artillery shell", &act_proj_weapon, #"planemortar", "artillery shells" );
     self menu_add( "proj_rate", "Rate", "proj", 1 );
     self menu_item( "proj_rate", "One per 1000 ms", &act_proj_rate, 1000 );
     self menu_item( "proj_rate", "One per 600 ms", &act_proj_rate, 600 );
@@ -8805,6 +8868,44 @@ function private build_tree()
     it.detail = "magicbullet 40 u ahead";
     it = self menu_item( "proj", "Debug line", &act_dbg_proj );
     it.detail = "PROJ counters to the feed";
+    // ── Fun pack: PHA's "Modded bullets" extras. Never run. ──────────────────────────────────────
+    self menu_add( "proj_count", "Shots per trigger", "proj", 1 );
+    self menu_item( "proj_count", "1 - stock", &act_proj_count, 1 );
+    self menu_item( "proj_count", "3", &act_proj_count, 3 );
+    self menu_item( "proj_count", "5", &act_proj_count, 5 );
+    self menu_item( "proj_count", "8", &act_proj_count, 8 );
+    self menu_add( "nadeswap", "Grenade swap", "proj", 1 );
+    it = self menu_item( "nadeswap", "Swap", &act_nadeswap, "me" );
+    it.detail = "your throws become the Swap-to type";
+    self menu_item( "nadeswap", "Swap: everyone", &act_nadeswap, "all" );
+    self menu_item( "nadeswap", "Swap: all OFF", &act_nadeswap, "off" );
+    self menu_add( "nadeswap_type", "Swap to", "nadeswap", 1 );
+    self menu_item( "nadeswap_type", "Molotov", &act_nadeswap_type, #"eq_molotov", "Molotov" );
+    self menu_item( "nadeswap_type", "Semtex", &act_nadeswap_type, #"eq_sticky_grenade", "Semtex" );
+    self menu_item( "nadeswap_type", "Frag", &act_nadeswap_type, #"frag_grenade", "Frag" );
+    self menu_item( "nadeswap_type", "C4", &act_nadeswap_type, #"satchel_charge", "C4" );
+    self menu_item( "nadeswap_type", "Stun", &act_nadeswap_type, #"eq_slow_grenade", "Stun" );
+    self menu_item( "nadeswap_type", "Flash", &act_nadeswap_type, #"eq_flash_grenade", "Flash" );
+    self menu_item( "nadeswap_type", "Smoke", &act_nadeswap_type, #"willy_pete", "Smoke" );
+    self menu_item( "nadeswap_type", "Hatchet", &act_nadeswap_type, #"hatchet", "Hatchet" );
+    self menu_item( "nadeswap_type", "M79 grenade", &act_nadeswap_type, #"special_grenadelauncher_t9", "M79 grenade" );
+    self menu_item( "nadeswap_type", "War Machine grenade", &act_nadeswap_type, #"hero_pineapplegun", "War Machine grenade" );
+    it = self menu_item( "nadeswap_type", "Monkey bomb ?", &act_nadeswap_type, #"cymbal_monkey", "Monkey bomb" );
+    it.detail = "a Zombies item - may do nothing in MP";
+    self menu_add( "cannon", "Model cannon", "proj", 1 );
+    it = self menu_item( "cannon", "Model cannon", &act_cannon );
+    it.detail = "your shots launch a prop";
+    it = self menu_item( "cannon", "Blast on impact", &act_cannon_blast );
+    it.detail = "the explosive-rounds blast";
+    it = self menu_item( "cannon", "Keep landed props", &act_cannon_keep );
+    it.detail = "else they vanish after 5 s";
+    self menu_add( "cannon_model", "Cannon model", "cannon", 1 );
+    self menu_item( "cannon_model", "My forge pick", &act_cannon_model, "", "your forge pick" );
+    self menu_item( "cannon_model", "Chicken", &act_cannon_model, "p8_aml_chicken_female_03", "chickens" );
+    self menu_item( "cannon_model", "Oil drum", &act_cannon_model, "p9_rus_oil_drum_01", "oil drums" );
+    self menu_item( "cannon_model", "Couch", &act_cannon_model, "p9_usa_couch_04", "couches" );
+    self menu_item( "cannon_model", "Mannequin", &act_cannon_model, "p9_nt6_mannequin_clothes_male_01_dirty_full_prophunt", "mannequins" );
+    self menu_item( "cannon_model", "Energy portal", &act_cannon_model, "p8_fxp_zm_energy_portal_alctrz", "energy portals" );
 
     // ── Props — docs/notes/static-props.md: this map's Prop Hunt table + a universal set,
     //    placed where the host looks. Rebuilt on entry. ─────────────────────────────────────
@@ -8822,6 +8923,28 @@ function private build_tree()
     self menu_item( "player", "Drop weapon", &act_dropweapon );
     it = self menu_item( "player", "Unlock all", &act_unlockall );
     it.detail = "best-effort - the real unlock is client-side";
+    // ── Disguise (fun pack: PHA's Models menu). Walk around as a prop - Prop Hunt's recipe. ──
+    self menu_add( "disguise", "Disguise", "player", 1 );
+    it = self menu_item( "disguise", "Random prop", &act_disg, "random" );
+    it.detail = "be a prop, third person";
+    self menu_item( "disguise", "Next prop", &act_disg, "next" );
+    self menu_item( "disguise", "Previous prop", &act_disg, "prev" );
+    self menu_item( "disguise", "Chicken", &act_disg, "pick", "p8_aml_chicken_female_03" );
+    self menu_item( "disguise", "Mannequin", &act_disg, "pick", "p9_nt6_mannequin_clothes_male_01_dirty_full_prophunt" );
+    self menu_item( "disguise", "Couch", &act_disg, "pick", "p9_usa_couch_04" );
+    self menu_item( "disguise", "Oil drum", &act_disg, "pick", "p9_rus_oil_drum_01" );
+    self menu_item( "disguise", "Dog tags", &act_disg, "pick", "p9_dogtags_adler_enemy" );
+    self menu_item( "disguise", "Energy portal", &act_disg, "pick", "p8_fxp_zm_energy_portal_alctrz" );
+    self menu_add( "disguise_size", "Size", "disguise", 1 );
+    self menu_item( "disguise_size", "Size 0.5x", &act_disg_scale, 0.5 );
+    self menu_item( "disguise_size", "Size 1x", &act_disg_scale, 1 );
+    self menu_item( "disguise_size", "Size 2x", &act_disg_scale, 2 );
+    self menu_item( "disguise_size", "Size 4x", &act_disg_scale, 4 );
+    self menu_add( "disguise_height", "Height", "disguise", 1 );
+    self menu_item( "disguise_height", "At the feet", &act_disg_height, 0 );
+    self menu_item( "disguise_height", "Raised 20", &act_disg_height, 20 );
+    self menu_item( "disguise_height", "Raised 40", &act_disg_height, 40 );
+    self menu_item( "disguise", "Disguise OFF", &act_disg_off );
 
     // ── Teleport — a hub (docs/notes/teleport.md): everyone / a side to a point, me to a
     // point, and the teleport gun / grenade toggles. The per-player rows (to me / me to
@@ -8968,6 +9091,11 @@ function private build_tree()
     self menu_item( "camo", "Pack-a-Punch 1", &act_camo, 67 );
     self menu_item( "camo", "Pack-a-Punch 2", &act_camo, 68 );
     self menu_item( "camo", "Pack-a-Punch 3", &act_camo, 69 );
+    // Fun pack: PHA's disco camo - a random camo every 0.2 s (the target, or everyone).
+    it = self menu_item( "camo", "Disco camo", &act_disco, "me" );
+    it.detail = "random camo every 0.2 s";
+    self menu_item( "camo", "Disco camo: everyone", &act_disco, "all" );
+    self menu_item( "camo", "Disco camo: all OFF", &act_disco, "off" );
     self menu_add( "camo_byid", "Camo by ID (0-149)", "camo", 1 );
     for ( ci = 0; ci < 150; ci++ )
         self menu_item( "camo_byid", "Camo " + ci, &act_camo, ci );
@@ -11731,6 +11859,19 @@ function private veh_master()
     m = veh_def( m, #"hash_3463002d802c1a98", "Intro cinematic vehicle (Crossroads)", 1, "hash_3463002d802c1a98" );
     m = veh_def( m, #"hash_581bb1b0fa4a3139", "Intro cinematic vehicle (Crossroads kgb 2)", 1, "hash_581bb1b0fa4a3139" );
     m = veh_def( m, #"hash_61b8f8f61f4b9ce7", "Intro cinematic vehicle (Crossroads cia)", 1, "hash_61b8f8f61f4b9ce7" );
+    // ── Fun pack 2026-09-23: resident on MP maps, missing here - PHA V1.00's vehicle page carries them
+    //    (vehicles.md §7 had already named the first three as resident-but-absent). APPENDED at the end so
+    //    the app's master indices do not move (Catalog.cs mirrors this order). kind 1 = untested, like
+    //    every other row in this group; PHA's own labels are kept where the asset name is unresolved.
+    m = veh_def( m, "heli_ai_mp", "AI helicopter", 1 );                                                    // every map
+    m = veh_def( m, "veh_missile_turret", "Anti-air missile turret", 1 );                                 // every map
+    m = veh_def( m, "veh_ultimate_turret", "Sentry turret", 1 );                                          // every map
+    m = veh_def( m, #"hash_444804d03bdda785", "Drone squad - PHA's name", 1, "hash_444804d03bdda785" );    // every map
+    m = veh_def( m, #"hash_7dd2944ddf7cc7e9", "RC-XD streak - PHA's name", 1, "hash_7dd2944ddf7cc7e9" );   // every map
+    m = veh_def( m, #"hash_17e868e0ebf3c1d6", "Helicopter (Sanatorium)", 1, "hash_17e868e0ebf3c1d6" );     // wz_sanatorium
+    m = veh_def( m, #"hash_3effd1dd89ee3d36", "Fireteam reinsertion vehicle", 1, "hash_3effd1dd89ee3d36" ); // wz_*
+    m = veh_def( m, #"hash_3d2bbfdb89093d91", "Napalm strike plane, hpc intro", 1, "hash_3d2bbfdb89093d91" );  // wz_*
+    m = veh_def( m, #"hash_631691623ad368bd", "Outro helicopter (hpc/sl)", 1, "hash_631691623ad368bd" );   // wz_*
     level.gf_veh_master = m;
     return m;
 }
@@ -16093,7 +16234,7 @@ function private proj_is_nade( w )
     if ( is_true( w.isgrenadeweapon ) )
         return true;
 
-    return w == getweapon( #"special_grenadelauncher_t9" ) || w == getweapon( #"frag_grenade" );
+    return w == getweapon( #"special_grenadelauncher_t9" ) || w == getweapon( #"frag_grenade" ) || w == getweapon( #"hero_pineapplegun" );
 }
 
 // The weapon's own projectile speed where the def exposes it (zm_ai_hulk.gsc:2246 reads
@@ -16215,13 +16356,17 @@ function private proj_think()
 
         self.gf_proj_last = now;
         self proj_fire( w );
+
+        // Fun pack: extra spawns per trigger, spread 6 degrees (default 1 = none).
+        for ( extra = 1; extra < proj_count(); extra++ )
+            self proj_fire( w, 6 );
     }
 }
 
 // One shot -> one spawn, by the chosen method (0 = AUTO picks per weapon class). Counters
 // around the call so the line can tell "threw" (fire > ret) from "returned undefined" (none)
 // from "returned an entity" (ent + lastent).
-function private proj_fire( w )
+function private proj_fire( w, spread = 0 )
 {
     s = proj_stats();
     m = proj_method();
@@ -16231,7 +16376,13 @@ function private proj_fire( w )
         use = proj_is_nade( w ) ? 4 : 1;
 
     eye = self geteye();
-    fwd = anglestoforward( self getplayerangles() );
+    ang = self getplayerangles();
+
+    // spread > 0: an extra shot of Shots per trigger, jittered up to +-spread degrees.
+    if ( spread > 0 )
+        ang = ( ang[ 0 ] + randomint( spread * 2 + 1 ) - spread, ang[ 1 ] + randomint( spread * 2 + 1 ) - spread, ang[ 2 ] );
+
+    fwd = anglestoforward( ang );
     s.fire++;
 
     if ( use == 5 )
@@ -16595,6 +16746,1168 @@ function private menu_mark_only( page, item )
 
     if ( isdefined( item ) )
         item.activated = 1;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FUN PACK — docs/notes/fun-pack.md. Built 2026-09-23, NEVER RUN.
+// ═════════════════════════════════════════════════════════════════════════════
+// The gaps a feature-by-feature diff against Project HiNAtyu's CW menu (PHA V1.00, 2024-05-01,
+// ProjectHiNAtyu/T9_BOCW_GSC_Wiki) found in this file (klaze 2026-09-23: "take everything we
+// dont have"). PHA ships only compiled bytecode; it was disassembled to learn WHICH builtins
+// each feature leans on, and every piece here is rebuilt from stock's own call shapes and this
+// file's helpers - nothing is transcribed. What this file already had is not duplicated: fly
+// mode (all-axes noclip), the projectile page (modded bullets), forge place/grab/scale/undo,
+// the vehicle spawner, the Camo / Operator pages, map_restart.
+//
+// State is per MATCH on game. / player fields - the projectile and teleport-gun convention -
+// never a new dvar: the GSC-VM dvar pool is what crashed at 72 registrations (dvars_register).
+// Per-life threads are re-armed from mod_spawn_place (fun_spawn_rearm) and mod_spawn_movement
+// (slide_think), the same two hooks every other per-life feature uses.
+
+// ── Fast restart (PHA "Fast restart" = map_restart( 1 )). Ours is round_restart(): the same
+// persist restart - game.* (score, round count) kept - plus stock's transition steps and the
+// vehicle sweep. It existed only behind the app's "restartround" verb; this is its menu row. ──
+function private act_round_restart( item )
+{
+    self menu_say( "^3fast restart - replaying this round, score kept" );
+    // A level thread: the menu closes (return false) and nothing here may be cut short by it.
+    level thread round_restart();
+    return false;
+}
+
+// ── Fly bind (PHA "Bind noclip to Tactical + Melee"). fly_think already flies on every axis -
+// forward follows the view pitch - so the only gap was the bind: TACTICAL + MELEE toggles fly
+// with the menu closed. Per player (the menu target), kept across lives. Ignored while the
+// menu is open, while forging and in a vehicle, so it never fights those bindings. ──────────
+function private act_fly_bind( item )
+{
+    p = self menu_target();
+    on = !is_true( p.gf_fly_bind );
+    p.gf_fly_bind = on;
+    item.activated = on;
+
+    if ( on )
+        p thread fly_bind_think();
+    else
+        p notify( #"gf_flybind_stop" );
+
+    self menu_say( "^3Fly bind, Tactical + Melee: " + ( on ? "^2ON" : "^1OFF" ) + self target_tail( p ) );
+    return true;
+}
+
+function private fly_bind_think()
+{
+    self notify( #"gf_flybind_stop" );
+    self endon( #"gf_flybind_stop" );
+    self endon( #"disconnect" );
+
+    for ( ;; )
+    {
+        waitframe( 1 );
+
+        if ( !isalive( self ) || self tp_menu_open() || self forge_active() || self isinvehicle() )
+            continue;
+
+        if ( !self secondaryoffhandbuttonpressed() || !self meleebuttonpressed() )
+            continue;
+
+        if ( is_true( self.gf_fly ) )
+        {
+            self notify( #"gf_fly_stop" );
+            self iprintln( "^3Fly mode: ^1OFF" );
+        }
+        else
+        {
+            self thread fly_think();
+            self iprintln( "^3Fly mode: ^2ON" );
+        }
+
+        // One press = one toggle: wait until both buttons are up again.
+        while ( self secondaryoffhandbuttonpressed() || self meleebuttonpressed() )
+            waitframe( 1 );
+    }
+}
+
+// ── Slide (PHA "Super slide" + docs/notes/slide.md's script levers, from src/slide_probe).
+// Per life, every player, on the issliding() edge - issliding() is the test stock's own
+// slide-kill challenge uses (challenges_shared.gsc:2729); isonslide()'s one stock caller is a
+// vehicle touch check (player_vehicle.gsc:1962). Per-match settings:
+//   game.gf_slide_pct    horizontal speed at the slide's start, % (100 = stock)
+//   game.gf_slide_hold   1 = hold that speed for the whole slide (the "long slide")
+//   game.gf_slide_super  0 off / N = PHA's super slide: from the slide on, glide at N u/s
+//                        along the view until JUMP (6 s cap). Humans only - a bot never jumps
+//                        out of it. PHA pushes +125 u/s every 0.05 s with no ceiling; this
+//                        holds a fixed speed instead.
+//   game.gf_slide_chain  1 = no chained-slide penalty: slide_subsequentslidescale 0 (slide.md
+//                        lever 2). A shared bg dvar the host sets - a joiner's prediction may
+//                        still apply the stock penalty. Unmeasured.
+function private slide_pct() { return isdefined( game.gf_slide_pct ) ? game.gf_slide_pct : 100; }
+function private slide_hold() { return is_true( game.gf_slide_hold ); }
+function private slide_super() { return isdefined( game.gf_slide_super ) ? game.gf_slide_super : 0; }
+
+function private slide_think()
+{
+    self notify( #"gf_slide_restart" );
+    self endon( #"gf_slide_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    was = 0;
+
+    for ( ;; )
+    {
+        on = self issliding();
+
+        if ( on && !was )
+            self thread slide_ride();
+
+        was = on;
+        waitframe( 1 );
+    }
+}
+
+function private slide_ride()
+{
+    self notify( #"gf_slide_ride" );
+    self endon( #"gf_slide_ride" );
+    self endon( #"gf_slide_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    pct = slide_pct();
+    sup = slide_super();
+
+    if ( isbot( self ) )
+        sup = 0;
+
+    if ( pct == 100 && !slide_hold() && sup <= 0 )
+        return;                                     // all stock: touch nothing
+
+    v = self getvelocity();
+    k = pct / 100;
+
+    if ( pct != 100 && pct > 0 )
+        self setvelocity( ( v[ 0 ] * k, v[ 1 ] * k, v[ 2 ] ) );
+
+    keep = length( ( v[ 0 ] * k, v[ 1 ] * k, 0 ) );
+
+    // Long slide: re-assert the entry speed every frame while the engine keeps the slide going
+    // (slide.md §2: nothing re-clamps the speed after the start frame, only friction).
+    if ( slide_hold() && sup <= 0 )
+    {
+        while ( self issliding() )
+        {
+            cv = self getvelocity();
+            h = length( ( cv[ 0 ], cv[ 1 ], 0 ) );
+
+            if ( h > 1 && h < keep )
+                self setvelocity( ( cv[ 0 ] * keep / h, cv[ 1 ] * keep / h, cv[ 2 ] ) );
+
+            waitframe( 1 );
+        }
+
+        return;
+    }
+
+    if ( sup <= 0 )
+        return;
+
+    // Super slide: steer with the view, whatever the engine's slide state does, until JUMP.
+    t0 = gettime();
+    waitframe( 1 );
+
+    while ( gettime() - t0 < 6000 && !self jumpbuttonpressed() )
+    {
+        fwd = anglestoforward( ( 0, self getplayerangles()[ 1 ], 0 ) );
+        cv = self getvelocity();
+        self setvelocity( ( fwd[ 0 ] * sup, fwd[ 1 ] * sup, cv[ 2 ] ) );
+        waitframe( 1 );
+    }
+}
+
+function private act_slide_pct( item, pct )
+{
+    game.gf_slide_pct = pct;
+    self menu_mark_only( "mv_slide_spd", item );
+    self menu_say( "^3Slide speed: ^2" + ( pct == 100 ? "stock" : ( pct + "%" ) ) );
+    return true;
+}
+
+function private act_slide_super( item, spd )
+{
+    game.gf_slide_super = spd;
+    self menu_mark_only( "mv_slide_sup", item );
+    self menu_say( "^3Super slide: " + ( spd > 0 ? ( "^2" + spd + " u/s ^7- slide, steer with the view, JUMP to stop" ) : "^1OFF" ) );
+    return true;
+}
+
+function private act_slide_hold( item )
+{
+    on = !slide_hold();
+    game.gf_slide_hold = on;
+    item.activated = on;
+    self menu_say_toggle( "Long slide", on );
+    return true;
+}
+
+function private act_slide_chain( item )
+{
+    if ( !isdefined( game.gf_slide_chain_stock ) )
+        game.gf_slide_chain_stock = getdvarfloat( #"slide_subsequentslidescale", 0.1 );
+
+    on = !is_true( game.gf_slide_chain );
+    game.gf_slide_chain = on;
+    item.activated = on;
+    setdvar( #"slide_subsequentslidescale", on ? 0 : game.gf_slide_chain_stock );
+    self menu_say_toggle( "No chain penalty", on );
+    return true;
+}
+
+// ── Disco camo (PHA: setcamo( getcurrentweapon(), randomintrange( 0, 150 ) ) every 0.15 s).
+// The Camo page's own call (act_camo), on a timer: a random row of the 121 mapped camos
+// (1-121, docs/notes/loadout-camo.md) every 0.2 s. Per player or everyone (humans), per life,
+// re-armed on spawn like the teleport gun. ────────────────────────────────────────────────
+function private disco_wanted( p )
+{
+    if ( is_true( p.gf_disco ) )
+        return true;
+
+    return is_true( game.gf_disco_all ) && !isbot( p );
+}
+
+function private disco_rearm( p )
+{
+    p notify( #"gf_disco_restart" );
+
+    if ( isalive( p ) && disco_wanted( p ) )
+        p thread disco_think();
+}
+
+function private disco_think()
+{
+    self notify( #"gf_disco_restart" );
+    self endon( #"gf_disco_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    for ( ;; )
+    {
+        if ( !disco_wanted( self ) )
+            return;
+
+        w = self getcurrentweapon();
+
+        if ( isdefined( w ) && !( isdefined( level.weaponnone ) && w == level.weaponnone ) )
+            self setcamo( w, 1 + randomint( 121 ) );
+
+        wait 0.2;
+    }
+}
+
+// who = "me" (the menu target) | "all" (everyone, humans) | "off" (everything).
+function private act_disco( item, who )
+{
+    if ( who == "off" )
+    {
+        game.gf_disco_all = 0;
+
+        foreach ( p in getplayers() )
+        {
+            p.gf_disco = 0;
+            disco_rearm( p );
+        }
+
+        self menu_say( "^3Disco camo: ^1OFF ^7for everyone" );
+        return true;
+    }
+
+    if ( who == "all" )
+    {
+        on = !is_true( game.gf_disco_all );
+        game.gf_disco_all = on;
+        item.activated = on;
+
+        foreach ( p in getplayers() )
+            disco_rearm( p );
+
+        self menu_say( "^3Disco camo, everyone: " + ( on ? "^2ON" : "^1OFF" ) );
+        return true;
+    }
+
+    p = self menu_target();
+    on = !is_true( p.gf_disco );
+    p.gf_disco = on;
+    item.activated = on;
+    disco_rearm( p );
+    self menu_say( "^3Disco camo: " + ( on ? "^2ON" : "^1OFF" ) + self target_tail( p ) );
+    return true;
+}
+
+// ── Disguise (PHA's Models menu: "Set model" = walk around as a prop). Prop Hunt's own recipe
+// (prop.gsc setupprop :1932-2002): a non-solid, no-collision script_model with the prop's
+// model + scale, linked to the player; the player ghost()ed and in third person. show()
+// undoes the ghost (prop.gsc :2695) and stock's spawn path shows every player again
+// (globallogic_spawn.gsc:421), so a death only has to delete the prop. Models = prop_master()
+// (the 423 universal props), every pick isassetloaded-gated. Per player (the menu target).
+// The player keeps his weapons - whether a ghosted player's gun still renders is unknown. ──
+function private disg_apply( p, idx )
+{
+    m = prop_master();
+
+    if ( idx < 0 || idx >= m.size )
+        idx = 0;
+
+    model = m[ idx ].model;
+
+    if ( !isalive( p ) )
+        return "spawn first";
+
+    if ( !isassetloaded( "xmodel", model ) )
+        return "not resident here: " + prop_short( model );
+
+    d = p.gf_disg;
+
+    if ( !isdefined( d ) )
+    {
+        d = spawn( "script_model", p.origin );
+
+        if ( !isdefined( d ) )
+            return "could not spawn the prop";
+
+        d.targetname = "gf_disguise";
+        d setcontents( 0 );
+        d notsolid();
+        d setplayercollision( 0 );
+        p.gf_disg = d;
+        p thread disg_watch( d );
+    }
+    else
+    {
+        d unlink();
+    }
+
+    sc = isdefined( p.gf_disg_scale ) ? p.gf_disg_scale : 1;
+    zo = isdefined( p.gf_disg_z ) ? p.gf_disg_z : 0;
+    d setmodel( model );
+    d setscale( sc );
+    d.origin = p.origin + ( 0, 0, zo );
+    d.angles = ( 0, p.angles[ 1 ], 0 );
+    d linkto( p );
+    p ghost();
+    p setclientthirdperson( 1 );
+    p.gf_disg_idx = idx;
+    return "";
+}
+
+function private disg_off( p )
+{
+    p notify( #"gf_disg_stop" );
+
+    if ( isdefined( p.gf_disg ) )
+        p.gf_disg delete();
+
+    p.gf_disg = undefined;
+
+    if ( isalive( p ) )
+    {
+        p show();
+
+        if ( !is_true( p.gf_tp ) )
+            p setclientthirdperson( 0 );
+    }
+}
+
+// The prop goes with the life: stock's spawn shows the player again, so only the prop is ours.
+function private disg_watch( d )
+{
+    self endon( #"gf_disg_stop" );
+    self waittill( #"death", #"disconnect" );
+
+    if ( isdefined( d ) )
+        d delete();
+
+    if ( isdefined( self ) )
+        self.gf_disg = undefined;
+}
+
+// The next prop this map has resident, from the player's current pick, in direction dir.
+// Bounded (60 steps): the universal set is resident everywhere by construction.
+function private disg_step( p, dir )
+{
+    m = prop_master();
+    i = isdefined( p.gf_disg_idx ) ? p.gf_disg_idx : 0;
+
+    for ( n = 0; n < 60; n++ )
+    {
+        i = ( i + dir + m.size ) % m.size;
+
+        if ( isassetloaded( "xmodel", m[ i ].model ) )
+            return i;
+    }
+
+    return -1;
+}
+
+function private disg_find( model )
+{
+    m = prop_master();
+
+    for ( i = 0; i < m.size; i++ )
+    {
+        if ( m[ i ].model == model )
+            return i;
+    }
+
+    return -1;
+}
+
+// how = "next" | "prev" | "random" | "pick" (model = a prop_master() model name).
+function private act_disg( item, how, model )
+{
+    p = self menu_target();
+    i = -1;
+
+    if ( how == "next" )
+        i = disg_step( p, 1 );
+    else if ( how == "prev" )
+        i = disg_step( p, -1 );
+    else if ( how == "random" )
+    {
+        p.gf_disg_idx = randomint( prop_master().size );
+        i = disg_step( p, 1 );
+    }
+    else if ( how == "pick" )
+        i = disg_find( model );
+
+    if ( i < 0 )
+    {
+        self menu_say( "^1Disguise: no resident prop found" );
+        return true;
+    }
+
+    err = disg_apply( p, i );
+
+    if ( err != "" )
+    {
+        self menu_say( "^1Disguise: " + err + self target_tail( p ) );
+        return true;
+    }
+
+    self menu_say( "^3Disguise: ^2" + prop_master()[ i ].label + self target_tail( p ) );
+    return true;
+}
+
+function private act_disg_scale( item, sc )
+{
+    p = self menu_target();
+    p.gf_disg_scale = sc;
+
+    if ( isdefined( p.gf_disg ) )
+        p.gf_disg setscale( sc );
+
+    self menu_mark_only( "disguise_size", item );
+    self menu_say( "^3Disguise size: ^2" + sc + "x" + self target_tail( p ) );
+    return true;
+}
+
+// PHA's "Sync position to center": a prop whose origin is its base sits at the feet; one with
+// a centred origin sinks. Raise re-seats the prop that many units up.
+function private act_disg_height( item, z )
+{
+    p = self menu_target();
+    p.gf_disg_z = z;
+
+    if ( isdefined( p.gf_disg ) && isdefined( p.gf_disg_idx ) )
+        disg_apply( p, p.gf_disg_idx );
+
+    self menu_mark_only( "disguise_height", item );
+    self menu_say( "^3Disguise height: ^2+" + z + self target_tail( p ) );
+    return true;
+}
+
+function private act_disg_off( item )
+{
+    p = self menu_target();
+    disg_off( p );
+    self menu_say( "^3Disguise: ^1OFF" + self target_tail( p ) );
+    return true;
+}
+
+// ── Forge tools (PHA's Advanced forge extras). Each acts on the prop under the crosshair (ours
+// or a map script_model), else - for a non-solid one the trace passes through - our prop nearest
+// the aim line, else the last one placed:
+//   spin on an axis (rotateyaw/roll/pitch loop), bob / slide back and forth (moveto loop - a
+//   solid model moving under a player carries him, the elevator idiom), link a prop to another
+//   so it rides along (linkto keeps the current offset), solid on / off, delete.
+// Plus TILT for new placements (forge_update_preview reads it) and the PROP GUN (PHA "Create
+// object at launch destination": every shot places your forge pick where it lands). Motion is
+// NOT saved across rounds: forge_resave keeps position / yaw / scale only. ─────────────────
+function private ft_target()
+{
+    eye = self geteye();
+    fwd = anglestoforward( self getplayerangles() );
+    tr = bullettrace( eye, eye + vectorscale( fwd, 2500 ), 0, self );
+    ent = tr[ #"entity" ];
+
+    if ( isdefined( ent ) && !isplayer( ent ) && !isvehicle( ent ) && !isactor( ent ) && isdefined( ent.classname ) && ent.classname == "script_model" )
+        return ent;
+
+    ent = ft_ray_pick( eye, fwd );
+
+    if ( isdefined( ent ) )
+        return ent;
+
+    return ft_last( undefined );
+}
+
+// Our prop nearest the aim line (within 80 u of it, 2500 u out) - reaches non-solid props.
+function private ft_ray_pick( eye, fwd )
+{
+    best = undefined;
+    bestd = 80;
+
+    if ( !isdefined( level.gf_props ) )
+        return undefined;
+
+    foreach ( p in level.gf_props )
+    {
+        if ( !isdefined( p ) )
+            continue;
+
+        t = vectordot( p.origin - eye, fwd );
+
+        if ( t < 0 || t > 2500 )
+            continue;
+
+        d = distance( p.origin, eye + vectorscale( fwd, t ) );
+
+        if ( d < bestd )
+        {
+            bestd = d;
+            best = p;
+        }
+    }
+
+    return best;
+}
+
+// The most recently placed prop that is not `skip`.
+function private ft_last( skip )
+{
+    if ( !isdefined( level.gf_props ) )
+        return undefined;
+
+    for ( i = level.gf_props.size - 1; i >= 0; i-- )
+    {
+        p = level.gf_props[ i ];
+
+        if ( isdefined( p ) && !( isdefined( skip ) && p == skip ) )
+            return p;
+    }
+
+    return undefined;
+}
+
+function private ft_name( ent )
+{
+    if ( isdefined( ent.gf_model ) )
+        return prop_short( ent.gf_model );
+
+    if ( isdefined( ent.model ) && isstring( ent.model ) )
+        return prop_short( ent.model );
+
+    return "prop";
+}
+
+function private ft_none()
+{
+    self menu_say( "^1Forge tools: aim at a prop, or place one first" );
+    return true;
+}
+
+// axis 0 yaw / 1 roll / 2 pitch / -1 stop.
+function private act_ft_spin( item, axis )
+{
+    ent = self ft_target();
+
+    if ( !isdefined( ent ) )
+        return self ft_none();
+
+    if ( axis < 0 )
+    {
+        ent notify( #"gf_ft_spin" );
+        ent rotateto( ent.angles, 0.1 );
+        self menu_say( "^3Spin: ^1stopped ^7(" + ft_name( ent ) + ")" );
+        return true;
+    }
+
+    ent thread ft_spin_loop( axis );
+    self menu_say( "^3Spin: ^2" + ( axis == 0 ? "yaw" : ( axis == 1 ? "roll" : "pitch" ) ) + " ^7(" + ft_name( ent ) + ")" );
+    return true;
+}
+
+// Runs ON the prop, so deleting the prop ends it.
+function private ft_spin_loop( axis )
+{
+    self notify( #"gf_ft_spin" );
+    self endon( #"gf_ft_spin" );
+    self endon( #"death" );
+
+    for ( ;; )
+    {
+        if ( axis == 0 )
+            self rotateyaw( 360, 3 );
+        else if ( axis == 1 )
+            self rotateroll( 360, 3 );
+        else
+            self rotatepitch( 360, 3 );
+
+        wait 3;
+    }
+}
+
+// kind "updown" | "leftright" | "fwdback" | "stop". Offsets along the prop's own yaw.
+function private act_ft_move( item, kind )
+{
+    ent = self ft_target();
+
+    if ( !isdefined( ent ) )
+        return self ft_none();
+
+    if ( kind == "stop" )
+    {
+        ent notify( #"gf_ft_move" );
+
+        if ( isdefined( ent.gf_ft_home ) )
+            ent moveto( ent.gf_ft_home, 0.3 );
+
+        self menu_say( "^3Move: ^1stopped ^7(" + ft_name( ent ) + ")" );
+        return true;
+    }
+
+    flat = ( 0, ent.angles[ 1 ], 0 );
+
+    if ( kind == "updown" )
+        delta = ( 0, 0, 96 );
+    else if ( kind == "leftright" )
+        delta = vectorscale( anglestoright( flat ), 160 );
+    else
+        delta = vectorscale( anglestoforward( flat ), 160 );
+
+    ent thread ft_move_loop( delta );
+    self menu_say( "^3Move: ^2" + kind + " ^7(" + ft_name( ent ) + ")" );
+    return true;
+}
+
+function private ft_move_loop( delta )
+{
+    self notify( #"gf_ft_move" );
+    self endon( #"gf_ft_move" );
+    self endon( #"death" );
+
+    if ( !isdefined( self.gf_ft_home ) )
+        self.gf_ft_home = self.origin;
+
+    home = self.gf_ft_home;
+
+    for ( ;; )
+    {
+        self moveto( home + delta, 2, 0.5, 0.5 );
+        wait 2;
+        self moveto( home, 2, 0.5, 0.5 );
+        wait 2;
+    }
+}
+
+// on = link the aimed prop to the one placed before it (so it rides that one's spin / move);
+// off = unlink the aimed prop.
+function private act_ft_link( item, on )
+{
+    ent = self ft_target();
+
+    if ( !isdefined( ent ) )
+        return self ft_none();
+
+    if ( !on )
+    {
+        ent unlink();
+        self menu_say( "^3Link: ^1" + ft_name( ent ) + " unlinked" );
+        return true;
+    }
+
+    base = ft_last( ent );
+
+    if ( !isdefined( base ) )
+    {
+        self menu_say( "^1Link: place a second prop first" );
+        return true;
+    }
+
+    ent linkto( base );
+    self menu_say( "^3Link: ^2" + ft_name( ent ) + " ^7rides ^2" + ft_name( base ) );
+    return true;
+}
+
+function private act_ft_solid( item )
+{
+    ent = self ft_target();
+
+    if ( !isdefined( ent ) )
+        return self ft_none();
+
+    off = !is_true( ent.gf_ft_nonsolid );
+    ent.gf_ft_nonsolid = off;
+
+    if ( off )
+        ent notsolid();
+    else
+        ent solid();
+
+    self menu_say( "^3Solid: " + ( off ? "^1OFF - walk through" : "^2ON" ) + " ^7(" + ft_name( ent ) + ")" );
+    return true;
+}
+
+function private act_ft_delete( item )
+{
+    ent = self ft_target();
+
+    if ( !isdefined( ent ) )
+        return self ft_none();
+
+    name = ft_name( ent );
+    self forge_delete_entity( ent );
+    self menu_say( "^3Deleted: ^2" + name );
+    return true;
+}
+
+// Tilt for NEW props: the preview and every placement take this pitch / roll (a grabbed prop
+// keeps the old flat behaviour). Not saved across rounds (forge_resave records yaw only).
+function private act_ft_tilt( item, pitch, roll )
+{
+    fg = self forge_state();
+    fg.tilt_p = pitch;
+    fg.tilt_r = roll;
+    self menu_mark_only( "forge_tilt", item );
+    self menu_say( "^3Tilt for new props: ^2pitch " + pitch + " roll " + roll );
+    return true;
+}
+
+function private propgun_wanted( p )
+{
+    return is_true( p.gf_propgun );
+}
+
+function private propgun_rearm( p )
+{
+    p notify( #"gf_propgun_restart" );
+
+    if ( isalive( p ) && propgun_wanted( p ) )
+        p thread propgun_think();
+}
+
+// One placement per shot where it lands, 250 ms apart (full-auto would otherwise lay a carpet).
+// Shots while the host's menu is open are menu navigation; forge has its own FIRE = place.
+function private propgun_think()
+{
+    self notify( #"gf_propgun_restart" );
+    self endon( #"gf_propgun_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    last = 0;
+
+    for ( ;; )
+    {
+        self waittill( #"weapon_fired" );
+
+        if ( !propgun_wanted( self ) )
+            return;
+
+        if ( self tp_menu_open() || self forge_active() )
+            continue;
+
+        now = gettime();
+
+        if ( now - last < 250 )
+            continue;
+
+        last = now;
+        pos = self tp_aim();
+
+        if ( isdefined( pos ) )
+            self propgun_place( pos );
+    }
+}
+
+// forge_place's recipe at a given point: the shooter's forge pick / scale / tilt, floored and
+// lifted clear of the floor, tagged gf_prop so undo / grab / delete / the round save all see it.
+function private propgun_place( pos )
+{
+    fg = self forge_state();
+    m = prop_master();
+    model = m[ fg.idx ].model;
+
+    if ( !isassetloaded( "xmodel", model ) )
+    {
+        self iprintln( "^1Prop gun: " + prop_short( model ) + " is not resident here - pick another in forge" );
+        return;
+    }
+
+    if ( isdefined( level.gf_props ) && level.gf_props.size >= 200 )
+    {
+        self iprintln( "^1Prop gun: 200 props up - delete some first" );
+        return;
+    }
+
+    p = spawn( "script_model", tp_floor( pos ) );
+
+    if ( !isdefined( p ) )
+        return;
+
+    p setmodel( model );
+    pitch = isdefined( fg.tilt_p ) ? fg.tilt_p : 0;
+    roll = isdefined( fg.tilt_r ) ? fg.tilt_r : 0;
+    p.angles = ( pitch, self getplayerangles()[ 1 ] + 180 + fg.yaw, roll );
+
+    if ( fg.scale != 1 )
+        p setscale( fg.scale );
+
+    lift = forge_prop_zlift( p, fg.scale );
+
+    if ( lift != 0 )
+        p.origin += ( 0, 0, lift );
+
+    p.targetname = "gf_prop";
+    p.gf_model = model;
+    p.gf_scale = fg.scale;
+
+    if ( !isdefined( level.gf_props ) )
+        level.gf_props = [];
+
+    level.gf_props[ level.gf_props.size ] = p;
+
+    if ( m[ fg.idx ].barrel )
+    {
+        p setcandamage( 1 );
+        p.health = 1000;
+        p.gf_barrel = 1;
+        p.gf_barrelflag = 1;
+        p thread barrel_think();
+    }
+
+    self forge_resave();
+}
+
+function private act_propgun( item )
+{
+    p = self menu_target();
+    on = !propgun_wanted( p );
+    p.gf_propgun = on;
+    item.activated = on;
+    propgun_rearm( p );
+    fs = p forge_state();
+    pick = prop_master()[ fs.idx ].label;
+    self menu_say( "^3Prop gun: " + ( on ? ( "^2ON ^7- shots place " + pick ) : "^1OFF" ) + self target_tail( p ) );
+    return true;
+}
+
+// ── More modded bullets (PHA "Modded bullets": "Number of bullets fired is 5", "Modded
+// grenades", "Full customize bullets"). The projectile page's pipeline is untouched: one
+// spawn per shot unless Shots per trigger says otherwise (proj_think reads proj_count). ──
+function private proj_count() { return isdefined( game.gf_proj_count ) ? game.gf_proj_count : 1; }
+
+function private act_proj_count( item, n )
+{
+    game.gf_proj_count = n;
+    self menu_mark_only( "proj_count", item );
+    self menu_say( "^3Shots per trigger: ^2" + n + ( n > 1 ? " ^7(the extras spread 6 degrees)" : "" ) );
+    return true;
+}
+
+// Grenade swap: the grenade you throw is replaced by another type at the same spot, thrown
+// along your view at that weapon's own speed, you the owner. grenade_fire hands over
+// { projectile, weapon } (weaponobjects.gsc:2251); magicgrenadeplayer( weapon, origin,
+// velocity ) is stock's player-owned spawner (dev.gsc:2570). Every type offered is resident on
+// every MP map (tables/bgcache core_common). Per player or everyone (humans), per life.
+function private nadeswap_wanted( p )
+{
+    if ( !isdefined( game.gf_nadeswap_w ) )
+        return false;
+
+    if ( is_true( p.gf_nadeswap ) )
+        return true;
+
+    return is_true( game.gf_nadeswap_all ) && !isbot( p );
+}
+
+function private nadeswap_rearm( p )
+{
+    p notify( #"gf_nadeswap_restart" );
+
+    if ( isalive( p ) && nadeswap_wanted( p ) )
+        p thread nadeswap_think();
+}
+
+function private nadeswap_think()
+{
+    self notify( #"gf_nadeswap_restart" );
+    self endon( #"gf_nadeswap_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    for ( ;; )
+    {
+        res = self waittill( #"grenade_fire" );
+
+        if ( !nadeswap_wanted( self ) )
+            return;
+
+        if ( !isdefined( res.projectile ) )
+            continue;
+
+        w = getweapon( game.gf_nadeswap_w );
+
+        if ( !isdefined( w ) || ( isdefined( level.weaponnone ) && w == level.weaponnone ) )
+            continue;
+
+        // Already that type - including our own spawn, should it raise grenade_fire again.
+        if ( isdefined( res.weapon ) && res.weapon == w )
+            continue;
+
+        org = res.projectile.origin;
+        res.projectile delete();
+        self magicgrenadeplayer( w, org, vectorscale( anglestoforward( self getplayerangles() ), proj_speed( w ) ) );
+    }
+}
+
+function private act_nadeswap_type( item, key, label )
+{
+    w = getweapon( key );
+
+    if ( !isdefined( w ) || ( isdefined( level.weaponnone ) && w == level.weaponnone ) )
+    {
+        self menu_say( "^1" + label + ": weapon not found on this map" );
+        return true;
+    }
+
+    game.gf_nadeswap_w = key;
+    game.gf_nadeswap_name = label;
+    self menu_mark_only( "nadeswap_type", item );
+
+    foreach ( p in getplayers() )
+        nadeswap_rearm( p );
+
+    self menu_say( "^3Grenade swap type: ^2" + label );
+    return true;
+}
+
+// who = "me" (the menu target) | "all" (humans) | "off".
+function private act_nadeswap( item, who )
+{
+    if ( who == "off" )
+    {
+        game.gf_nadeswap_all = 0;
+
+        foreach ( p in getplayers() )
+        {
+            p.gf_nadeswap = 0;
+            nadeswap_rearm( p );
+        }
+
+        self menu_say( "^3Grenade swap: ^1OFF ^7for everyone" );
+        return true;
+    }
+
+    if ( !isdefined( game.gf_nadeswap_w ) )
+    {
+        game.gf_nadeswap_w = #"eq_molotov";
+        game.gf_nadeswap_name = "Molotov";
+    }
+
+    if ( who == "all" )
+    {
+        on = !is_true( game.gf_nadeswap_all );
+        game.gf_nadeswap_all = on;
+        item.activated = on;
+
+        foreach ( p in getplayers() )
+            nadeswap_rearm( p );
+
+        self menu_say( "^3Grenade swap, everyone: " + ( on ? ( "^2ON ^7- throws become " + game.gf_nadeswap_name ) : "^1OFF" ) );
+        return true;
+    }
+
+    p = self menu_target();
+    on = !is_true( p.gf_nadeswap );
+    p.gf_nadeswap = on;
+    item.activated = on;
+    nadeswap_rearm( p );
+    self menu_say( "^3Grenade swap: " + ( on ? ( "^2ON ^7- throws become " + game.gf_nadeswap_name ) : "^1OFF" ) + self target_tail( p ) );
+    return true;
+}
+
+// Model cannon (PHA "Full customize bullets" = a model as the bullet + an impact effect +
+// earthquake + radius damage + a deletion delay): every shot launches a prop from the muzzle to
+// where the shot lands (moveto at 1500 u/s), then an optional blast (proj_blast's four calls),
+// then it vanishes after 5 s - or stays, non-saved, with Keep. The model: the cannon's own pick
+// (game.gf_cannon_model) or, unset, the shooter's forge pick. Per player, per life, 250 ms apart.
+function private cannon_wanted( p )
+{
+    return is_true( p.gf_cannon );
+}
+
+function private cannon_rearm( p )
+{
+    p notify( #"gf_cannon_restart" );
+
+    if ( isalive( p ) && cannon_wanted( p ) )
+        p thread cannon_think();
+}
+
+function private cannon_model( p )
+{
+    if ( isdefined( game.gf_cannon_model ) )
+        return game.gf_cannon_model;
+
+    fs = p forge_state();
+    return prop_master()[ fs.idx ].model;
+}
+
+function private cannon_think()
+{
+    self notify( #"gf_cannon_restart" );
+    self endon( #"gf_cannon_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    last = 0;
+
+    for ( ;; )
+    {
+        self waittill( #"weapon_fired" );
+
+        if ( !cannon_wanted( self ) )
+            return;
+
+        if ( self tp_menu_open() || self forge_active() )
+            continue;
+
+        now = gettime();
+
+        if ( now - last < 250 )
+            continue;
+
+        last = now;
+        model = cannon_model( self );
+
+        if ( !isassetloaded( "xmodel", model ) )
+        {
+            self iprintln( "^1Model cannon: " + prop_short( model ) + " is not resident here" );
+            continue;
+        }
+
+        eye = self geteye();
+        fwd = anglestoforward( self getplayerangles() );
+        tr = bullettrace( eye, eye + vectorscale( fwd, 6000 ), 0, self );
+        start = eye + vectorscale( fwd, 48 );
+        b = spawn( "script_model", start );
+
+        if ( !isdefined( b ) )
+            continue;
+
+        b setmodel( model );
+        b notsolid();
+        b.angles = self getplayerangles();
+        level thread cannon_fly( b, tr[ #"position" ], self );
+    }
+}
+
+// A level thread: the flight and the cleanup must outlive the shooter's death or disconnect.
+function private cannon_fly( b, end, shooter )
+{
+    t = distance( b.origin, end ) / 1500;
+
+    if ( t < 0.05 )
+        t = 0.05;
+
+    b moveto( end, t );
+    wait t;
+
+    if ( !isdefined( b ) )
+        return;
+
+    if ( is_true( game.gf_cannon_blast ) && isdefined( shooter ) )
+    {
+        playfx( #"explosions/fx_exp_bomb_demo_mp", end );
+        playsoundatposition( #"mpl_sd_exp_suitcase_bomb_main", end );
+        radiusdamage( end, 160, 130, 35, shooter, "MOD_EXPLOSIVE", shooter getcurrentweapon() );
+        earthquake( 0.35, 0.6, end, 500 );
+    }
+
+    if ( is_true( game.gf_cannon_keep ) )
+    {
+        b solid();
+        return;
+    }
+
+    wait 5;
+
+    if ( isdefined( b ) )
+        b delete();
+}
+
+function private act_cannon( item )
+{
+    p = self menu_target();
+    on = !cannon_wanted( p );
+    p.gf_cannon = on;
+    item.activated = on;
+    cannon_rearm( p );
+    self menu_say( "^3Model cannon: " + ( on ? ( "^2ON ^7- shots launch " + prop_short( cannon_model( p ) ) ) : "^1OFF" ) + self target_tail( p ) );
+    return true;
+}
+
+// model = a prop_master() model name, or "" = follow the shooter's forge pick.
+function private act_cannon_model( item, model, label )
+{
+    if ( model == "" )
+        game.gf_cannon_model = undefined;
+    else
+        game.gf_cannon_model = model;
+
+    self menu_mark_only( "cannon_model", item );
+    self menu_say( "^3Model cannon fires: ^2" + label );
+    return true;
+}
+
+function private act_cannon_blast( item )
+{
+    on = !is_true( game.gf_cannon_blast );
+    game.gf_cannon_blast = on;
+    item.activated = on;
+    self menu_say_toggle( "Cannon blast on impact", on );
+    return true;
+}
+
+function private act_cannon_keep( item )
+{
+    on = !is_true( game.gf_cannon_keep );
+    game.gf_cannon_keep = on;
+    item.activated = on;
+    self menu_say( "^3Cannon props: " + ( on ? "^2stay where they land ^7(not saved)" : "^2vanish after 5 s" ) );
+    return true;
+}
+
+// ── mod_spawn_place: the fun pack's per-life threads for whoever wants them. ────────────────
+function private fun_spawn_rearm()
+{
+    if ( !isplayer( self ) )
+        return;
+
+    disco_rearm( self );
+    propgun_rearm( self );
+    nadeswap_rearm( self );
+    cannon_rearm( self );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -16990,7 +18303,10 @@ function private forge_update_preview()
     }
 
     ent.origin = pos;
-    ent.angles = ( 0, ang[ 1 ] + 180 + fg.yaw, 0 );
+    // Fun pack tilt (act_ft_tilt): new props only - a grabbed prop keeps the flat behaviour.
+    tilt_p = ( isdefined( fg.grabbed ) || !isdefined( fg.tilt_p ) ) ? 0 : fg.tilt_p;
+    tilt_r = ( isdefined( fg.grabbed ) || !isdefined( fg.tilt_r ) ) ? 0 : fg.tilt_r;
+    ent.angles = ( tilt_p, ang[ 1 ] + 180 + fg.yaw, tilt_r );
     ent setscale( fg.scale );
 }
 
