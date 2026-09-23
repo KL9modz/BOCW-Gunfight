@@ -218,6 +218,10 @@ open, **zero bars drew**. With the earlier `hash("white")` that is hash, int-ind
 no crash. So no value form resolves from the bare-open path — confirming the material needs a bgcache the
 element never got.
 
+🔓 **2026-09-23 — a bar with no material field exists: `LUIelemBar`, and it is event-backed (no clientfield
+either), so the server can drive it for any player. Unmeasured; [hud-channels](hud-channels.md) §1, `src/hud_probe/`
+stage 9.** The paragraph below stays true of `LUIelemImage`.
+
 ⇒ **Boxes/bars are blocked** on material precaching the injected client-local path can't do. Reaching it would
 mean driving the element's full `register_clientside` + a material bgcache the client script populates — deep,
 speculative (bgcache from an injected `.csc` is untried), and low ROI for "would be nice". **Recorded as
@@ -247,6 +251,10 @@ are their own scale; measure px to calibrate. `I=0` → `LUIelemImage` is not in
   highlight bar *behind* the hint-panel menu, or a visual timer/capture bar — that neither feed nor hint can draw.
 
 ## Untried — not ruled out
+
+- **Event-backed luielems from the SERVER** — `LUIelemBar` (box/bar, fill %) and `LUIelemCounter` (a number)
+  register no clientfields and have no material, so neither the joiner rule nor the material wall applies.
+  [hud-channels](hud-channels.md) §1; `src/hud_probe/` stages 9–10.
 
 - `player openluimenu( "MPHintText" )` + `setluimenudata( h, #"hint_text_line", str )` (`mp_common/util.gsc:933`)
   and `lui::timer`'s `openluimenu( "HudElementTimer" )` with `x`/`y`/`height` (`lui_shared.gsc:365`) are

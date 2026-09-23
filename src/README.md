@@ -45,6 +45,13 @@ gunfight_menu_c/  the CLIENT-side LUI-element probe. DIFFERENT PAIR: load_shared
                   LUIelemText renders in MP (stock key) — 💥 a plain string in it is a FATAL LUI
                   error (localizeentry). Now draws two stock-key rows, prints 77LCOPnn every 5s.
                   Stock keys only, ever. docs/notes/lui-elems.md
+hud_probe/        every display channel the menu does not use yet, one ~7 s stage each: screen
+                  flash + drawHUD veil, lower message, announcement, N-v-M banner, EMP overlay,
+                  objective progress/per-player markers, HUD switches, the EVENT-BACKED luielems
+                  (LUIelemBar box/bar, LUIelemCounter number - no clientfields, no material),
+                  printtoprightln, objective text, HudElementTimer, MPHintText, TempDialog;
+                  plain-text stages opt-in. gf_hud_all 1 = the joiner run. Built 2026-09-23,
+                  check-dump 0 fatal / check-args 0 mismatches, NEVER RUN. docs/notes/hud-channels.md
 
   ── staged tests. ONE PER MATCH. Each WRITES. Lobby return after each. ──
 test_maprestart/  B4 · can map_restart replace F7, and drop the cwpatch prerequisite?
