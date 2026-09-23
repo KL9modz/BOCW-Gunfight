@@ -49,8 +49,10 @@ hud_probe/        every display channel the menu does not use yet, one ~7 s stag
                   flash + drawHUD veil, lower message, announcement, N-v-M banner, EMP overlay,
                   objective progress/per-player markers, HUD switches, the EVENT-BACKED luielems
                   (LUIelemBar box/bar, LUIelemCounter number - no clientfields, no material),
-                  printtoprightln, objective text, HudElementTimer, MPHintText, TempDialog;
-                  plain-text stages opt-in. gf_hud_all 1 = the joiner run. Built 2026-09-23,
+                  printtoprightln, objective text, HudElementTimer, MPHintText, TempDialog, and a
+                  MENU MADE OF WORLD MARKERS (a world board with look-to-select, a view-locked icon,
+                  the on-screen objective "using" bar); plain-text stages opt-in (19-22).
+                  gf_hud_all 1 = the joiner run. Built 2026-09-23,
                   check-dump 0 fatal / check-args 0 mismatches, NEVER RUN. docs/notes/hud-channels.md
 
   ── staged tests. ONE PER MATCH. Each WRITES. Lobby return after each. ──

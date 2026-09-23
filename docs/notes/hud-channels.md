@@ -20,8 +20,8 @@ answers go.
   **box/bar** and a positioned **number**, from host GSC, possibly visible to everyone.
 - ✅ **Ready now** — call shapes stock itself fires in MP matches, so they reach joiners by construction: a
   full-screen colour flash / tint (plus a **drawHUD** flag that, if it means what it says, makes a dark
-  backdrop the HUD draws over), the
-  **lower message** with a countdown, the engine **announcement** with a number, Gunfight's own
+  backdrop the HUD draws over), the **lower message** with a countdown, the engine **announcement** with
+  a number, Gunfight's own
   **"N v M" alive banner**, the **EMP overlay**, objective **progress rings** and **per-player** world
   markers, and the **HUD switches** (hide the HUD, hardcore HUD, hide the mini-scoreboard).
 - 🔓 **One new free-text lead: `TempDialog`.** Stock `face.gsc` writes *runtime-built* strings into it,
@@ -56,10 +56,11 @@ answers go.
 | 8 | objective progress ring, per-player markers, marker-on-entity | world icons | stock objective names | progress | all or chosen players | ✅ NEW · probe 7 |
 | 9 | `setclientuivisibilityflag` / `setclienthudhardcore` / `setclientminiscoreboardhide` | hide HUD / hardcore HUD / no mini-score | — | — | per player | ✅ NEW · probe 8 |
 | 10 | `printtoprightln` | top-right text, coloured | ✅ if it draws | ✅ | ? | ❓ NEW · probe 11 |
-| 11 | `setclientcgobjectivetext` | the per-client objective text (scoreboard / pause?) | ❓ | — | per player | ❓ NEW · probes 12 / 17 |
+| 11 | `setclientcgobjectivetext` | the per-client objective text (scoreboard / pause?) | ❓ | — | per player | ❓ NEW · probes 12 / 20 |
 | 12 | `lui::timer` → `HudElementTimer` | positioned countdown | — | ✅ | per player | ❓ probe 13 (listed untried in [lui-elems](lui-elems.md)) |
-| 13 | `MPHintText` | hint box | ❓ | — | per player | ❓ probes 14 / 18 (listed untried in [lui-elems](lui-elems.md)) |
+| 13 | `MPHintText` | hint box | ❓ | — | per player | ❓ probes 14 / 21 (listed untried in [lui-elems](lui-elems.md)) |
 | 14 | **`TempDialog`** | title + one line | ✅ by stock precedent | ✅ | per player | 🔓 NEW · probe 15 |
+| 15 | **a menu made of world markers** — a board of icons, a view-locked icon, the on-screen "using" bar | icons, rings, states; one screen bar | ✗ (words stay in the feed / centre line) | rings | chosen players | 🔓 NEW · probes 16–18, §8 |
 
 ## 1. Event-backed luielems — `LUIelemBar`, `LUIelemCounter` (the headline)
 
@@ -238,7 +239,7 @@ is open, a *hardcore HUD* toggle, a caster/recording mode.
   it is a fourth free-text region (top right, coloured).
 - **`setclientcgobjectivetext( text )`** — the per-client objective text (`globallogic_ui.gsc:246-275`).
   Stock passes localized keys and `""`; Gunfight sets none. Where Cold War shows it (scoreboard header?
-  pause menu?) is the first question; whether it takes plain text (probe 17) the second.
+  pause menu?) is the first question; whether it takes plain text (probe 20) the second.
 - **`HudElementTimer`** via `lui::timer( secs, endon, x, y, height )` (`lui_shared.gsc:365`) and
   **`MPHintText`** (`mp_common/util.gsc:924-934`) — both were already on [lui-elems](lui-elems.md)'s
   untried list; the probe runs them with stock keys first.
@@ -289,7 +290,7 @@ is open, a *hardcore HUD* toggle, a caster/recording mode.
 
 ## 6. The probe — `src/hud_probe/` (built 2026-09-23, never run)
 
-One server payload, 15 stages by default, about 3 minutes; a feed line names the stage and what to look for
+One server payload, 18 stages by default, about 4 minutes; a feed line names the stage and what to look for
 every 3 s (`GF HUD <n>/<last> <name> o:<flag> - …`). `check-dump.py`: 0 fatal · `check-args.py`: 0 arity
 mismatches. Stages 1–2 of `check-gsc.ps1` (compile + round-trip) still need ACTS.
 
@@ -303,7 +304,7 @@ bash tools/inject.sh hud_probe        # a private match loaded once; restart the
 |---|---|---|---|
 | **1** | defaults | host alone (or bots on your side — an enemy kills the round) | which stages draw, where, and whether any crashes |
 | **2** | `gf_hud_all 1`, `gf_hud_from` / `gf_hud_to` = the stages run 1 passed | host + one joiner | which of them reach a vanilla joiner |
-| 3 (optional, a launch you can lose) | `gf_hud_plain 1`, `gf_hud_from 16` | host alone | plain text in the lower line / objective text / MPHintText / announcement |
+| 3 (optional, a launch you can lose) | `gf_hud_plain 1`, `gf_hud_from 19` | host alone | plain text in the lower line / objective text / MPHintText / announcement |
 
 - The probe holds the round open (`gf_hud_hold 1` writes `timelimit 0`: `gunfight.gsc:1139` reads it live,
   `globallogic.gsc:3289` skips the limit at ≤ 0) and resumes from `gf_hud_next` after any round reload.
@@ -332,7 +333,10 @@ bash tools/inject.sh hud_probe        # a private match loaded once; restart the
 | 13 | timer | countdown, upper right | | | `o:` = |
 | 14 | mphint | hint box "Match starting" | | | `o:` = |
 | 15 | tempdialog | "GF HUD PROBE" + "… t=<n>" | | | `o:` = |
-| 16–19 | plain | only with `gf_hud_plain 1` | | | |
+| 16 | **mboard** | 5 icons ahead-right. A ring cursor · B "done" look · C team colour (or vanish?) · D value rings · E aim at one → its ring fills | host-only by design | | which cursor reads best? does aiming select cleanly? |
+| 17 | **mlock** | 1 icon beside the crosshair: still → pinned? flick → how far it trails | host-only | | `o:` = ms per server frame |
+| 18 | **musing** | an on-screen capture bar filling ~7 s + the Gunfight flag ahead | | | where on screen? any "capturing" text? |
+| 19–22 | plain | only with `gf_hud_plain 1` | | | |
 
 ## 7. What each result buys the mod
 
@@ -347,6 +351,57 @@ bash tools/inject.sh hud_probe        # a private match loaded once; restart the
 | 15 tempdialog draws | a **titled free-text box** from host GSC — status text that is not a stock key |
 | 11 draws | a fourth free-text region, top right |
 | 12 shows up somewhere | per-player objective text in the scoreboard / pause menu (with 17: free text there) |
+
+## 8. A HUD menu made of world markers (klaze, 2026-09-23)
+
+*"Could we create a HUD menu using world markers?"* **Yes — as a navigator, not as a text menu.** A
+marker is an objective: engine state the server networks, so it reaches a vanilla joiner exactly as far as
+the visibility calls allow (derived, [overtime-zone](overtime-zone.md) §5; the `#"escort_goal"` icon is
+measured rendering, [racing](racing.md) run 2). What one can carry, every lever a stock call:
+
+| lever | what it changes | stock precedent |
+|---|---|---|
+| the objective **type** (`objective_add`'s 4th argument) | the icon — and the only "text": letters baked into types (`#"sd" + "_a"`, `"control_" + n`) | `sd.gsc:722`, `control.gsc:885` |
+| `objective_setprogress( id, 0..1 )` | the ring around the icon | `sd.gsc:918`, `gunfight.gsc:1004` |
+| `objective_setstate( id, … )` | `"active"` / `"done"` / `"empty"` / `"invisible"` — the four stock values | 12 / 10 / 1 / 11 stock uses |
+| `objective_setteam( id, team )` | the owner team: colour, and possibly who sees it | spawn beacons (`objective_setteam( spawnbeacon.objectiveid, spawnbeacon.team )`) |
+| `objective_setgamemodeflags( id, n )` | per-type variants; Gunfight's flag: 1 / 2 = allies / axis capture look | `gunfight.gsc:1008` → `gameobjects_shared.gsc:6048` |
+| `objective_setinvisibletoall` + `objective_setvisibletoplayer` | who sees it — host-only, or one joiner | `spy_skill.gsc:1777-1784` |
+| `objective_setposition`, or an entity as `objective_add`'s 5th argument | move it, or have it follow something | `spy_skill.gsc:1830` (once per server frame); `objective_add( …, self )` |
+| **`objective_setplayerusing( id, player )`** + progress | that player gets the **on-screen** capture / plant bar | `sd.gsc:884` / `:918`, cleared by `objective_clearallusing` (`:952`) |
+
+**What it cannot carry: words.** Every label on a marker comes from its objective type, an asset the dump
+does not include. Usable icons are the types stock MP names: `#"escort_goal"` (measured), Gunfight's own
+flag `#"hash_56c11247a60bfd3c"` (loaded in every Gunfight match), `#"headicon_dead"` (every match); the
+lettered S&D / Domination / Control types are unverified in a Gunfight match.
+
+**Three layouts, and what decides each** (probe stages 16–18):
+
+1. **World board — the recommended one.** Place a column of icons once, ahead of the view, and leave it.
+   Nothing can swim, because nothing moves; this is how VR menus stay readable. The cursor is a ring, a
+   `"done"` look or a team colour (probe 16 A–C shows which reads best); rings double as value bars (D).
+   Selection by the menu's keys, or **by aiming** — the icon within ~4° of the crosshair lights up (E),
+   which needs no keys at all. The labels go to the centre line. Cost: turn away and the board leaves the
+   screen (or clamps to its edge, depending on the type), so it re-centres when the menu opens.
+2. **View-locked** — re-place an icon every server frame beside the crosshair (the stock follow rate).
+   Expect it pinned while still and trailing a fast turn by at least one server frame plus snapshot
+   interpolation; a joiner adds his ping. Probe 17 prints the frame length and shows the trail.
+3. **The "using" bar** — the one piece of screen-space HUD objectives can give: mark a player as the
+   objective's user and drive the progress, and he gets S&D's plant bar on screen (probe 18). A slider /
+   countdown display, per player.
+
+**What it would look like, if 16–18 pass:** the menu opens → up to 8 icons in a column ahead-right; the
+ring walks with the cursor (or each ring shows its row's value); the centre line prints the selected row's
+label and value, as today; select with the keys or by aiming; adjusting a slider shows the using bar;
+closing deletes the markers and returns the ids.
+
+⚠ **Pushback, and the costs.** A column of identical icons means nothing without the centre line naming
+the row, so this upgrades the *cursor and the values*, not the text. Ids come from the 64-slot pool the
+gametype and the race markers share. Markers may also land on the compass / minimap (type-dependent,
+unknown). Anyone sees a marker you do not hide. **If the event-backed `LUIelemBar` / `LUIelemCounter` (§1)
+draw, they beat markers for a HUD panel** — fixed on screen, no world clutter, no id pool. Markers stay
+the better tool for things that belong in the world: look-to-select, per-player waypoints, a board a
+joiner can see.
 
 ## Not in T9 — do not re-look
 

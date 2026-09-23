@@ -29,10 +29,15 @@
 //   13 timer       lui::timer -> HudElementTimer
 //   14 mphint      MPHintText with a stock key
 //   15 tempdialog  TempDialog with RUNTIME text (stock face.gsc feeds it runtime strings)
+//   group M — a MENU MADE OF WORLD MARKERS (objectives: icons, rings, states, no text), host-only
+//   16 mboard      5 icons placed once ahead-right: ring / done-state / team-colour cursors,
+//                  value rings, then LOOK-TO-SELECT (the icon under the crosshair lights up)
+//   17 mlock       1 icon re-placed every server frame beside the crosshair: does it trail a turn?
+//   18 musing      objective_setplayerusing + progress: S&D's on-screen plant bar, from script
 //   group P — PLAIN text into widgets that may localize it. OPT-IN (gf_hud_plain 1), on a
 //             launch you can lose: each can be FATAL the way LUIelemText's plain string was
 //             (docs/notes/lui-elems.md, error_message 2nd field = hash of the string).
-//   16 lower_plain   17 objtext_plain   18 mphint_plain   19 announce_plain
+//   19 lower_plain   20 objtext_plain   21 mphint_plain   22 announce_plain
 //
 // READOUT — one feed line, re-printed every 3 s ([[debug-feed-one-line]]):
 //   GF HUD <n>/<last> <name> o:<flag> - <what to look for>
@@ -42,7 +47,7 @@
 //
 // DVARS — all optional, set through the bridge before the match
 //   gf_hud_from   1   first stage. After a crash AT stage k: relaunch with k+1.
-//   gf_hud_to    15   last stage (19 with the plain group)
+//   gf_hud_to    18   last stage (22 with the plain group)
 //   gf_hud_plain  0   1 = run group P as well
 //   gf_hud_all    0   1 = every human gets the per-player stages (the JOINER run)
 //   gf_hud_hold   1   setgametypesetting timelimit 0, so a solo round cannot time out mid-probe
@@ -141,18 +146,18 @@ function private run()
     }
 
     plain = getdvarint( #"gf_hud_plain", 0 );
-    last = getdvarint( #"gf_hud_to", 15 );
-    if ( plain && last < 19 )
+    last = getdvarint( #"gf_hud_to", 18 );
+    if ( plain && last < 22 )
     {
-        last = 19;
+        last = 22;
     }
-    if ( !plain && last > 15 )
+    if ( !plain && last > 18 )
     {
-        last = 15;
+        last = 18;
     }
-    if ( last > 19 )
+    if ( last > 22 )
     {
-        last = 19;
+        last = 22;
     }
 
     secs = getdvarint( #"gf_hud_secs", 7 );
@@ -259,15 +264,24 @@ function private run_stage( n, last, host, secs )
             st_tempdialog( n, last, tg, secs );
             break;
         case 16:
-            st_lower( n, last, tg, secs, "GF plain lower message", "lower_plain", "PLAIN text in the lower line - may be FATAL" );
+            st_mboard( n, last, host );
             break;
         case 17:
-            st_objtext( n, last, tg, secs, "GF plain objective text", "objtext_plain", "PLAIN objective text: TAB, then ESC - may be FATAL" );
+            st_mlock( n, last, host );
             break;
         case 18:
-            st_mphint( n, last, tg, secs, "GF plain hint text", "mphint_plain", "PLAIN text in MPHintText - may be FATAL" );
+            st_musing( n, last, tg, host );
             break;
         case 19:
+            st_lower( n, last, tg, secs, "GF plain lower message", "lower_plain", "PLAIN text in the lower line - may be FATAL" );
+            break;
+        case 20:
+            st_objtext( n, last, tg, secs, "GF plain objective text", "objtext_plain", "PLAIN objective text: TAB, then ESC - may be FATAL" );
+            break;
+        case 21:
+            st_mphint( n, last, tg, secs, "GF plain hint text", "mphint_plain", "PLAIN text in MPHintText - may be FATAL" );
+            break;
+        case 22:
             st_announce( n, last, tg, secs, "GF plain announcement", "announce_plain", "PLAIN text announcement, EVERY player - may be FATAL" );
             break;
         default:
@@ -328,7 +342,7 @@ function private cleanup( tg, n )
             p setclienthudhardcore( 0 );
             p setclientminiscoreboardhide( 0 );
         }
-        if ( n == 12 || n == 17 )
+        if ( n == 12 || n == 20 )
         {
             p setclientcgobjectivetext( "" );
         }
@@ -779,3 +793,253 @@ function private st_tempdialog( n, last, tg, secs )
     }
     setdvar( #"bgcache_disablewarninghints", 0 );
 }
+
+// ── group M: a menu made of world markers ───────────────────────────────────
+// A marker is an objective: engine state the server networks, so a joiner sees exactly what the
+// visibility calls let him see. What one can carry: an icon per objective TYPE, a progress ring
+// (objective_setprogress), a state look ("active" / "done" / "empty" / "invisible" - the four stock
+// values), a team
+// (objective_setteam), per-player visibility (objective_setinvisibletoall + _setvisibletoplayer) -
+// and no free text. So a marker menu is a NAVIGATOR (where am I, what is on, how much); the words
+// stay in the feed / centre line. #"escort_goal" is the type the race gates measured rendering
+// (docs/notes/racing.md run 2). Ids come from the 64-slot gametype pool
+// (gameobjects_shared.gsc:5938) and go back after each stage.
+
+function private obj_ids( k )
+{
+    ids = [];
+    for ( i = 0; i < k; i++ )
+    {
+        id = gameobjects::get_next_obj_id();
+        if ( !isdefined( id ) )
+        {
+            break;
+        }
+        ids[ ids.size ] = id;
+    }
+    return ids;
+}
+
+function private obj_free( ids )
+{
+    foreach ( id in ids )
+    {
+        objective_delete( id );
+        gameobjects::release_obj_id( id );
+    }
+}
+
+function private obj_host_only( id, host )
+{
+    objective_setinvisibletoall( id );
+    objective_setvisibletoplayer( id, host );
+}
+
+// Five icons in a column on a plane 400 units ahead of the host's eye, 150 right of the crosshair,
+// 45 units apart (~6 degrees, ~110 px at 1080p) - placed ONCE, so nothing swims when he turns; a
+// world-space board, the way VR menus stay readable. Four cursor looks, then look-to-select.
+function private st_mboard( n, last, host )
+{
+    k = 5;
+    ids = obj_ids( k );
+    if ( ids.size < k )
+    {
+        obj_free( ids );
+        hdr( n, last, "mboard", "x", "not enough free objective ids - skipped" );
+        wait( 2 );
+        return;
+    }
+
+    eye = host geteye();
+    ang = host getplayerangles();
+    fwd = anglestoforward( ang );
+    rgt = anglestoright( ang );
+    up = anglestoup( ang );
+    pos = [];
+    for ( i = 0; i < k; i++ )
+    {
+        pos[ i ] = eye + fwd * 400 + rgt * 150 + up * ( 90 - i * 45 );
+        objective_add( ids[ i ], "active", pos[ i ], #"escort_goal" );
+        obj_host_only( ids[ i ], host );
+    }
+
+    // A - cursor = a full progress ring (sd.gsc:918 fills the same ring while planting)
+    hdr( n, last, "mboard", ids.size, "A: 5 icons ahead-right; a full RING walks down them - a readable cursor?" );
+    wait( 1 );
+    for ( c = 0; c < k; c++ )
+    {
+        for ( i = 0; i < k; i++ )
+        {
+            objective_setprogress( ids[ i ], ( i == c ? 1 : 0 ) );
+        }
+        wait( 0.8 );
+    }
+    for ( i = 0; i < k; i++ )
+    {
+        objective_setprogress( ids[ i ], 0 );
+    }
+
+    // B - cursor = the only "active" one, the rest "done"
+    hdr( n, last, "mboard", ids.size, "B: the rest go 'done', the cursor stays 'active' - what does 'done' look like?" );
+    wait( 1 );
+    for ( c = 0; c < k; c++ )
+    {
+        for ( i = 0; i < k; i++ )
+        {
+            if ( i == c )
+            {
+                objective_setstate( ids[ i ], "active" );
+            }
+            else
+            {
+                objective_setstate( ids[ i ], "done" );
+            }
+        }
+        wait( 0.8 );
+    }
+    for ( i = 0; i < k; i++ )
+    {
+        objective_setstate( ids[ i ], "active" );
+        obj_host_only( ids[ i ], host );
+    }
+
+    // C - cursor = your team, the rest neutral (spawn beacons set their owner team the same way)
+    hdr( n, last, "mboard", ids.size, "C: the cursor takes YOUR team, the rest neutral - colour change? (or do the rest vanish?)" );
+    wait( 1 );
+    for ( c = 0; c < k; c++ )
+    {
+        for ( i = 0; i < k; i++ )
+        {
+            if ( i == c )
+            {
+                objective_setteam( ids[ i ], host.team );
+            }
+            else
+            {
+                objective_setteam( ids[ i ], #"none" );
+            }
+        }
+        wait( 0.8 );
+    }
+    for ( i = 0; i < k; i++ )
+    {
+        objective_setteam( ids[ i ], #"none" );
+        obj_host_only( ids[ i ], host );
+    }
+
+    // D - each ring shows a value: a column of five settings at a glance
+    hdr( n, last, "mboard", ids.size, "D: value rings, top 20% ... bottom 100% - could each show a setting?" );
+    for ( i = 0; i < k; i++ )
+    {
+        objective_setprogress( ids[ i ], ( i + 1 ) * 0.2 );
+    }
+    wait( 4 );
+    for ( i = 0; i < k; i++ )
+    {
+        objective_setprogress( ids[ i ], 0 );
+    }
+
+    // E - look-to-select: the icon within ~4 degrees of the crosshair gets the ring
+    hdr( n, last, "mboard", ids.size, "E: AIM at the icons - the one under your crosshair should fill its ring" );
+    end = gettime() + 9000;
+    sel = -1;
+    while ( gettime() < end )
+    {
+        e = host geteye();
+        f = anglestoforward( host getplayerangles() );
+        best = -1;
+        bestdot = 0.9976;
+        for ( i = 0; i < k; i++ )
+        {
+            d = vectordot( f, vectornormalize( pos[ i ] - e ) );
+            if ( d > bestdot )
+            {
+                bestdot = d;
+                best = i;
+            }
+        }
+        if ( best != sel )
+        {
+            if ( sel >= 0 )
+            {
+                objective_setprogress( ids[ sel ], 0 );
+            }
+            if ( best >= 0 )
+            {
+                objective_setprogress( ids[ best ], 1 );
+            }
+            sel = best;
+        }
+        waitframe( 1 );
+    }
+
+    obj_free( ids );
+}
+
+// One icon re-placed every server frame just below-right of the crosshair. Stock moves a marker at
+// the same rate (spy_skill.gsc:1830, one objective_setposition per function_60d95f53() ms). The
+// question is feel: pinned while still, and how far it trails a fast turn. o: = the frame in ms.
+function private st_mlock( n, last, host )
+{
+    ids = obj_ids( 1 );
+    if ( ids.size < 1 )
+    {
+        hdr( n, last, "mlock", "x", "no free objective id - skipped" );
+        wait( 2 );
+        return;
+    }
+    id = ids[ 0 ];
+    objective_add( id, "active", host geteye(), #"escort_goal" );
+    obj_host_only( id, host );
+
+    ms = function_60d95f53();
+    hdr( n, last, "mlock", ms + "ms", "an icon glued below-right of the crosshair: hold still, then FLICK left/right, up/down - does it trail?" );
+    end = gettime() + 12000;
+    while ( gettime() < end )
+    {
+        ang = host getplayerangles();
+        p = host geteye() + anglestoforward( ang ) * 300 + anglestoright( ang ) * 60 - anglestoup( ang ) * 45;
+        objective_setposition( id, p );
+        waitframe( 1 );
+    }
+
+    obj_free( ids );
+}
+
+// The on-screen capture bar, from script. S&D's plant bar is objective state, not a HUD call: the
+// planter becomes the objective's user (sd.gsc:884 objective_setplayerusing), the fill is
+// objective_setprogress (:918), objective_clearallusing (:952) ends it. Gunfight's own zone type
+// (gunfight.gsc:883 #"hash_56c11247a60bfd3c") is loaded in every Gunfight match and draws a capture
+// bar in stock overtime; its game-mode flags 1 / 2 are the allies / axis capture looks
+// (gunfight.gsc:1008 set_flags -> gameobjects_shared.gsc:6048). Every target is made a user.
+function private st_musing( n, last, tg, host )
+{
+    ids = obj_ids( 1 );
+    if ( ids.size < 1 )
+    {
+        hdr( n, last, "musing", "x", "no free objective id - skipped" );
+        wait( 2 );
+        return;
+    }
+    id = ids[ 0 ];
+    ang = host getplayerangles();
+    objective_add( id, "active", host.origin + anglestoforward( ( 0, ang[ 1 ], 0 ) ) * 250 + ( 0, 0, 40 ), #"hash_56c11247a60bfd3c" );
+    foreach ( p in tg )
+    {
+        objective_setplayerusing( id, p );
+    }
+    objective_setgamemodeflags( id, 1 );
+
+    hdr( n, last, "musing", id, "a CAPTURE BAR on screen filling over about 7 seconds, plus the Gunfight flag icon ahead" );
+    for ( i = 0; i <= 10; i++ )
+    {
+        objective_setprogress( id, i * 0.1 );
+        wait( 0.7 );
+    }
+    wait( 1 );
+
+    objective_clearallusing( id );
+    objective_setprogress( id, 0 );
+    obj_free( ids );
+}
+
