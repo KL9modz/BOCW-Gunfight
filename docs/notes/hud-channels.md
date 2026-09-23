@@ -189,6 +189,13 @@ player lui::screen_fade( 0.4, 0, 0.45, ( 0, 0, 0 ), 1, "default", 1 );          
 - ⚠ Fades nest: a counter (`self.var_d57eeb7f`, `:864-871`) swallows a fade-down while fade-ups
   outnumber it. Pair every fade up with one down, and remember stock laststand / killstreak fades share
   the same overlay. Stock also limits it to one fade per network frame (`:1027`).
+- 🔓 **A second fade route with no `lui_shared`:** `player luinotifyevent( #"hash_175f8739ed7a932", 0 )`
+  (`player_reinsertion.gsc:510`; `#"hash_300ac247ca9e52d3"` is a sibling) fires the client's own fade
+  widget directly — the plain LUI-event channel (§2d), so it works from the injected `.csc` too and needs
+  no `FullScreenBlack` bookkeeping. It is fire-and-forget: no RGB, no alpha, no drawHUD, and the arg shape
+  is `( hash, 0 )` — SoCanKam's menu fires it as `( hash, 1, text )`, which is the wrong shape (the extra
+  args are ignored). Use `lui::screen_fade` when the colour / hold / veil matter; this when a stock
+  fade-in flash is all you want.
 
 ### 2b. The lower message — `hud_message::setlowermessage( text, seconds )`
 
@@ -226,11 +233,18 @@ call sites.
 
 ### 2g. HUD switches
 
-`setclientuivisibilityflag( "hud_visible" | "weapon_hud_visible" | "radar_client" | "killcam_nemesis", 0|1 )`
-(18 / 15 / 6 / 6 stock uses), `setclienthudhardcore( 0|1 )`, `setclientminiscoreboardhide( 0|1 )`
-(`zm_player.gsc:746-747`; engine builtins). Stock resets `hud_visible` on connect and spawn
-(`player_connect.gsc:92`, `globallogic.gsc:2871`), so nothing strands. Uses: a clean screen while the menu
-is open, a *hardcore HUD* toggle, a caster/recording mode.
+`setclientuivisibilityflag( "hud_visible" | "weapon_hud_visible" | "radar_client" | "killcam_nemesis" |
+"g_compassShowEnemies", 0|1 )` (18 / 15 / 6 / 6 / stock-MP uses), `setclienthudhardcore( 0|1 )`,
+`setclientminiscoreboardhide( 0|1 )` (`zm_player.gsc:746-747`; engine builtins). Stock resets `hud_visible`
+on connect and spawn (`player_connect.gsc:92`, `globallogic.gsc:2871`), so nothing strands. Uses: a clean
+screen while the menu is open, a *hardcore HUD* toggle, a caster/recording mode.
+- 🔓 **`g_compassShowEnemies`** (read from SoCanKam's menu; stock MP at `player_connect.gsc:467`
+  `setclientuivisibilityflag( "g_compassShowEnemies", level.forceradar )`, off at `globallogic.gsc:2830`)
+  is the **enemies-on-minimap** toggle — the private-match "full radar" host option, the same one
+  `level.forceradar` drives. Set per player, and unlike the other flags this one is a gameplay state the
+  host would set for everyone: `foreach ( p in getplayers() ) p setclientuivisibilityflag(
+  "g_compassShowEnemies", 1 )`. ⚠ Not a text channel — a host-toggle for a casual/among-friends lobby;
+  it belongs in the menu's Host page, not here, but it is the one new flag SoCanKam's menu carries.
 
 ## 3. No MP stock caller — retail behaviour unknown (probe group U)
 
@@ -483,10 +497,13 @@ feed, because the MP centre print shows **one** line: several `iprintlnbold` cal
 (recorded here 2026-09-16, the reason for the region-2 carousel). So a video of that menu with a stacked
 centre list is a Zombies video; in a Gunfight match it looks like ours.
 
-**What has not been tried in MP: one print that carries newlines.** Stacking separate calls is measured
-dead; a single `iprintlnbold( "a\nb\nc" )` may still break into lines — or fail the way a raw `\n` in a
-`sethintstring` closed the match ([hint-panel](hint-panel.md)). Probe stage 23, opt-in (`gf_hud_nl 1`), on a
-launch you can lose; it tries the feed the same way after. If the centre takes it, the carousel can become a
+**We tried `\n` once — in the wrong channel.** A raw `\n` (0x0A) in a `sethintstring` **closed the match**
+(`hint-panel.md`, 2026-09-14), so the hint widget is out. But that is the use-prompt LUI widget; the centre
+line and feed are a **different renderer** (the game-message HUD), and a `\n` inside one
+`iprintlnbold` / `iprintln` there has **never** been tried. Stacking separate centre calls is measured dead;
+one print carrying newlines is the open question. ⚠ The hint result is a warning, not an answer — it may
+break into lines, or misbehave the same way. Probe stage 23, opt-in (`gf_hud_nl 1`), on a launch you can
+lose; it tries the centre first, then the feed. If the centre takes it, the carousel can become a
 real multi-row centre list. If not, the multi-line surfaces stay the feed (~4 lines), `TempDialog` (stage 15)
 and the popup ([pause-menu](pause-menu.md)).
 

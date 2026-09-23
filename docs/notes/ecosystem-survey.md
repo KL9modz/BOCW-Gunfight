@@ -226,3 +226,12 @@ klaze's MediaFire link names the same file, not compared byte-for-byte — media
   here is useful to Gunfight hosting that the project does not already have.
 - Not inspected yet: `ProjectHiNAtyu_V1_BOCW.gscc` (335 KB), `Lucy New update .gscc`, `Fun MenuAudio_Packet.gscc`,
   `ZM-ColdwarUnlockCamo.gscc`, `compiled (Not working).gscc` — one command each.
+
+**SoCanKam `ColdWarGSCMenu`** (source, GPLv3, read 2026-09-23) — the same three surfaces as ours: the menu
+is one `sethintstring` on a player-glued `trigger_radius` (`initmenu.gsc:400-424`, the region-4 hint layout
+[hint-panel](hint-panel.md), no cursor hint so it wraps), plus `iprintlnbold` toasts and stock
+`luinotifyevent` popups (`lui_debug_menu.gsc`: level-up, UI error, challenge text, screen fade — the
+[lui-events](lui-events.md) channel, hash-args). Its clientfield writes are the Zombies HUD. **Two items
+folded into [hud-channels](hud-channels.md):** the `g_compassShowEnemies` visibility flag (§2g, forced
+radar) and the no-`lui_shared` `luinotifyevent` screen-fade route (§2a). Nothing new for the multi-line
+problem — it confirms the hint route is the ceiling.
