@@ -338,6 +338,7 @@ bash tools/inject.sh hud_probe        # a private match loaded once; restart the
 | 17 | **mlock** | 1 icon beside the crosshair: still → pinned? flick → how far it trails | host-only | | `o:` = ms per server frame |
 | 18 | **musing** | an on-screen capture bar filling ~7 s + the Gunfight flag ahead | | | where on screen? any "capturing" text? |
 | 19–22 | plain | only with `gf_hud_plain 1` | | | |
+| 23 | **centre_nl** (`gf_hud_nl 1`) | ONE centre print with two `\n`: three stacked lines, one line, or a closed match? then one feed print with a `\n` | | | |
 
 ## 7. What each result buys the mod
 
@@ -463,6 +464,31 @@ subtitle_probe_c` knows the client pair.
 **Untried — not ruled out:** which MP voice lines carry subtitles (a `globallogic_audio::leader_dialog` line
 with Subtitles on is the cheap test — joiner-visible, stock text); `cg_subtitlewidthwidescreen` (a BO4 dvar)
 as the width control; the subtitle widget's own UI models (grep `subtitle` in `C:\bocw\lui-source\`).
+
+## 10. Multi-line centre text — why the Atian / MuzzMan menu has it and ours does not (2026-09-23)
+
+klaze: *"that menu has multiple text lines in centre screen but ours only has 1."* **It is the game mode,
+not a trick.** The Atian engine (and MuzzMan's copy of it — `get_menu_size_count`, `menu_drawing_function`
+and `menu_drawing_secondary` are byte-identical in the two `.gscc`, `tools/gscc-inspect.py`) decides it in
+two lines (`t8-atian-menu` `coldwar/scripts/core_common/menu.gsc`):
+
+```gsc
+function menu_drawing_function( txt ) { if ( sessionmodeiszombiesgame() ) self iprintlnbold( txt ); else self iprintln( txt ); }
+function get_menu_size_count() { if ( sessionmodeiszombiesgame() ) return 5; else return 2; }
+```
+
+In **Zombies** each menu line is its own `iprintlnbold`, and the ZM HUD stacks them — a header plus five
+rows in the centre. In **MP** the same engine gives up on the centre and pages **two** rows through the
+feed, because the MP centre print shows **one** line: several `iprintlnbold` calls replace each other
+(recorded here 2026-09-16, the reason for the region-2 carousel). So a video of that menu with a stacked
+centre list is a Zombies video; in a Gunfight match it looks like ours.
+
+**What has not been tried in MP: one print that carries newlines.** Stacking separate calls is measured
+dead; a single `iprintlnbold( "a\nb\nc" )` may still break into lines — or fail the way a raw `\n` in a
+`sethintstring` closed the match ([hint-panel](hint-panel.md)). Probe stage 23, opt-in (`gf_hud_nl 1`), on a
+launch you can lose; it tries the feed the same way after. If the centre takes it, the carousel can become a
+real multi-row centre list. If not, the multi-line surfaces stay the feed (~4 lines), `TempDialog` (stage 15)
+and the popup ([pause-menu](pause-menu.md)).
 
 ## Not in T9 — do not re-look
 

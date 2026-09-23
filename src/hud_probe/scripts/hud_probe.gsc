@@ -38,6 +38,10 @@
 //             launch you can lose: each can be FATAL the way LUIelemText's plain string was
 //             (docs/notes/lui-elems.md, error_message 2nd field = hash of the string).
 //   19 lower_plain   20 objtext_plain   21 mphint_plain   22 announce_plain
+//   group N — OPT-IN (gf_hud_nl 1), last: newlines inside ONE print
+//   23 centre_nl   one iprintlnbold with two \n - three stacked centre lines, one line, or a
+//                  closed match? (a raw \n in a sethintstring closed the match, hint-panel.md);
+//                  then one iprintln with a \n in the feed
 //
 // READOUT — one feed line, re-printed every 3 s ([[debug-feed-one-line]]):
 //   GF HUD <n>/<last> <name> o:<flag> - <what to look for>
@@ -49,6 +53,7 @@
 //   gf_hud_from   1   first stage. After a crash AT stage k: relaunch with k+1.
 //   gf_hud_to    18   last stage (22 with the plain group)
 //   gf_hud_plain  0   1 = run group P as well
+//   gf_hud_nl     0   1 = run stage 23 (group N) as well
 //   gf_hud_all    0   1 = every human gets the per-player stages (the JOINER run)
 //   gf_hud_hold   1   setgametypesetting timelimit 0, so a solo round cannot time out mid-probe
 //   gf_hud_secs   7   seconds per stage (3..30)
@@ -146,18 +151,24 @@ function private run()
     }
 
     plain = getdvarint( #"gf_hud_plain", 0 );
-    last = getdvarint( #"gf_hud_to", 18 );
-    if ( plain && last < 22 )
+    newline = getdvarint( #"gf_hud_nl", 0 );
+    top = 18;
+    if ( plain )
     {
-        last = 22;
+        top = 22;
     }
-    if ( !plain && last > 18 )
+    if ( newline )
     {
-        last = 18;
+        top = 23;
     }
-    if ( last > 22 )
+    last = getdvarint( #"gf_hud_to", top );
+    if ( ( plain || newline ) && last < top )
     {
-        last = 22;
+        last = top;
+    }
+    if ( last > top )
+    {
+        last = top;
     }
 
     secs = getdvarint( #"gf_hud_secs", 7 );
@@ -202,14 +213,31 @@ function private run()
 
     while ( n <= last )
     {
-        setdvar( #"gf_hud_next", n );     // a round reload mid-stage re-runs this stage
-        run_stage( n, last, host, secs );
+        if ( stage_on( n, plain, newline ) )
+        {
+            setdvar( #"gf_hud_next", n );     // a round reload mid-stage re-runs this stage
+            run_stage( n, last, host, secs );
+            wait( 2 );                         // a gap, so each stage reads on its own
+        }
         n++;
         setdvar( #"gf_hud_next", n );
-        wait( 2 );                         // a gap, so each stage reads on its own
     }
 
     hdr_all( host, "^3GF HUD^7 DONE " + last + "/" + last + " - fill the record sheet in docs/notes/hud-channels.md" );
+}
+
+// Groups P (19-22) and N (23) run only when their own opt-in is set.
+function private stage_on( n, plain, newline )
+{
+    if ( n >= 19 && n <= 22 )
+    {
+        return plain;
+    }
+    if ( n == 23 )
+    {
+        return newline;
+    }
+    return 1;
 }
 
 function private run_stage( n, last, host, secs )
@@ -283,6 +311,9 @@ function private run_stage( n, last, host, secs )
             break;
         case 22:
             st_announce( n, last, tg, secs, "GF plain announcement", "announce_plain", "PLAIN text announcement, EVERY player - may be FATAL" );
+            break;
+        case 23:
+            st_centre_nl( n, last, tg, secs );
             break;
         default:
             break;
@@ -1041,5 +1072,32 @@ function private st_musing( n, last, tg, host )
     objective_clearallusing( id );
     objective_setprogress( id, 0 );
     obj_free( ids );
+}
+
+// ── group N: newlines inside one print (opt-in, gf_hud_nl 1) ─────────────────
+// In MP, several iprintlnbold calls do not stack: the centre shows one line (recorded 2026-09-16).
+// The Atian engine - and MuzzMan's copy, byte-identical - draws its menu in the centre ONLY in
+// Zombies: menu_drawing_function is iprintlnbold when sessionmodeiszombiesgame(), iprintln otherwise,
+// and get_menu_size_count is 5 in Zombies, 2 elsewhere (t8-atian-menu coldwar/scripts/core_common/
+// menu.gsc). So multi-line centre text is the Zombies HUD, not a trick. What nobody has tried in MP is
+// ONE message carrying newlines. A raw newline in a sethintstring closed the match (hint-panel.md),
+// hence opt-in and last.
+function private st_centre_nl( n, last, tg, secs )
+{
+    hdr( n, last, "centre_nl", "-", "ONE centre print with 2 newlines: 3 stacked lines, one line, or a closed match?" );
+    wait( 1.5 );
+    foreach ( p in tg )
+    {
+        p iprintlnbold( "^3GF line one\n^2GF line two\n^5GF line three" );
+    }
+    wait( secs );
+
+    hdr( n, last, "centre_nl", "-", "now the FEED: one iprintln with a newline - two feed lines?" );
+    wait( 1.5 );
+    foreach ( p in tg )
+    {
+        p iprintln( "^3GF feed line A\n^2GF feed line B" );
+    }
+    wait( secs );
 }
 
