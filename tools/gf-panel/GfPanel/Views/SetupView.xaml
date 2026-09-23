@@ -61,6 +61,31 @@
       </Expander>
 
       <Expander Style="{StaticResource Block}">
+        <Expander.Header><TextBlock Text="OVERLAY — THE PANEL OVER THE GAME" Style="{StaticResource BlockTitle}" /></Expander.Header>
+        <StackPanel>
+          <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="11" Margin="0,0,0,8">Press the hotkey in the game and this window lays itself over BOCW, borderless and on top. Press it again - or Esc, or click the game - and it goes back where it was and hands the game its focus. It is this same window: nothing is drawn inside the game, no DLL, no hook. Needs Display Mode = Fullscreen Borderless (exclusive Fullscreen minimises when the panel takes focus). While it is up the game gets no input and your player stands still - pause the match first if a round is live.</TextBlock>
+          <StackPanel Orientation="Horizontal" Margin="0,2">
+            <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Overlay.Enabled}" VerticalAlignment="Center" />
+            <TextBlock Text=" overlay hotkey" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="12" />
+          </StackPanel>
+          <Grid Margin="0,6,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="70" /><ColumnDefinition Width="260" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+            <TextBlock Text="Key" Style="{StaticResource Dim}" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" ItemsSource="{Binding Overlay.HotkeyChoices}" DisplayMemberPath="Label" SelectedValuePath="Key" SelectedValue="{Binding Overlay.Hotkey}"
+                      ToolTip="Reserved system-wide while the panel runs - pick a key you do not play with. F4 / F6 / F7 are cwpatch's; F12 is reserved by Windows." />
+            <TextBlock Grid.Row="1" Text="Layout" Style="{StaticResource Dim}" VerticalAlignment="Center" Margin="0,6,0,0" />
+            <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Overlay.LayoutChoices}" DisplayMemberPath="Label" SelectedValuePath="Key" SelectedValue="{Binding Overlay.Layout}" Margin="0,6,0,0" />
+          </Grid>
+          <TextBlock Text="{Binding Overlay.StatusText}" Foreground="{Binding Overlay.StatusKind, Converter={StaticResource KeyBrush}}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" />
+          <WrapPanel Margin="0,8,0,0">
+            <Button Content="Preview the overlay" Style="{StaticResource SmallBtn}" Command="{Binding Overlay.ToggleCmd}"
+                    ToolTip="Show it now - over the game if it is running, else over this monitor. The hotkey, Esc or the header's Back button closes it." />
+          </WrapPanel>
+        </StackPanel>
+      </Expander>
+
+      <Expander Style="{StaticResource Block}">
         <Expander.Header><TextBlock Text="PANEL" Style="{StaticResource BlockTitle}" /></Expander.Header>
         <StackPanel>
           <StackPanel Orientation="Horizontal" Margin="0,2">

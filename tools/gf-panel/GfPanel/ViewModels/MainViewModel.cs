@@ -38,6 +38,7 @@ public sealed class MainViewModel : ObservableObject
     public PropsVM Props { get; }
     public ForgeVM Forge { get; }
     public ToastsVM Toasts { get; } = new();
+    public OverlayVM Overlay { get; }
     public List<SectionVM> Sections { get; } = new();
     public IEnumerable<SectionVM> DashboardSections => Sections.Where(s => s.Tab == "dashboard");
     public IEnumerable<SectionVM> AdvancedSections => Sections.Where(s => s.Tab == "advanced");
@@ -54,6 +55,7 @@ public sealed class MainViewModel : ObservableObject
         Link = new GameLink(Application.Current.Dispatcher, prefs);
         Writer = new ConfigWriter(Link);
         Tracks = new TracksService(Link);
+        Overlay = new OverlayVM(prefs, Toasts, () => Link.Pid);
         foreach (var s in Schema.Sections)
         {
             var vm = new SectionVM(this, s) { IsExpanded = !prefs.Collapsed.Contains("sec:" + s.Title) };

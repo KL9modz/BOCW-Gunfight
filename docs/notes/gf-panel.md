@@ -88,3 +88,71 @@ choice LIVE SLOT / SIDE BUILD, and on the dev box reads `C:ocw\payloads\` direc
   STAGE READY timing was measured at ~25 s for a manual stage).
 - Prop favourites → the in-game menu's Props page (bocw-c2's GSC, same day): `gf_prop_favs` /
   `gf_prop_favs2` CSV + `propfavs`.
+
+## 6. The overlay — the panel over the game (2026-09-23)
+
+klaze: *"Let's create an overlay for a real GUI mod menu. Used only for the purpose of controlling our
+private match gunfight mod."*
+
+**What was built:** the panel itself is the overlay. A system-wide hotkey (default **Insert**, SETUP →
+OVERLAY) lays this window over the game — borderless, topmost, on the game's monitor (layouts: right side
+/ left side / centre / full, each inset so the game shows round it) — and pressing it again, Esc, the
+header's **⤶ Back to game**, or clicking the game puts the window back exactly where it was and hands the
+game its focus. Every tab works as normal inside it. `ViewModels/OverlayVM.cs`, `Native/User32.cs`.
+
+**Why not an in-game menu drawn by a DLL.** The usual "overlay mod menu" is a DLL in the game process
+that hooks the renderer's Present and draws (ImGui) every frame. For this project that is the wrong trade,
+and the reasons are a decision plus exposure, not a measurement of that route:
+- TAC's documented detections are API hooks and overlays (CLAUDE.md, anti-cheat table); a Present hook
+  is both at once.
+- Keeping one undetected would be anti-cheat evasion work — out of scope by decision (ground rules).
+- The one code hook this project ran inside the game (`lua_loadx`, 2026-09-18) left the game crashing even
+  after it had cleanly unhooked itself ([[lui-dll-re]]). That was an inline patch in the exe; a swapchain
+  hook is a different target, so this is suggestive, not a result for it.
+- The GUI already exists here — every menu page, the roster, match control. The in-match GSC menu stays
+  the in-game one; [[hud-channels]] maps what else script can draw.
+
+**What it is, precisely** (for whoever reviews the TAC exposure):
+
+| | |
+|---|---|
+| hotkey | `RegisterHotKey` on the panel's own window, `MOD_NOREPEAT`. The key is reserved system-wide while the panel runs: other apps stop getting it as a normal key press (whether a game reading raw input still sees the press is unmeasured — pick a key you do not play with). A key another app already holds is reported (SETUP status + toast), not silently dropped. F4 / F6 / F7 are cwpatch's and F12 is reserved by Windows, so none is offered. |
+| focus | Windows lets "the process that received the last input event" take the foreground (SetForegroundWindow remarks); the hotkey is expected to count as that — it is not documented in those words. No `AttachThreadInput`, no synthetic input. **If Windows refuses anyway**, the overlay stands down 0.8 s later and says so: it never stays topmost over a game that still has the input. |
+| the game's window | found by enumerating top-level windows for the game's pid (the largest visible unowned one). The calls made on it: `GetWindowRect`, `IsIconic`, `MonitorFromWindow`, `SetForegroundWindow`, `ShowWindow(SW_RESTORE)` — the taskbar's set. The overlay opens no process handle. |
+| the panel window | opaque (not layered, not click-through), topmost **only while shown**; its place and state are saved with `GetWindowPlacement` and restored with `SetWindowPlacement`. Put away as soon as another app takes the focus. |
+| display mode | needs **Fullscreen Borderless**. Exclusive Fullscreen gives up the display when focus leaves and the game minimises; the panel sees that (`IsIconic`, 0.8 s after showing) and says what to change. |
+| input | while it is up the game gets no keyboard or mouse — the host's player stands still. Pause the match first mid-round (MATCH → PAUSE). |
+| joiners | nothing: a window on the host's desktop. The overlay sends nothing to the game; the buttons inside it use the same bridge as always. |
+
+⚠ **Measured: nothing yet.** Built and compile-checked 2026-09-23 on Linux (`dotnet build GfPanel
+-p:EnableWindowsTargeting=true`, 0 errors); never run on Windows. Test sheet:
+
+1. BOCW in Fullscreen Borderless, panel running → SETUP → OVERLAY reads *armed - press Insert in the game*.
+2. In a match, press Insert → the panel covers the right side; the header shows OVERLAY + ⤶ Back; the
+   mouse cursor is usable. *Nothing happens* = the hotkey does not reach the panel while the game has focus
+   (see the first unknown). *"stood down" toast* = Windows refused the focus.
+3. Insert again → the game has focus and input at once; the panel is back where it was.
+4. Up again, then click the game → the overlay puts itself away.
+5. Once in exclusive Fullscreen → the warning toast.
+
+**Unknowns the test answers:**
+- **Does the hotkey reach the panel while BOCW has focus?** A game that registers raw keyboard input with
+  `RIDEV_NOHOTKEYS` switches application hotkeys off while it is in front (Microsoft's RAWINPUTDEVICE
+  docs). Whether BOCW does is unknown. Alt+Tab to the panel works either way.
+- Does BOCW release the mouse cursor when it loses focus? Expected (it has to for Alt+Tab), unmeasured.
+- **TAC and a topmost window over the game: unknown.** The overlay avoids the shape external ESP overlays
+  have (layered, click-through, permanently on top, exactly full-screen), but what TAC looks for is not
+  public. Same rule as everything else: the throwaway box first.
+
+**Untried — not ruled out:**
+- An in-process overlay (DLL + renderer hook + ImGui) — set aside for the reasons above; nobody has
+  measured it on this build.
+- Translucency — one WPF property, but it makes the window layered, which is the shape external overlays
+  have. Left off on purpose.
+- A compact overlay view (sidebar + FAVORITES only) instead of the whole panel.
+- A controller button to open it: XInput polling from the panel is easy; taking the foreground without a
+  keyboard event is the hard part.
+- A key path that does not depend on `RegisterHotKey` if step 2 fails: polling `GetAsyncKeyState` sees the
+  key but carries no right to the foreground, so it would need a shown-but-unfocused overlay clicked once
+  — which is the topmost-over-a-live-game shape this build refuses.
+- An Xbox Game Bar widget (Win+G is a system hotkey, which `RIDEV_NOHOTKEYS` leaves working).

@@ -55,6 +55,10 @@ public sealed class Prefs
     public bool JoinBeep { get; set; } = true;
     public bool JoinToast { get; set; } = true;
     public bool ApplyLiveOnChange { get; set; } = true;
+    // The overlay (ViewModels/OverlayVM.cs): the panel laid over the game on a system-wide hotkey.
+    public bool OverlayEnabled { get; set; } = true;
+    public string OverlayHotkey { get; set; } = "Insert";    // "F9", "Ctrl+Insert", … (OverlayVM.TryParseHotkey)
+    public string OverlayLayout { get; set; } = "right";     // right | left | centre | full
     public List<string> Bans { get; set; } = new();          // xuid list re-sent at match start
     public List<int> PropFavorites { get; set; } = new();     // universal prop indices the in-game menu shows (the GSC contract)
     // The same favourites by MODEL name: the universal list gets renumbered when the catalog is regenerated

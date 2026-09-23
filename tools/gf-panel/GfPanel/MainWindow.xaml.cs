@@ -27,8 +27,11 @@ public partial class MainWindow : Window
         _vm.RevealRow += RevealRow;
         SelectTab(App.StartTab ?? _prefs.LastTab);
         PreviewKeyDown += OnKey;
+        KeyDown += OnKeyBubbled;
+        SourceInitialized += (_, _) => _vm.Overlay.Attach(this);   // the hotkey needs the HWND
         Closing += (_, _) =>
         {
+            _vm.Overlay.Detach();   // first: an overlay still up would be saved as the window's size
             _prefs.WindowWidth = RestoreBounds.Width; _prefs.WindowHeight = RestoreBounds.Height;
             _prefs.WindowMaximized = WindowState == WindowState.Maximized;
             _prefs.SidebarWidth = SidebarCol.ActualWidth;
@@ -62,6 +65,12 @@ public partial class MainWindow : Window
         {
             SearchBox.Focus(); SearchBox.SelectAll(); e.Handled = true;
         }
+    }
+
+    /// <summary>Esc that nothing else wanted (a dropdown closing, the search clearing) puts the overlay away.</summary>
+    private void OnKeyBubbled(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && !e.Handled && _vm.Overlay.Active) { _vm.Overlay.Exit(focusGame: true); e.Handled = true; }
     }
 
     /// <summary>Scroll a settings row into view and flash it (the search's "go to").</summary>
