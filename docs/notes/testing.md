@@ -46,6 +46,21 @@ The harness only checks `ns::fn()` calls. Bare builtins (`iprintln`, `getentarra
 `setgametypesetting`) and `level.*` field names are **not** validated — for those,
 grep `bocw-source-main` by hand.
 
+### The panel's own checks — `GfPanel.Tests` (2026-09-24)
+
+```powershell
+dotnet run --project tools\gf-panel\GfPanel.Tests
+```
+
+No game, no ACTS, no NuGet; runs on Linux too. Besides the panel's parsers, it reads
+`gunfight_menu.gsc` / `gunfight_lobby.gsc` **as text** and checks the two sides still agree: every
+verb the panel sends is a `case` in `cmd_action` / `panel_verb` / `fun_verb`, the packed store is
+`cfg_spec()` in order, each `config_publish` extra lists its dvars in the panel's order, every index
+table (`veh_master`, `fun_*_pick`) matches row for row, every setting's default is the one the GSC
+reads it with. So a **GSC** change that renames a verb or reorders a list fails here too — run it
+after payload edits, not only panel edits. First run found five real bugs:
+[gf-panel](gf-panel.md) §10.
+
 ## Layer 1 — in-game smoke test
 
 Prerequisite: game running. `injectcw` aborts instantly otherwise.

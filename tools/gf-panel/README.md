@@ -16,6 +16,7 @@ nothing installed). It replaces `tools/gf-control` (tkinter), which stays untouc
 |---|---|
 | dev run | `dotnet run --project tools\gf-panel\GfPanel` (live) · add `--dry` to log the commands and send nothing · `--tab tools` opens a tab |
 | build | `dotnet build tools\gf-panel\GfPanel` — headless, ~10 s, no NuGet packages (works offline) |
+| checks | `dotnet run --project tools\gf-panel\GfPanel.Tests` — the offline checks, no game needed, Windows or Linux: the game-line parsers, the 47-byte command slot, match tracking, and the contract with `gunfight_menu.gsc` (verbs, packed settings, defaults, index lists). Exit code 1 on a failure; `-- verb` runs only checks whose name contains "verb", `-- --list` lists them. **Run after any change to the panel or the payload.** `docs/notes/gf-panel.md` §10 |
 | ship | `powershell -ExecutionPolicy Bypass -File tools\gf-panel\publish.ps1 -Payload C:\bocw\payloads\gunfight_menu.props.gscc` → `tools\gf-panel\dist\gf-panel\` |
 | shortcuts | `powershell -ExecutionPolicy Bypass -File tools\gf-panel\shortcuts.ps1 [-Exe <GfPanel.exe>]` — desktop + Start Menu shortcuts and a taskbar pin (Explorer's own pin verb through a temporary `{:}` handler key; measured working on Windows 11 26200, the pin lands ~3 s after the call) |
 

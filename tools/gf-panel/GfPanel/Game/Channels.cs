@@ -120,8 +120,15 @@ public sealed record GfPlayer(int EntNum, string Name, string Team, string Kind,
 public static class Roster
 {
     /// <summary>GFPLAYERS|tick|n|entnum;name;team;kind;xuid;alive;score;kills;deaths;flags|...</summary>
-    public static List<GfPlayer>? ParsePlayers(string body)
+    public static List<GfPlayer>? ParsePlayers(string body) => ParsePlayers(body, out _);
+
+    /// <summary>As above; <paramref name="unlisted"/> = players in the game the line had no room for. n is the whole
+    /// getplayers() count, but players_build skips a player with no name yet and stops adding records once the line
+    /// would pass 940 chars (the 1024-char concatenation fatal) - a full human 6v6 does not fit. Until 2026-09-24 a
+    /// short list was rejected outright, which froze the panel's roster in exactly the biggest lobbies.</summary>
+    public static List<GfPlayer>? ParsePlayers(string body, out int unlisted)
     {
+        unlisted = 0;
         var parts = body.Split('|');
         if (parts.Length < 1 || !int.TryParse(parts[0], out var count)) return null;
         var list = new List<GfPlayer>();
@@ -137,7 +144,19 @@ public static class Roster
             int N(int i) => int.TryParse(f[i], out var n) ? n : 0;
             list.Add(new GfPlayer(N(0), name, f[t], f[t + 1], f[t + 2], f[t + 3] == "1", N(t + 4), N(t + 5), N(t + 6), f[t + 7]));
         }
-        return list.Count == count ? list : null;
+        if (list.Count > count) return null;    // more records than players: not a line players_build wrote
+        unlisted = count - list.Count;
+        return list;
+    }
+
+    /// <summary>A short GFPLAYERS line (<paramref name="unlisted"/> &gt; 0) left players out who are still in the game:
+    /// keep up to that many of their last known rows from <paramref name="previous"/>, so they are not reported as
+    /// "left" and then "joined" again every time the line fills up. The kept rows are stale until they fit again.</summary>
+    public static List<GfPlayer> KeepUnlisted(List<GfPlayer> listed, IReadOnlyList<GfPlayer> previous, int unlisted)
+    {
+        if (unlisted <= 0) return listed;
+        var keys = listed.Select(p => p.Key).ToHashSet();
+        return listed.Concat(previous.Where(p => !keys.Contains(p.Key)).Take(unlisted)).ToList();
     }
 
     /// <summary>GFROSTER|tick|count|name;team;kind;xuid|... (the older line; no entnum / alive / score).</summary>

@@ -29,30 +29,20 @@ public sealed class FunVM : ObservableObject
             _m.Link.Send("Fast restart (replay the round)", Commands.Action("restartround"));
     });
 
-    // fun_nade_pick order
-    public static readonly Named[] NadeTypes =
-    {
-        new("Molotov", "0"), new("Semtex", "1"), new("Frag", "2"), new("C4", "3"), new("Stun", "4"), new("Flash", "5"),
-        new("Smoke", "6"), new("Hatchet", "7"), new("M79 grenade", "8"), new("War Machine grenade", "9"), new("Monkey bomb (Zombies item - may do nothing)", "10"),
-    };
+    // fun_nade_pick order (the list lives in Catalog, checked against the GSC by GfPanel.Tests)
+    public static readonly Named[] NadeTypes = Catalog.FunNades;
     public Named[] NadeTypeList => NadeTypes;
     private Named _nade = NadeTypes[0];
     public Named SelectedNade { get => _nade; set { if (value != null && Set(ref _nade, value)) Send.Execute("nadeswapw " + value.Value); } }
 
     // fun_cannon_pick order
-    public static readonly Named[] CannonModels =
-    {
-        new("Your forge pick", "0"), new("Chickens", "1"), new("Oil drums", "2"), new("Couches", "3"), new("Mannequins", "4"), new("Energy portals", "5"),
-    };
+    public static readonly Named[] CannonModels = Catalog.FunCannonModels;
     public Named[] CannonModelList => CannonModels;
     private Named _cannon = CannonModels[0];
     public Named SelectedCannon { get => _cannon; set { if (value != null && Set(ref _cannon, value)) Send.Execute("cannonmodel " + value.Value); } }
 
     // fun_disg_pick order
-    public static readonly Named[] DisguisePicks =
-    {
-        new("Chicken", "0"), new("Mannequin", "1"), new("Couch", "2"), new("Oil drum", "3"), new("Dog tags", "4"), new("Energy portal", "5"),
-    };
+    public static readonly Named[] DisguisePicks = Catalog.FunDisguises;
     public Named[] DisguiseList => DisguisePicks;
     private Named _disg = DisguisePicks[0];
     public Named SelectedDisguise { get => _disg; set => Set(ref _disg, value); }

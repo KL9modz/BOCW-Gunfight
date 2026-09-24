@@ -177,6 +177,24 @@ public static class Catalog
         new("Flamethrower", "hero_flamethrower"), new("Sparrow (bow)", "sig_bow_flame"), new("Nuke", "nuke"),   // ray_gun: killstreaks::give refused it (removed 2026-09-22)
     };
 
+    // The fun pack's picks travel as INDICES (`fun nadeswapw 3`): a model or weapon name would overflow the 47-byte
+    // bridge slot. Order = gunfight_menu.gsc fun_nade_pick / fun_cannon_pick / fun_disg_pick - GfPanel.Tests checks it.
+    public static readonly Named[] FunNades =
+    {
+        new("Molotov", "0"), new("Semtex", "1"), new("Frag", "2"), new("C4", "3"), new("Stun", "4"), new("Flash", "5"),
+        new("Smoke", "6"), new("Hatchet", "7"), new("M79 grenade", "8"), new("War Machine grenade", "9"), new("Monkey bomb (Zombies item - may do nothing)", "10"),
+    };
+
+    public static readonly Named[] FunCannonModels =
+    {
+        new("Your forge pick", "0"), new("Chickens", "1"), new("Oil drums", "2"), new("Couches", "3"), new("Mannequins", "4"), new("Energy portals", "5"),
+    };
+
+    public static readonly Named[] FunDisguises =
+    {
+        new("Chicken", "0"), new("Mannequin", "1"), new("Couch", "2"), new("Oil drum", "3"), new("Dog tags", "4"), new("Energy portal", "5"),
+    };
+
     public static readonly Named[] Sounds =
     {
         new("Timer beep", "uin_timer_5"), new("Action denied", "uin_default_action_denied"), new("Kill confirmed tags", "mpl_killconfirm_tags_pickup"),
@@ -197,12 +215,13 @@ public static class Catalog
         new("^5", "cyan", "#46d2ff"), new("^6", "magenta", "#ff5cff"), new("^7", "white", "#ffffff"), new("^8", "grey (team)", "#9a9a9a"), new("^9", "grey", "#7a7a7a"),
     };
 
+    // the built-in composer presets: each fits ONE say line (Commands.MaxSayChars, 30) - a longer one was cut mid-sentence in game
     public static readonly Named[] MessagePresets =
     {
-        new("Welcome - custom Gunfight", "Welcome! Custom Gunfight - the host runs the settings"), new("Starting soon", "Starting soon - get ready"),
-        new("Map switch next round", "Map switch next round - stay in the lobby"), new("Sides switch next round", "Sides switch next round"),
-        new("Bots joining", "Bots joining to fill the teams"), new("Custom rules on", "Custom rules are ON - ask the host"),
-        new("Do not leave", "Do not leave - wait for the host"), new("GG - lobby after this", "GG! Back to the lobby after this one"),
-        new("One more round", "One more round!"), new("gunfight.us", "Visit us at ^5gunfight.us"), new("Discord", "Join us at ^5discord.gg/blackops"),
+        new("Welcome - custom Gunfight", "Welcome to custom Gunfight!"), new("Starting soon", "Starting soon - get ready"),
+        new("Map switch next round", "Map switch next round - stay!"), new("Sides switch next round", "Sides switch next round"),
+        new("Bots joining", "Bots joining to fill the teams"), new("Custom rules on", "Custom rules ON - ask the host"),
+        new("Do not leave", "Do not leave - wait for host"), new("GG - lobby after this", "GG! Lobby after this one"),
+        new("One more round", "One more round!"), new("gunfight.us", "Visit us at ^5gunfight.us"), new("Discord", "Join ^5discord.gg/blackops"),
     };
 }

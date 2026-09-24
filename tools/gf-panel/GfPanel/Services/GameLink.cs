@@ -7,14 +7,6 @@ using GfPanel.ViewModels;
 
 namespace GfPanel.Services;
 
-/// <summary>In = a line the panel sent; Menu = a player's menu action read back from the game (GFLOG).</summary>
-public enum LogLevel { Info, Ok, Warn, Err, In, Menu }
-
-public sealed record LogEntry(DateTime At, string Text, LogLevel Level)
-{
-    public string Time => At.ToString("HH:mm:ss");
-}
-
 /// <summary>A command in flight: sent -> received (the GSC ack reached us) / timeout / failed.</summary>
 public sealed class QueuedCommand : ObservableObject
 {
@@ -408,8 +400,13 @@ public sealed class GameLink : IDisposable
             }
             if (hits.TryGetValue("GFPLAYERS", out var pl) && pl.Tick > _lastPlayersTick)
             {
-                var list = Roster.ParsePlayers(pl.Body);
-                if (list != null) { _lastPlayersTick = pl.Tick; PlayersRich = true; UpdatePlayers(list); }
+                var list = Roster.ParsePlayers(pl.Body, out var unlisted);
+                if (list != null)
+                {
+                    _lastPlayersTick = pl.Tick; PlayersRich = true;
+                    NoteUnlisted(list.Count, unlisted);
+                    UpdatePlayers(Roster.KeepUnlisted(list, Players, unlisted));
+                }
             }
             else if (!PlayersRich && hits.TryGetValue("GFROSTER", out var ro) && ro.Tick > _lastRosterTick)
             {
@@ -486,6 +483,19 @@ public sealed class GameLink : IDisposable
         if (_logSeqWanted > _logSeqSeen && Volatile.Read(ref _logTries) > 5) _logSeqSeen = _logSeqWanted;
         var want = (_logSeqWanted > _logSeqSeen || Matches.HasPending) && Volatile.Read(ref _logMatch) > 0;
         Volatile.Write(ref _logWanted, want ? 1 : 0);
+    }
+
+    /// <summary>Players in the game that the last GFPLAYERS line had no room for (players_build stops at 940 chars;
+    /// a player still connecting has no name yet and is skipped too). Their last known rows are kept meanwhile.</summary>
+    public int PlayersUnlisted { get; private set; }
+
+    private void NoteUnlisted(int listed, int unlisted)
+    {
+        if (unlisted == PlayersUnlisted) return;
+        PlayersUnlisted = unlisted;
+        // a small lobby only ever skips a player who is still connecting - not worth a line
+        if (unlisted > 0 && listed + unlisted >= 8)
+            Log($"roster: {listed} of {listed + unlisted} players listed - the game's player line is full (or someone is still connecting); the rest keep their last known row", LogLevel.Info);
     }
 
     private void UpdatePlayers(List<GfPlayer> list)

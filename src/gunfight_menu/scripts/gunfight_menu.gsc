@@ -10582,7 +10582,7 @@ function private config_publish()
         s += "|dbg=" + cfg_dbg_race() + "," + cfg_dbg_veh() + "," + cfg_dbg_barrier() + "," + cfg_mapscan();
         s += "|misc=" + cfg_spawn_antistack() + "," + cfg_hint_lines() + "," + cfg_respawns()
             + "," + cfg_geti( #"gf_hint_others_on", 1 ) + "," + cfg_geti( #"gf_hint_glyphs", 1 )   // append-only list
-            + "," + cfg_geti( #"gf_forge_pin", 1 ) + "," + cfg_geti( #"gf_forge_movestep", 6 ) + "," + cfg_geti( #"gf_forge_rotstep", 3 )
+            + "," + cfg_geti( #"gf_forge_pin", 0 ) + "," + cfg_geti( #"gf_forge_movestep", 6 ) + "," + cfg_geti( #"gf_forge_rotstep", 3 )
             + "," + cfg_geti( #"gf_forge_scalestep", 2 ) + "," + cfg_geti( #"gf_forge_zstep", 4 )
             + "," + cfg_geti( #"gf_hint_self_on", 1 ) + "," + cfg_geti( #"gf_menu_repaint", 3000 )
             + "," + cfg_geti( #"gf_rounds_sides", -1 ) + "," + cfg_geti( #"gf_friendlyfire", -1 )

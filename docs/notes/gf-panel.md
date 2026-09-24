@@ -290,3 +290,44 @@ previous = `gunfight_menu.safe-67FECA4B.bak.gscc`). **Nothing below has run in g
   cross-checked row by row (0 mismatches). `vehspawn` is by index: ship the payload and the panel together.
 - Live slot AE827AAE (686,490 B / 3,958 strings, 0 strings with a byte < 0x20) also carries bocw-e0's 6v6
   default + slide chain penalty ON by default. dist republished 03:14. **Nothing of §9 has run in game.**
+
+## 10. Offline checks — `GfPanel.Tests` (2026-09-24, cloud branch)
+
+klaze: *"lets shift gears and work on the panel app"* → the offline test harness first, so the redesign that
+follows has something to catch what it breaks. `tools/gf-panel/GfPanel.Tests/` is a plain net9.0 console app
+(no NuGet, `RollForward=Major`, runs on Windows or Linux) that compiles the panel's UI-free code in directly
+(`Game\*.cs`, `MemoryScanner` / `Win32` / `GameProcess`, `MatchTracker` + `LogEntry`) — the panel itself is
+net9.0-windows WPF and cannot be referenced. `dotnet run --project tools\gf-panel\GfPanel.Tests`; exit code 1
+on any failure; a name filter as the argument. **55 checks, all green**, ~0.5 s.
+
+| Group | What it holds the panel to |
+|---|---|
+| parsers | GFSTATE (a `state_build`-shaped line; the fallback line; older-payload defaults), GFPLAYERS / GFROSTER, GFCFG, GFENTS (newest *complete* stamp wins), GFLOG (union of every copy, a filled-in result wins), GFSPAWNED, GFLOBBY; `MemoryScanner.Parse` refusing the 2026-09-20 stale-slot junk |
+| the 47-byte slot | every plain setting write at every value it can hold, every packed chunk + bot line at its widest, say / action / switch lines whatever is typed, every verb the panel sends; `Clean()` drops line breaks (the match-closing bug) |
+| the GSC contract | every verb sent is a `case` in `cmd_action` / `panel_verb`, every `fun` switch a `case` in `fun_verb`; `Packing.Packed` = `cfg_spec()` in order; each `config_publish` extra (misc / race / dbg / veh / oob / bar) in the panel's order; bot knobs in the writer's order with its fallback defaults; `Catalog.Vehicles` = `veh_master()` row for row; the fun picks = `fun_*_pick`; every GFSTATE key feeds a field and every field has a key; every setting is read by some GSC; every default is the one the GSC runs with |
+| schema | unique dvars (a duplicate throws in the type initializer — the app would not start); each default is a value its control can show |
+| match tracking | normal end, dropped mid-round, round end with no next round, the panel's own restart, a stall that comes back, a last gasp that finds the feed alive, the game closing, a new match id, menu actions in seq order, the unanswered last action named |
+
+The GSC side is read **as text** (comment-stripped; functions found by name). A function the checks cannot
+find fails loudly ("renamed or removed? update the check") rather than passing — so a **payload** change that
+renames a verb or reorders a list fails here as well. Run it after GSC edits too.
+
+**The first run found five real bugs**, all fixed in the same change:
+1. **The roster froze in the biggest lobbies.** `players_build` stops adding records once the line would pass
+   940 chars (the 1024-char fatal) and skips a player with no name yet, but its count is `getplayers().size` —
+   and `Roster.ParsePlayers` rejected any line whose record count differed. 16 human records do not fit, so a
+   full human lobby stopped updating the PLAYERS list (with `PlayersRich` set, GFROSTER was no fallback either).
+   Now the short list is taken, `GameLink.PlayersUnlisted` counts the rest, they keep their last known row
+   (`Roster.KeepUnlisted` — else they would log as *left* then *joined* every time the line filled), and a big
+   lobby logs one line saying so.
+2. **Six built-in message presets were cut mid-sentence in game** — up to 53 chars against the 30 a say line
+   carries. Shortened to fit (e.g. *Welcome to custom Gunfight!*). Presets already saved in a user's prefs are
+   untouched; the composer's count goes negative for those.
+3. **Pin the player while placing read back as ON while the forge ran it OFF.** `config_publish` read
+   `gf_forge_pin` with default 1, the forge loop with 0 (`dvars_register`, the only place that sets it, is never
+   called — the dvar-pool crash). GSC fix: the publish uses 0. ⚠ Needs a payload rebuild (+ `check-gsc.ps1`).
+4. **Grab reach defaulted to 160 in the panel, 200 in the game** (the GSC moved on 2026-09-22). Schema = 200.
+5. (not a bug, a gap) the fun pick lists moved from `FunVM` into `Catalog` so the checks can compile them.
+
+Rules this sets for the redesign: `Game\` stays free of WPF (the harness compiles it whole); anything that
+sends a verb names it as a literal (the verb check reads call sites, and lists any it cannot read).
