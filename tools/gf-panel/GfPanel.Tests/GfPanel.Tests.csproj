@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Offline checks for the Gunfight Host Panel (klaze, 2026-09-24): the game-line parsers, the 47-byte
+       command slot, match tracking, and the contract with gunfight_menu.gsc (verbs, packed settings,
+       defaults, index lists). No game, no NuGet, Windows or Linux. How to run: tools/gf-panel/README.md.
+
+       The panel itself is net9.0-windows WPF, which a cross-platform project cannot reference, so its UI-free
+       code is compiled in here directly. Game\ is linked whole: anything added there must stay free of WPF. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <!-- run on whatever newer runtime is installed when 9 is not (a Linux box with only .NET 10) -->
+    <RollForward>Major</RollForward>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RootNamespace>GfPanel.Tests</RootNamespace>
+    <AssemblyName>GfPanel.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\GfPanel\Game\*.cs" LinkBase="Linked\Game" />
+    <Compile Include="..\GfPanel\Native\MemoryScanner.cs;..\GfPanel\Native\Win32.cs;..\GfPanel\Native\GameProcess.cs" LinkBase="Linked\Native" />
+    <Compile Include="..\GfPanel\Services\MatchTracker.cs;..\GfPanel\Services\LogEntry.cs" LinkBase="Linked\Services" />
+  </ItemGroup>
+
+</Project>

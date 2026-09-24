@@ -268,8 +268,8 @@ public static class Schema
             {
                 new() { Dvar = "gf_place_dist", Label = "Place reach (u)", Kind = SettingKind.Int, Default = 500, Min = 100, Max = 1500, Step = 50, Eff = Eff.Live,
                         Tip = "gf_place_dist\nHow far along the crosshair a prop / vehicle is placed (the forge preview and the vehicle spawn)." },
-                new() { Dvar = "gf_grab_dist", Label = "Grab reach (u)", Kind = SettingKind.Int, Default = 160, Min = 60, Max = 400, Step = 20, Eff = Eff.Live,
-                        Tip = "gf_grab_dist\nHow close a map prop must be to grab it." },
+                new() { Dvar = "gf_grab_dist", Label = "Grab reach (u)", Kind = SettingKind.Int, Default = 200, Min = 60, Max = 400, Step = 20, Eff = Eff.Live,
+                        Tip = "gf_grab_dist\nHow close a map prop must be to grab it. Default 200 (the GSC's, raised from 160 on 2026-09-22)." },
                 new() { Dvar = "gf_ahint", Label = "Asset prompts", Kind = SettingKind.Toggle, Default = 1, Eff = Eff.Live,
                         Tip = "gf_ahint\nThe on-screen prompts on grabbable / usable assets: the forge-mode prop prompts (now with the viewer's own interact-button icon) and the 'Hold [use] to control / fly / enter' line on menu-spawned rides that have no enter prompt of their own (RC-XD, streak rides - bocw-84 2026-09-23). 0 = off." },
             },

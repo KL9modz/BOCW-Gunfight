@@ -86,8 +86,8 @@ public sealed class MemoryScanner : IDisposable
     /// The line is ONE NUL-terminated ASCII string in the pool: a stale slot that was partly overwritten
     /// has no |END of its own, and scanning past its NUL to some other line's |END turned dead memory into
     /// the "say" text (measured 2026-09-20: kilobytes of junk in the activity log). So: the |END must come
-    /// before the first NUL, and every byte up to it must be printable ASCII.</summary>
-    private static Hit? Parse(ReadOnlySpan<byte> span, string marker, long addr)
+    /// before the first NUL, and every byte up to it must be printable ASCII. Internal for GfPanel.Tests.</summary>
+    internal static Hit? Parse(ReadOnlySpan<byte> span, string marker, long addr)
     {
         var nul = span.IndexOf((byte)0);
         if (nul >= 0) span = span[..nul];
