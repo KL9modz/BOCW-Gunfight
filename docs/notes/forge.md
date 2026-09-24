@@ -88,3 +88,10 @@ takes pitch / roll; a grabbed prop stays flat as before); **Prop gun** (each sho
 floored, 250 ms apart, cap 200). ⚠ Motion and tilt are **not saved** by `forge_resave` (position / yaw /
 scale only). Design + test sheet: [[fun-pack]]
 
+**Fun pack 2 (2026-09-24, never run)** — from PHA's Advanced forge: **Spray – hold Fire** (a prop every
+0.5 / 0.25 / 0.1 s while Fire is held in the placer; quiet; capped at 200 like the prop gun),
+**Auto-link new props** (the first prop placed becomes the base and later ones `linkto` it — a star, so
+spinning the base turns the whole build and deleting a rider breaks nothing), **Spin speed** 1 / 2 / 3 s a
+turn + **Reverse spin** (PHA's 18 modes = 3 axes × 2 directions × 3 speeds). Links, like motion, are not
+saved across rounds.
+

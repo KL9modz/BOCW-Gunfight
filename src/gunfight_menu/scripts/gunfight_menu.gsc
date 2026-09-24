@@ -424,6 +424,10 @@
 //       slide page (speed / long / super / chain), disco camo, prop      Stock shapes: prop.gsc setupprop
 //       disguise, forge tools + prop gun + tilt, shots per trigger,      (disguise), challenges issliding,
 //       grenade swap, model cannon, 9 appended vehicle rows              dev.gsc magicgrenadeplayer.
+//     FUN PACK 2: ESP (glow / markers / radar), projectile method 7   ⚠ built 2026-09-24, never run.
+//       magicmissile + streak AUTO + jet/napalm impacts, cannon ride,    Stock shapes: killstreaks::
+//       forge spray / auto-link / spin speed; fun switches -> pers       thermal_glow, prop.gsc:4645,
+//                                                                       jetfighter.gsc:571.
 //
 // ⚠ ONE CONTRADICTION THIS FILE HAD TO ROUTE AROUND. A4 diagnosed its map-switch
 //   failure as `level endon( #"game_ended" )` killing the thread inside wait(1).
@@ -8550,6 +8554,7 @@ function private build_tree()
     self menu_item( "movement", "Fly mode - host", &act_fly );
     // Fun pack: PHA's noclip bind - Tactical + Melee toggles fly with the menu closed.
     it = self menu_item( "movement", "Fly bind: Tac + Melee", &act_fly_bind );
+    it.activated = pflag( self, #"gf_fly_bind" );
     it.detail = "toggle fly with the menu closed";
     self menu_add( "mv_gravity", "Gravity", "movement", 1 );
     self menu_item( "mv_gravity", "Gravity normal 800", &act_gravity, 800, undefined, #"gf_gravity", 800 );
@@ -8778,6 +8783,7 @@ function private build_tree()
     //    placed. Motion is not saved across rounds. Never run. ─────────────────────────────────────
     self menu_add( "forgetools", "Forge tools", "forgemode", 1 );
     it = self menu_item( "forgetools", "Prop gun", &act_propgun );
+    it.activated = pflag( self, #"gf_propgun" );
     it.detail = "each shot places your forge pick";
     self menu_item( "forgetools", "Spin yaw", &act_ft_spin, 0 );
     self menu_item( "forgetools", "Spin roll", &act_ft_spin, 1 );
@@ -8794,6 +8800,22 @@ function private build_tree()
     it = self menu_item( "forgetools", "Solid on/off", &act_ft_solid );
     it.detail = "walk-through props";
     self menu_item( "forgetools", "Delete aimed prop", &act_ft_delete );
+    // fun pack 2 (2026-09-24): PHA's spin modes, spawn interval and auto-link. Never run.
+    it = self menu_item( "forgetools", "Reverse spin", &act_ft_spin_rev );
+    it.activated = is_true( game.gf_ft_spin_rev );
+    it.detail = "for the next Spin";
+    it = self menu_item( "forgetools", "Auto-link new props", &act_forge_autolink );
+    it.activated = is_true( game.gf_forge_autolink );
+    it.detail = "later props ride the first";
+    self menu_add( "forge_spin", "Spin speed", "forgetools", 1 );
+    self menu_item( "forge_spin", "1 s a turn", &act_ft_spin_speed, 1 );
+    self menu_item( "forge_spin", "2 s a turn", &act_ft_spin_speed, 2 );
+    self menu_item( "forge_spin", "3 s a turn - default", &act_ft_spin_speed, 3 );
+    self menu_add( "forge_spray", "Spray - hold Fire", "forgetools", 1 );
+    self menu_item( "forge_spray", "Off - one per press", &act_forge_spray, 0 );
+    self menu_item( "forge_spray", "Every 0.5 s", &act_forge_spray, 500 );
+    self menu_item( "forge_spray", "Every 0.25 s", &act_forge_spray, 250 );
+    self menu_item( "forge_spray", "Every 0.1 s", &act_forge_spray, 100 );
     self menu_add( "forge_tilt", "Tilt new props", "forgetools", 1 );
     self menu_item( "forge_tilt", "Flat", &act_ft_tilt, 0, 0 );
     self menu_item( "forge_tilt", "Tilt 45", &act_ft_tilt, 45, 0 );
@@ -8844,6 +8866,8 @@ function private build_tree()
     self menu_item( "proj_weapon", "Ballistic knife", &act_proj_weapon, #"special_ballisticknife_t9_dw", "ballistic knives" );
     self menu_item( "proj_weapon", "Napalm bomb", &act_proj_weapon, #"napalm_strike", "napalm bombs" );
     self menu_item( "proj_weapon", "Artillery shell", &act_proj_weapon, #"planemortar", "artillery shells" );
+    it = self menu_item( "proj_weapon", "Stun grenade", &act_proj_weapon, #"eq_slow_grenade", "stun grenades" );
+    it.detail = "Prop Hunt's flash, magicmissile";
     self menu_add( "proj_rate", "Rate", "proj", 1 );
     self menu_item( "proj_rate", "One per 1000 ms", &act_proj_rate, 1000 );
     self menu_item( "proj_rate", "One per 600 ms", &act_proj_rate, 600 );
@@ -8851,10 +8875,11 @@ function private build_tree()
     self menu_item( "proj_rate", "One per 150 ms", &act_proj_rate, 150 );
     it = self menu_item( "proj_rate", "Every shot", &act_proj_rate, 0 );
     it.detail = "full-auto test";
-    // Spawn method (2026-09-20 diagnostic, projectiles.md §8): six ways to make the shot, read live.
+    // Spawn method (2026-09-20 diagnostic, projectiles.md §8): seven ways to make the shot, read live
+    // (7 = magicmissile, fun pack 2).
     self menu_add( "proj_method", "Spawn method", "proj", 1 );
     it = self menu_item( "proj_method", "0 AUTO", &act_proj_method, 0, "AUTO by weapon class" );
-    it.detail = "grenade-class launched, else magicbullet";
+    it.detail = "streak -> 7, grenade -> 4, else 1";
     it = self menu_item( "proj_method", "1 magicbullet, owner me", &act_proj_method, 1, "magicbullet, owner = shooter" );
     it.detail = "the original";
     self menu_item( "proj_method", "2 magicbullet, no owner", &act_proj_method, 2, "magicbullet, no owner" );
@@ -8866,6 +8891,8 @@ function private build_tree()
     it.detail = "impact blast, no projectile";
     it = self menu_item( "proj_method", "6 from the chest", &act_proj_method, 6, "chest start" );
     it.detail = "magicbullet 40 u ahead";
+    it = self menu_item( "proj_method", "7 magicmissile", &act_proj_method, 7, "magicmissile" );
+    it.detail = "stock's streak spawner - PHA's pick";
     it = self menu_item( "proj", "Debug line", &act_dbg_proj );
     it.detail = "PROJ counters to the feed";
     // ── Fun pack: PHA's "Modded bullets" extras. Never run. ──────────────────────────────────────
@@ -8876,8 +8903,10 @@ function private build_tree()
     self menu_item( "proj_count", "8", &act_proj_count, 8 );
     self menu_add( "nadeswap", "Grenade swap", "proj", 1 );
     it = self menu_item( "nadeswap", "Swap", &act_nadeswap, "me" );
+    it.activated = pflag( self, #"gf_nadeswap" );
     it.detail = "your throws become the Swap-to type";
-    self menu_item( "nadeswap", "Swap: everyone", &act_nadeswap, "all" );
+    it = self menu_item( "nadeswap", "Swap: everyone", &act_nadeswap, "all" );
+    it.activated = is_true( game.gf_nadeswap_all );
     self menu_item( "nadeswap", "Swap: all OFF", &act_nadeswap, "off" );
     self menu_add( "nadeswap_type", "Swap to", "nadeswap", 1 );
     self menu_item( "nadeswap_type", "Molotov", &act_nadeswap_type, #"eq_molotov", "Molotov" );
@@ -8894,10 +8923,16 @@ function private build_tree()
     it.detail = "a Zombies item - may do nothing in MP";
     self menu_add( "cannon", "Model cannon", "proj", 1 );
     it = self menu_item( "cannon", "Model cannon", &act_cannon );
+    it.activated = pflag( self, #"gf_cannon" );
     it.detail = "your shots launch a prop";
     it = self menu_item( "cannon", "Blast on impact", &act_cannon_blast );
+    it.activated = is_true( game.gf_cannon_blast );
     it.detail = "the explosive-rounds blast";
+    it = self menu_item( "cannon", "Ride a real rocket", &act_cannon_ride );
+    it.activated = is_true( game.gf_cannon_ride );
+    it.detail = "PHA's trick - the rocket's flight + hit";
     it = self menu_item( "cannon", "Keep landed props", &act_cannon_keep );
+    it.activated = is_true( game.gf_cannon_keep );
     it.detail = "else they vanish after 5 s";
     self menu_add( "cannon_model", "Cannon model", "cannon", 1 );
     self menu_item( "cannon_model", "My forge pick", &act_cannon_model, "", "your forge pick" );
@@ -8945,6 +8980,24 @@ function private build_tree()
     self menu_item( "disguise_height", "Raised 20", &act_disg_height, 20 );
     self menu_item( "disguise_height", "Raised 40", &act_disg_height, 40 );
     self menu_item( "disguise", "Disguise OFF", &act_disg_off );
+    // ── ESP (fun pack 2: PHA's thermal glow + stock markers + stock radar). Never run. ──
+    self menu_add( "esp", "ESP", "player", 1 );
+    it = self menu_item( "esp", "Glow", &act_esp, "glow", "me" );
+    it.detail = "enemies glow - PHA's thermal, the test";
+    it.activated = pflag( self, #"gf_esp_glow" );
+    it = self menu_item( "esp", "Glow: everyone", &act_esp, "glow", "all" );
+    it.activated = esp_all( "glow" );
+    it = self menu_item( "esp", "Markers", &act_esp, "mark", "me" );
+    it.detail = "an icon over each enemy, through walls";
+    it.activated = pflag( self, #"gf_esp_mark" );
+    it = self menu_item( "esp", "Markers: everyone", &act_esp, "mark", "all" );
+    it.activated = esp_all( "mark" );
+    it = self menu_item( "esp", "Radar", &act_esp, "radar", "me" );
+    it.detail = "enemies always on your minimap";
+    it.activated = pflag( self, #"gf_esp_radar" );
+    it = self menu_item( "esp", "Radar: everyone", &act_esp, "radar", "all" );
+    it.activated = esp_all( "radar" );
+    self menu_item( "esp", "ESP: all OFF", &act_esp, "", "off" );
 
     // ── Teleport — a hub (docs/notes/teleport.md): everyone / a side to a point, me to a
     // point, and the teleport gun / grenade toggles. The per-player rows (to me / me to
@@ -9093,8 +9146,10 @@ function private build_tree()
     self menu_item( "camo", "Pack-a-Punch 3", &act_camo, 69 );
     // Fun pack: PHA's disco camo - a random camo every 0.2 s (the target, or everyone).
     it = self menu_item( "camo", "Disco camo", &act_disco, "me" );
+    it.activated = pflag( self, #"gf_disco" );
     it.detail = "random camo every 0.2 s";
-    self menu_item( "camo", "Disco camo: everyone", &act_disco, "all" );
+    it = self menu_item( "camo", "Disco camo: everyone", &act_disco, "all" );
+    it.activated = is_true( game.gf_disco_all );
     self menu_item( "camo", "Disco camo: all OFF", &act_disco, "off" );
     self menu_add( "camo_byid", "Camo by ID (0-149)", "camo", 1 );
     for ( ci = 0; ci < 150; ci++ )
@@ -10549,6 +10604,8 @@ function private client_page_build( id, player )
     self menu_item( id, "Give streak", &act_c_hub, "streaks", player );
     it = self menu_item( id, "Forge mode", &act_c_forgemode, player );
     it.activated = is_true( player.gf_forgemode );
+    it = self menu_item( id, "ESP - glow, markers, radar", &act_c_esp, player );
+    it.activated = pflag( player, #"gf_esp_glow" ) || pflag( player, #"gf_esp_mark" ) || pflag( player, #"gf_esp_radar" );
     self menu_item( id, "Take current weapon", &act_c_takeweapon, player );
     self menu_item( id, "Strip all weapons", &act_c_strip, player );
     self menu_item( id, is_true( player.gf_frozen ) ? "Unfreeze" : "Freeze - can look, not move", &act_freeze_player, player );
@@ -16219,7 +16276,8 @@ function private proj_ms()
     return 300;
 }
 
-// 0 = AUTO (grenade-class -> the grenade spawner, else magicbullet with the owner), 1-6 explicit.
+// 0 = AUTO (streak projectiles -> magicmissile, grenade-class -> the grenade spawner, else
+// magicbullet with the owner), 1-7 explicit.
 function private proj_method()
 {
     if ( isdefined( game.gf_proj_method ) )
@@ -16235,6 +16293,16 @@ function private proj_is_nade( w )
         return true;
 
     return w == getweapon( #"special_grenadelauncher_t9" ) || w == getweapon( #"frag_grenade" ) || w == getweapon( #"hero_pineapplegun" );
+}
+
+// Streak / equipment projectiles stock itself spawns with magicmissile, and ONLY with it:
+// jetfighter.gsc:571 (jet missile), planemortar_shared.gsc:582 (artillery shell),
+// napalm_strike_shared.gsc:392 (napalm bomb), _prop_controls.gsc:1577 (Prop Hunt's stun). PHA's
+// weapon table types exactly these four "Missile" and routes them to magicmissile (fun pack 2,
+// 2026-09-24); magicbullet has no stock caller for any of them.
+function private proj_is_streak( w )
+{
+    return w == getweapon( #"jetfighter_missile" ) || w == getweapon( #"planemortar" ) || w == getweapon( #"napalm_strike" ) || w == getweapon( #"eq_slow_grenade" );
 }
 
 // The weapon's own projectile speed where the def exposes it (zm_ai_hulk.gsc:2246 reads
@@ -16373,7 +16441,12 @@ function private proj_fire( w, spread = 0 )
     use = m;
 
     if ( m == 0 )
-        use = proj_is_nade( w ) ? 4 : 1;
+    {
+        if ( proj_is_streak( w ) )
+            use = 7;
+        else
+            use = proj_is_nade( w ) ? 4 : 1;
+    }
 
     eye = self geteye();
     ang = self getplayerangles();
@@ -16420,7 +16493,17 @@ function private proj_fire( w, spread = 0 )
         s.gave++;
     }
 
-    if ( use == 4 )
+    if ( use == 7 )
+    {
+        // Stock's own argument shapes: the jet missile gets a unit DIRECTION (jetfighter.gsc:571 -
+        // it flies itself), the bombs a VELOCITY (planemortar :582 ( 0, 0, -5000 ), napalm :392,
+        // Prop Hunt's stun fwd * 60).
+        if ( w == getweapon( #"jetfighter_missile" ) )
+            p = self magicmissile( w, start, fwd );
+        else
+            p = self magicmissile( w, start, vectorscale( fwd, proj_speed( w ) ) );
+    }
+    else if ( use == 4 )
         p = self magicgrenadeplayer( w, start, vectorscale( fwd, proj_speed( w ) ) );
     else if ( use == 2 )
         p = magicbullet( w, start, end );
@@ -16438,6 +16521,15 @@ function private proj_fire( w, spread = 0 )
 
     s.ent++;
     level thread proj_watch( p, start, use );
+
+    if ( use == 7 )
+    {
+        // Stock teams every streak projectile it spawns (jetfighter.gsc:574-575, napalm :409-410),
+        // and PHA copies it; then the payloads stock delivers by SCRIPT, not by the weapon.
+        p.team = self.team;
+        p setteam( self.team );
+        level thread proj_impact( p, w, self );
+    }
 
     if ( use != 4 && isdefined( game.gf_proj_homing ) && game.gf_proj_homing )
     {
@@ -16485,6 +16577,67 @@ function private proj_watch( p, start, m )
         s.lastent += " alive@2.5s d:" + int( distance( p.origin, start ) );
     else
         s.lastent += " gone<2.5s";
+}
+
+// The two streak projectiles whose stock payload is SCRIPT rather than the weapon. The jet missile:
+// PHA adds radiusdamage( origin, 500, 500, 25, owner, "MOD_PROJECTILE", weapon ) on impact
+// (its f_8ce79ccb), because stock's missile only detonates on its locked target. The napalm bomb:
+// stock lays spawntimedfx fire (napalm_strike_shared.gsc:627, weapon :583) and burns by its own
+// damage loop, so we lay the same FX and tick radiusdamage for its lifetime. (PHA uses :584's
+// WATER-surface variant for the fire; :583 is the land one.) Frame-polled rather than waittill -
+// an entity deleted on impact never returns a waittill, and the last origin is at most one frame
+// short of the hit (PHA waits on projectile_impact_explode / explode / entitydeleted / crashing).
+function private proj_impact( p, w, shooter )
+{
+    level endon( #"game_ended" );
+
+    jet = ( w == getweapon( #"jetfighter_missile" ) );
+    napalm = ( w == getweapon( #"napalm_strike" ) );
+
+    if ( !jet && !napalm )
+        return;
+
+    team = p.team;
+    last = p.origin;
+
+    for ( i = 0; i < 300 && isdefined( p ); i++ )
+    {
+        last = p.origin;
+        waitframe( 1 );
+    }
+
+    // Still flying after ~15 s (sky shot), or the shooter left: no payload.
+    if ( isdefined( p ) || !isdefined( shooter ) )
+        return;
+
+    if ( jet )
+    {
+        playfx( #"explosions/fx_exp_bomb_demo_mp", last );
+        playsoundatposition( #"mpl_sd_exp_suitcase_bomb_main", last );
+        radiusdamage( last, 500, 500, 25, shooter, "MOD_PROJECTILE", w );
+        earthquake( 0.5, 0.8, last, 800 );
+        return;
+    }
+
+    tr = bullettrace( last + ( 0, 0, 40 ), last - ( 0, 0, 200 ), 0, undefined );
+    pos = last;
+
+    if ( tr[ #"fraction" ] < 1 )
+        pos = tr[ #"position" ];
+
+    fire = getweapon( #"hash_72c14c150086340c" );
+
+    if ( isdefined( fire ) && !( isdefined( level.weaponnone ) && fire == level.weaponnone ) )
+        spawntimedfx( fire, pos, ( 0, 0, 1 ), 6, team, 0 );
+
+    for ( t = 0; t < 12; t++ )
+    {
+        if ( !isdefined( shooter ) )
+            return;
+
+        radiusdamage( pos + ( 0, 0, 10 ), 180, 25, 10, shooter, "MOD_BURNED", w );
+        wait 0.5;
+    }
 }
 
 // Method 5 - explosive rounds: no projectile, the bullet's impact point gets a blast. Pure
@@ -16703,9 +16856,9 @@ function private act_proj_rate( item, ms )
 // The spawn method (0 = AUTO, 1-6 explicit, see the block comment). Read live by proj_fire.
 function private act_proj_method( item, m, label )
 {
-    if ( m < 0 || m > 6 )
+    if ( m < 0 || m > 7 )
     {
-        self menu_say( "^1projectile method: 0 (auto) or 1-6" );
+        self menu_say( "^1projectile method: 0 (auto) or 1-7" );
         return true;
     }
 
@@ -16775,6 +16928,21 @@ function private act_round_restart( item )
     return false;
 }
 
+// ── Per-player fun switches live in PERS. Gunfight's round boundary is map_restart( 1 )
+// (globallogic.gsc:2058), which frees every entity field, so a p.gf_* switch lasted ONE round -
+// the first fun pack shipped that way. pers is what stock itself carries across rounds
+// (pers[ #"team" ], pers[ #"lives" ]); it resets when a new match connects the player. ──────────
+function private pflag( p, key )
+{
+    return isdefined( p ) && isdefined( p.pers ) && is_true( p.pers[ key ] );
+}
+
+function private pflag_set( p, key, on )
+{
+    if ( isdefined( p ) && isdefined( p.pers ) )
+        p.pers[ key ] = on;
+}
+
 // ── Fly bind (PHA "Bind noclip to Tactical + Melee"). fly_think already flies on every axis -
 // forward follows the view pitch - so the only gap was the bind: TACTICAL + MELEE toggles fly
 // with the menu closed. Per player (the menu target), kept across lives. Ignored while the
@@ -16782,8 +16950,8 @@ function private act_round_restart( item )
 function private act_fly_bind( item )
 {
     p = self menu_target();
-    on = !is_true( p.gf_fly_bind );
-    p.gf_fly_bind = on;
+    on = !pflag( p, #"gf_fly_bind" );
+    pflag_set( p, #"gf_fly_bind", on );
     item.activated = on;
 
     if ( on )
@@ -16969,7 +17137,7 @@ function private act_slide_chain( item )
 // re-armed on spawn like the teleport gun. ────────────────────────────────────────────────
 function private disco_wanted( p )
 {
-    if ( is_true( p.gf_disco ) )
+    if ( pflag( p, #"gf_disco" ) )
         return true;
 
     return is_true( game.gf_disco_all ) && !isbot( p );
@@ -17013,7 +17181,7 @@ function private act_disco( item, who )
 
         foreach ( p in getplayers() )
         {
-            p.gf_disco = 0;
+            pflag_set( p, #"gf_disco", 0 );
             disco_rearm( p );
         }
 
@@ -17035,8 +17203,8 @@ function private act_disco( item, who )
     }
 
     p = self menu_target();
-    on = !is_true( p.gf_disco );
-    p.gf_disco = on;
+    on = !pflag( p, #"gf_disco" );
+    pflag_set( p, #"gf_disco", on );
     item.activated = on;
     disco_rearm( p );
     self menu_say( "^3Disco camo: " + ( on ? "^2ON" : "^1OFF" ) + self target_tail( p ) );
@@ -17341,13 +17509,21 @@ function private act_ft_spin( item, axis )
         return true;
     }
 
-    ent thread ft_spin_loop( axis );
-    self menu_say( "^3Spin: ^2" + ( axis == 0 ? "yaw" : ( axis == 1 ? "roll" : "pitch" ) ) + " ^7(" + ft_name( ent ) + ")" );
+    // PHA's 18 spin modes = 3 axes x 2 directions x 1 / 2 / 3 s a turn; here the axis is the row,
+    // speed and direction are the Spin speed page (fun pack 2).
+    secs = isdefined( game.gf_ft_spin_secs ) ? game.gf_ft_spin_secs : 3;
+    deg = 360;
+
+    if ( is_true( game.gf_ft_spin_rev ) )
+        deg = 0 - 360;      // ACTS rejects a leading unary '-' (see forge_zlift)
+
+    ent thread ft_spin_loop( axis, deg, secs );
+    self menu_say( "^3Spin: ^2" + ( axis == 0 ? "yaw" : ( axis == 1 ? "roll" : "pitch" ) ) + " " + secs + " s a turn" + ( deg < 0 ? ", reversed" : "" ) + " ^7(" + ft_name( ent ) + ")" );
     return true;
 }
 
 // Runs ON the prop, so deleting the prop ends it.
-function private ft_spin_loop( axis )
+function private ft_spin_loop( axis, deg, secs )
 {
     self notify( #"gf_ft_spin" );
     self endon( #"gf_ft_spin" );
@@ -17356,14 +17532,31 @@ function private ft_spin_loop( axis )
     for ( ;; )
     {
         if ( axis == 0 )
-            self rotateyaw( 360, 3 );
+            self rotateyaw( deg, secs );
         else if ( axis == 1 )
-            self rotateroll( 360, 3 );
+            self rotateroll( deg, secs );
         else
-            self rotatepitch( 360, 3 );
+            self rotatepitch( deg, secs );
 
-        wait 3;
+        wait secs;
     }
+}
+
+function private act_ft_spin_speed( item, secs )
+{
+    game.gf_ft_spin_secs = secs;
+    self menu_mark_only( "forge_spin", item );
+    self menu_say( "^3Spin speed: ^2" + secs + " s a turn ^7- applies to the next Spin" );
+    return true;
+}
+
+function private act_ft_spin_rev( item )
+{
+    on = !is_true( game.gf_ft_spin_rev );
+    game.gf_ft_spin_rev = on;
+    item.activated = on;
+    self menu_say( "^3Spin direction: " + ( on ? "^2reversed" : "^2normal" ) + " ^7- applies to the next Spin" );
+    return true;
 }
 
 // kind "updown" | "leftright" | "fwdback" | "stop". Offsets along the prop's own yaw.
@@ -17494,7 +17687,7 @@ function private act_ft_tilt( item, pitch, roll )
 
 function private propgun_wanted( p )
 {
-    return is_true( p.gf_propgun );
+    return pflag( p, #"gf_propgun" );
 }
 
 function private propgun_rearm( p )
@@ -17602,7 +17795,7 @@ function private act_propgun( item )
 {
     p = self menu_target();
     on = !propgun_wanted( p );
-    p.gf_propgun = on;
+    pflag_set( p, #"gf_propgun", on );
     item.activated = on;
     propgun_rearm( p );
     fs = p forge_state();
@@ -17634,7 +17827,7 @@ function private nadeswap_wanted( p )
     if ( !isdefined( game.gf_nadeswap_w ) )
         return false;
 
-    if ( is_true( p.gf_nadeswap ) )
+    if ( pflag( p, #"gf_nadeswap" ) )
         return true;
 
     return is_true( game.gf_nadeswap_all ) && !isbot( p );
@@ -17710,7 +17903,7 @@ function private act_nadeswap( item, who )
 
         foreach ( p in getplayers() )
         {
-            p.gf_nadeswap = 0;
+            pflag_set( p, #"gf_nadeswap", 0 );
             nadeswap_rearm( p );
         }
 
@@ -17738,8 +17931,8 @@ function private act_nadeswap( item, who )
     }
 
     p = self menu_target();
-    on = !is_true( p.gf_nadeswap );
-    p.gf_nadeswap = on;
+    on = !pflag( p, #"gf_nadeswap" );
+    pflag_set( p, #"gf_nadeswap", on );
     item.activated = on;
     nadeswap_rearm( p );
     self menu_say( "^3Grenade swap: " + ( on ? ( "^2ON ^7- throws become " + game.gf_nadeswap_name ) : "^1OFF" ) + self target_tail( p ) );
@@ -17751,9 +17944,11 @@ function private act_nadeswap( item, who )
 // where the shot lands (moveto at 1500 u/s), then an optional blast (proj_blast's four calls),
 // then it vanishes after 5 s - or stays, non-saved, with Keep. The model: the cannon's own pick
 // (game.gf_cannon_model) or, unset, the shooter's forge pick. Per player, per life, 250 ms apart.
+// RIDE (fun pack 2, PHA's f_0a3f5326): the prop is linkto'd to a REAL RPG rocket instead of tweened,
+// so the flight, the wall hit and the explosion are the rocket's own; it lands where the rocket died.
 function private cannon_wanted( p )
 {
-    return is_true( p.gf_cannon );
+    return pflag( p, #"gf_cannon" );
 }
 
 function private cannon_rearm( p )
@@ -17818,8 +18013,51 @@ function private cannon_think()
         b setmodel( model );
         b notsolid();
         b.angles = self getplayerangles();
+
+        if ( is_true( game.gf_cannon_ride ) )
+        {
+            r = magicbullet( getweapon( #"launcher_freefire_t9" ), start, eye + vectorscale( fwd, 10000 ), self );
+
+            if ( isdefined( r ) )
+            {
+                level thread cannon_ride( b, r, self );
+                continue;
+            }
+        }
+
         level thread cannon_fly( b, tr[ #"position" ], self );
     }
+}
+
+// Ride: follow the rocket until it is gone (frame-polled - a deleted entity's waittill never
+// returns), then land the prop at its last origin. A rocket still flying after 10 s is a sky shot.
+function private cannon_ride( b, r, shooter )
+{
+    level endon( #"game_ended" );
+
+    b.origin = r.origin;
+    b linkto( r );
+    last = r.origin;
+
+    for ( i = 0; i < 200 && isdefined( r ); i++ )
+    {
+        last = r.origin;
+        waitframe( 1 );
+    }
+
+    if ( !isdefined( b ) )
+        return;
+
+    b unlink();
+
+    if ( isdefined( r ) )
+    {
+        b delete();
+        return;
+    }
+
+    b.origin = last;
+    cannon_land( b, last, shooter );
 }
 
 // A level thread: the flight and the cleanup must outlive the shooter's death or disconnect.
@@ -17836,6 +18074,12 @@ function private cannon_fly( b, end, shooter )
     if ( !isdefined( b ) )
         return;
 
+    cannon_land( b, end, shooter );
+}
+
+// Both flights end here: the optional blast, then keep or clear.
+function private cannon_land( b, end, shooter )
+{
     if ( is_true( game.gf_cannon_blast ) && isdefined( shooter ) )
     {
         playfx( #"explosions/fx_exp_bomb_demo_mp", end );
@@ -17860,7 +18104,7 @@ function private act_cannon( item )
 {
     p = self menu_target();
     on = !cannon_wanted( p );
-    p.gf_cannon = on;
+    pflag_set( p, #"gf_cannon", on );
     item.activated = on;
     cannon_rearm( p );
     self menu_say( "^3Model cannon: " + ( on ? ( "^2ON ^7- shots launch " + prop_short( cannon_model( p ) ) ) : "^1OFF" ) + self target_tail( p ) );
@@ -17889,12 +18133,393 @@ function private act_cannon_blast( item )
     return true;
 }
 
+function private act_cannon_ride( item )
+{
+    on = !is_true( game.gf_cannon_ride );
+    game.gf_cannon_ride = on;
+    item.activated = on;
+    self menu_say( "^3Model cannon: " + ( on ? "^2props ride a real RPG rocket" : "^2props fly straight to the aim point" ) );
+    return true;
+}
+
 function private act_cannon_keep( item )
 {
     on = !is_true( game.gf_cannon_keep );
     game.gf_cannon_keep = on;
     item.activated = on;
     self menu_say( "^3Cannon props: " + ( on ? "^2stay where they land ^7(not saved)" : "^2vanish after 5 s" ) );
+    return true;
+}
+
+// ── ESP (fun pack 2, 2026-09-24; PHA's ESP + two stock layers it lacks). Never run. ────────────
+// Three layers, each a DIFFERENT engine path, so one closed gate does not sink the feature:
+//   GLOW    killstreaks::thermal_glow( 1 ) - PHA's ESP verbatim, and the enemy highlight stock
+//           turns on inside the AC-130 / Cruise Missile cameras (ac130_shared.gsc:235,
+//           remotemissile_shared.gsc:446). The toplayer clientfield's CSC callback
+//           (killstreaks_shared.csc:131) puts a render-override bundle on every ENEMY player -
+//           teammates are filtered out client-side, so there is no "everyone glows" - and skips
+//           enemies with specialty_nokillstreakreticle, enemies under killstreak spawn protection,
+//           and casters. ⚠ Its gate is the engine builtin function_266be0d4, cracked 2026-09-24 to
+//           islocalclientthermalallowed (docs/notes/fun-pack.md). Whether that reads true in plain
+//           first person is THE test - stock only ever sets the field inside a streak camera.
+//           ⚠ The client STOPS the bundle on every player that spawns (killstreaks_shared.csc:284)
+//           and re-applies it only when the viewer's field CHANGES, so spawns trigger a 0 -> 1
+//           pulse (esp_glow_debounce); map_restart( 1 ) resets the field each round.
+//   MARKERS Prop Hunt's player marker (prop.gsc:4645-4646): objective_add( id, "active", origin,
+//           #"escort_goal" ) + objective_onentity( id, player ) - the icon our race gates already
+//           saw render (cfg_race_markers, klaze run 1) - hidden from all, then shown per ESP user
+//           (spy_skill.gsc:1777-1784's pair). One id per TARGET, shared by every viewer on the
+//           other side: at most one per player out of the 64-id pool (gameobjects_shared.gsc:5938).
+//   RADAR   setclientuivisibilityflag( "g_compassShowEnemies", 2 ) - the value stock writes when
+//           the host's forceradar is 2 (player_connect.gsc:467): enemies on your minimap, always.
+//           Connect resets it every round (:471), so it is re-set per spawn.
+// Switches: per player in pers (pflag), "everyone" (humans - a bot gains nothing) in game.
+function private esp_key( layer )
+{
+    if ( layer == "glow" )
+        return #"gf_esp_glow";
+
+    if ( layer == "mark" )
+        return #"gf_esp_mark";
+
+    return #"gf_esp_radar";
+}
+
+function private esp_all( layer )
+{
+    if ( layer == "glow" )
+        return is_true( game.gf_esp_all_glow );
+
+    if ( layer == "mark" )
+        return is_true( game.gf_esp_all_mark );
+
+    return is_true( game.gf_esp_all_radar );
+}
+
+function private esp_all_set( layer, on )
+{
+    if ( layer == "glow" )
+        game.gf_esp_all_glow = on;
+    else if ( layer == "mark" )
+        game.gf_esp_all_mark = on;
+    else
+        game.gf_esp_all_radar = on;
+}
+
+function private esp_name( layer )
+{
+    if ( layer == "glow" )
+        return "glow";
+
+    if ( layer == "mark" )
+        return "markers";
+
+    return "radar";
+}
+
+function private esp_wanted( p, layer )
+{
+    if ( !isplayer( p ) )
+        return false;
+
+    if ( pflag( p, esp_key( layer ) ) )
+        return true;
+
+    return esp_all( layer ) && !isbot( p );
+}
+
+function private esp_any( layer )
+{
+    foreach ( p in getplayers() )
+    {
+        if ( esp_wanted( p, layer ) )
+            return true;
+    }
+
+    return false;
+}
+
+// The minimap flag when ESP radar is OFF: whatever stock would have left (player_connect.gsc:467).
+function private esp_radar_stock()
+{
+    if ( isdefined( level.forceradar ) && level.forceradar == 2 )
+        return 2;
+
+    return 0;
+}
+
+// Re-assert p's layers after a switch flipped. Markers are the level loop's job.
+function private esp_apply( p )
+{
+    if ( !isplayer( p ) )
+        return;
+
+    if ( esp_wanted( p, "glow" ) )
+    {
+        p thread esp_glow_pulse();
+    }
+    else
+    {
+        p notify( #"gf_esp_glow_restart" );
+        p killstreaks::thermal_glow( 0 );
+    }
+
+    if ( esp_wanted( p, "radar" ) )
+        p setclientuivisibilityflag( "g_compassShowEnemies", 2 );
+    else
+        p setclientuivisibilityflag( "g_compassShowEnemies", esp_radar_stock() );
+
+    if ( esp_wanted( p, "mark" ) )
+        esp_mark_start();
+}
+
+// From fun_spawn_rearm, for whoever just spawned.
+function private esp_on_spawn( p )
+{
+    if ( esp_wanted( p, "radar" ) )
+        p setclientuivisibilityflag( "g_compassShowEnemies", 2 );
+
+    if ( esp_any( "mark" ) )
+        esp_mark_start();
+
+    // The client just dropped the glow on this player for EVERY viewer: re-pulse them all.
+    if ( esp_any( "glow" ) )
+        esp_glow_spawned();
+}
+
+// 0, then 1 a few snapshots later: the CSC callback runs only on a CHANGE, and it is the
+// callback that walks the players and puts the bundle on each enemy.
+function private esp_glow_pulse()
+{
+    self notify( #"gf_esp_glow_restart" );
+    self endon( #"gf_esp_glow_restart" );
+    self endon( #"disconnect" );
+
+    self killstreaks::thermal_glow( 0 );
+    wait 0.25;
+
+    if ( esp_wanted( self, "glow" ) )
+        self killstreaks::thermal_glow( 1 );
+}
+
+// Debounced: a round start spawns everyone within a second, so one pulse per viewer 0.75 s
+// after the LAST spawn, not one per spawn.
+function private esp_glow_spawned()
+{
+    level.gf_esp_glow_due = gettime() + 750;
+
+    if ( is_true( level.gf_esp_glow_waiting ) )
+        return;
+
+    level.gf_esp_glow_waiting = 1;
+    level thread esp_glow_debounce();
+}
+
+function private esp_glow_debounce()
+{
+    level endon( #"game_ended" );
+
+    while ( gettime() < level.gf_esp_glow_due )
+        wait 0.1;
+
+    level.gf_esp_glow_waiting = 0;
+
+    foreach ( v in getplayers() )
+    {
+        if ( esp_wanted( v, "glow" ) )
+            v thread esp_glow_pulse();
+    }
+}
+
+function private esp_mark_start()
+{
+    if ( is_true( level.gf_esp_mark_running ) )
+        return;
+
+    level.gf_esp_mark_running = 1;
+    level thread esp_mark_loop();
+}
+
+// One marker per living target, visible only to the ESP users on the OTHER side (a teammate
+// already has a name tag). Markers follow their entity on their own; the 0.25 s tick only
+// re-deals who sees what, and only when that changed. Ends - deleting every marker - once
+// nobody wants markers.
+function private esp_mark_loop()
+{
+    level endon( #"game_ended" );
+
+    if ( !isdefined( level.gf_esp_marks ) )
+        level.gf_esp_marks = [];
+
+    for ( ;; )
+    {
+        players = getplayers();
+        viewers = [];
+
+        foreach ( v in players )
+        {
+            if ( esp_wanted( v, "mark" ) )
+                viewers[ viewers.size ] = v;
+        }
+
+        foreach ( t in players )
+        {
+            see = [];
+
+            if ( viewers.size > 0 && isalive( t ) && isdefined( t.team ) && t.team != #"spectator" )
+            {
+                foreach ( v in viewers )
+                {
+                    if ( v != t && isdefined( v.team ) && v.team != t.team )
+                        see[ see.size ] = v;
+                }
+            }
+
+            esp_mark_set( t, see );
+        }
+
+        esp_mark_sweep();
+
+        if ( viewers.size == 0 )
+            break;
+
+        wait 0.25;
+    }
+
+    level.gf_esp_mark_running = 0;
+}
+
+function private esp_mark_set( t, see )
+{
+    if ( see.size == 0 )
+    {
+        if ( isdefined( t.gf_esp_mark ) )
+            esp_mark_free( t.gf_esp_mark );
+
+        t.gf_esp_mark = undefined;
+        return;
+    }
+
+    if ( !isdefined( t.gf_esp_mark ) )
+    {
+        s = spawnstruct();
+        s.ent = t;
+        s.id = gameobjects::get_next_obj_id();
+        objective_add( s.id, "active", t.origin, #"escort_goal" );
+        objective_onentity( s.id, t );
+        t.gf_esp_mark = s;
+        level.gf_esp_marks[ level.gf_esp_marks.size ] = s;
+    }
+
+    sig = "";
+
+    foreach ( v in see )
+    {
+        n = v getentitynumber();
+        sig = sig + n + ",";
+    }
+
+    s = t.gf_esp_mark;
+
+    if ( s.sig === sig )
+        return;
+
+    s.sig = sig;
+    objective_setinvisibletoall( s.id );
+
+    foreach ( v in see )
+        objective_setvisibletoplayer( s.id, v );
+}
+
+// A marker whose player left (entity refs go undefined on disconnect) or was freed above.
+function private esp_mark_sweep()
+{
+    keep = [];
+
+    foreach ( s in level.gf_esp_marks )
+    {
+        if ( is_true( s.freed ) )
+            continue;
+
+        if ( !isdefined( s.ent ) )
+        {
+            esp_mark_free( s );
+            continue;
+        }
+
+        keep[ keep.size ] = s;
+    }
+
+    level.gf_esp_marks = keep;
+}
+
+function private esp_mark_free( s )
+{
+    if ( is_true( s.freed ) )
+        return;
+
+    s.freed = 1;
+    objective_delete( s.id );
+    gameobjects::release_obj_id( s.id );
+}
+
+// layer = "glow" | "mark" | "radar"; who = "me" (the menu target) | "all" (humans) | "off"
+// (every layer, everyone).
+function private act_esp( item, layer, who )
+{
+    if ( who == "off" )
+    {
+        game.gf_esp_all_glow = 0;
+        game.gf_esp_all_mark = 0;
+        game.gf_esp_all_radar = 0;
+
+        foreach ( p in getplayers() )
+        {
+            pflag_set( p, #"gf_esp_glow", 0 );
+            pflag_set( p, #"gf_esp_mark", 0 );
+            pflag_set( p, #"gf_esp_radar", 0 );
+            esp_apply( p );
+        }
+
+        self menu_say( "^3ESP: ^1OFF ^7for everyone" );
+        return true;
+    }
+
+    if ( who == "all" )
+    {
+        on = !esp_all( layer );
+        esp_all_set( layer, on );
+        item.activated = on;
+
+        foreach ( p in getplayers() )
+            esp_apply( p );
+
+        self menu_say( "^3ESP " + esp_name( layer ) + ", everyone: " + ( on ? "^2ON" : "^1OFF" ) );
+        return true;
+    }
+
+    p = self menu_target();
+    on = !pflag( p, esp_key( layer ) );
+    pflag_set( p, esp_key( layer ), on );
+    item.activated = on;
+    esp_apply( p );
+    self menu_say( "^3ESP " + esp_name( layer ) + ": " + ( on ? "^2ON" : "^1OFF" ) + self target_tail( p ) );
+    return true;
+}
+
+// Client page: all three layers at once for that player.
+function private act_c_esp( item, player )
+{
+    if ( !client_ok( player ) )
+        return true;
+
+    on = !( pflag( player, #"gf_esp_glow" ) || pflag( player, #"gf_esp_mark" ) || pflag( player, #"gf_esp_radar" ) );
+    pflag_set( player, #"gf_esp_glow", on );
+    pflag_set( player, #"gf_esp_mark", on );
+    pflag_set( player, #"gf_esp_radar", on );
+    item.activated = on;
+    esp_apply( player );
+    self menu_say( "^2" + player.name + " ESP " + ( on ? "ON" : "OFF" ) );
     return true;
 }
 
@@ -17908,6 +18533,11 @@ function private fun_spawn_rearm()
     propgun_rearm( self );
     nadeswap_rearm( self );
     cannon_rearm( self );
+    esp_on_spawn( self );
+
+    // The fly bind outlives a death but not map_restart( 1 ); pers kept the switch.
+    if ( pflag( self, #"gf_fly_bind" ) )
+        self thread fly_bind_think();
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -18224,7 +18854,27 @@ function private forge_loop()
                 self forge_cycle( ads ? -1 : 1 );   // weapon-switch (keyboard scroll) = cycle
 
             if ( a && !pa )
+            {
                 self forge_place();
+                fg.spray_t = gettime();
+                fg.spray_capped = 0;
+            }
+            else if ( a && forge_spray_ms() > 0 && isdefined( fg.spray_t ) && gettime() - fg.spray_t >= forge_spray_ms() )
+            {
+                // Held past the interval: SPRAY (fun pack 2, PHA's "Change object spawned interval").
+                // Quiet placements, capped like the prop gun so a held trigger cannot eat the entity pool.
+                fg.spray_t = gettime();
+
+                if ( isdefined( level.gf_props ) && level.gf_props.size >= 200 )
+                {
+                    if ( !is_true( fg.spray_capped ) )
+                        self menu_say( "^1Spray: 200 props up - delete some first" );
+
+                    fg.spray_capped = 1;
+                }
+                else
+                    self forge_place( 1 );
+            }
 
             // (no grab in the placer - grabbing is FORGE MODE's, klaze 2026-09-22: "separate grab entirely
             //  from the props placer. instead make forge mode its own thing")
@@ -18402,7 +19052,7 @@ function private forge_centre_paint()
     self iprintlnbold( "^3[" + ( fg.idx + 1 ) + "/" + m.size + "]  ^7" + m[ fg.idx ].label + ( m[ fg.idx ].barrel ? "  ^1(barrel)" : "" ) );   // no code name (klaze 2026-09-21)
 }
 
-function private forge_place()
+function private forge_place( quiet = 0 )
 {
     fg = self forge_state();
     m = prop_master();
@@ -18454,8 +19104,53 @@ function private forge_place()
         p thread barrel_think();
     }
 
+    // Auto-link (fun pack 2, PHA's "Auto link on spawned"): the first prop placed with it on is the
+    // BASE, every later one rides it - a star, not a chain, so deleting one rider breaks nothing.
+    // Spin / move the base with Forge tools and the whole build turns with it. Not saved.
+    if ( is_true( game.gf_forge_autolink ) )
+    {
+        if ( !isdefined( level.gf_forge_link_base ) )
+            level.gf_forge_link_base = p;
+        else
+            p linkto( level.gf_forge_link_base );
+    }
+
     self forge_resave();
-    self menu_say( "^2placed " + prop_short( model ) + " (" + level.gf_props.size + " up)" );
+
+    if ( !quiet )
+        self menu_say( "^2placed " + prop_short( model ) + " (" + level.gf_props.size + " up)" );
+}
+
+// Hold-to-spray interval in ms; 0 = one prop per press (the default).
+function private forge_spray_ms()
+{
+    if ( isdefined( game.gf_forge_spray ) )
+        return game.gf_forge_spray;
+
+    return 0;
+}
+
+function private act_forge_spray( item, ms )
+{
+    game.gf_forge_spray = ms;
+    self menu_mark_only( "forge_spray", item );
+
+    if ( ms <= 0 )
+        self menu_say( "^3Forge spray: ^1off ^7- one prop per press" );
+    else
+        self menu_say( "^3Forge spray: ^2hold Fire ^7- a prop every " + ms + " ms, 200 max" );
+
+    return true;
+}
+
+function private act_forge_autolink( item )
+{
+    on = !is_true( game.gf_forge_autolink );
+    game.gf_forge_autolink = on;
+    item.activated = on;
+    level.gf_forge_link_base = undefined;
+    self menu_say( "^3Auto-link: " + ( on ? "^2ON ^7- the next prop is the base, later ones ride it" : "^1OFF" ) );
+    return true;
 }
 
 // ── Persistence: game.gf_forge[map] = array of packed "model;x;y;z;yaw;scale100;barrel" strings.

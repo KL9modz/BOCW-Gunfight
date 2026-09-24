@@ -174,6 +174,11 @@ One Gunfight match, host + bots: the 14-step sheet in [[fun-pack]] — fast rest
 disco camo, disguise, forge tools + prop gun, shots per trigger, grenade swap, model cannon, the new vehicle
 rows (step 14 needs Collateral or Crossroads). Its joiner row folds into J below.
 
+**M4b — fun pack 2 (built 2026-09-24).** Same match: the E / P / C / F / R rows in [[fun-pack]] → fun
+pack 2 — ESP glow (**E1 is the one real unknown: the `islocalclientthermalallowed` gate**), markers, radar,
+method-7 streak projectiles, the rocket-ride cannon, forge spray / auto-link / spin speed, and R1 (a
+"me" switch still on in round 2 — the pers fix).
+
 ## J — joiner session (needs a friend on a vanilla install)
 
 | # | do | expect | result |

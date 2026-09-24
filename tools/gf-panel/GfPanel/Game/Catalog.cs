@@ -73,6 +73,10 @@ public static class Catalog
         new("Crossbow bolt", "special_crossbow_t9"), new("M79 grenade", "special_grenadelauncher_t9"),
         new("Combat bow arrow (explosive)", "sig_bow_flame"), new("Strafe run rocket", "straferun_rockets"),
         new("Cruise missile bomblet", "remote_missile_bomblet"), new("Jet fighter missile", "jetfighter_missile"), new("Frag grenade", "frag_grenade"),
+        // fun pack (PHA's bullet types) + fun pack 2 (the stun); the four streak/equipment ones spawn via magicmissile on AUTO
+        new("War Machine grenade", "hero_pineapplegun"), new("Cruise missile", "remote_missile_missile"), new("Hand Cannon round", "hero_annihilator"),
+        new("Death Machine round", "sig_lmg"), new("Ballistic knife", "special_ballisticknife_t9_dw"), new("Napalm bomb", "napalm_strike"),
+        new("Artillery shell", "planemortar"), new("Stun grenade", "eq_slow_grenade"),
     };
 
     // The menu's prop_universal() list, by label (the GSC matches the label or the model; the 47-byte slot takes the label).

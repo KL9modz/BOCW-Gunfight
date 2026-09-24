@@ -245,6 +245,8 @@ screen while the menu is open, a *hardcore HUD* toggle, a caster/recording mode.
   host would set for everyone: `foreach ( p in getplayers() ) p setclientuivisibilityflag(
   "g_compassShowEnemies", 1 )`. ⚠ Not a text channel — a host-toggle for a casual/among-friends lobby;
   it belongs in the menu's Host page, not here, but it is the one new flag SoCanKam's menu carries.
+  ▶ Built 2026-09-24 as Player → **ESP → Radar** (per player or everyone, value 2, re-set per spawn;
+  never run) — [[fun-pack]] → fun pack 2.
 
 ## 3. No MP stock caller — retail behaviour unknown (probe group U)
 

@@ -74,7 +74,7 @@ public sealed class ToolsVM : ObservableObject
     public Named[] SoundList => Catalog.Sounds;
     public Named[] ProjectileList => Catalog.Projectiles;
     public Named[] PropList => Catalog.Props;
-    public int[] ProjMethods => new[] { 0, 1, 2, 3, 4, 5, 6 };   // 0 = AUTO (bocw-c7, the GSC default since 2026-09-20)
+    public int[] ProjMethods => new[] { 0, 1, 2, 3, 4, 5, 6, 7 };   // 0 = AUTO (bocw-c7, the GSC default since 2026-09-20); 7 = magicmissile (fun pack 2)
     private int _projMethod = 0;
     public int ProjMethod { get => _projMethod; set => Set(ref _projMethod, value); }
     public RelayCommand ProjMethodSet => new(() => Do($"Projectile method {ProjMethod}", "projmethod", ProjMethod.ToString()));
