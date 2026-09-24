@@ -36,7 +36,7 @@
                 <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding HostText}" FontSize="11" Margin="0,1" />
                 <TextBlock Grid.Row="6" Text="Spawns" Style="{StaticResource Dim}" FontSize="11" Margin="0,1,10,1" />
                 <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding SpawnText}" FontSize="11" TextWrapping="Wrap" Margin="0,1"
-                           ToolTip="What the mod's spawn system runs this round (GFSTATE spn): a per-map pick, the family AUTO chose, or guard off - then how the living players were placed: e = the engine's start picker, a = the mod's anchors, s = stock. The SPAWNS tab has the whole picture." />
+                           ToolTip="What the mod's spawn system runs this round (GFSTATE spn): a per-map pick, the family AUTO chose, or guard off - then how the living players were placed: e = the engine's start picker, a = the mod's anchors, s = stock. MAPS &amp; SPAWNS → SPAWN ATLAS has the whole picture." />
               </Grid>
               <TextBlock Text="{Binding StagedText}" Foreground="{StaticResource Wn}" FontSize="10.5" Margin="0,3,0,0" Visibility="{Binding StagedText, Converter={StaticResource NullVis}}" />
             </StackPanel>
@@ -124,27 +124,17 @@
             </TabItem>
             <TabItem Header="NEXT MATCH">
               <StackPanel Margin="4">
-                <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,4,0,6">Stage each player's side for the next match: right-click a player → Next match → A / X / Spectator. The GSC seats a staged player at connect; Apply moves everyone present now; the panel re-sends the plan when a new match starts.</TextBlock>
+                <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,4,0,6">Stage each player's side for the next match: right-click a player → Next match → A / X / Spectator (or PLAYERS → Team). The GSC seats a staged player at connect; Apply moves everyone present now; the panel re-sends the plan when a new match starts.</TextBlock>
                 <TextBlock Text="{Binding StagedPlanText}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
                 <Grid>
                   <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
                   <Button Content="✔ Apply now" Style="{StaticResource Accent}" Command="{Binding StageApply}" Margin="0,0,3,0" />
                   <Button Grid.Column="1" Content="✕ Clear plan" Command="{Binding StageClearAll}" Margin="3,0,0,0" />
                 </Grid>
-                <TextBlock Text="BANS (this session; re-sent at every match start)" Style="{StaticResource SubTitle}" />
-                <TextBlock Text="none" Style="{StaticResource Dim}" FontSize="11" Visibility="{Binding HasBans, Converter={StaticResource VisInv}}" />
-                <ItemsControl ItemsSource="{Binding BanRows}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <Grid Margin="0,1">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <TextBlock Text="{Binding Name}" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Xuid}" />
-                        <Button Grid.Column="1" Content="Unban" Style="{StaticResource SmallBtn}" Command="{Binding Unban}" Padding="6,0" ToolTip="unbanx - this XUID may join again" />
-                      </Grid>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <Button Content="Clear all bans" Style="{StaticResource SmallBtn}" Command="{Binding ClearBans}" HorizontalAlignment="Left" Margin="0,6,0,0" Visibility="{Binding HasBans, Converter={StaticResource Vis}}" />
+                <!-- the ban list with its Unban buttons moved to PLAYERS → BANS (2026-09-24); the count stays in view here -->
+                <TextBlock FontSize="10.5" Margin="0,10,0,0" TextWrapping="Wrap" Visibility="{Binding HasBans, Converter={StaticResource Vis}}">
+                  <Run Text="Banned this session: " Foreground="{StaticResource Ng}" /><Run Text="{Binding BansText, Mode=OneWay}" Foreground="{StaticResource Ng}" /><Run Text="  ·  unban on PLAYERS → BANS" Foreground="{StaticResource Dm}" />
+                </TextBlock>
               </StackPanel>
             </TabItem>
           </TabControl>

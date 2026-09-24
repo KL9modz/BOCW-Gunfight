@@ -2,49 +2,94 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:v="clr-namespace:GfPanel.Views">
-  <UserControl.Resources>
-    <!-- one action: a wide button with a one-line explanation under it -->
-    <Style x:Key="ActionBtn" TargetType="{x:Type Button}" BasedOn="{StaticResource BigBtn}">
-      <Setter Property="HorizontalAlignment" Value="Stretch" />
-      <Setter Property="MinHeight" Value="44" />
-    </Style>
-    <Style x:Key="ActionOk" TargetType="{x:Type Button}" BasedOn="{StaticResource OkBtn}">
-      <Setter Property="HorizontalAlignment" Value="Stretch" />
-      <Setter Property="MinHeight" Value="44" />
-      <Setter Property="FontSize" Value="13" />
-      <Setter Property="FontWeight" Value="Bold" />
-    </Style>
-    <Style x:Key="ActionNg" TargetType="{x:Type Button}" BasedOn="{StaticResource NgBtn}">
-      <Setter Property="HorizontalAlignment" Value="Stretch" />
-      <Setter Property="MinHeight" Value="44" />
-      <Setter Property="FontSize" Value="13" />
-      <Setter Property="FontWeight" Value="Bold" />
-    </Style>
-    <Style x:Key="ActionWn" TargetType="{x:Type Button}" BasedOn="{StaticResource WnBtn}">
-      <Setter Property="HorizontalAlignment" Value="Stretch" />
-      <Setter Property="MinHeight" Value="44" />
-      <Setter Property="FontSize" Value="13" />
-      <Setter Property="FontWeight" Value="Bold" />
-    </Style>
-    <Style x:Key="ActionNote" TargetType="{x:Type TextBlock}" BasedOn="{StaticResource Dim}">
-      <Setter Property="FontSize" Value="10.5" />
-      <Setter Property="TextWrapping" Value="Wrap" />
-      <Setter Property="Margin" Value="2,3,2,10" />
-    </Style>
-  </UserControl.Resources>
-
+  <!-- MATCH - the landing page (the 2026-09-24 redesign), built around what klaze uses most: change map / mode, restart,
+       fill / remove bots, choose a spawn layout, give menu access, broadcast - and the pinned settings (round time,
+       match length, jump height, gravity, anything else ☆-pinned). Status and the log stay in the sidebar. Every action
+       here is also on its own page, in full. -->
   <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,12">
     <v:ColumnsPanel>
 
+      <!-- MAP & MODE: the MAPS page's switch, compact -->
       <Expander Style="{StaticResource Block}">
-        <Expander.Header><TextBlock Text="ROUND" Style="{StaticResource BlockTitle}" /></Expander.Header>
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="MAP &amp; MODE" Style="{StaticResource BlockTitle}" />
+            <TextBlock Text="{Binding MapText}" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="340" />
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel>
+          <Grid Margin="0,2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+            <TextBlock Text="Map" Style="{StaticResource RowLabel}" MinWidth="56" />
+            <ComboBox Grid.Column="1" ItemsSource="{Binding Maps.Tiles}" SelectedItem="{Binding Maps.Selected}"
+                      ToolTip="The map to stage or switch to. None = keep the current map and switch the mode alone.">
+              <ComboBox.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding Name}" FontSize="12" />
+                    <TextBlock Text="{Binding Group}" Style="{StaticResource Dim}" FontSize="10" Margin="8,0,0,0" VerticalAlignment="Center" />
+                    <TextBlock Text="  ● LIVE" Foreground="{StaticResource Ok}" FontSize="9" FontWeight="Bold" VerticalAlignment="Center" Visibility="{Binding IsLive, Converter={StaticResource Vis}}" />
+                    <TextBlock Text="  NEXT" Foreground="{StaticResource Wn}" FontSize="9" FontWeight="Bold" VerticalAlignment="Center" Visibility="{Binding IsStaged, Converter={StaticResource Vis}}" />
+                  </StackPanel>
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Grid.Row="1" Text="Mode" Style="{StaticResource RowLabel}" MinWidth="56" />
+            <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Maps.Gametypes}" DisplayMemberPath="Label" SelectedItem="{Binding Maps.Gametype}" Margin="0,4,0,0" />
+          </Grid>
+          <Grid Margin="0,8,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+            <Button Content="STAGE FOR THE LOBBY" Style="{StaticResource ActionBtn}" Command="{Binding Maps.Stage}" Margin="0,0,3,0"
+                    ToolTip="gf_cmd_stage 1: switchmap_load only. The match keeps running and the pregame lobby shows this map when it ends (measured 2026-09-12). Wait for the game's STAGE READY line before ending the match." />
+            <Button Grid.Column="1" Content="SWITCH NOW" Style="{StaticResource ActionOk}" Command="{Binding Maps.SwitchNow}" Margin="3,0,0,0"
+                    ToolTip="gf_cmd_stage 0: switchmap_load + switchmap_switch - the in-match session switch; the lobby follows. Ends the running match (asks first)." />
+          </Grid>
+          <TextBlock Style="{StaticResource ActionNote}">Stage = the map the lobby shows when this match ends (wait for STAGE READY). Switch NOW = this match ends and the session loads the pick; the lobby follows.</TextBlock>
+          <StackPanel Orientation="Horizontal">
+            <Button Content="✕ keep the current map" Style="{StaticResource SmallBtn}" Command="{Binding Maps.ClearSelection}" Margin="0,0,10,0" ToolTip="switch or stage the mode alone" />
+            <TextBlock Text="{Binding Maps.StagedText}" Foreground="{StaticResource Wn}" FontSize="11" VerticalAlignment="Center" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Maps.PlaylistEnabled}" VerticalAlignment="Center" />
+            <TextBlock Text=" map rotation" VerticalAlignment="Center" FontSize="12" Margin="4,0,8,0" />
+            <TextBlock Text="{Binding Maps.PlaylistStatus}" Style="{StaticResource Dim}" FontSize="10.5" VerticalAlignment="Center" />
+          </StackPanel>
+          <TextBlock Style="{StaticResource ActionNote}" Margin="2,6,2,0">The map grid, the rotation list and the switch settings: MAPS &amp; SPAWNS.</TextBlock>
+        </StackPanel>
+      </Expander>
+
+      <!-- ROUND & MATCH: restart, round time, match length, pause, end -->
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="ROUND &amp; MATCH" Style="{StaticResource BlockTitle}" />
+            <TextBlock Text="{Binding PhaseText}" Foreground="{StaticResource Wn}" FontSize="10.5" FontWeight="Bold" Margin="10,0,0,0" VerticalAlignment="Center" />
+          </StackPanel>
+        </Expander.Header>
         <StackPanel>
           <Grid>
-            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
-            <Button Content="⏸  PAUSE MATCH" Style="{StaticResource ActionBtn}" Command="{Binding PauseCmd}" Margin="0,0,3,0" />
-            <Button Grid.Column="1" Content="▶  RESUME MATCH" Style="{StaticResource ActionOk}" Command="{Binding ResumeCmd}" Margin="3,0,0,0" />
+            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+            <Button Style="{StaticResource ActionWn}" Command="{Binding RestartRound}" Margin="0,0,3,0">
+              <TextBlock TextAlignment="Center"><Run Text="↺  RESTART ROUND" /><LineBreak /><Run Text="keep the score" FontSize="10" FontWeight="Normal" /></TextBlock>
+            </Button>
+            <Button Grid.Column="1" Style="{StaticResource ActionWn}" Command="{Binding RestartMatchCmd}" Margin="3,0">
+              <TextBlock TextAlignment="Center"><Run Text="↻  RESTART MATCH" /><LineBreak /><Run Text="0 – 0, round 1" FontSize="10" FontWeight="Normal" /></TextBlock>
+            </Button>
+            <Button Grid.Column="2" Style="{StaticResource ActionWn}" Command="{Binding RelaunchMatch}" Margin="3,0,0,0">
+              <TextBlock TextAlignment="Center"><Run Text="⟳  RELOAD MAP" /><LineBreak /><Run Text="full relaunch, ~25 s" FontSize="10" FontWeight="Normal" /></TextBlock>
+            </Button>
           </Grid>
-          <TextBlock Style="{StaticResource ActionNote}">Pause freezes everyone, holds the round timer and shows the stock esports TIMEOUT overlay + the CHECKPOINT banner; Resume = a 5 s ROUND STARTING IN countdown. (pause / resume — proven verbs)</TextBlock>
+          <TextBlock Style="{StaticResource ActionNote}">Restart round = map_restart(true): this round again. Restart match = the quick map_restart(): 0-0, round 1, same map. Reload map = the full reload F7 gives (a session switch to this map + mode). Each asks first and is sent ONCE, never retried.</TextBlock>
+
+          <TextBlock Style="{StaticResource ActionNote}" Margin="2,0,2,10">Round time, first-to and the round cap: ★ PINNED SETTINGS (the timer lands live; first-to and the round cap reload the match).</TextBlock>
+
+          <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+            <Button Content="⏸  PAUSE" Style="{StaticResource ActionBtn}" Command="{Binding PauseCmd}" Margin="0,0,3,0" />
+            <Button Grid.Column="1" Content="▶  RESUME" Style="{StaticResource ActionOk}" Command="{Binding ResumeCmd}" Margin="3,0,0,0" />
+          </Grid>
+          <TextBlock Style="{StaticResource ActionNote}">Pause freezes everyone, holds the round timer and shows the stock esports TIMEOUT overlay; Resume = a 5 s ROUND STARTING IN countdown.</TextBlock>
 
           <Grid>
             <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
@@ -52,80 +97,209 @@
             <Button Grid.Column="1" Content="END → AXIS" Style="{StaticResource ActionNg}" Command="{Binding EndRoundAxis}" Margin="3,0" />
             <Button Grid.Column="2" Content="DRAW" Style="{StaticResource ActionBtn}" Command="{Binding EndRoundDraw}" Margin="3,0,0,0" />
           </Grid>
-          <TextBlock Style="{StaticResource ActionNote}">End the round now for a side (round::set_winner + gunfight's own round end, reason 1) or as a draw (end_round(2), no winner). The score and the round count move like a normal round end. Untested in-game.</TextBlock>
+          <TextBlock Style="{StaticResource ActionNote}">End the round now for a side, or as a draw: the score and the round count move like a normal round end. Untested in game.</TextBlock>
 
-          <Grid>
-            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
-            <Button Content="↺  RESTART ROUND" Style="{StaticResource ActionWn}" Command="{Binding RestartRound}" Margin="0,0,3,0" />
-            <Button Grid.Column="1" Content="↻  RESET MATCH" Style="{StaticResource ActionWn}" Command="{Binding RestartMatchCmd}" Margin="3,0" />
-            <Button Grid.Column="2" Content="⟳  RELAUNCH MATCH" Style="{StaticResource ActionWn}" Command="{Binding RelaunchMatch}" Margin="3,0,0,0" />
-          </Grid>
-          <TextBlock Style="{StaticResource ActionNote}">Restart round = map_restart(true): this round over, scores + round count kept. Reset match = the quick map_restart(): 0-0, round 1, same map. Relaunch match = the full reload F7 gives (a session switch to the current map + mode, ~25 s). All three are sent ONCE and never retried - a retry after the reload used to fire a second restart (klaze 2026-09-22).</TextBlock>
+          <Button Content="■  END MATCH" Style="{StaticResource ActionNg}" Command="{Binding EndMatch}" />
+          <TextBlock Style="{StaticResource ActionNote}">The host end (the pause menu's End Game): scoreboard, then everyone back to the lobby. Asks first, sent once.</TextBlock>
         </StackPanel>
       </Expander>
 
+      <!-- ★ PINNED SETTINGS (was the FAVORITES tab): every setting pinned with ☆, as the same live rows its own page shows.
+           klaze 2026-09-24: "i can easily set my favorites as needed" - actions cannot be pinned, so MATCH keeps the
+           actions and the settings used every match are pins: round time, first-to, round cap, jump height and gravity
+           are seeded once (Prefs UiLayout 2) and unpinned like any other. -->
       <Expander Style="{StaticResource Block}">
-        <Expander.Header><TextBlock Text="MATCH" Style="{StaticResource BlockTitle}" /></Expander.Header>
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="★ PINNED SETTINGS" Style="{StaticResource BlockTitle}" />
+            <TextBlock Text="☆ on any setting pins it here" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" />
+          </StackPanel>
+        </Expander.Header>
         <StackPanel>
-          <Button Content="■  END MATCH" Style="{StaticResource ActionNg}" Command="{Binding EndMatch}" />
-          <TextBlock Style="{StaticResource ActionNote}">The host end (globallogic::forceend, what the pause menu's End Game does): the match ends now, scoreboard, back to the lobby. Sent once, never retried.</TextBlock>
+          <ItemsControl ItemsSource="{Binding Favorites}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Margin="0,0,0,6">
+                  <TextBlock Text="{Binding Title}" Style="{StaticResource SubTitle}" Margin="0,2,0,2" />
+                  <ItemsControl ItemsSource="{Binding Items}" />
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Style="{StaticResource ActionNote}" Visibility="{Binding HasFavorites, Converter={StaticResource VisInv}}">Nothing pinned. Click ☆ on any setting row (RULES, MAPS &amp; SPAWNS, SANDBOX, FORGE, DIAGNOSTICS) to pin it here, or ☆ on a section title for the whole section.</TextBlock>
+          <TextBlock Style="{StaticResource ActionNote}" Margin="2,4,2,0" Visibility="{Binding HasFavorites, Converter={StaticResource Vis}}">The same live controls as on their pages. ★ unpins; right-click a row: copy dvar · pin · reset.</TextBlock>
+        </StackPanel>
+      </Expander>
 
-          <Button Content="{Binding FreezeLabel}" Style="{StaticResource ActionWn}" Command="{Binding FreezeAll}" />
-          <TextBlock Style="{StaticResource ActionNote}">freezeall: everyone can look, not move, and takes no damage — until UNFREEZE. Use it before a reload-style test so a round end cannot confound it.</TextBlock>
-
+      <!-- BOTS: fill / remove first -->
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="BOTS" Style="{StaticResource BlockTitle}" />
+            <TextBlock Text="{Binding Bots.LiveDifficulty, StringFormat='difficulty: {0}'}" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" />
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel>
           <Grid>
             <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
-            <Button Content="BALANCE HUMANS" Style="{StaticResource ActionBtn}" Command="{Binding BalanceHumans}" Margin="0,0,3,0" />
-            <Button Grid.Column="1" Content="5..1 GO" Style="{StaticResource ActionBtn}" Command="{Binding Countdown}" Margin="3,0,0,0" />
+            <Button Content="+  FILL WITH BOTS" Style="{StaticResource ActionOk}" Command="{Binding Bots.Fill}" Margin="0,0,3,0" ToolTip="fillbots - both sides to the team size" />
+            <Button Grid.Column="1" Content="−  REMOVE ALL BOTS" Style="{StaticResource ActionBtn}" Command="{Binding Bots.RemoveAll}" Margin="3,0,0,0" ToolTip="removebots" />
           </Grid>
-          <TextBlock Style="{StaticResource ActionNote}">Balance evens the HUMAN split (the most recent joiner moves from the bigger side; bots aside — Even up bots is below). 5..1 GO prints a bold countdown to everyone.</TextBlock>
+          <WrapPanel Margin="0,8,0,0">
+            <Button Content="+ Add one (auto)" Style="{StaticResource Chip}" Command="{Binding Bots.AddAuto}" Margin="0,2,4,2" ToolTip="addbot auto - the smaller side, tie = opposite the host" />
+            <Button Content="+ Allies" Style="{StaticResource Chip}" Command="{Binding Bots.AddAllies}" Margin="0,2,4,2" />
+            <Button Content="+ Axis" Style="{StaticResource Chip}" Command="{Binding Bots.AddAxis}" Margin="0,2,4,2" />
+            <Button Content="− Remove one" Style="{StaticResource Chip}" Command="{Binding Bots.RemoveOne}" Margin="0,2,4,2" />
+            <Button Content="⚖ Even up" Style="{StaticResource Chip}" Command="{Binding Bots.EvenUp}" Margin="0,2,4,2" ToolTip="evenbots - the fewest bots that make the sides equal (an odd human count)" />
+          </WrapPanel>
+          <TextBlock Text="Difficulty — both sides" Style="{StaticResource SubTitle}" />
+          <WrapPanel>
+            <Button Content="RECRUIT" Style="{StaticResource Chip}" Command="{Binding Bots.SetBoth}" CommandParameter="0" Margin="0,2,4,2" />
+            <Button Content="REGULAR" Style="{StaticResource Chip}" Command="{Binding Bots.SetBoth}" CommandParameter="1" Margin="0,2,4,2" />
+            <Button Content="HARDENED" Style="{StaticResource Chip}" Command="{Binding Bots.SetBoth}" CommandParameter="2" Margin="0,2,4,2" />
+            <Button Content="VETERAN" Style="{StaticResource Chip}" Command="{Binding Bots.SetBoth}" CommandParameter="3" Margin="0,2,4,2" />
+            <Button Content="CUSTOM" Style="{StaticResource Chip}" Command="{Binding Bots.SetBoth}" CommandParameter="4" Margin="0,2,4,2" ToolTip="the CUSTOM BOT TUNING knobs (RULES → BOTS), both sides" />
+            <Button Content="LOBBY'S" Style="{StaticResource Chip}" Command="{Binding Bots.SetBoth}" CommandParameter="-1" Margin="0,2,4,2" ToolTip="hand both rows back to the custom-games menu (-1)" />
+          </WrapPanel>
+          <TextBlock Style="{StaticResource ActionNote}" Margin="2,6,2,0">Per-side difficulty, CUSTOM tuning, presets and saved profiles: RULES → BOTS.</TextBlock>
         </StackPanel>
       </Expander>
 
+      <!-- SPAWN LAYOUT: the SPAWN ATLAS page's pick, for the running map -->
+      <Expander Style="{StaticResource Block}" DataContext="{Binding Spawns}">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="SPAWN LAYOUT" Style="{StaticResource BlockTitle}" />
+            <TextBlock Text="{Binding ViewedMapText}" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="340" />
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel>
+          <Button Content="↩ Show the running map" Style="{StaticResource SmallBtn}" Command="{Binding ShowRunningMap}" HorizontalAlignment="Left" Margin="0,0,0,6"
+                  Visibility="{Binding ViewingOtherMap, Converter={StaticResource Vis}}" ToolTip="The list below is for the map picked on the SPAWN ATLAS page - switch it back to the map running now." />
+          <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBlock Text="{Binding PickText}" TextWrapping="Wrap" FontSize="11.5" VerticalAlignment="Center" />
+            <Button Grid.Column="1" Content="Clear pick" Style="{StaticResource SmallBtn}" Command="{Binding ClearPick}" Margin="8,0,0,0" ToolTip="Back to AUTO on this map (spawnpick clear)." />
+          </Grid>
+          <ListBox ItemsSource="{Binding Layouts}" SelectedItem="{Binding SelectedLayout}" Height="200" Margin="0,6,0,0" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                   Background="{StaticResource Bg}" BorderBrush="{StaticResource Bd}" BorderThickness="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Margin="0,1">
+                  <StackPanel Orientation="Horizontal">
+                    <Border Style="{StaticResource Pill}" BorderBrush="{StaticResource Ok}" Margin="0,0,6,0" Visibility="{Binding Tag, Converter={StaticResource NullVis}}">
+                      <TextBlock Text="{Binding Tag}" Style="{StaticResource PillText}" Foreground="{StaticResource Ok}" />
+                    </Border>
+                    <TextBlock Text="{Binding Source}" FontWeight="SemiBold" FontSize="12" />
+                  </StackPanel>
+                  <TextBlock Text="{Binding Metrics}" Style="{StaticResource Dim}" FontSize="10.5" />
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <TextBlock Text="{Binding LayoutWhy}" Style="{StaticResource ActionNote}" />
+          <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+            <Button Content="USE FOR THIS MAP" Style="{StaticResource OkBtn}" Command="{Binding UsePick}" Margin="0,0,3,0" MinHeight="34"
+                    ToolTip="Saves the layout as this map's pick and, when the map is running, sends it: the next spawns use it. Other maps are never affected." />
+            <Button Grid.Column="1" Content="USE + RESTART ROUND" Style="{StaticResource WnBtn}" Command="{Binding UsePickRestart}" Margin="3,0,0,0" MinHeight="34"
+                    ToolTip="The same, then restart the round (scores kept) so everyone spawns on it now." />
+          </Grid>
+          <TextBlock Style="{StaticResource ActionNote}" Margin="2,6,2,0">The layouts come from the map's spawn scan. The plot, scans and every mode's points: MAPS &amp; SPAWNS → SPAWN ATLAS.</TextBlock>
+        </StackPanel>
+      </Expander>
+
+      <!-- MOD MENUS: who has a client menu -->
       <Expander Style="{StaticResource Block}">
-        <Expander.Header><TextBlock Text="BOTS — QUICK" Style="{StaticResource BlockTitle}" /></Expander.Header>
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="MOD MENUS" Style="{StaticResource BlockTitle}" />
+            <TextBlock Text="{Binding Players.Summary}" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="340" />
+          </StackPanel>
+        </Expander.Header>
         <StackPanel>
           <Grid>
-            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
-            <Button Content="+ FILL BOTS" Style="{StaticResource ActionBtn}" Command="{Binding FillBots}" Margin="0,0,3,0" />
-            <Button Grid.Column="1" Content="EVEN UP" Style="{StaticResource ActionBtn}" Command="{Binding Bots.EvenUp}" Margin="3,0" />
-            <Button Grid.Column="2" Content="− REMOVE ALL" Style="{StaticResource ActionBtn}" Command="{Binding RemoveBots}" Margin="3,0,0,0" />
+            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+            <Button Style="{StaticResource ActionBtn}" Command="{Binding MenuAllOn}" Margin="0,0,3,0" ToolTip="menuall on - every human in the match (not you, not bots)">
+              <TextBlock Text="★  GIVE EVERYONE A MENU" Foreground="#FFC77DFF" FontWeight="Bold" />
+            </Button>
+            <Button Grid.Column="1" Content="✖  TAKE ALL BACK" Style="{StaticResource ActionBtn}" Command="{Binding MenuAllOff}" Margin="3,0,0,0" ToolTip="menuall off (asks first)" />
           </Grid>
-          <TextBlock Style="{StaticResource ActionNote}">Fill both sides to the team size · even an odd human count with one bot · remove every bot. Per-side add / remove, difficulty, CUSTOM tuning and profiles are on DASHBOARD → BOTS.</TextBlock>
+          <WrapPanel Style="{StaticResource Row}" Margin="0,8,0,3">
+            <TextBlock Text="One player" Style="{StaticResource RowLabel}" MinWidth="80" />
+            <ComboBox ItemsSource="{Binding Forge.Humans}" DisplayMemberPath="Name" SelectedItem="{Binding Forge.GrantTarget}" Width="200" Margin="0,0,6,0" ToolTip="humans in the match (not you)" />
+            <Button Content="Give menu" Style="{StaticResource SmallAccent}" Command="{Binding Forge.GrantOn}" Margin="0,0,4,0" ToolTip="forgegrant on" />
+            <Button Content="Take back" Style="{StaticResource SmallBtn}" Command="{Binding Forge.GrantOff}" ToolTip="forgegrant off" />
+          </WrapPanel>
+          <TextBlock Style="{StaticResource ActionNote}">Or click ☆ / ★ on a player in the sidebar. A granted player opens their own menu with ADS + Melee (controller: D-pad up): props, vehicles, god / ammo / fly, teleport, weapons, camo - no admin. It survives rounds and a rejoin.</TextBlock>
         </StackPanel>
       </Expander>
 
+      <!-- MESSAGES: the broadcast composer -->
       <Expander Style="{StaticResource Block}">
-        <Expander.Header><TextBlock Text="LIVE" Style="{StaticResource BlockTitle}" /></Expander.Header>
+        <Expander.Header>
+          <TextBlock Text="MESSAGES — BROADCAST" Style="{StaticResource BlockTitle}" />
+        </Expander.Header>
         <StackPanel>
-          <Grid Margin="0,0,0,6">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-            <Border Background="{StaticResource Bg}" BorderBrush="#5A2EC653" BorderThickness="1" CornerRadius="8" Padding="10,8">
-              <StackPanel HorizontalAlignment="Center">
-                <TextBlock Text="ALLIES" FontSize="10" FontWeight="Bold" Foreground="{StaticResource Dm}" HorizontalAlignment="Center" />
-                <TextBlock Text="{Binding ScoreA}" FontSize="36" FontWeight="ExtraBold" Foreground="{StaticResource Ok}" HorizontalAlignment="Center" />
-                <TextBlock Text="{Binding AliveA, StringFormat='alive {0}'}" FontSize="11" Foreground="{StaticResource Dm}" HorizontalAlignment="Center" />
-              </StackPanel>
-            </Border>
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="14,0">
-              <TextBlock Text="{Binding RoundText}" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Dm}" HorizontalAlignment="Center" />
-              <TextBlock Text="{Binding TimerText}" FontSize="26" FontWeight="Bold" FontFamily="{StaticResource Mono}" HorizontalAlignment="Center" />
-              <TextBlock Text="{Binding PhaseText}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource Wn}" HorizontalAlignment="Center" />
+          <Grid Margin="0,2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBlock Text="Channel" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+              <RadioButton Content="Centre" IsChecked="{Binding Message.Loc, Converter={StaticResource IntEq}, ConverterParameter=0}" Margin="0,0,10,0" />
+              <RadioButton Content="Feed" IsChecked="{Binding Message.Loc, Converter={StaticResource IntEq}, ConverterParameter=1}" Margin="0,0,10,0" />
+              <RadioButton Content="Banner" IsChecked="{Binding Message.Loc, Converter={StaticResource IntEq}, ConverterParameter=2}" ToolTip="the persistent hint line, held until Clear" />
             </StackPanel>
-            <Border Grid.Column="2" Background="{StaticResource Bg}" BorderBrush="#5AE63946" BorderThickness="1" CornerRadius="8" Padding="10,8">
-              <StackPanel HorizontalAlignment="Center">
-                <TextBlock Text="AXIS" FontSize="10" FontWeight="Bold" Foreground="{StaticResource Dm}" HorizontalAlignment="Center" />
-                <TextBlock Text="{Binding ScoreX}" FontSize="36" FontWeight="ExtraBold" Foreground="{StaticResource Ng}" HorizontalAlignment="Center" />
-                <TextBlock Text="{Binding AliveX, StringFormat='alive {0}'}" FontSize="11" Foreground="{StaticResource Dm}" HorizontalAlignment="Center" />
-              </StackPanel>
-            </Border>
+            <TextBlock Grid.Column="2" Text="Duration" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="12,0,6,0" />
+            <ComboBox Grid.Column="3" ItemsSource="{Binding Message.Durations}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Message.Dur}" Width="80" IsEnabled="{Binding Message.IsBanner, Converter={StaticResource Not}}" />
           </Grid>
-          <TextBlock Text="{Binding MapText, StringFormat='Map  {0}'}" FontSize="11" />
-          <TextBlock Text="{Binding GametypeText, StringFormat='Gametype  {0}'}" FontSize="11" />
-          <TextBlock Text="{Binding PlayersText, StringFormat='Players  {0}'}" FontSize="11" TextWrapping="Wrap" />
-          <TextBlock Text="{Binding TeamsText}" FontSize="11" />
-          <TextBlock Text="{Binding StagedText}" Foreground="{StaticResource Wn}" FontSize="11" Visibility="{Binding StagedText, Converter={StaticResource NullVis}}" />
-          <TextBlock Text="Every verb here needs the GFSTATE build linked (● Connected in the header); the buttons still send on an older payload but only pause / resume / restart / bots answer." Style="{StaticResource ActionNote}" Margin="2,8,2,0" />
+          <TextBlock Text="{Binding Message.DurationNote}" Style="{StaticResource Dim}" FontSize="10" Margin="0,0,0,4" />
+          <Grid Margin="0,2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBlock Text="To" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <ComboBox Grid.Column="1" ItemsSource="{Binding Message.AudienceChoices}" Text="{Binding Message.Audience}" IsEditable="True" />
+            <TextBlock Grid.Column="2" Text="Indent" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="12,0,6,0" Visibility="{Binding Message.IsBanner, Converter={StaticResource Vis}}" />
+            <TextBox Grid.Column="3" Text="{Binding Message.Indent, UpdateSourceTrigger=PropertyChanged}" Width="44" Visibility="{Binding Message.IsBanner, Converter={StaticResource Vis}}" />
+          </Grid>
+          <Grid Margin="0,2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBox x:Name="MsgBox" Text="{Binding Message.Text, UpdateSourceTrigger=PropertyChanged}" KeyDown="MsgBox_KeyDown" ToolTip="Enter sends" />
+            <TextBlock Grid.Column="1" Text="{Binding Message.CharsLeft}" Style="{StaticResource Dim}" FontSize="10" VerticalAlignment="Center" Margin="6,0" ToolTip="characters left (the 47-byte bridge slot caps a message at 30)" />
+            <Button Grid.Column="2" Content="Send" Style="{StaticResource SmallAccent}" Command="{Binding Message.Send}" />
+            <Button Grid.Column="3" Content="Clear" Style="{StaticResource SmallBtn}" Command="{Binding Message.Clear}" Margin="4,0,0,0" ToolTip="stop a held broadcast / banner" />
+          </Grid>
+          <ItemsControl ItemsSource="{Binding Message.Colors}" Margin="0,4">
+            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Button Width="22" Height="18" Padding="0" Margin="0,0,3,0" Background="{Binding Hex, Converter={StaticResource HexBrush}}" BorderBrush="#66000000"
+                        ToolTip="{Binding Name}" Command="{Binding DataContext.Message.InsertColor, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding Code}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Grid Margin="0,2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBlock Text="Preset" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <ComboBox Grid.Column="1" ItemsSource="{Binding Message.Presets}" DisplayMemberPath="Name" SelectedItem="{Binding Message.SelectedPreset}" />
+            <Button Grid.Column="2" Content="Save" Style="{StaticResource SmallBtn}" Command="{Binding Message.SavePreset}" Margin="4,0,0,0" />
+            <Button Grid.Column="3" Content="Del" Style="{StaticResource SmallBtn}" Command="{Binding Message.DeletePreset}" Margin="4,0,0,0" />
+          </Grid>
+          <WrapPanel Margin="0,4,0,0">
+            <Button Content="5..1 GO countdown" Style="{StaticResource Chip}" Command="{Binding Message.Countdown}" Margin="0,0,4,0" ToolTip="a bold 5..1 GO to everyone" />
+            <Button Content="Announce settings" Style="{StaticResource Chip}" Command="{Binding Message.Announce}" ToolTip="announce - the mod's settings summary to everyone" />
+          </WrapPanel>
+        </StackPanel>
+      </Expander>
+
+      <!-- EVERYONE: whole-lobby actions during a match -->
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header><TextBlock Text="EVERYONE" Style="{StaticResource BlockTitle}" /></Expander.Header>
+        <StackPanel>
+          <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+            <Button Content="{Binding FreezeLabel}" Style="{StaticResource ActionWn}" Command="{Binding FreezeAll}" Margin="0,0,3,0" />
+            <Button Grid.Column="1" Content="BALANCE HUMANS" Style="{StaticResource ActionBtn}" Command="{Binding BalanceHumans}" Margin="3,0,0,0" />
+          </Grid>
+          <TextBlock Style="{StaticResource ActionNote}">Freeze: everyone can look, not move, and takes no damage - until UNFREEZE. Balance evens the HUMAN split: the most recent joiner moves from the bigger side (bots: BOTS → Even up). Everyone's god / ammo / perks: PLAYERS.</TextBlock>
         </StackPanel>
       </Expander>
 

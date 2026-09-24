@@ -67,6 +67,9 @@
       <ItemsControl ItemsSource="{Binding Maps.MapsFt}">
         <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
       </ItemsControl>
+
+      <!-- the data-driven settings on this page (Schema.cs Tab = "maps": SESSION / MAP - how a switch travels) -->
+      <ItemsControl ItemsSource="{Binding MapsSections}" Margin="0,12,0,0" MaxWidth="720" HorizontalAlignment="Left" />
     </StackPanel>
   </ScrollViewer>
 </UserControl>

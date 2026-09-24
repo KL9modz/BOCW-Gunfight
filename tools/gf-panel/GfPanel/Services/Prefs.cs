@@ -45,7 +45,13 @@ public sealed class Prefs
     public double WindowHeight { get; set; } = 900;
     public bool WindowMaximized { get; set; }
     public long CommandSeq { get; set; }
-    public string LastTab { get; set; } = "dashboard";
+    public string LastTab { get; set; } = "match";
+    /// <summary>The page layout the prefs were saved under: 0 = the ten tabs until 2026-09-24, 2 = the eight pages
+    /// (MATCH first, FAVORITES folded into it). Moving to 2 lands on MATCH once and pins MatchPins.</summary>
+    public int UiLayout { get; set; }
+    /// <summary>What klaze changes every match (2026-09-24: "round time, match length" + "built-in jump height and
+    /// gravity"), pinned once by the move to layout 2 so MATCH shows them; ★ unpins them like any other pin.</summary>
+    public static readonly string[] MatchPins = { "gf_timer_seconds", "gf_roundwinlimit", "gf_roundlimit", "gf_jump", "gf_gravity" };
     public List<MessagePreset> Messages { get; set; } = new();
     public List<ConfigPreset> ConfigPresets { get; set; } = new();
     public List<BotProfile> BotProfiles { get; set; } = new();
@@ -81,16 +87,22 @@ public sealed class Prefs
 
     public static Prefs Load()
     {
+        Prefs? p = null;
         try
         {
-            if (File.Exists(Path))
-            {
-                var p = JsonSerializer.Deserialize<Prefs>(File.ReadAllText(Path), Json);
-                if (p != null) return p;
-            }
+            if (File.Exists(Path)) p = JsonSerializer.Deserialize<Prefs>(File.ReadAllText(Path), Json);
         }
         catch { /* a corrupt prefs file must never stop the panel; it is rewritten on the next save */ }
-        return new Prefs();
+        p ??= new Prefs();
+        // the 2026-09-24 redesign (MATCH first): land on MATCH once, whatever tab was open before, and pin the settings
+        // used every match - adding only, an existing pin list is kept whole
+        if (p.UiLayout < 2)
+        {
+            p.LastTab = "match";
+            foreach (var d in MatchPins) if (!p.Favorites.Contains(d)) p.Favorites.Add(d);
+            p.UiLayout = 2;
+        }
+        return p;
     }
 
     public void Save()

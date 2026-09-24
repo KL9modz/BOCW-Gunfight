@@ -46,7 +46,7 @@
           </StackPanel>
           <WrapPanel Margin="0,0,0,8">
             <Button Content="Inject mod menu" Command="{Binding Inject.InjectMenuCmd}" Margin="0,0,6,0" />
-            <Button Content="Inject lobby payload" Command="{Binding Inject.InjectLobbyCmd}" Margin="0,0,6,0" ToolTip="payloads\gunfight_lobby.gscc on its own pair (load_shared.gsc + containers_shared.gsc) - the lobby's max players (DASHBOARD → Lobby max players). New pair: on the first run check the lobby return." />
+            <Button Content="Inject lobby payload" Command="{Binding Inject.InjectLobbyCmd}" Margin="0,0,6,0" ToolTip="payloads\gunfight_lobby.gscc on its own pair (load_shared.gsc + containers_shared.gsc) - the lobby's max players (RULES → GUNFIGHT MATCH → Lobby max players). New pair: on the first run check the lobby return." />
             <Button Content="Inject bridge DLL" Command="{Binding Inject.InjectBridge}" Margin="0,0,6,0" />
             <Button Content="Install / reinstall cwpatch" Command="{Binding Inject.InstallCwpatch}" ToolTip="Battle.net writes the stock SDK back over cwpatch on updates / repairs - re-install it (loads at the next launch)" />
           </WrapPanel>

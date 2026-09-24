@@ -18,19 +18,19 @@ order). This note records the design facts and what is and is not measured.
 | SERVER card, SCOREBOARD, alive counts, clock | sidebar SERVER / SCOREBOARD + timer | **GFSTATE** (new publisher, 1 s) |
 | PLAYERS table (num, name, score, ping, IP, GUID) + team groups | PLAYERS (entnum, name, team, alive, score, K/D, flags, XUID) grouped by side | **GFPLAYERS** (new, on change); no ping / IP in a P2P private match |
 | right-click: kick / ban / message / team move / next-round queue / god / freeze / perks / noclip / locate | right-click: message, move, next-match stage, god, ammo, 3rd person, fly, freeze, speed, give weapon / perk / cosmetics, take / strip, kill, teleport (to me / me to them / swap), copy name / XUID, kick, ban | the menu's per-client verbs (`gf_cmd_target` + `*one`) + new `stage` / `ban` |
-| NEXT MATCH staging (one-shot `gf_teamstage`) | NEXT MATCH tab: plan per XUID, Apply now, re-sent at every new match | `stage` (+target) / `stageapply` / `stageclear`; `app_on_connect` seats a staged joiner |
-| MATCH CONTROL: start, pause, end round → team, restart round / match, map restart, balance | pause / resume · END → A / X / DRAW · ↺ ROUND · ↻ MATCH · BALANCE · 5..1 GO · ± bots | `endround` = gunfight's own `endround()` minus its page dressing; `restartround` = `map_restart( true )`; `balance` = newest-joiner human move |
-| DASHBOARD data-driven blocks + pills (LIVE / NEXT / RESTART / STICKY…) | DASHBOARD + ADVANCED sections from `Game/Schema.cs` (a section's `Tab` picks where it renders: dashboard / advanced / tools / spawns); pills LIVE / NEXT / RESTART + UNREAD | every `cfg_*` reader of the GSC, defaults = the GSC's own |
+| NEXT MATCH staging (one-shot `gf_teamstage`) | the sidebar's NEXT MATCH tab: plan per XUID, Apply now, re-sent at every new match (staging a player: right-click → Next match, or PLAYERS → Team) | `stage` (+target) / `stageapply` / `stageclear`; `app_on_connect` seats a staged joiner |
+| MATCH CONTROL: start, pause, end round → team, restart round / match, map restart, balance | MATCH: pause / resume · END → A / X / DRAW · ↺ ROUND · ↻ MATCH · ⟳ reload map · BALANCE · FREEZE ALL · fill / remove / ± bots; 5..1 GO in MESSAGES | `endround` = gunfight's own `endround()` minus its page dressing; `restartround` = `map_restart( true )`; `balance` = newest-joiner human move |
+| DASHBOARD data-driven blocks + pills (LIVE / NEXT / RESTART / STICKY…) | the settings sections from `Game/Schema.cs` — a section's `Tab` names its home page: rules / maps / spawns (SPAWN ATLAS) / sandbox / forge / diagnostics (§11); pills LIVE / NEXT / RESTART + UNREAD | every `cfg_*` reader of the GSC, defaults = the GSC's own |
 | BOTS: add / kick, per-team ±, fill, difficulty chips, CUSTOM, named profiles | the same + the GSC's four custom presets + named profiles (the 15 knobs) | `gf_bot` / `gf_bot2` packs, `apply bots` |
-| PLAYER STATE (god / ammo / perks all) | PLAYER STATE — EVERYONE + PERKS grid | new `godall` / `ammoall` / `thirdall` / `freezeall` / `invisall` / `perkall` |
-| FUN & VISION (vision sets, 3rd person, explosive bullets, melee range, drunk, invisible, quake) | vision (`visionsetnaked`, level-wide), drunk, quake, sound, invisible, timescale; explosive bullets ≈ the Projectiles page | new `vision` / `drunk` / `quake` / `sound` / `slowmo`; melee range has no T9 lever |
+| PLAYER STATE (god / ammo / perks all) | PLAYERS → EVERYONE & YOU + PERKS — EVERYONE (freeze all: MATCH → EVERYONE) | new `godall` / `ammoall` / `thirdall` / `freezeall` / `invisall` / `perkall` |
+| FUN & VISION (vision sets, 3rd person, explosive bullets, melee range, drunk, invisible, quake) | SANDBOX → WORLD & VISION: vision (`visionsetnaked`, level-wide), drunk, quake, sound, timescale; invisible: PLAYERS → EVERYONE & YOU; explosive bullets ≈ SANDBOX → PROJECTILES & MAP TOYS | new `vision` / `drunk` / `quake` / `sound` / `slowmo`; melee range has no T9 lever |
 | MOD TOOLS (give weapon, bullet mode, ride grenade, positions, Gersh, sound, team names, splash) | give me / give EVERYONE, projectiles, teleport gun / grenade, save point, sound; team names have no T9 builtin; splash = the centre print | existing verbs + `giveall` |
-| ADMIN message composer (channel / audience / duration / colours / presets) | MESSAGES: centre / feed / banner · all / allies / axis / a player · once / N s / held · ^colours · presets | `gf_cmd_say*` + new `gf_cmd_say_aud` |
-| MAPS: gametype picker, rotation editor (live + save to cfg), map grid with LIVE / NEXT | MAPS: Stage for lobby / Switch NOW, the grid (LIVE / NEXT badges), a **panel-driven rotation** | private matches have no engine rotation: the panel stages the next entry 20 s into every new match |
-| — (new, 2026-09-22) | SPAWNS: the spawn atlas — every spawn point of the map for every mode (starts, respawn pools, S&D groups, BO2-named, engine lists) plotted, dense areas, ranked start layouts, one-click per-map pick; map pictures (wiki art on the minimap frame, north up); LIVE SPAWNS (every real spawn numbered in order, used spots ringed); each mode's OBJECTIVES (★ bomb sites / flags / zones); scans of one map under several modes MERGED; the SCAN TOUR (every map under one mode, unattended); the SPAWN SETTINGS block (`gf_spawn_*`, `gf_strike` — moved here from ADVANCED 2026-09-22, schema tab `"spawns"`) | `spawnscan` (GFSPAWN chunks incl. `O` records, `MemoryScanner.CollectAll`) / `spawnpick` + `gf_sp_map` / `gf_sp_a` / `gf_sp_b`; GFSPAWNED (spawn events) on GFSTATE `spv=`; GFSTATE `spn=`; the tour = `gf_cmd_map` switches (one-shot). [spawn-atlas](spawn-atlas.md) |
-| Save to dedicated.cfg | CONFIG PRESETS (snapshot of every setting; apply sends only the diff) | prefs.json |
-| CONSOLE (custom dvar set / read, command reference, history) | CONSOLE: any console command over the bridge (+ optional go pulse), quick commands, history; no reply channel exists | cwpatch's executor runs it |
-| FAVORITES pinboard, global search, collapsible blocks, tooltips, toasts, command queue with acks + retry, activity log, join/leave notify + beep, resizable sidebar | all of it | acks = `gf_cmd_seq` echoed in GFSTATE; retry re-sends the SAME seq (the GSC ignores a repeat) |
+| ADMIN message composer (channel / audience / duration / colours / presets) | MATCH → MESSAGES — BROADCAST: centre / feed / banner · all / allies / axis / a player · once / N s / held · ^colours · presets | `gf_cmd_say*` + new `gf_cmd_say_aud` |
+| MAPS: gametype picker, rotation editor (live + save to cfg), map grid with LIVE / NEXT | MATCH → MAP & MODE (map + mode pickers, Stage for the lobby / Switch NOW, rotation on-off) and MAPS & SPAWNS → MAPS: the grid (LIVE / NEXT badges), a **panel-driven rotation** | private matches have no engine rotation: the panel stages the next entry 20 s into every new match |
+| — (new, 2026-09-22) | MAPS & SPAWNS → SPAWN ATLAS (was the SPAWNS tab; the running map's layout pick is also MATCH → SPAWN LAYOUT): the spawn atlas — every spawn point of the map for every mode (starts, respawn pools, S&D groups, BO2-named, engine lists) plotted, dense areas, ranked start layouts, one-click per-map pick; map pictures (wiki art on the minimap frame, north up); LIVE SPAWNS (every real spawn numbered in order, used spots ringed); each mode's OBJECTIVES (★ bomb sites / flags / zones); scans of one map under several modes MERGED; the SCAN TOUR (every map under one mode, unattended); the SPAWN SETTINGS block (`gf_spawn_*`, `gf_strike` — moved here from ADVANCED 2026-09-22, schema tab `"spawns"`) | `spawnscan` (GFSPAWN chunks incl. `O` records, `MemoryScanner.CollectAll`) / `spawnpick` + `gf_sp_map` / `gf_sp_a` / `gf_sp_b`; GFSPAWNED (spawn events) on GFSTATE `spv=`; GFSTATE `spn=`; the tour = `gf_cmd_map` switches (one-shot). [spawn-atlas](spawn-atlas.md) |
+| Save to dedicated.cfg | RULES → CONFIG PRESETS (snapshot of every setting; apply sends only the diff) | prefs.json |
+| CONSOLE (custom dvar set / read, command reference, history) | DIAGNOSTICS → CONSOLE: any console command over the bridge (+ optional go pulse), quick commands, history; no reply channel exists | cwpatch's executor runs it |
+| FAVORITES pinboard, global search, collapsible blocks, tooltips, toasts, command queue with acks + retry, activity log, join/leave notify + beep, resizable sidebar | all of it; the pinboard is MATCH → ★ PINNED SETTINGS since 2026-09-24 (§11) | acks = `gf_cmd_seq` echoed in GFSTATE; retry re-sends the SAME seq (the GSC ignores a repeat) |
 | Geo-IP, Discord bot, dedicated.cfg, aimbot / account editors | not applicable / not wanted | — |
 
 ## 2. The read channel — measured facts it rests on, and what is new
@@ -298,14 +298,15 @@ follows has something to catch what it breaks. `tools/gf-panel/GfPanel.Tests/` i
 (no NuGet, `RollForward=Major`, runs on Windows or Linux) that compiles the panel's UI-free code in directly
 (`Game\*.cs`, `MemoryScanner` / `Win32` / `GameProcess`, `MatchTracker` + `LogEntry`) — the panel itself is
 net9.0-windows WPF and cannot be referenced. `dotnet run --project tools\gf-panel\GfPanel.Tests`; exit code 1
-on any failure; a name filter as the argument. **57 checks, all green**, ~0.5 s.
+on any failure; a name filter as the argument. **61 checks, all green**, ~0.6 s.
 
 | Group | What it holds the panel to |
 |---|---|
 | parsers | GFSTATE (a `state_build`-shaped line; the fallback line; older-payload defaults), GFPLAYERS / GFROSTER, GFCFG, GFENTS (newest *complete* stamp wins), GFLOG (union of every copy, a filled-in result wins), GFSPAWNED, GFLOBBY; `MemoryScanner.Parse` refusing the 2026-09-20 stale-slot junk |
 | the 47-byte slot | every plain setting write at every value it can hold, every packed chunk + bot line at its widest, say / action / switch lines whatever is typed, every verb the panel sends; `Clean()` drops line breaks (the match-closing bug) |
 | the GSC contract | every verb sent is a `case` in `cmd_action` / `panel_verb`, every `fun` switch a `case` in `fun_verb`; `Packing.Packed` = `cfg_spec()` in order; each `config_publish` extra (misc / race / dbg / veh / oob / bar) in the panel's order; bot knobs in the writer's order with its fallback defaults; `Catalog.Vehicles` = `veh_master()` row for row; the fun picks = `fun_*_pick`; every GFSTATE key feeds a field and every field has a key; every setting is read by some GSC; every default is the one the GSC runs with |
-| schema | unique dvars (a duplicate throws in the type initializer — the app would not start); each default is a value its control can show |
+| schema | unique dvars (a duplicate throws in the type initializer — the app would not start); each default is a value its control can show; each section's page is one that exists AND a view binds the property that lists that page's sections; the seeded MATCH pins and the default pin list name real rows |
+| the XAML | every `{Binding}` resolves against the DataContext it actually runs under (a walker that follows view hosting, `DataContext=` switches, `ItemsSource` element types, typed / implicit DataTemplates, `RelativeSource` Window / UserControl and the `BindingProxy`) — WPF's other silent failure is a binding that names a real member of the WRONG view model; every `{StaticResource}` key is defined before use (a missing one is a crash at load, not at compile) |
 | match tracking | normal end, dropped mid-round, round end with no next round, the panel's own restart, a stall that comes back, a last gasp that finds the feed alive, the game closing, a new match id, menu actions in seq order, the unanswered last action named |
 
 The GSC side is read **as text** (comment-stripped; functions found by name). A function the checks cannot
@@ -338,8 +339,70 @@ view offers any more (verified: deleting the *Swap places* menu item fails it wi
 intended change: `dotnet run --project tools\gf-panel\GfPanel.Tests -- --write-ui-surface`, and the file's
 diff in the commit is the record of what moved. `Every_binding_names_a_member_some_view_model_has` catches the
 other silent WPF failure: a `{Binding X}` to a member that does not exist.
-The generator also lists view-model commands nothing binds or calls — 5 today, features the UI does not offer:
-`ForgeVM.SetBuild`, `MainViewModel.PauseResume`, `ToolsVM.PropPlace` / `PropUndo` / `PropClear`.
+The generator also lists view-model commands nothing binds or calls — 4 today, and none is a lost feature:
+`ForgeVM.SetBuild` writes `gf_hint_build`, which the GSC keeps only as "an unused store" (`gunfight_menu.gsc`
+`cmd_hintset`); `ToolsVM.PropPlace` / `PropUndo` / `PropClear` are the pre-catalog prop buttons that
+`PropsVM.SpawnProp` / `Undo` / `Clear` replaced. (`MainViewModel.PauseResume` went in the redesign: MATCH has
+explicit PAUSE / RESUME.)
 
 Rules this sets for the redesign: `Game\` stays free of WPF (the harness compiles it whole); anything that
 sends a verb names it as a literal (the verb check reads call sites, and lists any it cannot read).
+
+## 11. Pages — the 2026-09-24 redesign
+
+klaze: *"it needs a deep pass on a full redesign. Without losing any functionality (only gaining it) reorganize
+and improve its usability and clarity"*, then what he uses most: *"Change map/mode · Match controls: restart,
+round time, match length time · Bots: fill, remove · Choosing a spawn layout · viewing statuses and log · Giving
+people mod menu access · Broadcasting messages"* — and *"i also often adjust built-in jump height and gravity"*,
+*"if you feel anything belongs on a different page, do what makes sense to you and i can easily set my
+favorites as needed"*.
+
+**The rule the layout follows: MATCH holds the actions a host takes every match; every setting has one home
+page and can be pinned onto MATCH.** Pins (☆) take setting rows and sections only, so an action cannot be
+pinned — which is why the actions klaze named are MATCH blocks, while the settings he named (round time,
+first-to, round cap, builtin jump height, gravity) are **pins**, seeded once by the move to `Prefs.UiLayout` 2
+(`Prefs.MatchPins`, only added — an existing pin list is kept whole) and unpinned with ★ like any other. The
+FAVORITES tab this replaces was a pinboard one click away from where the actions are; MATCH → ★ PINNED SETTINGS
+is the same pinboard on the landing page. Status and the log stay in the sidebar, which every page shows.
+
+The eight pages, what each holds, and how to find a sub-tab: `tools/gf-panel/README.md` → *Pages*. In code:
+`MainWindow.xaml` (the pages), a section's `Tab` in `Game/Schema.cs` (its home page), `MainWindow.SelectTab`
+(a page Tag, a sub-tab Tag — `spawns`, `entities`, `console` — or a pre-redesign tag: `favorites` → MATCH,
+`dashboard` → RULES, `advanced` → DIAGNOSTICS, `tools` → SANDBOX, so `--tab` and an old `LastTab` still land).
+The panel reopens on the page and sub-tab it closed on; the entity list is read from the game only while
+FORGE → SPAWNED ENTITIES shows (was: the ENTITIES tab).
+
+**Gained:**
+- **PLAYERS**: one player's every action as a visible button (the right-click menu was the only way to reach
+  most of them; it stays as the shortcut). A roster row's right-click → *Open on the PLAYERS page* selects it.
+- **One-click client menus**: a ☆ / ★ at the end of every roster row gives / takes back that player's menu (not
+  on the host or bots — they cannot hold one).
+- **BANS with an Unban per player** on PLAYERS; the sidebar keeps the banned names in view.
+- **MATCH → SPAWN LAYOUT**: the running map's start layouts with *Use* / *Use + restart round*, without opening the
+  atlas; it names the map the list is for and offers *Show the running map* when the atlas is on another.
+- Sub-tabs keep the big pages short (MAPS & SPAWNS, FORGE, DIAGNOSTICS); settings that sat on ADVANCED now sit
+  with the thing they configure (SESSION / MAP by the maps, VEHICLE MODE by the vehicles, RACE SETTINGS by the
+  race, PLACEMENT & PROMPTS by the forge).
+
+**Dropped: nine controls that duplicated another** — each for the control that sends the same verb or writes the
+same dvar (the `ui-surface.txt` diff of the change is the record):
+
+| Dropped (old place) | Use instead | Why it is the same |
+|---|---|---|
+| *Fast restart* (TOOLS → FUN PACK) | MATCH → RESTART ROUND | both send `restartround` after a confirm |
+| *Fill with bots* / *Remove all bots* (DASHBOARD) | MATCH → BOTS | the same `fillbots` / `removebots` verbs (`BotsVM`) |
+| *Freeze everyone (toggle)*, *ALL freeze* / *ALL unfreeze* (TOOLS) | MATCH → EVERYONE → FREEZE ALL | `freezeall on\|off`, chosen from the game's own `frz` state (GFSTATE), so it cannot drift; the old toggle verb `freeze` flipped the same `level.gf_frozen_all` |
+| Parachutes *everyone* / *host only* / *off* (TOOLS → RADAR) | RULES → MOVEMENT → Parachutes | the verb wrote `gf_parachute`; the row writes it too and the GSC applies a dvar write within a second (`gunfight_menu.gsc` "no verb needed") |
+| (duplicate buttons, no key lost) *Announce settings* on TOOLS, *5..1 GO* on the old MATCH | MATCH → MESSAGES | `announce` / `countdown`, same verbs |
+
+Checked beyond the key list: every full binding path at HEAD was diffed against the new views — the only paths
+that left are those above and the three old section lists (`AdvancedSections`, `DashboardSections`,
+`ToolsSections`), whose replacements the section-tab check proves are bound. The old MATCH page's LIVE readouts
+(scores, alive counts, timer, phase, round, map, teams) are all in the sidebar.
+
+**Untested — not ruled out:** none of the new pages has been on screen. The build compiles and every binding and
+resource key checks out offline, but WPF layout (column flow, sub-tab strip, the pinned block's height) can
+only be judged from a screenshot: `GfPanel.exe --dry --fake` fills the roster and entity list without a game.
+**Untried — not ruled out:** pinning *actions* (a Fill-bots button on MATCH was a hard-coded choice; a pin
+would make it the host's), state-aware *everyone* toggles (GFSTATE already carries god / invisible / 3rd person
+/ drunk / perks), remembering which blocks are collapsed.

@@ -62,20 +62,49 @@ public partial class MainWindow : Window
             };
     }
 
+    /// <summary>Show a page by its Tag, or a page's sub-tab by the sub-tab's Tag (spawns = MAPS &amp; SPAWNS → SPAWN
+    /// ATLAS, entities = FORGE → SPAWNED ENTITIES, console = DIAGNOSTICS → CONSOLE). A page whose own sub-tab carries
+    /// the page's tag (maps, forge, diagnostics) opens on that sub-tab. The pre-redesign tags still work (--tab, an old
+    /// LastTab): favorites → MATCH (its ★ PINNED SETTINGS), dashboard → RULES, advanced → DIAGNOSTICS, tools → SANDBOX.</summary>
     private void SelectTab(string tag)
     {
-        foreach (TabItem t in Tabs.Items)
-            if ((t.Tag as string) == tag) { Tabs.SelectedItem = t; return; }
+        tag = tag switch { "favorites" => "match", "dashboard" => "rules", "advanced" => "diagnostics", "tools" => "sandbox", _ => tag };
+        foreach (TabItem page in Tabs.Items)
+        {
+            var sub = SubTabs(page);
+            var inner = sub?.Items.OfType<TabItem>().FirstOrDefault(t => (t.Tag as string) == tag);
+            if ((page.Tag as string) != tag && inner == null) continue;
+            // the sub-tab first: Tabs_SelectionChanged then sees the page arrive already on it, so the entity list
+            // never switches on for a moment on the way to another FORGE sub-tab
+            if (inner != null) sub!.SelectedItem = inner;
+            Tabs.SelectedItem = page;
+            return;
+        }
+    }
+
+    private readonly Dictionary<TabItem, TabControl?> _subTabs = new();
+    /// <summary>A page's own sub-tab strip, found in the logical tree (it exists before the page is first shown).</summary>
+    private TabControl? SubTabs(TabItem page)
+    {
+        if (!_subTabs.TryGetValue(page, out var tc)) _subTabs[page] = tc = FindTabControl(page);
+        return tc;
+    }
+    private static TabControl? FindTabControl(DependencyObject node)
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(node).OfType<DependencyObject>())
+            if ((child as TabControl ?? FindTabControl(child)) is TabControl found) return found;
+        return null;
     }
 
     private void Tabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (e.Source != Tabs) return;
-        if (Tabs.SelectedItem is TabItem t && t.Tag is string tag)
-        {
-            _prefs.LastTab = tag;
-            _vm.Entities.IsActive = tag == "entities";     // the entity list is read only while its tab shows
-        }
+        // a sub-tab strip's change bubbles here too (from inside a page with Source = the page's UserControl, hence
+        // OriginalSource), and so does every combo box and list on the pages - only a tab strip matters
+        if (e.OriginalSource is not TabControl) return;
+        if (Tabs.SelectedItem is not TabItem page || page.Tag is not string tag) return;
+        var shown = SubTabs(page)?.SelectedItem is TabItem { Tag: string sub } ? sub : tag;
+        _prefs.LastTab = shown;                           // reopens on the sub-tab too
+        _vm.Entities.IsActive = shown == "entities";      // the entity list is read only while FORGE → SPAWNED ENTITIES shows
     }
 
     private void Splitter_DragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)

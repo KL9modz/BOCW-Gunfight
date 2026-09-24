@@ -83,7 +83,12 @@ public sealed class SpawnsVM : ObservableObject
     // selection
     // ─────────────────────────────────────────────────────────────────────────
     private SpawnMapItem? _sel;
-    public SpawnMapItem? Selected { get => _sel; set { if (Set(ref _sel, value)) Load(); } }
+    public SpawnMapItem? Selected { get => _sel; set { if (Set(ref _sel, value)) { Load(); OnPropertyChanged(nameof(ViewedMapText)); OnPropertyChanged(nameof(ViewingOtherMap)); } } }
+    /// <summary>MATCH → SPAWN LAYOUT names the map its list is for: the atlas follows the running map unless another
+    /// map was picked on the SPAWN ATLAS page.</summary>
+    public string ViewedMapText => _sel == null ? "no map yet" : (_sel.IsCurrent ? "running now: " : "viewing: ") + _sel.Name + "  " + _sel.Id;
+    public bool ViewingOtherMap => _sel != null && !_sel.IsCurrent && MapItems.Any(i => i.IsCurrent);
+    public RelayCommand ShowRunningMap => new(() => { if (MapItems.FirstOrDefault(i => i.IsCurrent) is { } cur) Selected = cur; });
 
     private SpawnAtlas? _atlas;
     public SpawnAtlas? Atlas { get => _atlas; private set { Set(ref _atlas, value); OnPropertyChanged(nameof(HasAtlas)); OnPropertyChanged(nameof(NoAtlas)); } }
@@ -516,6 +521,7 @@ public sealed class SpawnsVM : ObservableObject
             var cur = EnsureItem(s.Map);
             foreach (var it in MapItems) it.IsCurrent = it.Id == s.Map;
             if (Selected == null || Selected.Id == prev || !Selected.HasAtlas) Selected = cur;
+            OnPropertyChanged(nameof(ViewedMapText)); OnPropertyChanged(nameof(ViewingOtherMap));
             OnMapLoaded(s.Map);
         }
         // the match is over and a map is staged for the next one: its pick goes in now (the current map no

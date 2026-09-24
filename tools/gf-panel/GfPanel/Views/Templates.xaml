@@ -26,7 +26,7 @@
           <ContextMenu>
             <MenuItem Header="{Binding Dvar}" IsEnabled="False" />
             <MenuItem Header="Copy dvar name" Command="{Binding CopyCommand}" />
-            <MenuItem Header="Pin / unpin (FAVORITES)" Command="{Binding PinCommand}" />
+            <MenuItem Header="Pin / unpin (MATCH → ★ PINNED)" Command="{Binding PinCommand}" />
             <Separator />
             <MenuItem Header="Reset to default" Command="{Binding ResetCommand}" />
           </ContextMenu>
@@ -37,7 +37,7 @@
           <ColumnDefinition Width="Auto" />
           <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
-        <Button Grid.Column="0" Style="{StaticResource Star}" Content="{Binding StarGlyph}" Command="{Binding PinCommand}" ToolTip="Pin this setting to FAVORITES" />
+        <Button Grid.Column="0" Style="{StaticResource Star}" Content="{Binding StarGlyph}" Command="{Binding PinCommand}" ToolTip="Pin this setting to MATCH (★ PINNED SETTINGS)" />
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
           <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
           <Border Style="{StaticResource Pill}" BorderBrush="{Binding EffLabel, Converter={StaticResource EffBrush}}" ToolTip="{Binding EffTip}">
@@ -71,7 +71,7 @@
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
           </Grid.ColumnDefinitions>
-          <Button Style="{StaticResource Star}" Content="{Binding StarGlyph}" Command="{Binding PinCommand}" ToolTip="Pin this whole panel to FAVORITES" />
+          <Button Style="{StaticResource Star}" Content="{Binding StarGlyph}" Command="{Binding PinCommand}" ToolTip="Pin this whole section to MATCH (★ PINNED SETTINGS)" />
           <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="4,0,0,0">
             <TextBlock Text="{Binding Title}" Style="{StaticResource BlockTitle}" VerticalAlignment="Center" />
             <TextBlock Text="{Binding Note}" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="520" />
@@ -83,20 +83,15 @@
     </Expander>
   </DataTemplate>
 
-  <!-- ═══ a favorites group ═══ -->
-  <DataTemplate DataType="{x:Type vm:FavGroupVM}">
-    <Expander Style="{StaticResource Block}">
-      <Expander.Header>
-        <TextBlock Text="{Binding Title}" Style="{StaticResource BlockTitle}" />
-      </Expander.Header>
-      <ItemsControl ItemsSource="{Binding Items}" />
-    </Expander>
-  </DataTemplate>
+  <!-- (a pinned group renders inside MATCH → ★ PINNED SETTINGS, which carries its own item template) -->
 
   <!-- ═══ a player row (sidebar) ═══
        bocw-84 2026-09-23 (klaze): "App needs to clearly show who has a client menu. give them a color with something to
        symbolize" - a purple ★ MENU badge + purple name; ⚒ FORGE for forge mode. The right-click menu leads with
-       "Give client mod menu" (coloured) and groups the rest into Player / Loadout / Teleport / Team / Moderation. -->
+       "Give client mod menu" (coloured) and groups the rest into Player / Loadout / Teleport / Team / Moderation.
+       2026-09-24 redesign: the ☆ / ★ at the row's end gives / takes the menu in one click (klaze: one of the most-used
+       jobs), and "Open on the PLAYERS page" shows every action as a button. The PLAYERS page's list uses this template
+       too. -->
   <SolidColorBrush x:Key="MenuC" Color="#FFC77DFF" />
   <SolidColorBrush x:Key="MenuDim" Color="#29C77DFF" />
   <SolidColorBrush x:Key="ForgeC" Color="#FF46D2FF" />
@@ -123,6 +118,7 @@
       <Border.ContextMenu>
         <ContextMenu>
           <MenuItem Header="{Binding Name}" Style="{StaticResource CtxHead}" />
+          <MenuItem Header="🔎  Open on the PLAYERS page" Command="{Binding Inspect}" ToolTip="every action for this player as a button" />
           <MenuItem Command="{Binding ToggleMenu}" Visibility="{Binding ShowGiveMenu, Converter={StaticResource Vis}}" Foreground="{StaticResource MenuC}" FontWeight="Bold"
                     ToolTip="forgegrant on - their own mod menu (hold ADS + Melee, controller: D-pad up): Props / Vehicles, Player (god, ammo, 3rd person, fly, speed, operator, outfit), Teleport (to the host, to any player, crosshair, gun, save / load), Weapons, Camo. No admin. Survives rounds and a rejoin.">
             <MenuItem.Header>
@@ -156,16 +152,16 @@
             <MenuItem Header="Kill" Command="{Binding Kill}" Foreground="{StaticResource Ng}" />
           </MenuItem>
           <MenuItem Header="🎒  Loadout">
-            <MenuItem Header="Give the picked weapon (Tools)" Command="{Binding GiveWeapon}" />
+            <MenuItem Header="Give the picked weapon (PLAYERS / SANDBOX pick)" Command="{Binding GiveWeapon}" />
             <MenuItem Header="Give streak">
               <MenuItem Header="RC-XD" Command="{Binding StreakRcxd}" ToolTip="streak recon_car - the stock care-package give; they use it with the normal streak button" />
               <MenuItem Header="Bow (Sparrow)" Command="{Binding StreakBow}" ToolTip="streak sig_bow_flame" />
               <MenuItem Header="Nuke" Command="{Binding StreakNuke}" ToolTip="streak nuke" />
               <Separator />
-              <MenuItem Header="The one picked in Tools → Streaks" Command="{Binding StreakPicked}" />
+              <MenuItem Header="The one picked (PLAYERS / SANDBOX → STREAKS)" Command="{Binding StreakPicked}" />
             </MenuItem>
-            <MenuItem Header="Give the picked perk (Tools)" Command="{Binding GivePerks}" />
-            <MenuItem Header="Cosmetics (ids from Tools)">
+            <MenuItem Header="Give the picked perk (PLAYERS pick)" Command="{Binding GivePerks}" />
+            <MenuItem Header="Cosmetics (ids from PLAYERS / SANDBOX)">
               <MenuItem Header="Camo" Command="{Binding Camo}" />
               <MenuItem Header="Operator" Command="{Binding Operator}" />
               <MenuItem Header="Outfit" Command="{Binding Outfit}" />
@@ -249,7 +245,7 @@
       </Border.ContextMenu>
       <Grid>
         <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="10" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="10" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="24" />
         </Grid.ColumnDefinitions>
         <Ellipse Width="7" Height="7" Fill="{StaticResource Ok}" VerticalAlignment="Center" Visibility="{Binding Alive, Converter={StaticResource Vis}}" ToolTip="alive" />
         <Ellipse Width="7" Height="7" Fill="{StaticResource Bd}" VerticalAlignment="Center" Visibility="{Binding Alive, Converter={StaticResource VisInv}}" ToolTip="dead / not spawned" />
@@ -286,6 +282,9 @@
         <TextBlock Grid.Column="2" Text="{Binding Flags}" Style="{StaticResource Dim}" FontSize="10" Margin="6,0" VerticalAlignment="Center" />
         <TextBlock Grid.Column="3" Text="{Binding Score}" FontSize="11" Margin="6,0" VerticalAlignment="Center" MinWidth="28" TextAlignment="Right" ToolTip="score" />
         <TextBlock Grid.Column="4" Text="{Binding Kd}" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" MinWidth="36" TextAlignment="Right" ToolTip="kills / deaths" />
+        <!-- one-click client menu: ☆ gives, ★ takes back (fixed-width column so the numbers stay aligned on host / bot rows) -->
+        <Button Grid.Column="5" Content="{Binding MenuGlyph}" Command="{Binding ToggleMenu}" ToolTip="{Binding MenuTip}" Style="{StaticResource Star}" FontSize="13"
+                Foreground="{StaticResource MenuC}" HorizontalAlignment="Right" Visibility="{Binding CanHaveMenu, Converter={StaticResource Vis}}" />
       </Grid>
     </Border>
   </DataTemplate>

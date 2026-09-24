@@ -1,0 +1,156 @@
+<UserControl x:Class="GfPanel.Views.DiagnosticsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:v="clr-namespace:GfPanel.Views">
+  <!-- DIAGNOSTICS (the 2026-09-24 redesign): everything for looking under the hood - the debug feed, one-shot readouts, the
+       in-game menu's display (IN-GAME MENU DISPLAY + MENU BACKDROP + the hint lines + the fade probe), the text tests
+       and, on its own tab, the raw CONSOLE. None of it changes how a match plays. -->
+  <TabControl x:Name="DiagTabs" Style="{StaticResource SubTabs}">
+    <TabItem Header="DEBUG &amp; HUD" Tag="diagnostics">
+      <Grid>
+      <Grid.Resources>
+        <v:BindingProxy x:Key="Proxy" Data="{Binding}" />
+      </Grid.Resources>
+      <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,12">
+        <v:ColumnsPanel>
+          <v:ColumnsPanel.ItemsSource>
+            <CompositeCollection>
+          <!-- FEED READOUTS: were PLAYER STATE → Feed readouts / Host tools, and MAP TOYS → PROJ debug -->
+          <Expander Style="{StaticResource Block}">
+            <Expander.Header>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="FEED READOUTS &amp; PROBES" Style="{StaticResource BlockTitle}" />
+                <TextBlock Text="one line each to the host's feed; the repeating ones are in DEBUG FEED" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="480" />
+              </StackPanel>
+            </Expander.Header>
+            <StackPanel>
+              <WrapPanel Style="{StaticResource Row}">
+                <Button Content="Match info" Style="{StaticResource Chip}" Command="{Binding Tools.MatchInfo}" Margin="0,2,4,2" ToolTip="matchinfo - the full state readout to the host's feed" />
+                <Button Content="Spawn report" Style="{StaticResource Chip}" Command="{Binding Tools.SpawnReport}" Margin="0,2,4,2" ToolTip="spawnreport - this round's spawn placements to the feed" />
+                <Button Content="Overtime-zone census" Style="{StaticResource Chip}" Command="{Binding Tools.ZoneCensus}" Margin="0,2,4,2" ToolTip="zonecensus - what the overtime zone would be built from, read only" />
+                <Button Content="PROJ debug line" Style="{StaticResource Chip}" Command="{Binding Tools.ProjDebug}" Margin="0,2,4,2" ToolTip="projdbg - the PROJ debug feed line (bocw-c7's diagnostic)" />
+              </WrapPanel>
+              <TextBlock Text="Menu timing" Style="{StaticResource SubTitle}" />
+              <WrapPanel Style="{StaticResource Row}">
+                <Button Content="Fade probe" Style="{StaticResource Chip}" Command="{Binding Tools.FadeProbe}" Margin="0,2,4,2" ToolTip="fadeprobe - prints ONE stamped line on the feed and ONE in the centre; time each until it vanishes = the engine's hold. Set 'Menu repaint (ms)' (IN-GAME MENU DISPLAY, this page) just under the shorter one." />
+              </WrapPanel>
+            </StackPanel>
+          </Expander>
+
+          <!-- TEXT TESTS: were PLAYER STATE → line breaks -->
+          <Expander Style="{StaticResource Block}">
+            <Expander.Header>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="TEXT TESTS" Style="{StaticResource BlockTitle}" />
+                <TextBlock Text="the line-break experiments (hud-channels.md §10)" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="480" />
+              </StackPanel>
+            </Expander.Header>
+            <StackPanel>
+              <TextBlock Text="Line breaks from stock text - the break lives in the game's own string table, none is sent" Style="{StaticResource SubTitle}" />
+              <WrapPanel Style="{StaticResource Row}">
+                <Button Content="1 Key control" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="loca" Margin="0,2,4,2" ToolTip="nltest loca - a stock localized key + one word, no break. Expect: Enemies forfeiting in GF seconds. Run first. Close the in-game menu first (or use Host → Text tests in game)." />
+                <Button Content="2 Unregistered key" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="locb" Margin="0,2,4,2" ToolTip="nltest locb - a stock key the game never pre-registers (like the break keys), no break. Expect: GF-A GF-B GF-C. Blank = such keys don't resolve, and 3-6 would print blank too." />
+                <Button Content="3 Break: 2 rows" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="locc" Margin="0,2,4,2" ToolTip="nltest locc - a stock key whose own text is row 1 [break] row 2. Two rows, one row, or blank? The wire carries no newline byte (read from the exe: the drop is the client's check on OUR text; key text is spliced in after it) - not run yet." />
+                <Button Content="4 Break: 3 rows" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="locd" Margin="0,2,4,2" ToolTip="nltest locd - a stock key with three rows and a blank line between each" />
+                <Button Content="5 Break: D rows" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="loce" Margin="0,2,4,2" ToolTip="nltest loce - OUR layout text with a stock 'D + break' key filled in twice: GF one ENABLED / GF two DISABLED / GF three on three rows? (every row but the last must end in a D)" />
+                <Button Content="6 Break: feed" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="locf" Margin="0,2,4,2" ToolTip="nltest locf - test 3 in the kill feed" />
+              </WrapPanel>
+              <TextBlock Text="Done 2026-09-24 - all stayed one line (every raw \n closed the match)" Style="{StaticResource SubTitle}" />
+              <WrapPanel Style="{StaticResource Row}">
+                <Button Content="Wrap: centre" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="wrap" Margin="0,2,4,2" ToolTip="nltest wrap - one ~190-character centre print: one long line, or wrapped onto 2+ lines? (if it wraps, padding can make rows). Close the in-game menu first." />
+                <Button Content="Wrap: feed" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="wrapfeed" Margin="0,2,4,2" ToolTip="nltest wrapfeed - the same long line in the feed" />
+                <Button Content="Escape" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="escape" Margin="0,2,4,2" ToolTip="nltest escape - a literal backslash + n (two characters, no newline byte): shown as text, or turned into a line break?" />
+                <Button Content="Key + text" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="parts" Margin="0,2,4,2" ToolTip="nltest parts - one print built from plain text + two stock localized keys (stock does this, killstreaks_shared.gsc:2140): the building block of a localized line-break separator" />
+              </WrapPanel>
+            </StackPanel>
+          </Expander>
+
+          <!-- MENU BACKDROP (2026-09-24): hud_probe stage 9's LUIelemBar boxes behind the menu's centre line + hint row -->
+          <Expander Style="{StaticResource Block}" IsExpanded="True">
+            <Expander.Header>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="MENU BACKDROP" Style="{StaticResource BlockTitle}" />
+                <TextBlock Text="boxes behind the menu while it is open - open your menu in game, then move the sliders" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" />
+              </StackPanel>
+            </Expander.Header>
+            <StackPanel>
+              <ItemsControl ItemsSource="{Binding HudBoxes}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <StackPanel Margin="0,2,0,8">
+                      <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding Name}" Style="{StaticResource SubTitle}" />
+                        <TextBlock Text="{Binding Pixels}" Style="{StaticResource Dim}" FontSize="10" Margin="10,8,0,3" />
+                      </StackPanel>
+                      <WrapPanel>
+                        <TextBlock Text="X" Style="{StaticResource Dim}" VerticalAlignment="Center" Width="14" />
+                        <Slider Minimum="0" Maximum="128" Value="{Binding X}" Width="150" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="left edge, 15-px steps" />
+                        <TextBlock Text="{Binding X}" Width="30" Margin="4,0,10,0" VerticalAlignment="Center" />
+                        <TextBlock Text="Y" Style="{StaticResource Dim}" VerticalAlignment="Center" Width="14" />
+                        <Slider Minimum="0" Maximum="72" Value="{Binding Y}" Width="150" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="top edge, 15-px steps" />
+                        <TextBlock Text="{Binding Y}" Width="30" Margin="4,0,10,0" VerticalAlignment="Center" />
+                        <TextBlock Text="W" Style="{StaticResource Dim}" VerticalAlignment="Center" Width="16" />
+                        <Slider Minimum="1" Maximum="240" Value="{Binding W}" Width="150" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="width, 8-px steps (240 = 1920 px)" />
+                        <TextBlock Text="{Binding W}" Width="34" Margin="4,0,10,0" VerticalAlignment="Center" />
+                        <TextBlock Text="H" Style="{StaticResource Dim}" VerticalAlignment="Center" Width="14" />
+                        <Slider Minimum="1" Maximum="270" Value="{Binding H}" Width="120" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="height, 4-px steps" />
+                        <TextBlock Text="{Binding H}" Width="30" Margin="4,0,10,0" VerticalAlignment="Center" />
+                        <TextBlock Text="Opacity" Style="{StaticResource Dim}" VerticalAlignment="Center" Margin="0,0,4,0" />
+                        <Slider Minimum="0" Maximum="15" Value="{Binding A}" Width="100" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="0 = off, 15 = solid. If the box covers the menu text, lower it." />
+                        <TextBlock Text="{Binding A}" Width="24" Margin="4,0,10,0" VerticalAlignment="Center" />
+                      </WrapPanel>
+                      <WrapPanel Margin="0,4,0,0">
+                        <Button Content="Black" Style="{StaticResource Chip}" Command="{Binding Black}" Margin="0,2,4,2" />
+                        <Button Content="Navy" Style="{StaticResource Chip}" Command="{Binding Navy}" Margin="0,2,4,2" />
+                        <Button Content="Grey" Style="{StaticResource Chip}" Command="{Binding Grey}" Margin="0,2,4,2" />
+                        <Button Content="Purple" Style="{StaticResource Chip}" Command="{Binding Purple}" Margin="0,2,4,2" />
+                        <Button Content="Apply" Style="{StaticResource SmallAccent}" Command="{Binding Apply}" Margin="10,2,4,2" ToolTip="send this box now" />
+                        <Button Content="Off" Style="{StaticResource SmallBtn}" Command="{Binding Off}" Margin="0,2,4,2" ToolTip="opacity 0 = this box is not drawn" />
+                        <CheckBox Content="Live" IsChecked="{Binding Live}" VerticalAlignment="Center" Margin="10,0,0,0" ToolTip="send each change 0.35 s after you stop moving a slider" />
+                        <TextBlock Text="{Binding Line}" Style="{StaticResource Dim}" FontSize="10" VerticalAlignment="Center" Margin="12,0,0,0" />
+                      </WrapPanel>
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,2,0,6">The boxes are hud_probe stage 9's bars (drawn by the game, no text of ours inside them), opened for whoever has the menu open - the host and granted clients - and closed with the menu. The positions are guesses until you tune them; tell me the numbers that line up and they become the defaults. The colour chips tint the box's fill; its 1-px frame stays black. A box takes about a second to appear (the game sends one setting per frame).</TextBlock>
+            </StackPanel>
+          </Expander>
+
+          <!-- HINT BAR LINES: were FORGE & HINT BAR → HINT BAR — LINES -->
+          <Expander Style="{StaticResource Block}">
+            <Expander.Header>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="HINT BAR LINES" Style="{StaticResource BlockTitle}" />
+                <TextBlock Text="the text the in-game hint bar shows" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="480" />
+              </StackPanel>
+            </Expander.Header>
+            <StackPanel>
+              <Grid Margin="0,2">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <TextBlock Text="Others see" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" ToolTip="the one outward-facing line: what other players read when they approach you (per-player hint trigger, you excluded), always - no automatic build warning; ^colour codes work; up to 102 chars, sent as 3 chunks" />
+                <TextBox Grid.Column="1" Text="{Binding Forge.OthersText, UpdateSourceTrigger=PropertyChanged}" MaxLength="{Binding Forge.MaxHintChars}" />
+                <Button Grid.Column="2" Content="Set" Style="{StaticResource SmallAccent}" Command="{Binding Forge.SetOthers}" Margin="4,0,0,0" ToolTip="gf_ho0/1/2 + hintset others" />
+              </Grid>
+              <Grid Margin="0,2">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <TextBlock Text="Menu legend" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" ToolTip="the controls line the hint bar shows while the in-game menu is open (gf_hint_nav) - one 31-char line" />
+                <TextBox Grid.Column="1" Text="{Binding Forge.NavText, UpdateSourceTrigger=PropertyChanged}" MaxLength="{Binding Forge.MaxNavChars}" />
+                <Button Grid.Column="2" Content="Set" Style="{StaticResource SmallBtn}" Command="{Binding Forge.SetNav}" Margin="4,0,0,0" ToolTip="set gf_hint_nav (fits the 47-byte slot: 31 chars)" />
+              </Grid>
+              <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,4,0,0">The on / off switches for the others line and the bind glyphs: IN-GAME MENU DISPLAY (this page).</TextBlock>
+            </StackPanel>
+          </Expander>
+
+              <CollectionContainer Collection="{Binding Data.DiagnosticsSections, Source={StaticResource Proxy}}" />
+            </CompositeCollection>
+          </v:ColumnsPanel.ItemsSource>
+        </v:ColumnsPanel>
+      </ScrollViewer>
+      </Grid>
+    </TabItem>
+    <TabItem Header="CONSOLE" Tag="console">
+      <v:ConsoleView />
+    </TabItem>
+  </TabControl>
+</UserControl>

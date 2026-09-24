@@ -59,43 +59,38 @@
       <v:SidebarView Grid.Column="0" />
       <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ShowsPreview="False" DragCompleted="Splitter_DragCompleted" />
 
+      <!-- the pages (2026-09-24 redesign, tools/gf-panel/README.md → Pages): MATCH is what a host does every match (map,
+           restart, bots, spawn layout, menus, messages) plus every ☆-pinned setting (the FAVORITES tab until then); the
+           rest go from "set up" to "look under the hood". A Tag names the page; MainWindow.SelectTab also finds a
+           sub-tab's Tag (spawns, entities, console) and maps the pre-redesign tags (favorites, dashboard, advanced, tools). -->
       <TabControl x:Name="Tabs" Grid.Column="2" SelectionChanged="Tabs_SelectionChanged">
-        <TabItem Header="★ FAVORITES" Tag="favorites">
-          <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,12">
-            <StackPanel>
-              <Border Background="{StaticResource Sf}" BorderBrush="{StaticResource Bd}" BorderThickness="1" CornerRadius="7" Padding="12,9" Margin="0,0,0,10">
-                <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="11.5">Pinned settings - the same live controls, on loan from DASHBOARD / ADVANCED. Click ☆ on a row to pin one setting, or ☆ on a section title to pin the whole panel. Right-click any row: copy dvar · pin · reset.</TextBlock>
-              </Border>
-              <ItemsControl ItemsSource="{Binding Favorites}" />
-              <TextBlock Text="Nothing pinned yet." Style="{StaticResource Dim}" Visibility="{Binding HasFavorites, Converter={StaticResource VisInv}}" />
-            </StackPanel>
-          </ScrollViewer>
-        </TabItem>
-        <TabItem Header="DASHBOARD" Tag="dashboard">
-          <v:DashboardView />
-        </TabItem>
         <TabItem Header="MATCH" Tag="match">
           <v:MatchView />
         </TabItem>
-        <TabItem Header="MAPS" Tag="maps">
-          <v:MapsView />
+        <TabItem Header="PLAYERS" Tag="players">
+          <v:PlayersView />
         </TabItem>
-        <TabItem Header="SPAWNS" Tag="spawns">
-          <v:SpawnsView DataContext="{Binding Spawns}" />
+        <TabItem Header="RULES" Tag="rules">
+          <v:RulesView />
         </TabItem>
-        <TabItem Header="ADVANCED" Tag="advanced">
-          <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,12">
-            <v:ColumnsPanel ItemsSource="{Binding AdvancedSections}" />
-          </ScrollViewer>
+        <TabItem Header="MAPS &amp; SPAWNS" Tag="maps">
+          <TabControl Style="{StaticResource SubTabs}">
+            <TabItem Header="MAPS" Tag="maps">
+              <v:MapsView />
+            </TabItem>
+            <TabItem Header="SPAWN ATLAS" Tag="spawns">
+              <v:SpawnsView DataContext="{Binding Spawns}" />
+            </TabItem>
+          </TabControl>
         </TabItem>
-        <TabItem Header="TOOLS" Tag="tools">
-          <v:ToolsView />
+        <TabItem Header="SANDBOX" Tag="sandbox">
+          <v:SandboxView />
         </TabItem>
-        <TabItem Header="ENTITIES" Tag="entities">
-          <v:EntitiesView />
+        <TabItem Header="FORGE" Tag="forge">
+          <v:ForgeView />
         </TabItem>
-        <TabItem Header="CONSOLE" Tag="console">
-          <v:ConsoleView />
+        <TabItem Header="DIAGNOSTICS" Tag="diagnostics">
+          <v:DiagnosticsView />
         </TabItem>
         <TabItem Header="SETUP" Tag="setup">
           <v:SetupView />

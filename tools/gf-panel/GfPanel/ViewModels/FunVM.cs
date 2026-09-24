@@ -4,10 +4,10 @@ using GfPanel.Services;
 namespace GfPanel.ViewModels;
 
 /// <summary>The cloud branch's FUN PACK (claude/dazzling-wright-2xq7z3: fun pack 1 e1a3a2b + fun pack 2 afb5ac9),
-/// ported by hand 2026-09-24 (bocw-84; ESP left out - TOOLS → RADAR &amp; MARKERS already owns those layers).
+/// ported by hand 2026-09-24 (bocw-84; ESP left out - SANDBOX → RADAR &amp; MARKERS already owns those layers).
 /// Every switch goes through ONE GSC verb, `fun &lt;what&gt; [args]` (gunfight_menu.gsc fun_verb): on / off are
 /// explicit, so a retried command never flips a switch back. This block is host-scope; the per-player switches
-/// are on a player's right-click menu (the same verb + gf_cmd_target). Picks travel as INDICES - a model or
+/// are on a player's right-click menu and the PLAYERS page (the same verb + gf_cmd_target). Picks travel as INDICES - a model or
 /// weapon name would overflow the 47-byte bridge slot - and mirror the GSC fun_*_pick order.
 /// NOTHING of it has run in game.</summary>
 public sealed class FunVM : ObservableObject
@@ -22,12 +22,7 @@ public sealed class FunVM : ObservableObject
         _m.Link.Send("Fun: " + arg, Commands.Action("fun", arg));
     });
 
-    /// <summary>Fast restart = the existing restartround verb (round_restart: replay this round, score kept).</summary>
-    public RelayCommand FastRestart => new(() =>
-    {
-        if (_m.Confirm("Fast restart: replay THIS round (map_restart, score kept)?"))
-            _m.Link.Send("Fast restart (replay the round)", Commands.Action("restartround"));
-    });
+    // (Fast restart went in the 2026-09-24 redesign: MATCH → RESTART ROUND is the same restartround verb)
 
     // fun_nade_pick order (the list lives in Catalog, checked against the GSC by GfPanel.Tests)
     public static readonly Named[] NadeTypes = Catalog.FunNades;

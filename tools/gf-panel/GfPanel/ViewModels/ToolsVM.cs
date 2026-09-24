@@ -34,12 +34,10 @@ public sealed class ToolsVM : ObservableObject
     public RelayCommand MaxAmmo => new(() => Do("Max ammo (host)", "maxammo"));
     public RelayCommand DropWeapon => new(() => Do("Drop weapon", "dropweapon"));
     public RelayCommand UnlockAll => new(() => Do("Unlock all", "unlockall"));
-    public RelayCommand FreezeToggle => new(() => Do("Freeze everyone (toggle)", "freeze"));
     // the in-game rows these replace are app-only since the 2026-09-23 menu trim (bocw-84)
     public RelayCommand MatchInfo => new(() => Do("Match info to the feed", "matchinfo"));
     public RelayCommand SpawnReport => new(() => Do("Spawn report to the feed", "spawnreport"));
     public RelayCommand ZoneCensus => new(() => Do("Overtime-zone census to the feed", "zonecensus"));
-    public RelayCommand Announce => new(() => Do("Announce the settings to everyone", "announce"));
     // klaze 2026-09-24 "lets try \n line breaks" - MEASURED that night: EVERY newline byte closed the match
     // ("Kilo 946 Sick Crocodile": hint bar, centre mid-text x2, centre trailing x3, feed x1) - the text transport,
     // not a widget. These probes send NO newline byte (GSC nltest_run): wrap / wrapfeed = one long line, does the
@@ -55,8 +53,7 @@ public sealed class ToolsVM : ObservableObject
     public RelayCommand AmmoAll => new(() => Do("Max ammo ALL", "ammoall"));
     public RelayCommand ThirdAllOn => new(() => Do("Third person ALL on", "thirdall", "on"));
     public RelayCommand ThirdAllOff => new(() => Do("Third person ALL off", "thirdall", "off"));
-    public RelayCommand FreezeAllOn => new(() => Do("Freeze ALL", "freezeall", "on"));
-    public RelayCommand FreezeAllOff => new(() => Do("Unfreeze ALL", "freezeall", "off"));
+    // freeze everyone: MATCH → EVERYONE → FREEZE ALL (MainViewModel.FreezeAll - one state-aware toggle read from GFSTATE frz)
     public RelayCommand InvisOn => new(() => Do("Invisible players on", "invisall", "on"));
     public RelayCommand InvisOff => new(() => Do("Invisible players off", "invisall", "off"));
     public RelayCommand DrunkOn => new(() => Do("Drunk mode on", "drunk", "on"));

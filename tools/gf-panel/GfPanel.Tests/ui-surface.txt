@@ -1,7 +1,7 @@
 # Everything a user can do from the panel's views - kept reachable through the redesign (UiSurfaceTests).
 # cmd:<Command> [<literal parameter>|{<bound parameter>}]  ·  set:<two-way input property>  ·  click:<handler>
 # Regenerate after an INTENDED change:  dotnet run --project tools/gf-panel/GfPanel.Tests -- --write-ui-surface
-# 462 keys.
+# 455 keys.
 click:Cancel_Click
 click:Fit_Click
 click:Ok_Click
@@ -68,19 +68,14 @@ cmd:ExpPrev
 cmd:ExpStop
 cmd:ExpStopAll
 cmd:FadeProbe
-cmd:FastRestart
 cmd:Fill
 cmd:Fill {Binding}
-cmd:FillBots
 cmd:Fly
 cmd:FlyCmd
 cmd:ForgeModeOff
 cmd:ForgeModeOn
 cmd:Freeze
 cmd:FreezeAll
-cmd:FreezeAllOff
-cmd:FreezeAllOn
-cmd:FreezeToggle
 cmd:Fun camorandom
 cmd:Fun cannon off
 cmd:Fun cannon on
@@ -115,6 +110,7 @@ cmd:InjectBridge
 cmd:InjectLobbyCmd
 cmd:InjectMenuCmd
 cmd:InsertColor {Code}
+cmd:Inspect
 cmd:InstallCwpatch
 cmd:InvisOff
 cmd:InvisOn
@@ -147,9 +143,6 @@ cmd:Operator
 cmd:OperatorHost
 cmd:Outfit
 cmd:OutfitHost
-cmd:ParaAll
-cmd:ParaHost
-cmd:ParaOff
 cmd:PauseCmd
 cmd:PerksAll
 cmd:PerksClear
@@ -184,7 +177,6 @@ cmd:RefreshPlayers
 cmd:RelaunchMatch
 cmd:Remove {Binding}
 cmd:RemoveAll
-cmd:RemoveBots
 cmd:RemoveFav {Binding}
 cmd:RemoveOne
 cmd:ResetAlign
@@ -295,6 +287,7 @@ cmd:SetNext {Binding}
 cmd:SetOthers
 cmd:SetupAll
 cmd:ShowMenuLog
+cmd:ShowRunningMap
 cmd:SlowmoApply
 cmd:SlowmoReset
 cmd:SpawnBarrel

@@ -44,21 +44,28 @@ public sealed class MainViewModel : ObservableObject
     public BotsVM Bots { get; }
     public PropsVM Props { get; }
     public ForgeVM Forge { get; }
-    /// <summary>The ENTITIES tab: every prop / barrel / vehicle the mod spawned (GFENTS) - bocw-84 2026-09-23.</summary>
+    /// <summary>FORGE → SPAWNED ENTITIES (was the ENTITIES tab): every prop / barrel / vehicle the mod spawned (GFENTS) -
+    /// bocw-84 2026-09-23.</summary>
     public EntitiesVM Entities { get; }
-    /// <summary>TOOLS → RADAR &amp; MARKERS (gf_radar) + the parachute quick-set.</summary>
+    /// <summary>SANDBOX → RADAR &amp; MARKERS (gf_radar). The parachute quick-set it carried is the RULES → MOVEMENT
+    /// Parachutes row since the 2026-09-24 redesign (same dvar, applied by the GSC within a second).</summary>
     public RadarVM Radar { get; }
-    /// <summary>TOOLS → FUN PACK (the cloud branch's fun pack, ported 2026-09-24): the GSC `fun` verb.</summary>
+    /// <summary>The fun pack (the cloud branch's, ported 2026-09-24): the GSC `fun` verb - spread over SANDBOX's blocks
+    /// by what each switch does since the redesign.</summary>
     public FunVM Fun { get; }
-    /// <summary>TOOLS → MENU BACKDROP: the two LUIelemBar boxes behind the centre line (gf_hb0) and the hint row (gf_hb1).</summary>
+    /// <summary>DIAGNOSTICS → MENU BACKDROP: the two LUIelemBar boxes behind the centre line (gf_hb0) and the hint row (gf_hb1).</summary>
     public HudBoxVM[] HudBoxes { get; }
     /// <summary>The ACTIVITY list through the filter chips (all / menu log / no sent lines / one player's menu log).</summary>
     public ICollectionView ActivityView { get; }
     public ToastsVM Toasts { get; } = new();
     public List<SectionVM> Sections { get; } = new();
-    public IEnumerable<SectionVM> DashboardSections => Sections.Where(s => s.Tab == "dashboard");
-    public IEnumerable<SectionVM> AdvancedSections => Sections.Where(s => s.Tab == "advanced");
-    public IEnumerable<SectionVM> ToolsSections => Sections.Where(s => s.Tab == "tools");
+    // the settings sections by the page that shows them (Schema.cs Tab; SPAWNS' are SpawnsVM.SettingsSections)
+    public IEnumerable<SectionVM> RulesSections => Sections.Where(s => s.Tab == "rules");
+    public IEnumerable<SectionVM> MapsSections => Sections.Where(s => s.Tab == "maps");
+    public IEnumerable<SectionVM> SandboxSections => Sections.Where(s => s.Tab == "sandbox");
+    public IEnumerable<SectionVM> ForgeSections => Sections.Where(s => s.Tab == "forge");
+    public IEnumerable<SectionVM> DiagnosticsSections => Sections.Where(s => s.Tab == "diagnostics");
+    /// <summary>The ☆-pinned settings by section - MATCH → ★ PINNED SETTINGS (the FAVORITES tab until 2026-09-24).</summary>
     public ObservableCollection<FavGroupVM> Favorites { get; } = new();
     public ObservableCollection<SearchHit> SearchHits { get; } = new();
     private readonly Dictionary<string, SettingRowVM> _rows = new();
@@ -175,8 +182,7 @@ public sealed class MainViewModel : ObservableObject
     public string HostText { get => _hostText; set => Set(ref _hostText, value); }
     public string SpawnText { get => _spawnText; set => Set(ref _spawnText, value); }
     private bool _paused;
-    public bool Paused { get => _paused; set { if (Set(ref _paused, value)) OnPropertyChanged(nameof(PauseLabel)); } }
-    public string PauseLabel => Paused ? "▶  RESUME MATCH" : "⏸  PAUSE MATCH";
+    public bool Paused { get => _paused; set => Set(ref _paused, value); }
     private bool _frozen;
     public bool Frozen { get => _frozen; set { if (Set(ref _frozen, value)) OnPropertyChanged(nameof(FreezeLabel)); } }
     public string FreezeLabel => Frozen ? "UNFREEZE ALL" : "FREEZE ALL";
@@ -254,7 +260,6 @@ public sealed class MainViewModel : ObservableObject
         try { ActivityFile.OpenFolder(); }
         catch (Exception e) { Toasts.Show("Could not open the log folder: " + e.Message, LogLevel.Err); }
     });
-    public RelayCommand PauseResume => new(() => Link.Send(Paused ? "Resume match" : "Pause match", Commands.Action(Paused ? "resume" : "pause")));
     // explicit pair (the toggle label only flips on a GFSTATE readback, which an older payload never sends);
     // the flag flips optimistically on the click and the next state line corrects it
     public RelayCommand PauseCmd => new(() => { Link.Send("Pause match", Commands.Action("pause")); Paused = true; });
@@ -269,9 +274,6 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand EndMatch => new(() => { if (Confirm("END the match now?\n\nThe host end (globallogic::forceend): the match ends immediately with the host-ended reason, the scoreboard shows, everyone returns to the lobby.")) Link.Send("End match", Commands.Action("endmatch")); });
     public void RestartMatch() { if (Confirm("Restart the MATCH?\n\nScores go back to 0-0 and the match starts again at round 1 on the same map.")) Link.Send("Restart match", Commands.Action("restart")); }
     public RelayCommand BalanceHumans => new(() => Link.Send("Balance humans", Commands.Action("balance")));
-    public RelayCommand FillBots => new(() => Link.Send("Fill with bots", Commands.Action("fillbots")));
-    public RelayCommand RemoveBots => new(() => Link.Send("Remove all bots", Commands.Action("removebots")));
-    public RelayCommand Countdown => new(() => Link.Send("Countdown 5..1 GO", Commands.Action("countdown")));
     public RelayCommand ApplyAllLive => new(() => Link.Send("apply all", Commands.Action("apply", "all")));
     // klaze 2026-09-23: a give-all / take-all pair for the client menus (menuall on|off; host + bots skipped)
     public RelayCommand MenuAllOn => new(() => Link.Send("Give EVERYONE a client menu", Commands.Action("menuall", "on")));
@@ -457,14 +459,14 @@ public sealed class MainViewModel : ObservableObject
         row.IsFavorite = !row.IsFavorite;
         if (row.IsFavorite) Prefs.Favorites.Add(row.Dvar); else Prefs.Favorites.Remove(row.Dvar);
         Prefs.Save(); RebuildFavorites();
-        Toasts.Show(row.IsFavorite ? "Pinned to FAVORITES" : "Unpinned", LogLevel.Info);
+        Toasts.Show(row.IsFavorite ? "Pinned to MATCH" : "Unpinned", LogLevel.Info);
     }
     public void TogglePin(SectionVM sec)
     {
         sec.IsFavorite = !sec.IsFavorite;
         if (sec.IsFavorite) Prefs.Favorites.Add(sec.Key); else Prefs.Favorites.Remove(sec.Key);
         Prefs.Save(); RebuildFavorites();
-        Toasts.Show(sec.IsFavorite ? "Panel pinned to FAVORITES" : "Panel unpinned", LogLevel.Info);
+        Toasts.Show(sec.IsFavorite ? "Section pinned to MATCH" : "Section unpinned", LogLevel.Info);
     }
     private void RebuildFavorites()
     {
@@ -495,9 +497,14 @@ public sealed class MainViewModel : ObservableObject
             .OrderByDescending(x => x.r.Label.ToLowerInvariant().StartsWith(q) ? 3 : x.r.Dvar.Contains(q) ? 2 : x.r.Label.ToLowerInvariant().Contains(q) ? 1 : 0)
             .Take(12);
         foreach (var (s, r, _) in hits)
-            SearchHits.Add(new SearchHit { Label = r.Label, Sub = r.Dvar, Where = (s.Tab == "advanced" ? "ADVANCED › " : s.Tab == "tools" ? "TOOLS › " : s.Tab == "spawns" ? "SPAWNS › " : "DASHBOARD › ") + s.Title, Row = r, Tab = s.Tab });
+            SearchHits.Add(new SearchHit { Label = r.Label, Sub = r.Dvar, Where = PageName(s.Tab) + " › " + s.Title, Row = r, Tab = s.Tab });
         OnPropertyChanged(nameof(SearchOpen));
     }
+    public static string PageName(string tab) => tab switch
+    {
+        "rules" => "RULES", "maps" => "MAPS & SPAWNS", "spawns" => "MAPS & SPAWNS › SPAWN ATLAS", "sandbox" => "SANDBOX",
+        "forge" => "FORGE", "diagnostics" => "DIAGNOSTICS", _ => tab.ToUpperInvariant(),
+    };
     public event Action<SettingRowVM>? RevealRow;
     public RelayCommand GoToHit => new(p => { if (p is SearchHit h && h.Row != null) { Search = ""; SelectTab(h.Tab!); RevealRow?.Invoke(h.Row); } });
 

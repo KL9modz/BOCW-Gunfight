@@ -92,7 +92,6 @@ public sealed class RadarVM : ObservableObject
     });
 
     // parachutes (gf_parachute 0 off / 1 everyone / 2 host) - also a MOVEMENT setting row on the DASHBOARD
-    public RelayCommand ParaAll => new(() => _m.Link.Send("Parachutes: everyone", Commands.Action("parachute", "1")));
-    public RelayCommand ParaHost => new(() => _m.Link.Send("Parachutes: host only", Commands.Action("parachute", "2")));
-    public RelayCommand ParaOff => new(() => _m.Link.Send("Parachutes: off", Commands.Action("parachute", "0")));
+    // the parachute quick-set buttons went in the 2026-09-24 redesign: RULES → MOVEMENT → Parachutes (gf_parachute) sets
+    // the same 0 / 1 / 2 with the game's readback
 }
