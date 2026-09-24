@@ -160,21 +160,26 @@ public sealed class SpawnPlot : FrameworkElement
     // ── the picture ──
     /// <summary>The picture's north-west, north-east and south-west corners in the world: the game's minimap
     /// frame (else a box around the points at the picture's aspect), moved / scaled / turned by ArtAlign.</summary>
-    private (Point NW, Point NE, Point SW)? ArtCorners(SpawnAtlas a, double imgW, double imgH)
+    private (Point NW, Point NE, Point SW)? ArtCorners(SpawnAtlas a, double imgW, double imgH) =>
+        ArtCornersFor(a.Frame(), a.AllPoints.Select(p => (p.X, p.Y)), ArtAlign, imgW, imgH);
+
+    /// <summary>The picture's corners for any plot (the RACING page's TrackPlot too): the minimap frame when known,
+    /// else a box around <paramref name="pts"/> at the picture's aspect; then the saved alignment.</summary>
+    internal static (Point NW, Point NE, Point SW)? ArtCornersFor(MinimapFrame? frame, IEnumerable<(double X, double Y)> pts, ArtAlign? align, double imgW, double imgH)
     {
         MinimapFrame f;
-        if (a.Frame() is { } fr) f = fr;
+        if (frame is { } fr) f = fr;
         else
         {
-            var pts = a.AllPoints.ToList();
-            if (pts.Count == 0) return null;
-            double x0 = pts.Min(p => p.X), x1 = pts.Max(p => p.X), y0 = pts.Min(p => p.Y), y1 = pts.Max(p => p.Y);
+            var list = pts.ToList();
+            if (list.Count == 0) return null;
+            double x0 = list.Min(p => p.X), x1 = list.Max(p => p.X), y0 = list.Min(p => p.Y), y1 = list.Max(p => p.Y);
             double cx0 = (x0 + x1) / 2, cy0 = (y0 + y1) / 2, w = Math.Max(500, (x1 - x0) * 1.7), h = Math.Max(500, (y1 - y0) * 1.7);
             var aspect = imgW / Math.Max(1, imgH);
             if (w / h < aspect) w = h * aspect; else h = w / aspect;
             f = new MinimapFrame(cx0 - w / 2, cy0 + h / 2, cx0 + w / 2, cy0 + h / 2, cx0 - w / 2, cy0 - h / 2, cx0 + w / 2, cy0 - h / 2, 90);
         }
-        var al = ArtAlign ?? new ArtAlign();
+        var al = align ?? new ArtAlign();
         var ny = f.NorthYaw * Math.PI / 180;
         double nx = Math.Cos(ny), nyv = Math.Sin(ny);      // north
         double ex = nyv, ey = -nx;                          // east = -west

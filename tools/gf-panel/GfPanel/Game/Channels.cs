@@ -53,6 +53,8 @@ public sealed record GfState
     public long LogSeq { get; init; }
     /// <summary>ev=: the stamp of the spawned-entity list (GFENTS) - changes when a prop / vehicle is added, removed or moves. 0 = none / older payload.</summary>
     public long EntVersion { get; init; }
+    /// <summary>rtv= the race track's version (GSC race_ver): the RACING page collects GFTRACK when it moves.</summary>
+    public long RaceTrackVer { get; init; }
     public string Say { get; init; } = "";
     /// <summary>The GSC's state_build() died this many times (a fallback line carries err= / st=);
     /// Stage = the numbered step it died in. 0 = healthy.</summary>
@@ -91,7 +93,7 @@ public sealed record GfState
             AckSeq = I("ack"), Drunk = B("drk"), InvisibleAll = B("inv"), GodAll = B("god"), ThirdPersonAll = B("tp3"),
             PerksAll = I("prk"), Bans = I("ban"), Staged = I("stgd"), Host = S("host"), SpawnNote = S("spn"), SpawnEvVersion = S("spv"), Say = StripColors(S("say")),
             Err = I("err"), Stage = I("st"),
-            MatchId = L("mid"), MatchOver = B("mo"), Entities = I("ents", -1), LogSeq = L("lg"), EntVersion = L("ev"),
+            MatchId = L("mid"), MatchOver = B("mo"), Entities = I("ents", -1), LogSeq = L("lg"), EntVersion = L("ev"), RaceTrackVer = L("rtv"),
         };
     }
 

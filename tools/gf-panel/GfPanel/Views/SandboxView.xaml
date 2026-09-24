@@ -2,7 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:v="clr-namespace:GfPanel.Views">
-  <!-- SANDBOX (the 2026-09-24 redesign; most of the old TOOLS): the fun and chaos, grouped by what it does - radar, the world, movement fun, weapons, disguises, projectiles + map toys, teleport, streaks, vehicles (+ VEHICLE MODE), race (+ RACE SETTINGS). Players, forge and diagnostics have their own pages. -->
+  <!-- SANDBOX (the 2026-09-24 redesign; most of the old TOOLS): the fun and chaos, grouped by what it does - radar, the world, movement fun, weapons, disguises, projectiles + map toys, teleport, streaks, vehicles (+ VEHICLE MODE). Players, racing, forge and diagnostics have their own pages. -->
   <UserControl.Resources>
     <v:BindingProxy x:Key="Proxy" Data="{Binding}" />
   </UserControl.Resources>
@@ -371,40 +371,7 @@
         </StackPanel>
       </Expander>
 
-      <!-- RACE -->
-      <Expander Style="{StaticResource Block}">
-        <Expander.Header>
-          <StackPanel Orientation="Horizontal">
-            <TextBlock Text="RACE" Style="{StaticResource BlockTitle}" />
-            <TextBlock Text="a Free-for-all match; gates go where the host stands, across his travel; settings: RACE SETTINGS on this page" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="480" />
-          </StackPanel>
-        </Expander.Header>
-        <StackPanel>
-          <WrapPanel Style="{StaticResource Row}">
-            <TextBlock Text="Track" Style="{StaticResource RowLabel}" />
-            <Button Content="gate here" Style="{StaticResource Chip}" Command="{Binding Tools.RaceGate}" Margin="0,2,4,2" ToolTip="the first gate is start/finish" />
-            <Button Content="undo last gate" Style="{StaticResource Chip}" Command="{Binding Tools.RaceUndo}" Margin="0,2,4,2" />
-            <Button Content="clear track" Style="{StaticResource Chip}" Command="{Binding Tools.RaceClear}" Margin="0,2,4,2" />
-            <Button Content="load the game's saved track" Style="{StaticResource Chip}" Command="{Binding Tools.RaceLoad}" Margin="0,2,4,2" />
-            <Button Content="markers show/hide" Style="{StaticResource Chip}" Command="{Binding Tools.RaceMarkers}" Margin="0,2,4,2" />
-            <Button Content="reset me" Style="{StaticResource Chip}" Command="{Binding Tools.RaceResetMe}" Margin="0,2,4,2" />
-          </WrapPanel>
-          <WrapPanel Style="{StaticResource Row}">
-            <TextBlock Text="Race" Style="{StaticResource RowLabel}" />
-            <Button Content="START RACE (3-2-1-GO)" Style="{StaticResource OkBtn}" Command="{Binding Tools.RaceStart}" Margin="0,2,4,2" />
-            <Button Content="Stop / cancel" Style="{StaticResource WnBtn}" Command="{Binding Tools.RaceStop}" Margin="0,2,4,2" />
-            <Button Content="END MATCH (podium)" Style="{StaticResource NgBtn}" Command="{Binding Tools.RaceEndMatch}" Margin="0,2,4,2" />
-          </WrapPanel>
-          <WrapPanel Style="{StaticResource Row}">
-            <TextBlock Text="Saved tracks" Style="{StaticResource RowLabel}" />
-            <TextBox Text="{Binding Tools.TrackName, UpdateSourceTrigger=PropertyChanged}" Width="120" Margin="0,0,4,0" />
-            <Button Content="Save track from game" Style="{StaticResource SmallAccent}" Command="{Binding Tools.TrackSave}" Margin="0,0,12,0" ToolTip="reads the gates the game publishes (GFCFG trk=) into tracks.json" />
-            <ComboBox ItemsSource="{Binding Tools.SavedTracks}" SelectedItem="{Binding Tools.SelectedTrack}" Width="230" />
-            <Button Content="Load into game" Style="{StaticResource SmallBtn}" Command="{Binding Tools.TrackLoad}" Margin="4,0,4,0" ToolTip="racetrack &lt;map&gt; then one racegate per gate, 0.5 s apart" />
-            <Button Content="Delete" Style="{StaticResource SmallBtn}" Command="{Binding Tools.TrackDelete}" />
-          </WrapPanel>
-        </StackPanel>
-      </Expander>
+      <!-- RACE: its own page since 2026-09-24 (RACING - the live track map, the editor, the saved tracks) -->
 
           <CollectionContainer Collection="{Binding Data.SandboxSections, Source={StaticResource Proxy}}" />
         </CompositeCollection>

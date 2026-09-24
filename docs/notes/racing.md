@@ -1,6 +1,8 @@
 # Vehicle racing modes — scope of the tools (2026-09-19)
 
-> **Status: prototype 1 BUILT (2026-09-19), NOT run in-game.** Side payload
+> **Status (2026-09-24): runs 1-2 measured the finish line + podium (§8); §9-§11 built, NOT run - §11 is the
+> 64-gate store, the app's live track editor (the RACING page) and the GFTRACK / GFRACE channels.**
+> **Prototype 1 BUILT (2026-09-19).** Side payload
 > `C:\bocw\payloads\gunfight_menu.race.gscc` (421,687 B / 2,383 strings after run 1 fix, check-gsc PASS zero notes,
 > check-args 0 mismatches; it also carries the death-barrier switch). The live slot is untouched.
 > §7 says what is in it and how to test; every mechanism below is a stock shape found in the dump
@@ -241,11 +243,59 @@ finish → podium + STANDINGS, match continues, START again, End match now → p
 
 Payload `gunfight_menu.race.gscc` 439,585 B / 2,460 strings, check-gsc PASS zero notes, check-args 0.
 
+## 11. The RACING page + the 64-gate store (2026-09-24, NOT run)
+
+klaze: *"I might need a tab for 'Racing' with a race track editor and viewer so I can create, save, and load race
+tracks"*, then *"Probably mostly from driving them in game while referencing the live viewer/editor. 16 is a serious
+limitation for building so elaborate - 'packing several gates into one setting'. build this now"*.
+
+**The game side (`gunfight_menu.gsc` RACE block):**
+
+| Piece | Built as |
+|---|---|
+| **64 gates, packed** | `race_max_gates()` 64, `race_pack()` 4: `gf_gp<k>` = `"x,y,z,yaw,w;x,y,z,yaw,w;..."` (≤ 4 × 29 + 3 = 119 chars), so 64 gates cost the same 16 dvars the one-per-gate store (`gf_gate0..15`) did — the crash rules forbid setting dvars in bulk. `race_gates_save( from )` rewrites only the chunks from the first changed gate on: an append (Gate here, `racegate`) writes one chunk + the count. `gf_gate_map` / `gf_gate_n` are unchanged. ⚠ **A dvar string that long is unmeasured on this build** (T8 kept each ≤ 40 chars): every write is read back and a short read lands in `level.gf_race_store_err` — the RACE debug line `store:`, GFRACE's `se` field, and the panel's ACTIVITY (an error line). If it ever fires, `race_pack()` → 2 (32 dvars). |
+| **Editing from the app** | `racegset i,x,y,yaw,w` (gate i := that; i = count appends) · `racegins i,x,y,yaw,w` (insert before i) · `racegdel i` · `racegmov i,j` · `racegrot i` (gate i becomes the start: the circuit rotates) · `racegrev` (the course backwards: gate 0 stays, the rest reversed and turned). The app never knows ground height: an edited gate is floored (`tp_floor`) from 150 u above its old height, a new one from its neighbours' average. Widths clamp to 64..4000. Args ≤ 26 chars (the 32-char `gf_cmd_arg` slot). |
+| **No track change under a race** | `race_editable()`: Gate here / undo / clear / load / `racetrack` / every edit verb is refused while a race is counting down or running (`race_think` indexes `gates[ st.next ]` every frame — a clear mid-race would have thrown). |
+| **GFTRACK** | `race_track_build()`: the whole track, never cut, `GFTRACK\|<ver>\|<i>\|<n>\|<map>\|<count>\|<gate>;...\|END` in ≤ 800-char chunks, rebuilt when `race_ver()` moves (`getrealtime()` at every save), kept alive in `level.gf_race_track_pub`. GFSTATE carries `rtv=` (the version). GFCFG's `trk=` stays for older panels (it is CUT at 440 chars — a long track loses gates there; the old panel's Save track had that bug silently). |
+| **GFRACE** | `race_live_line()` every 0.5 s while `gf_race_live` is 1: `<tick>\|st\|laps\|sprint\|n\|ver\|el\|ff\|se\|` then per player `entnum,x,y,yaw,flags,lap,next,place,tenths` (flags h host · v riding · d dead · s spectator · r in this race · f finished · o off track). A race id (`r.rid`, `st.rid`) keeps a previous race's numbers off the line. Capped by length at 1000. |
+| **Markers on a long track** | objective ids are a shared pool of 64 and every post is an entity, so at most `race_mark_cap()` 16 gates show at once: gate 0 + a window around `r.focus` (the gate last placed / edited; during a race the leader's next gate, `race_is_leader`). The window moves in jumps (when the focus nears its edge), not per gate. A track of ≤ 16 gates shows every gate, as before. |
+| **Marker churn** | a load sends a gate every 0.5 s: one refresh 1.5 s after the last change (`race_markers_later`), not one per gate. An app edit refreshes only markers the host has showing; a load puts them up (as the old per-gate load did). |
+
+Offline checks: `tools/check-dump.py` and `tools/check-args.py` — no new findings against the saved baselines (41
+fatal false positives from string text, 0 arity mismatches); braces / parens balanced; GfPanel.Tests' RaceTests pin
+the line formats, the gate order, the limit and the packing to what the panel parses (each mutation-tested).
+⚠ Not compiled here — `acts gscc` is Windows-only.
+
+**The panel side:** the RACING page (`tools/gf-panel/README.md` → *Pages*): the track live on the map over the atlas's
+map picture, every player on it (Follow me keeps the host centred while you drive), the editor, the race, the saved
+tracks (`race-tracks.json`; the old `tracks.json` is read into it once and left alone), RACE SETTINGS.
+
+**Test sheet (one FFA match on a map with a spawn scan; the host + a bot or a joiner):**
+1. Build `gunfight_menu.gsc` as usual (`acts gscc` → `tools/strip-strhdr.ps1` → `check-gsc` PASS → 0x8B count 0)
+   into a side payload; keep the live slot until this is measured. Inject, restart the match, open **RACING**.
+2. The ACTIVITY shows `set gf_race_live 1` going out; within a second the host's arrow appears on the map (the live
+   line). None after 5 s → the panel re-asks every 10 s; still none → the payload is older than this section.
+3. Drive a loop pressing **Gate here** (the page's button or the in-game menu) at 20+ spots: each gate appears on the
+   map as placed, numbered, the boundary drawn around the line. Past 16 gates: in game the icons + palms show a
+   window around the newest gate — say whether that reads right.
+4. **The store check:** the RACE debug line (DIAGNOSTICS → DEBUG FEED → race) says `store:ok` after 20+ gates. Then
+   **Restart match** (MATCH): the track comes back from the dvars — same gate count on the page. `store:k:…` or fewer
+   gates after the restart = the packed dvar was cut: report it.
+5. Edit on the map on: drag a gate, turn one by its post, Ctrl+click to add one, Delete one. Each lands in game
+   within ~1 s (the icon moves); the page redraws from the game's copy.
+6. **Save the game's track**, **Clear track**, then **Load into the game**: every gate comes back (64 gates ≈ 32 s).
+   Export it, delete it, import the file: the same track.
+7. START with a second racer: the standings fill (place, lap, gate, time); an off-track racer's `o` flag shows.
+
 ## Untried — not ruled out
 - A rotated `trigger_box` (no caller rotates one; irrelevant while T2 is math).
 - The shadow-OOB trick: one `trigger_radius_out_of_bounds` per racer, parked away and moved under
   him while off track, to get the stock HUD/countdown/kill on the math boundary.
 - Which of the 44 resident collision models a Havok vehicle respects.
 - AI pace car via `drivepath` on a node path the track editor also writes (`getvehiclenode` family).
+- Per-racer markers (`objective_setvisibletoplayer`) instead of the shared 16-gate window, so everyone sees their own
+  next gates on a long track.
+- Packing more than 4 gates to a dvar (fewer dvars, more gates) once the read-back check has measured a long dvar string.
+- Batch loading (four staged gates + one verb) to cut a 64-gate load from ~32 s.
 - `luinotifyevent` for a stock countdown/timer element instead of prints ([[lui-source]] knows the
   pause-menu Lua; a match HUD element for laps would be the same route).

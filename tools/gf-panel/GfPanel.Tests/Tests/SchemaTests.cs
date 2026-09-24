@@ -48,8 +48,8 @@ public static class SchemaTests
     public static void Sections_sit_on_tabs_the_panel_renders()
     {
         // the pages that render schema sections (2026-09-24 redesign): RULES, MAPS & SPAWNS (MAPS + the SPAWN ATLAS side
-        // panel), SANDBOX, FORGE, DIAGNOSTICS
-        var known = new[] { "rules", "maps", "spawns", "sandbox", "forge", "diagnostics" };
+        // panel), SANDBOX, RACING, FORGE, DIAGNOSTICS
+        var known = new[] { "rules", "maps", "spawns", "sandbox", "racing", "forge", "diagnostics" };
         var p = new Problems();
         foreach (var s in Schema.Sections.Where(s => !known.Contains(s.Tab))) p.Add($"section \"{s.Title}\" is on tab \"{s.Tab}\"");
         // and each tab's sections are really shown: a property filters them (Tab == "x") and a view binds that property

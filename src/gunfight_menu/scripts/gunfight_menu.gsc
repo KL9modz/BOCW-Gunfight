@@ -274,9 +274,13 @@
 //     gf_race_vehicle   gf_race_grid_gap u, rows 300 u apart) and, for gf_race_vehicle (the
 //     gf_race_grid_gap  vehicle-mode class, 9 = AUTO), a ride is spawned at each slot and the racer
 //                       seated (veh_mode_ride's shape); a racer already riding brings his vehicle.
-//     gf_gate_map/_n/<i> the track mirror: map name, gate count, "x,y,z,yaw,w" per gate (16 max);
-//                       also published as trk= in the GFCFG marker (the app's Save track) and
-//                       loaded back over the bridge: racetrack <map>, then racegate x,y,z,yaw,w.
+//     gf_gate_map/_n    the track mirror: map name + gate count; the gates PACKED 4 to a dvar in
+//     gf_gp0..gf_gp15   gf_gp<k> = "x,y,z,yaw,w;..." (64 gates max, 2026-09-24 - was one dvar per
+//                       gate, 16 max). Published whole as GFTRACK (the app's RACING page; GFCFG trk=
+//                       keeps a cut copy for older panels) and loaded back over the bridge: racetrack
+//                       <map>, then racegate x,y,z,yaw,w; edited with racegset/gins/gdel/gmov/grot/grev.
+//     gf_race_live      1 = publish GFRACE (every player's position + race state) every 0.5 s - the
+//                       app sets it while its RACING page shows.
 //     gf_dbg_race       1 = the RACE debug feed line. Race page: start_menu -> Race.
 //     gf_vehmode        VEHICLE MODE, 0 (default) off: everyone spawns already riding this map's
 //                       ride of the class - 1 motorcycles / 2 attack helis (Hind) / 3 care-package
@@ -1100,6 +1104,7 @@ function private mod_apply()
     level thread radar_think();
     level thread sandbox_watch();
     level thread ents_publish();
+    level thread race_publish();       // GAME->APP race track (GFTRACK) + live positions (GFRACE) - the RACING page
 
     // Bots too: difficulty is a stock per-team gametype setting in every mode, and the
     // bots re-init at the round boundary (bot.gsc:239 on_player_connect -> assign), so
@@ -1604,7 +1609,7 @@ function private act_dbg_barrier( item ) { return self act_dbg( item, #"gf_dbg_b
 // end screen); it works in any gametype, a team match just hands the round to the winner's team.
 //
 // Track = ordered gates in game.gf_race_gates (survives rounds) mirrored to dvars gf_gate_n /
-// gf_gate0..15 / gf_gate_map (survive matches, one launch). A gate = centre c, travel direction
+// gf_gp0..15 (4 gates each) / gf_gate_map (survive matches, one launch). A gate = centre c, travel direction
 // fwd (the host's yaw when he pressed "gate here"), right, width w; posts a/b for the markers.
 // Gate 0 = start/finish. Crossing = pure math each server frame (racing.md T2): side =
 // dot( pos - c, fwd ) flips from < 0 to >= 0 while |dot( pos - c, right )| <= w/2 + slack.
@@ -1652,6 +1657,8 @@ function private race_state()
         r.marker_ids = [];
         r.post_ents = [];
         r.posts_text = "-";
+        r.focus = 0;            // the gate the marker window follows (race_mark_focus)
+        r.mark_from = 1;        // first gate of that window after gate 0
         level.gf_race = r;
     }
 
@@ -1703,18 +1710,65 @@ function private race_yaw( p )
     return ang[ 1 ];
 }
 
-// The dvar mirror: gf_gate_map / gf_gate_n / gf_gate<i> = "x,y,z,yaw,w" (ints, <= 40 chars).
-function private race_gates_save()
+// ── Track store (klaze 2026-09-24: "16 is a serious limitation for building elaborate" tracks) ──
+// Up to race_max_gates() gates, race_pack() to a dvar: gf_gp<k> = "x,y,z,yaw,w;x,y,z,yaw,w;..." (<= 4 x 29
+// + 3 = 119 chars), so 64 gates cost the same 16 dvars the one-gate-per-dvar store did (the crash rules:
+// never register or set dvars in bulk). A save rewrites only the chunks from the first changed gate on, so
+// an append (Gate here, racegate) writes one chunk + the count. ⚠ A dvar string that long is UNMEASURED on
+// this build: every write is read back and a short read lands in level.gf_race_store_err (the RACE line
+// store:, GFRACE's se field) - if it ever fires, race_pack() goes to 2 (32 dvars).
+function private race_max_gates() { return 64; }
+function private race_pack()      { return 4; }
+
+function private race_gate_text( g )
+{
+    return int( g.c[ 0 ] ) + "," + int( g.c[ 1 ] ) + "," + int( g.c[ 2 ] ) + "," + g.yaw + "," + g.w;
+}
+
+// "x,y,z,yaw,w" -> a gate, undefined when malformed.
+function private race_gate_parse( str )
+{
+    parts = strtok( str, "," );
+
+    if ( parts.size < 5 )
+        return undefined;
+
+    c = ( int( parts[ 0 ] ), int( parts[ 1 ] ), int( parts[ 2 ] ) );
+    return race_gate_make( c, int( parts[ 3 ] ), int( parts[ 4 ] ) );
+}
+
+function private race_gates_save( from )
 {
     gates = race_gates();
+    n = gates.size;
+    pack = race_pack();
     setdvar( #"gf_gate_map", getdvarstring( #"sv_mapname", "?" ) );
-    setdvar( #"gf_gate_n", gates.size );
+    setdvar( #"gf_gate_n", n );
 
-    for ( i = 0; i < gates.size && i < 16; i++ )
+    if ( !isdefined( from ) || from < 0 )
+        from = 0;
+
+    for ( k = int( from / pack ); k * pack < n; k++ )
     {
-        g = gates[ i ];
-        setdvar( "gf_gate" + i, int( g.c[ 0 ] ) + "," + int( g.c[ 1 ] ) + "," + int( g.c[ 2 ] ) + "," + g.yaw + "," + g.w );
+        s = "";
+
+        for ( i = k * pack; i < n && i < ( k + 1 ) * pack; i++ )
+        {
+            if ( s != "" )
+                s += ";";
+
+            s += race_gate_text( gates[ i ] );
+        }
+
+        name = "gf_gp" + k;
+        setdvar( name, s );
+        back = getdvarstring( name, "" );
+
+        if ( back.size != s.size )
+            level.gf_race_store_err = k + ":" + back.size + "/" + s.size;
     }
+
+    race_touch();
 }
 
 function private race_gates_load()
@@ -1726,34 +1780,83 @@ function private race_gates_load()
 
     n = getdvarint( #"gf_gate_n", 0 );
 
-    for ( i = 0; i < n && i < 16; i++ )
+    if ( n > race_max_gates() )
+        n = race_max_gates();
+
+    pack = race_pack();
+
+    for ( k = 0; k * pack < n; k++ )
     {
-        parts = strtok( getdvarstring( "gf_gate" + i, "" ), "," );
+        recs = strtok( getdvarstring( "gf_gp" + k, "" ), ";" );
 
-        if ( parts.size < 5 )
-            continue;
+        foreach ( rec in recs )
+        {
+            if ( game.gf_race_gates.size >= n )
+                break;
 
-        c = ( int( parts[ 0 ] ), int( parts[ 1 ] ), int( parts[ 2 ] ) );
-        game.gf_race_gates[ game.gf_race_gates.size ] = race_gate_make( c, int( parts[ 3 ] ), int( parts[ 4 ] ) );
+            g = race_gate_parse( rec );
+
+            if ( isdefined( g ) )
+                game.gf_race_gates[ game.gf_race_gates.size ] = g;
+        }
     }
 
     return game.gf_race_gates.size;
 }
 
+// The track's version: getrealtime() at its last change (monotonic for the game process, so a new match's
+// track - game. starts empty - still reads as newer). GFSTATE rtv= and GFRACE carry it; GFTRACK is rebuilt
+// when it moves.
+function private race_ver()
+{
+    if ( !isdefined( game.gf_race_ver ) )
+        game.gf_race_ver = getrealtime();
+
+    return game.gf_race_ver;
+}
+
+function private race_touch()
+{
+    v = getrealtime();
+
+    if ( isdefined( game.gf_race_ver ) && v <= game.gf_race_ver )
+        v = game.gf_race_ver + 1;
+
+    game.gf_race_ver = v;
+}
+
+// The track cannot change under a running race: race_think indexes gates[ st.next ] every frame.
+function private race_editable()
+{
+    r = race_state();
+
+    if ( r.state == 1 || r.state == 2 )
+    {
+        self menu_say( "^1race: stop the race to change the track" );
+        return 0;
+    }
+
+    return 1;
+}
+
 // "Gate here": at the host (his vehicle when riding), across his travel direction.
 function private act_race_gate( item )
 {
+    if ( !self race_editable() )
+        return true;
+
     gates = race_gates();
 
-    if ( gates.size >= 16 )
+    if ( gates.size >= race_max_gates() )
     {
-        self menu_say( "^1race: 16 gates is the limit" );
+        self menu_say( "^1race: " + race_max_gates() + " gates is the limit" );
         return true;
     }
 
     g = race_gate_make( race_pos( self ), race_yaw( self ), cfg_race_width() );
     game.gf_race_gates[ gates.size ] = g;
-    race_gates_save();
+    race_gates_save( gates.size );
+    race_mark_focus( gates.size );
     race_markers_show();   // the editor always shows what it just placed: icon + the two posts = the width
     self menu_say( "^2race: gate " + gates.size + ( gates.size == 0 ? " (start/finish)" : "" ) + " at " + int( g.c[ 0 ] ) + " " + int( g.c[ 1 ] ) + " " + int( g.c[ 2 ] ) + " yaw " + g.yaw + " w " + g.w );
     return true;
@@ -1761,6 +1864,9 @@ function private act_race_gate( item )
 
 function private act_race_undo( item )
 {
+    if ( !self race_editable() )
+        return true;
+
     gates = race_gates();
 
     if ( gates.size == 0 )
@@ -1770,7 +1876,8 @@ function private act_race_undo( item )
     }
 
     game.gf_race_gates[ gates.size - 1 ] = undefined;
-    race_gates_save();
+    race_gates_save( game.gf_race_gates.size );
+    race_mark_focus( game.gf_race_gates.size - 1 );
     race_markers_refresh();
     self menu_say( "^2race: last gate removed, " + game.gf_race_gates.size + " left" );
     return true;
@@ -1778,8 +1885,11 @@ function private act_race_undo( item )
 
 function private act_race_clear( item )
 {
+    if ( !self race_editable() )
+        return true;
+
     game.gf_race_gates = [];
-    race_gates_save();
+    race_gates_save( 0 );
     race_markers_hide();
     self menu_say( "^2race: track cleared" );
     return true;
@@ -1787,7 +1897,11 @@ function private act_race_clear( item )
 
 function private act_race_load( item )
 {
+    if ( !self race_editable() )
+        return true;
+
     n = race_gates_load();
+    race_touch();
     race_markers_refresh();
     self menu_say( n ? ( "^2race: " + n + " gates loaded for this map" ) : "^1race: no saved track for this map (gf_gate_map / gf_gate_n)" );
     return true;
@@ -1830,6 +1944,11 @@ function private race_track_cut( trk, cap )
 
 function private cmd_race_track( map )
 {
+    level.gf_race_accept = 0;
+
+    if ( !self race_editable() )
+        return;
+
     here = tolower( getdvarstring( #"sv_mapname", "?" ) );
     level.gf_race_accept = ( tolower( map ) == here );
 
@@ -1840,7 +1959,7 @@ function private cmd_race_track( map )
     }
 
     game.gf_race_gates = [];
-    race_gates_save();
+    race_gates_save( 0 );
     race_markers_hide();
     self menu_say( "^2race: loading a track for " + here + " from the app..." );
 }
@@ -1854,29 +1973,503 @@ function private cmd_race_gate( str )
     }
 
     gates = race_gates();
-    parts = strtok( str, "," );
+    g = race_gate_parse( str );
 
-    if ( parts.size < 5 || gates.size >= 16 )
+    if ( !isdefined( g ) || gates.size >= race_max_gates() )
     {
         self menu_say( "^1race: bad gate '" + str + "'" );
         return;
     }
 
-    c = ( int( parts[ 0 ] ), int( parts[ 1 ] ), int( parts[ 2 ] ) );
-    game.gf_race_gates[ gates.size ] = race_gate_make( c, int( parts[ 3 ] ), int( parts[ 4 ] ) );
-    race_gates_save();
-    race_markers_show();
-    self menu_say( "^2race: gate " + gates.size + " loaded (" + game.gf_race_gates.size + " so far)" );
+    game.gf_race_gates[ gates.size ] = g;
+    race_gates_save( gates.size );
+    race_mark_focus( gates.size );
+    race_markers_later( 1 );   // one refresh after the load, not one per gate (a gate every 0.5 s)
+    self menu_say( "^2race: gate " + gates.size + " loaded - " + game.gf_race_gates.size + " so far" );
+}
+
+// ── Track edits from the app's RACING page (2026-09-24) ─────────────────────────────────────────
+// The app knows a gate's x, y, yaw and width, never the ground height: an edited gate is floored near the
+// height it had, a new one near its neighbours'. Every edit re-saves from the first changed gate, moves
+// the version (GFTRACK republishes) and refreshes the markers once the burst is over.
+//   racegset i,x,y,yaw,w   gate i := that (i == count appends)    racegdel i       delete gate i
+//   racegins i,x,y,yaw,w   insert before gate i (i == count appends)  racegmov i,j  move gate i to j
+//   racegrot i             gate i becomes the start (the circuit rotates)   racegrev   run it backwards
+function private race_app_args( str, want )
+{
+    parts = strtok( str, "," );
+
+    if ( parts.size < want )
+        return undefined;
+
+    for ( i = 0; i < parts.size; i++ )
+        parts[ i ] = int( parts[ i ] );
+
+    return parts;
+}
+
+// The ground under ( x, y ), searched from a little above zhint (a ramp may climb between gates).
+function private race_z_near( x, y, zhint )
+{
+    top = ( x, y, zhint + 150 );
+    f = tp_floor( top );
+
+    if ( f[ 2 ] < top[ 2 ] - 1 )
+        return int( f[ 2 ] );
+
+    return int( zhint );
+}
+
+// a = [ i, x, y, yaw, w ] from the app -> a floored gate, the width kept sane.
+function private race_gate_app( a, zhint )
+{
+    w = a[ 4 ];
+
+    if ( w < 64 )
+        w = 64;
+
+    if ( w > 4000 )
+        w = 4000;
+
+    return race_gate_make( ( a[ 1 ], a[ 2 ], race_z_near( a[ 1 ], a[ 2 ], zhint ) ), a[ 3 ], w );
+}
+
+// Where a new gate's floor search starts: the neighbours' average height (or the one neighbour there is).
+function private race_z_between( gates, i )
+{
+    n = gates.size;
+
+    if ( i <= 0 )
+        return gates[ 0 ].c[ 2 ];
+
+    if ( i >= n )
+        return gates[ n - 1 ].c[ 2 ];
+
+    return ( gates[ i - 1 ].c[ 2 ] + gates[ i ].c[ 2 ] ) * 0.5;
+}
+
+function private race_edited( i )
+{
+    race_gates_save( i );
+    race_mark_focus( i );
+    race_markers_later( 0 );
+}
+
+function private cmd_race_gset( str )
+{
+    if ( !self race_editable() )
+        return;
+
+    a = race_app_args( str, 5 );
+    gates = race_gates();
+    n = gates.size;
+
+    if ( !isdefined( a ) || a[ 0 ] < 0 || a[ 0 ] > n || ( a[ 0 ] == n && n >= race_max_gates() ) )
+    {
+        self menu_say( "^1race: bad gate edit '" + str + "'" );
+        return;
+    }
+
+    i = a[ 0 ];
+
+    if ( n == 0 )
+    {
+        hp = race_pos( self );
+        zhint = hp[ 2 ];
+    }
+    else if ( i < n )
+        zhint = gates[ i ].c[ 2 ];
+    else
+        zhint = gates[ n - 1 ].c[ 2 ];
+
+    game.gf_race_gates[ i ] = race_gate_app( a, zhint );
+    race_edited( i );
+}
+
+function private cmd_race_gins( str )
+{
+    if ( !self race_editable() )
+        return;
+
+    a = race_app_args( str, 5 );
+    gates = race_gates();
+    n = gates.size;
+
+    if ( !isdefined( a ) || a[ 0 ] < 0 || a[ 0 ] > n || n >= race_max_gates() )
+    {
+        self menu_say( "^1race: bad gate insert '" + str + "'" );
+        return;
+    }
+
+    i = a[ 0 ];
+
+    if ( n == 0 )
+    {
+        hp = race_pos( self );
+        zhint = hp[ 2 ];
+    }
+    else
+        zhint = race_z_between( gates, i );
+
+    g = race_gate_app( a, zhint );
+
+    for ( k = n; k > i; k-- )
+        game.gf_race_gates[ k ] = game.gf_race_gates[ k - 1 ];
+
+    game.gf_race_gates[ i ] = g;
+    race_edited( i );
+}
+
+function private cmd_race_gdel( str )
+{
+    if ( !self race_editable() )
+        return;
+
+    n = race_gates().size;
+    i = int( str );
+
+    if ( str == "" || i < 0 || i >= n )
+    {
+        self menu_say( "^1race: no gate '" + str + "'" );
+        return;
+    }
+
+    for ( k = i; k < n - 1; k++ )
+        game.gf_race_gates[ k ] = game.gf_race_gates[ k + 1 ];
+
+    game.gf_race_gates[ n - 1 ] = undefined;
+    race_edited( ( i > 0 ) ? i - 1 : 0 );
+}
+
+function private cmd_race_gmov( str )
+{
+    if ( !self race_editable() )
+        return;
+
+    a = race_app_args( str, 2 );
+    n = race_gates().size;
+
+    if ( !isdefined( a ) || a[ 0 ] < 0 || a[ 0 ] >= n || a[ 1 ] < 0 || a[ 1 ] >= n || a[ 0 ] == a[ 1 ] )
+    {
+        self menu_say( "^1race: bad gate move '" + str + "'" );
+        return;
+    }
+
+    src = a[ 0 ];
+    dst = a[ 1 ];
+    g = game.gf_race_gates[ src ];
+
+    if ( src < dst )
+    {
+        for ( k = src; k < dst; k++ )
+            game.gf_race_gates[ k ] = game.gf_race_gates[ k + 1 ];
+    }
+    else
+    {
+        for ( k = src; k > dst; k-- )
+            game.gf_race_gates[ k ] = game.gf_race_gates[ k - 1 ];
+    }
+
+    game.gf_race_gates[ dst ] = g;
+    race_gates_save( ( src < dst ) ? src : dst );
+    race_mark_focus( dst );
+    race_markers_later( 0 );
+}
+
+function private cmd_race_grot( str )
+{
+    if ( !self race_editable() )
+        return;
+
+    n = race_gates().size;
+    i = int( str );
+
+    if ( i <= 0 || i >= n )
+    {
+        self menu_say( "^1race: gate '" + str + "' cannot become the start" );
+        return;
+    }
+
+    old = [];
+
+    for ( k = 0; k < n; k++ )
+        old[ k ] = game.gf_race_gates[ k ];
+
+    for ( k = 0; k < n; k++ )
+        game.gf_race_gates[ k ] = old[ ( k + i ) % n ];
+
+    race_edited( 0 );
+    self menu_say( "^2race: gate " + i + " is the start/finish now" );
+}
+
+// Backwards: gate 0 stays the start, the rest in reverse order, every gate turned round.
+function private cmd_race_grev()
+{
+    if ( !self race_editable() )
+        return;
+
+    n = race_gates().size;
+
+    if ( n < 2 )
+        return;
+
+    old = [];
+
+    for ( k = 0; k < n; k++ )
+        old[ k ] = game.gf_race_gates[ k ];
+
+    for ( k = 0; k < n; k++ )
+    {
+        g = old[ ( k == 0 ) ? 0 : n - k ];
+        yaw = g.yaw + 180;
+
+        if ( yaw > 180 )
+            yaw -= 360;
+
+        game.gf_race_gates[ k ] = race_gate_make( g.c, yaw, g.w );
+    }
+
+    race_edited( 0 );
+    self menu_say( "^2race: the course runs the other way now" );
+}
+
+// ── Track + live race -> the app (the RACING page, 2026-09-24) ─────────────────────────────────────
+//   GFTRACK|<ver>|<i>|<n>|<map>|<count>|<gate>;<gate>;...|END   the whole track - never cut - in
+//          <= 800-char chunks, rebuilt when race_ver() moves, kept alive in level.gf_race_track_pub.
+//   GFRACE|<tick>|<st>|<laps>|<sprint>|<n>|<ver>|<el>|<ff>|<se>|<rec>;<rec>;...|END   every 0.5 s
+//          while gf_race_live is 1 (the app sets it while its RACING page shows). st = race state,
+//          el = ms since GO, ff = finish-timer s left (-1 none), se = the store check (race_gates_save).
+//          rec = entnum,x,y,yaw,flags,lap,next,place,tenths - flags h host / v riding / d dead /
+//          s spectator / r in this race / f finished / o off track; lap..tenths 0 when not racing.
+// ⚠ < 1024 per line (crash rules): chunks and records are capped by LENGTH, never by count.
+function private race_publish()
+{
+    if ( isdefined( level.gf_race_pub_on ) )
+        return;
+
+    level.gf_race_pub_on = 1;
+
+    for ( ;; )
+    {
+        level thread race_publish_once();   // child per tick, the state_publish rule
+        wait 0.5;
+    }
+}
+
+function private race_publish_once()
+{
+    if ( !isdefined( level.gf_race_track_built ) || level.gf_race_track_built != race_ver() )
+        race_track_build();
+
+    if ( getdvarint( #"gf_race_live", 0 ) )
+        level.gf_race_live_pub = race_live_line();
+}
+
+function private race_track_build()
+{
+    ver = race_ver();
+    gates = race_gates();
+    map = tolower( getdvarstring( #"sv_mapname", "?" ) );
+    chunks = [];
+    cur = "";
+
+    foreach ( g in gates )
+    {
+        rec = race_gate_text( g );
+
+        if ( cur != "" && cur.size + rec.size + 1 > 800 )
+        {
+            chunks[ chunks.size ] = cur;
+            cur = "";
+        }
+
+        cur = ( cur == "" ) ? rec : ( cur + ";" + rec );
+    }
+
+    chunks[ chunks.size ] = cur;   // an empty track is one empty chunk: "no gates" is news too
+    pub = [];
+
+    for ( i = 0; i < chunks.size; i++ )
+        pub[ i ] = "GF" + "TRACK|" + ver + "|" + i + "|" + chunks.size + "|" + map + "|" + gates.size + "|" + chunks[ i ] + "|" + "END";
+
+    level.gf_race_track_pub = pub;
+    level.gf_race_track_built = ver;
+}
+
+function private race_live_line()
+{
+    r = race_state();
+    gates = race_gates();
+    el = 0;
+    ff = -1;
+
+    if ( r.state == 2 && isdefined( r.start_time ) )
+        el = gettime() - r.start_time;
+
+    if ( r.state == 2 && isdefined( r.first_finish ) )
+        ff = int( max( 0, r.grace - ( gettime() - r.first_finish ) / 1000 ) );
+
+    se = isdefined( level.gf_race_store_err ) ? level.gf_race_store_err : "";
+    s = "GF" + "RACE|" + getrealtime() + "|" + r.state + "|" + cfg_race_laps() + "|" + cfg_race_sprint() + "|" + gates.size + "|" + race_ver() + "|" + el + "|" + ff + "|" + se + "|";
+    first = 1;
+
+    foreach ( p in getplayers() )
+    {
+        if ( !isdefined( p ) )
+            continue;
+
+        rec = race_live_rec( p, r );
+
+        if ( s.size + rec.size + 5 > 1000 )
+            break;
+
+        if ( !first )
+            s += ";";
+
+        s += rec;
+        first = 0;
+    }
+
+    return s + "|" + "END";
+}
+
+function private race_live_rec( p, r )
+{
+    pos = race_pos( p );
+    fl = "";
+
+    if ( p ishost() )
+        fl += "h";
+
+    if ( isdefined( p getvehicleoccupied() ) )
+        fl += "v";
+
+    if ( !isalive( p ) )
+        fl += "d";
+
+    if ( !isdefined( p.team ) || p.team == #"spectator" )
+        fl += "s";
+
+    lap = 0;
+    nx = 0;
+    pl = 0;
+    t = 0;
+
+    if ( r.state != 0 && isdefined( r.rid ) && isdefined( p.gf_rc ) && isdefined( p.gf_rc.rid ) && p.gf_rc.rid == r.rid )
+    {
+        st = p.gf_rc;
+        fl += "r";
+        lap = st.lap;
+        nx = st.next;
+        pl = st.place;
+
+        if ( st.time > 0 )
+        {
+            fl += "f";
+            t = int( st.time / 100 );
+        }
+
+        if ( isdefined( st.off_since ) )
+            fl += "o";
+    }
+
+    return p getentitynumber() + "," + int( pos[ 0 ] ) + "," + int( pos[ 1 ] ) + "," + int( race_yaw( p ) ) + "," + fl + "," + lap + "," + nx + "," + pl + "," + t;
 }
 
 // ── Markers: one objective icon per gate (deathicons.gsc:96-98 shape), toggled or per race ──
+// Markers + posts show at most race_mark_cap() gates at once - objective ids are a shared pool of 64 and
+// every post is an entity: on a longer track, gate 0 + a window around r.focus (the gate last placed or
+// edited; during a race the leader's next gate). The window moves in jumps, not at every gate.
+function private race_mark_cap() { return 16; }
+
+function private race_mark_shown( r, i, n )
+{
+    if ( n <= race_mark_cap() || i == 0 )
+        return 1;
+
+    return i >= r.mark_from && i < r.mark_from + race_mark_cap() - 1;
+}
+
+// Point the window at gate `focus`; 1 when the window moved (the caller refreshes the markers).
+function private race_mark_focus( focus )
+{
+    r = race_state();
+    n = race_gates().size;
+    cap = race_mark_cap();
+    r.focus = focus;
+
+    if ( n <= cap )
+    {
+        r.mark_from = 1;
+        return 0;
+    }
+
+    // comfortably inside (4 gates of look-ahead left): leave it
+    if ( focus >= r.mark_from && focus <= r.mark_from + cap - 6 )
+        return 0;
+
+    from = focus - 2;
+
+    if ( from > n - ( cap - 1 ) )
+        from = n - ( cap - 1 );
+
+    if ( from < 1 )
+        from = 1;
+
+    if ( from == r.mark_from )
+        return 0;
+
+    r.mark_from = from;
+    return 1;
+}
+
+// One marker refresh after a burst of track changes (a load from the app sends a gate every 0.5 s, an
+// edit drag several): 1.5 s after the last change instead of once per gate. show = put them up (a load,
+// like the one-gate-per-command load always did); else only refresh markers the host has showing.
+function private race_markers_later( show )
+{
+    level.gf_race_mark_due = gettime() + 1500;
+
+    if ( is_true( show ) )
+        level.gf_race_mark_show = 1;
+
+    if ( is_true( level.gf_race_mark_wait ) )
+        return;
+
+    level.gf_race_mark_wait = 1;
+    level thread race_markers_wait();
+}
+
+function private race_markers_wait()
+{
+    level endon( #"game_ended" );
+
+    while ( gettime() < level.gf_race_mark_due )
+        wait 0.25;
+
+    level.gf_race_mark_wait = 0;
+    show = is_true( level.gf_race_mark_show );
+    level.gf_race_mark_show = 0;
+
+    if ( show )
+        race_markers_show();
+    else
+        race_markers_refresh();
+}
+
 function private race_markers_show()
 {
     race_markers_hide();
     r = race_state();
+    gates = race_gates();
+    n = gates.size;
 
-    foreach ( g in race_gates() )
+    for ( i = 0; i < n; i++ )
     {
+        if ( !race_mark_shown( r, i, n ) )
+            continue;
+
+        g = gates[ i ];
         id = gameobjects::get_next_obj_id();
 
         if ( !isdefined( id ) )
@@ -1921,8 +2514,15 @@ function private race_posts_show()
         return;
     }
 
-    foreach ( g in race_gates() )
+    gates = race_gates();
+    n = gates.size;
+
+    for ( i = 0; i < n; i++ )
     {
+        if ( !race_mark_shown( r, i, n ) )
+            continue;
+
+        g = gates[ i ];
         ends = array( g.a, g.b );
 
         foreach ( end in ends )
@@ -2204,6 +2804,7 @@ function private race_run( host )
     r.reset_s = cfg_race_reset();
     r.oobhud = cfg_race_oobhud();
     r.last = "-";
+    r.rid = getrealtime();
     gates = race_gates();
 
     // Stock hooks, saved for a cancel; the score-limit ending disarmed the sd/spy/vip way.
@@ -2230,6 +2831,7 @@ function private race_run( host )
         st.cd = 0;                      // last corridor distance, for the readouts
         st.reset_pos = gates[ 0 ].c;    // where an off-track reset lands: the last gate passed, gate 0 to begin with
         st.reset_yaw = gates[ 0 ].yaw;
+        st.rid = r.rid;
         p.gf_rc = st;
         if ( cfg_race_combat() )
             p.candocombat = undefined;
@@ -2239,6 +2841,8 @@ function private race_run( host )
         race_hold( p, 1 );
         r.racers[ r.racers.size ] = p;
     }
+
+    race_mark_focus( ( r.gate_count > 1 ) ? 1 : 0 );
 
     if ( cfg_race_markers() )
         race_markers_show();
@@ -2435,6 +3039,11 @@ function private race_gate_passed( p, st, at )
         // Re-seat the side reading on the new gate so a gate right past this one is not credited.
         g = gates[ st.next ];
         st.side = vectordot( race_pos( p ) - g.c, g.fwd );
+
+        // a long track shows a window of markers: it follows the leader
+        if ( gates.size > race_mark_cap() && is_true( r.markers_on ) && race_is_leader( p ) && race_mark_focus( st.next ) )
+            race_markers_show();
+
         return;
     }
 
@@ -2583,6 +3192,21 @@ function private race_gettimelimit()
 function private race_ontimelimit()
 {
     race_end( "finish timer" );
+}
+
+// The racer still running with the most progress (race_progress) - the one the marker window follows.
+function private race_is_leader( p )
+{
+    r = race_state();
+    k = race_progress( p );
+
+    foreach ( o in r.racers )
+    {
+        if ( isdefined( o ) && o != p && isdefined( o.gf_rc ) && o.gf_rc.place == 0 && race_progress( o ) > k )
+            return 0;
+    }
+
+    return 1;
 }
 
 // Ranking: finishers in order, then the rest by laps, gates and distance to the next gate.
@@ -2879,7 +3503,8 @@ function private race_line()
         + " racers:" + r.racers.size + " fin:" + r.finishers.size + " tl:" + ( isdefined( r.end_minutes ) ? ( "" + r.end_minutes ) : "0" ) + " mk:" + r.marker_ids.size
         + " bound:" + cfg_race_corridor() + "/" + cfg_race_reset() + "s posts:" + r.posts_text
         + " grid:" + ( isdefined( r.grid_placed ) ? ( r.grid_placed + "/" + r.grid_seated + "/" + r.grid_fail + " " + r.grid_ride ) : "-" )
-        + " stage:" + ( isdefined( r.stage ) ? r.stage : "-" );
+        + " stage:" + ( isdefined( r.stage ) ? r.stage : "-" )
+        + " store:" + ( isdefined( level.gf_race_store_err ) ? level.gf_race_store_err : "ok" );
 
     if ( isdefined( host ) && isdefined( host.gf_rc ) && host.gf_rc.next < gates.size )
     {
@@ -7164,6 +7789,14 @@ function private cmd_action( action, arg )
         case "race":        self cmd_race( tolower( arg ) );                              break;
         case "racetrack":   self cmd_race_track( arg );                                   break;
         case "racegate":    self cmd_race_gate( arg );                                    break;
+        // The RACING page's editor (2026-09-24): set / insert / delete / move a gate, rotate the start
+        // to a gate, reverse the course. Args <= 26 chars (the 32-char gf_cmd_arg slot).
+        case "racegset":    self cmd_race_gset( arg );                                    break;
+        case "racegins":    self cmd_race_gins( arg );                                    break;
+        case "racegdel":    self cmd_race_gdel( arg );                                    break;
+        case "racegmov":    self cmd_race_gmov( arg );                                    break;
+        case "racegrot":    self cmd_race_grot( arg );                                    break;
+        case "racegrev":    self cmd_race_grev();                                         break;
         // Spawn atlas (docs/notes/spawn-atlas.md, the app's Spawns tab): spawnscan publishes this
         // map's full spawn census (GFSPAWN chunks); spawnpick re-reads the per-map pick dvars
         // (gf_sp_map / gf_sp_a / gf_sp_b) and rebuilds the anchors - next spawns use it; clear = drop it.
@@ -10563,9 +11196,10 @@ function private config_publish()
 
         s += "|oob=" + cfg_oob();
         s += "|bar=" + cfg_deathbarrier();
-        // map;n;x,y,z,yaw,w;... -> the app's Save track (racing.md T8). ⚠ Kept short enough that the
+        // map;n;x,y,z,yaw,w;... -> older panels' Save track (racing.md T8). ⚠ Kept short enough that the
         // whole line stays under 1024 chars (a longer concatenation is fatal, 0x91f84370 - see atlas_add):
-        // 16 gates are ~600 chars on a ~420-char line, so a long track is cut at a gate boundary here.
+        // a long track is CUT at a gate boundary here - the current panel reads the whole track from
+        // GFTRACK (race_track_build) instead.
         trk = race_track_text();
         if ( trk.size > 440 )
             trk = race_track_cut( trk, 440 );
@@ -20962,6 +21596,7 @@ function private state_build()
     s += "|ents=" + state_ents();
     s += "|lg=" + ( isdefined( game.gf_log_seq ) ? game.gf_log_seq : 0 );
     s += "|ev=" + ( isdefined( level.gf_entlist_ver ) ? level.gf_entlist_ver : 0 );   // GFENTS stamp (bocw-84)
+    s += "|rtv=" + race_ver();   // the race track's version: the panel collects GFTRACK when it moves
     level.gf_state_st = 10;
     say = ( isdefined( level.gf_lastsay ) && isstring( level.gf_lastsay ) ) ? level.gf_lastsay : "";
 

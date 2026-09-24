@@ -195,23 +195,7 @@ public sealed class ToolsVM : ObservableObject
     public RelayCommand PropClear => new(() => Do("Remove all props", "propclear"));
 
     // ── race ──
-    public RelayCommand RaceStart => new(() => Do("START RACE", "race", "start"));
-    public RelayCommand RaceStop => new(() => Do("Stop race", "race", "stop"));
-    public RelayCommand RaceGate => new(() => Do("Gate here", "race", "gate"));
-    public RelayCommand RaceUndo => new(() => Do("Undo last gate", "race", "undo"));
-    public RelayCommand RaceClear => new(() => Do("Clear track", "race", "clear"));
-    public RelayCommand RaceLoad => new(() => Do("Load saved track (game)", "race", "load"));
-    public RelayCommand RaceMarkers => new(() => Do("Gate markers show/hide", "race", "markers"));
-    public RelayCommand RaceResetMe => new(() => Do("Reset me", "race", "resetme"));
-    public RelayCommand RaceEndMatch => new(() => { if (_m.Confirm("End the match now with the race standings?")) Do("END MATCH (podium)", "race", "endmatch"); });
-    public ObservableCollection<string> SavedTracks { get; } = new();
-    private string _trackName = "track 1";
-    public string TrackName { get => _trackName; set => Set(ref _trackName, value); }
-    private string? _selectedTrack;
-    public string? SelectedTrack { get => _selectedTrack; set => Set(ref _selectedTrack, value); }
-    public RelayCommand TrackSave => new(() => _m.Tracks.SaveFromGame(TrackName));
-    public RelayCommand TrackLoad => new(() => { if (SelectedTrack != null) _m.Tracks.LoadIntoGame(SelectedTrack); });
-    public RelayCommand TrackDelete => new(() => { if (SelectedTrack != null) _m.Tracks.Delete(SelectedTrack); });
+    // race: the RACING page (RaceVM - the same command names, 2026-09-24)
 }
 
 public sealed class WeaponGroupVM

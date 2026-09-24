@@ -245,6 +245,32 @@ public sealed class SpawnsVM : ObservableObject
 
     private static string ArtKey(MapArtDef a) => a.Custom != null ? "custom:" + a.Custom : a.File;
 
+    /// <summary>What the atlas shows under <paramref name="map"/>, for another plot (the RACING page's map): the atlas
+    /// (its minimap frame + north), the chosen picture (else the map's first) and its saved alignment. No picture when
+    /// the choice is "none" or the download fails.</summary>
+    public async Task<(SpawnAtlas? Atlas, ImageSource? Art, ArtAlign? Align)> BackdropFor(string map)
+    {
+        SpawnAtlas? atlas = null;
+        try { atlas = Store.Load(map); } catch { }
+        Store.Art.Chosen.TryGetValue(map, out var chosen);
+        if (chosen == NoArt.File) return (atlas, null, null);
+        MapArtDef? art;
+        if (chosen != null && chosen.StartsWith("custom:", StringComparison.Ordinal) && File.Exists(chosen[7..])) art = new MapArtDef("custom", "custom", chosen[7..]);
+        else
+        {
+            var defs = MapArt.For(map).ToList();
+            art = defs.FirstOrDefault(d => chosen != null && ArtKey(d) == chosen) ?? defs.FirstOrDefault();
+        }
+        if (art == null) return (atlas, null, null);
+        try
+        {
+            var img = await ArtCache.GetAsync(art);
+            var align = Store.Art.Align.TryGetValue(map + "|" + ArtKey(art), out var al) ? al.Copy() : new ArtAlign();
+            return (atlas, img, align);
+        }
+        catch { return (atlas, null, null); }
+    }
+
     private void RefreshArt()
     {
         var map = Selected?.Id;

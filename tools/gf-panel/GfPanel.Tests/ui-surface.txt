@@ -1,7 +1,7 @@
 # Everything a user can do from the panel's views - kept reachable through the redesign (UiSurfaceTests).
 # cmd:<Command> [<literal parameter>|{<bound parameter>}]  ·  set:<two-way input property>  ·  click:<handler>
 # Regenerate after an INTENDED change:  dotnet run --project tools/gf-panel/GfPanel.Tests -- --write-ui-surface
-# 455 keys.
+# 485 keys.
 click:Cancel_Click
 click:Fit_Click
 click:Ok_Click
@@ -30,6 +30,7 @@ cmd:Ban
 cmd:Black
 cmd:Camo
 cmd:CamoHost
+cmd:CancelLoad
 cmd:Clear
 cmd:ClearBans
 cmd:ClearLive
@@ -44,6 +45,7 @@ cmd:Delete
 cmd:DeleteAllProps
 cmd:DeleteAllVehicles
 cmd:DeleteEverything
+cmd:DeleteGate
 cmd:DeletePreset
 cmd:DeletePresetCmd {Binding}
 cmd:DeleteProfile
@@ -70,6 +72,8 @@ cmd:ExpStopAll
 cmd:FadeProbe
 cmd:Fill
 cmd:Fill {Binding}
+cmd:Fit
+cmd:FlipGate
 cmd:Fly
 cmd:FlyCmd
 cmd:ForgeModeOff
@@ -94,6 +98,8 @@ cmd:Fun propgun on
 cmd:Fun slidemode 0
 cmd:Fun slidemode 1
 cmd:Fun slidemode 2
+cmd:GateEarlier
+cmd:GateLater
 cmd:GiveAll
 cmd:GiveHost
 cmd:GivePerks
@@ -109,6 +115,7 @@ cmd:Grey
 cmd:InjectBridge
 cmd:InjectLobbyCmd
 cmd:InjectMenuCmd
+cmd:InsertAfter
 cmd:InsertColor {Code}
 cmd:Inspect
 cmd:InstallCwpatch
@@ -117,6 +124,7 @@ cmd:InvisOn
 cmd:Kick
 cmd:Kill
 cmd:LoadCustomArt
+cmd:MakeStart
 cmd:MatchInfo
 cmd:MaxAmmo
 cmd:MenuAllOff
@@ -132,6 +140,7 @@ cmd:MoveAllies
 cmd:MoveAxis
 cmd:MoveDown {Binding}
 cmd:MoveUp {Binding}
+cmd:Narrower
 cmd:Navy
 cmd:Next
 cmd:Off
@@ -186,6 +195,7 @@ cmd:RestartMatch
 cmd:RestartMatchCmd
 cmd:RestartRound
 cmd:ResumeCmd
+cmd:ReverseTrack
 cmd:Rotate
 cmd:Run {Binding}
 cmd:SavePreset
@@ -355,8 +365,16 @@ cmd:TpTeamAim
 cmd:TpTeamMe
 cmd:TpToMe
 cmd:TrackDelete
+cmd:TrackDuplicate
+cmd:TrackExport
+cmd:TrackImport
 cmd:TrackLoad
+cmd:TrackRename
 cmd:TrackSave
+cmd:TurnLeft 15
+cmd:TurnLeft 5
+cmd:TurnRight 15
+cmd:TurnRight 5
 cmd:Unban
 cmd:Undo
 cmd:UnlockAll
@@ -371,10 +389,12 @@ cmd:VehSpawn
 cmd:VehSpawnOther
 cmd:VisionApply
 cmd:VisionDefault
+cmd:Wider
 cmd:ZoneCensus
 set:A
 set:AlignMode
 set:All
+set:AllMaps
 set:ApplyLiveOnChange
 set:AreaBand
 set:AreaRadius
@@ -384,6 +404,8 @@ set:AutoScan
 set:BarrelsOnly
 set:CamoId
 set:Dur
+set:EditMode
+set:FollowHost
 set:Gametype
 set:GrantTarget
 set:H
@@ -409,10 +431,15 @@ set:OthersText
 set:OutfitId
 set:Payload
 set:PlaylistEnabled
+set:Preview
 set:ProjMethod
 set:ProjRate
 set:Scale
 set:Search
+set:SelW
+set:SelX
+set:SelY
+set:SelYaw
 set:Selected
 set:SelectedArt
 set:SelectedCamo
@@ -438,8 +465,11 @@ set:SelectedVision
 set:SelectedWeapon
 set:ShowAll
 set:ShowAreas
+set:ShowCorridor
+set:ShowGrid
 set:ShowLive
 set:ShowMap
+set:ShowNames
 set:ShowNumbers
 set:ShowObjectives
 set:ShowProps

@@ -86,6 +86,9 @@
         <TabItem Header="SANDBOX" Tag="sandbox">
           <v:SandboxView />
         </TabItem>
+        <TabItem Header="RACING" Tag="racing">
+          <v:RaceView />
+        </TabItem>
         <TabItem Header="FORGE" Tag="forge">
           <v:ForgeView />
         </TabItem>

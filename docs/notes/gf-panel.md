@@ -298,7 +298,7 @@ follows has something to catch what it breaks. `tools/gf-panel/GfPanel.Tests/` i
 (no NuGet, `RollForward=Major`, runs on Windows or Linux) that compiles the panel's UI-free code in directly
 (`Game\*.cs`, `MemoryScanner` / `Win32` / `GameProcess`, `MatchTracker` + `LogEntry`) — the panel itself is
 net9.0-windows WPF and cannot be referenced. `dotnet run --project tools\gf-panel\GfPanel.Tests`; exit code 1
-on any failure; a name filter as the argument. **61 checks, all green**, ~0.6 s.
+on any failure; a name filter as the argument. **76 checks, all green**, ~0.8 s.
 
 | Group | What it holds the panel to |
 |---|---|
@@ -307,6 +307,7 @@ on any failure; a name filter as the argument. **61 checks, all green**, ~0.6 s.
 | the GSC contract | every verb sent is a `case` in `cmd_action` / `panel_verb`, every `fun` switch a `case` in `fun_verb`; `Packing.Packed` = `cfg_spec()` in order; each `config_publish` extra (misc / race / dbg / veh / oob / bar) in the panel's order; bot knobs in the writer's order with its fallback defaults; `Catalog.Vehicles` = `veh_master()` row for row; the fun picks = `fun_*_pick`; every GFSTATE key feeds a field and every field has a key; every setting is read by some GSC; every default is the one the GSC runs with |
 | schema | unique dvars (a duplicate throws in the type initializer — the app would not start); each default is a value its control can show; each section's page is one that exists AND a view binds the property that lists that page's sections; the seeded MATCH pins and the default pin list name real rows |
 | the XAML | every `{Binding}` resolves against the DataContext it actually runs under (a walker that follows view hosting, `DataContext=` switches, `ItemsSource` element types, typed / implicit DataTemplates, `RelativeSource` Window / UserControl and the `BindingProxy`) — WPF's other silent failure is a binding that names a real member of the WRONG view model; every `{StaticResource}` key is defined before use (a missing one is a crash at load, not at compile) |
+| racing (2026-09-24) | the gate geometry the map draws = the game's `race_gate_make` / `race_grid_place` (posts across the travel, grid slots); a post dragged onto itself changes nothing; GFTRACK newest complete + count check, GFRACE header + records + flags; the editor's widest arguments fit the 32-char slot; the old `tracks.json` carries over, a shared file round-trips and a bad one is refused; the contract: `race_max_gates()` = the panel's 64, the packing stays ≤ 16 dvars and ≤ 160 chars a dvar, `race_gate_text`'s field order, both lines' field order + length caps, the flag letters, GFSTATE `rtv=`, `race_publish` started and gated on `gf_race_live` |
 | match tracking | normal end, dropped mid-round, round end with no next round, the panel's own restart, a stall that comes back, a last gasp that finds the feed alive, the game closing, a new match id, menu actions in seq order, the unanswered last action named |
 
 The GSC side is read **as text** (comment-stripped; functions found by name). A function the checks cannot
@@ -365,7 +366,8 @@ first-to, round cap, builtin jump height, gravity) are **pins**, seeded once by 
 FAVORITES tab this replaces was a pinboard one click away from where the actions are; MATCH → ★ PINNED SETTINGS
 is the same pinboard on the landing page. Status and the log stay in the sidebar, which every page shows.
 
-The eight pages, what each holds, and how to find a sub-tab: `tools/gf-panel/README.md` → *Pages*. In code:
+The pages (nine since the RACING page was added the same day - racing.md §11), what each holds, and how to find a
+sub-tab: `tools/gf-panel/README.md` → *Pages*. In code:
 `MainWindow.xaml` (the pages), a section's `Tab` in `Game/Schema.cs` (its home page), `MainWindow.SelectTab`
 (a page Tag, a sub-tab Tag — `spawns`, `entities`, `console` — or a pre-redesign tag: `favorites` → MATCH,
 `dashboard` → RULES, `advanced` → DIAGNOSTICS, `tools` → SANDBOX, so `--tab` and an old `LastTab` still land).

@@ -46,7 +46,7 @@ public sealed class Prefs
     public bool WindowMaximized { get; set; }
     public long CommandSeq { get; set; }
     public string LastTab { get; set; } = "match";
-    /// <summary>The page layout the prefs were saved under: 0 = the ten tabs until 2026-09-24, 2 = the eight pages
+    /// <summary>The page layout the prefs were saved under: 0 = the ten tabs until 2026-09-24, 2 = the redesigned pages
     /// (MATCH first, FAVORITES folded into it). Moving to 2 lands on MATCH once and pins MatchPins.</summary>
     public int UiLayout { get; set; }
     /// <summary>What klaze changes every match (2026-09-24: "round time, match length" + "built-in jump height and
