@@ -14,7 +14,7 @@
         <StackPanel>
           <Grid>
             <Grid.ColumnDefinitions><ColumnDefinition Width="18" /><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-            <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+            <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
             <Ellipse Width="9" Height="9" Fill="{Binding Inject.GameOk, Converter={StaticResource KeyBrush}}" />
             <TextBlock Grid.Column="1" Text="Game" Style="{StaticResource Dim}" />
             <TextBlock Grid.Column="2" Text="{Binding Inject.GameText}" />
@@ -27,6 +27,9 @@
             <Ellipse Grid.Row="3" Width="9" Height="9" Fill="{Binding Inject.MenuOk, Converter={StaticResource KeyBrush}}" />
             <TextBlock Grid.Row="3" Grid.Column="1" Text="Mod menu" Style="{StaticResource Dim}" />
             <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding Inject.MenuText}" TextWrapping="Wrap" />
+            <Ellipse Grid.Row="4" Width="9" Height="9" Fill="{Binding Inject.LobbyOk, Converter={StaticResource KeyBrush}}" />
+            <TextBlock Grid.Row="4" Grid.Column="1" Text="Lobby slots" Style="{StaticResource Dim}" />
+            <TextBlock Grid.Row="4" Grid.Column="2" Text="{Binding Inject.LobbyText}" TextWrapping="Wrap" ToolTip="The lobby payload's GFLOBBY readback (the pregame lobby only): the lobby's maxplayers / allowspectating and what 'Lobby max players' asked for. The lobby recounts its slots on Custom Game Rules → change a row → YES." />
           </Grid>
           <TextBlock Text="{Binding SweepText}" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,6,0,0" />
           <TextBlock Text="{Binding Inject.Busy}" Foreground="{StaticResource Wn}" FontSize="11" Margin="0,4,0,0" />
@@ -43,6 +46,7 @@
           </StackPanel>
           <WrapPanel Margin="0,0,0,8">
             <Button Content="Inject mod menu" Command="{Binding Inject.InjectMenuCmd}" Margin="0,0,6,0" />
+            <Button Content="Inject lobby payload" Command="{Binding Inject.InjectLobbyCmd}" Margin="0,0,6,0" ToolTip="payloads\gunfight_lobby.gscc on its own pair (load_shared.gsc + containers_shared.gsc) - the lobby's max players (DASHBOARD → Lobby max players). New pair: on the first run check the lobby return." />
             <Button Content="Inject bridge DLL" Command="{Binding Inject.InjectBridge}" Margin="0,0,6,0" />
             <Button Content="Install / reinstall cwpatch" Command="{Binding Inject.InstallCwpatch}" ToolTip="Battle.net writes the stock SDK back over cwpatch on updates / repairs - re-install it (loads at the next launch)" />
           </WrapPanel>
@@ -61,36 +65,15 @@
       </Expander>
 
       <Expander Style="{StaticResource Block}">
-        <Expander.Header><TextBlock Text="OVERLAY — THE PANEL OVER THE GAME" Style="{StaticResource BlockTitle}" /></Expander.Header>
-        <StackPanel>
-          <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="11" Margin="0,0,0,8">Press the hotkey in the game and this window lays itself over BOCW, borderless and on top. Press it again - or Esc, or click the game - and it goes back where it was and hands the game its focus. It is this same window: nothing is drawn inside the game, no DLL, no hook. Needs Display Mode = Fullscreen Borderless (exclusive Fullscreen minimises when the panel takes focus). While it is up the game gets no input and your player stands still - pause the match first if a round is live.</TextBlock>
-          <StackPanel Orientation="Horizontal" Margin="0,2">
-            <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Overlay.Enabled}" VerticalAlignment="Center" />
-            <TextBlock Text=" overlay hotkey" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="12" />
-          </StackPanel>
-          <Grid Margin="0,6,0,0">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="70" /><ColumnDefinition Width="260" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-            <Grid.RowDefinitions><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
-            <TextBlock Text="Key" Style="{StaticResource Dim}" VerticalAlignment="Center" />
-            <ComboBox Grid.Column="1" ItemsSource="{Binding Overlay.HotkeyChoices}" DisplayMemberPath="Label" SelectedValuePath="Key" SelectedValue="{Binding Overlay.Hotkey}"
-                      ToolTip="Reserved system-wide while the panel runs - pick a key you do not play with. F4 / F6 / F7 are cwpatch's; F12 is reserved by Windows." />
-            <TextBlock Grid.Row="1" Text="Layout" Style="{StaticResource Dim}" VerticalAlignment="Center" Margin="0,6,0,0" />
-            <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Overlay.LayoutChoices}" DisplayMemberPath="Label" SelectedValuePath="Key" SelectedValue="{Binding Overlay.Layout}" Margin="0,6,0,0" />
-          </Grid>
-          <TextBlock Text="{Binding Overlay.StatusText}" Foreground="{Binding Overlay.StatusKind, Converter={StaticResource KeyBrush}}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" />
-          <WrapPanel Margin="0,8,0,0">
-            <Button Content="Preview the overlay" Style="{StaticResource SmallBtn}" Command="{Binding Overlay.ToggleCmd}"
-                    ToolTip="Show it now - over the game if it is running, else over this monitor. The hotkey, Esc or the header's Back button closes it." />
-          </WrapPanel>
-        </StackPanel>
-      </Expander>
-
-      <Expander Style="{StaticResource Block}">
         <Expander.Header><TextBlock Text="PANEL" Style="{StaticResource BlockTitle}" /></Expander.Header>
         <StackPanel>
           <StackPanel Orientation="Horizontal" Margin="0,2">
             <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Prefs.ApplyLiveOnChange}" VerticalAlignment="Center" />
             <TextBlock Text=" apply live on change (one apply pulse after a setting that a live subsystem owns)" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="12" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Margin="0,2">
+            <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Prefs.InjectLobby}" VerticalAlignment="Center" />
+            <TextBlock Text=" Set up all also injects the lobby payload (lobby max players → 6v6 + spectators in the pregame lobby)" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="12" />
           </StackPanel>
           <StackPanel Orientation="Horizontal" Margin="0,2">
             <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Prefs.JoinToast}" VerticalAlignment="Center" />

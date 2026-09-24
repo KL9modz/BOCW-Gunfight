@@ -42,7 +42,9 @@ public sealed class ForgeVM : ObservableObject
     public string OthersText { get => _others; set => Set(ref _others, value); }
     private string _build = "^1DO NOT KILL - host is building";
     public string BuildText { get => _build; set => Set(ref _build, value); }
-    private string _nav = "R select   RMB last   LMB next   V back";
+    // klaze 2026-09-23: "Select | Next | Last | Back", capitalised with spacers. 31 chars = the 47-byte slot
+    // (`set gf_hint_nav ` + 31), so the mouse buttons read M1 / M2 here; the in-game default keeps LMB / RMB.
+    private string _nav = "R Select|M1 Next|M2 Last|V Back";
     public string NavText { get => _nav; set => Set(ref _nav, value); }
     public int MaxHintChars => ChunkChars * 3;
     public int MaxNavChars => 47 - "set gf_hint_nav ".Length;

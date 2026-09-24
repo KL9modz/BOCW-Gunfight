@@ -585,7 +585,15 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
               </Grid.ColumnDefinitions>
-              <ContentPresenter ContentSource="Header" VerticalAlignment="Center" />
+              <ContentPresenter ContentSource="Header" VerticalAlignment="Center">
+                <ContentPresenter.Resources>
+                  <!-- the global TextBlock style (Foreground Tx) outranks the inherited colour, so a MenuItem's own
+                       Foreground (Give client mod menu, Kill, Forge mode) never showed - re-point it at the item -->
+                  <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource {x:Type TextBlock}}">
+                    <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type MenuItem}}}" />
+                  </Style>
+                </ContentPresenter.Resources>
+              </ContentPresenter>
               <Path Grid.Column="1" x:Name="arrow" Data="M0,0 L4,4 L0,8" Stroke="{StaticResource Dm}" StrokeThickness="1.5" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" />
               <Popup x:Name="PART_Popup" Placement="Right" IsOpen="{TemplateBinding IsSubmenuOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
                 <Border Background="{StaticResource Sf}" BorderBrush="{StaticResource Bd}" BorderThickness="1" CornerRadius="6" Padding="4">

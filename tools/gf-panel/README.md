@@ -25,18 +25,15 @@ folders the old bundle carried: `acts\` (the injector, 61 MB — *without* the 5
 Total ≈ 120 MB. Friends need Windows 10/11 x64 and the game; nothing else. Per-user state (prefs,
 saved tracks, crash log) lives in `%LOCALAPPDATA%\GfPanel\`.
 
+**Saved logs** (2026-09-23): everything the ACTIVITY list shows is also written to
+`%LOCALAPPDATA%\GfPanel\logs\activity-YYYY-MM-DD.log` (one file a day, kept 90 days; ACTIVITY → 📂 saved
+logs), plus how each match ended (normal end / ended by the panel / ⚠ dropped mid-match, with the last
+state line, the roster and the last menu actions) and every player's menu actions from the game's
+`GFLOG` line. Details: `docs/notes/gf-panel.md` §6. `GFPANEL_DATADIR=<folder>` points a test instance at
+its own prefs and logs.
+
 ⚠ Same caveats as before: pinned to the current game build + cwpatch; AV flags injectors; keep it to a
 trusted group (the project's throwaway-PC / blast-radius rule).
-
-## Overlay — the panel over the game
-
-Press **Insert** in the game (SETUP → OVERLAY: on/off, the key, the layout) and this window lays itself
-over BOCW — borderless, on top, right-hand side by default so the game shows on the left. Insert again,
-Esc, the header's **⤶ Back to game**, or a click on the game puts it back where it was and returns the
-focus to the game. It is the same window with every tab; nothing is drawn inside the game (no DLL, no
-hook). Needs **Display Mode = Fullscreen Borderless**. While it is up the game gets no input, so pause
-the match first mid-round. Never run on Windows yet — design, unknowns and the test sheet:
-`docs/notes/gf-panel.md` §6.
 
 ## How it talks to the game
 
@@ -55,9 +52,11 @@ runs once per game process a minute in, never again. The header shows the sweep 
 
 | marker | from | carries |
 |---|---|---|
-| `GFSTATE` | `state_publish()` (new, 1 s) | map, gametype, round, scores, alive/players/bots per side, spectators, time limit + passed, phase, overtime, paused, frozen, staged map/gt, maxclients, team size, timer, **ack seq**, everyone-state flags, host, **last menu_say text** |
-| `GFPLAYERS` | `players_publish()` (new, on change) | entnum;name;team;kind;xuid;alive;score;kills;deaths;flags (g god · f fly · t third person · z frozen · v riding) |
+| `GFSTATE` | `state_publish()` (new, 1 s) | map, gametype, round, scores, alive/players/bots per side, spectators, time limit + passed, phase, overtime, paused, frozen, staged map/gt, maxclients, team size, timer, **ack seq**, everyone-state flags, host, **last menu_say text**; since 2026-09-23 also match id `mid=`, match over `mo=`, entity count `ents=`, newest menu-log seq `lg=`; entity-list stamp `ev=` (bocw-84) |
+| `GFLOG` | `gflog_add()` (2026-09-23, on every menu action) | every player's menu actions (host + granted clients) and forge place/delete: seq, time, who, page, item, the action's confirmation — collected when `lg=` moves, written to the saved log |
+| `GFPLAYERS` | `players_publish()` (new, on change) | entnum;name;team;kind;xuid;alive;score;kills;deaths;flags (g god · f fly · t third person · z frozen · v riding · **m has a client menu** · **F forge mode**, 2026-09-23) |
 | `GFCFG` | `config_publish()` | the packed chunks gf_c0..c8 + oob/bar/trk/veh/bot/bot2 + (new) race/dbg/misc extras = every host setting's live value |
+| `GFENTS` | `ents_publish()` (2026-09-23, rebuilt 1 s, republished on change) | every prop / barrel / vehicle the mod spawned that is still in the level, in ≤ 880-char numbered chunks (max 16): `GFENTS\|<stamp>\|<i>\|<n>\|kind,entnum,label,owner,dist,x,y,z,flags;…\|END` (kind p/b/v, flags o occupied · m vehicle-mode ride) — collected while the ENTITIES tab is open and `ev=` moves |
 | `GFROSTER` | `roster_publish()` | the older 4-field roster (fallback when a payload lacks GFPLAYERS) |
 | `GFMAP*` | `mapdata_publish()` (opt-in `gf_mapscan`) | per-map vehicle / prop / spawn / destructible census |
 
@@ -92,6 +91,15 @@ verbs `panel_verb` dispatches from `cmd_action`'s default case:
 | `perkall all` | — | every key of `perk_keys()` in one command (Select all perks) |
 | `gf_respawns` (setting) | 0/1/2 | lobby's value / unlimited lives (`playernumlives` 0) / one life - applied each round start |
 | `forge enter|exit|place|next|prev|clear` (forge session) | | the in-game prop placer; `hintset others|build` + `gf_ho0/1/2` chunks set the hint-bar lines; `gf_hint_nav` the menu legend |
+| `menuall` (bocw-84, 2026-09-23) | `on`/`off` | give / take back the client mod menu for every human except the host (the one-player form stays `forgegrant on\|off` + target) |
+| `tpto` (+target = who moves) | player name (prefix ok) | put the target in front of that player, facing them (right-click → Teleport → Them to player) |
+| `entdel` | entnum | delete one mod-spawned prop / barrel / vehicle; re-checked in GSC (ours only, never an occupied vehicle); a prop also leaves the saved forge layout |
+| `entclear` | `props`/`vehicles`/`all` | props = forge clear (layout too); vehicles = every EMPTY spawned vehicle |
+| `radar` | n | writes `gf_radar` = host bits + 256 × everyone bits + 65536 × marker icon (bits 1 minimap · 2 UAV · 4 H.A.R.P. · 8 markers · 16 glow); `radar_think` applies it within 0.5 s, no reload |
+| `parachute` | `0`/`1`/`2` | `gf_parachute` off / everyone / host only — armed per player per spawn, no reload |
+| `matchinfo` · `spawnreport` · `zonecensus` | — | the feed readouts that were in-game Debug / Spawns / Zone rows until 2026-09-23 (TOOLS → Feed readouts) |
+| `nltest` (2026-09-24) | `centre`/`feed` | ONE print carrying newlines (the cloud branch's hud_probe stage 23): `iprintlnbold` with two `\n` / `iprintln` with one - never the hint widget (a `\n` there closed the match). Close the in-game menu first |
+| `fun` (2026-09-24, the cloud branch's fun pack) | `<what> [args]` (+target for the per-player ones) | `flybind on\|off` · `slide <pct>` · `slidesuper <n>` · `slidehold`/`slidechain on\|off` · `disco on\|off` / `disco all on\|off` / `disco none` · `disg random\|next\|prev\|off` / `disg pick <i>` · `disgsize <x>` · `disgheight <z>` · `ft spin <0-2\|-1>` / `ft move <kind>` / `ft link 1\|0` / `ft solid` / `ft delete` / `ft speed <s>` / `ft rev on\|off` / `ft tilt <p> <r>` / `ft spray <ms>` / `ft autolink on\|off` · `propgun on\|off` · `projcount <n>` · `nadeswap on\|off` / `nadeswap all on\|off` / `nadeswap none` / `nadeswapw <i>` · `cannon on\|off` · `cannonblast`/`cannonride`/`cannonkeep on\|off` · `cannonmodel <i>` - explicit on/off, picks by index (GSC `fun_verb`) |
 
 All built 2026-09-20, **NEVER RUN in-game** — the panel marks the untested ones in their tooltips.
 Hardening from the first live run (same day): `state_publish` / `players_publish` build each tick in a
@@ -102,11 +110,11 @@ a failed state build still publishes a fallback line with `err=<count>|st=<stage
 
 ```
 GfPanel/
-  Native/    Win32.cs (P/Invoke) · User32.cs (the overlay's hotkey + window calls) · GameProcess.cs · MemoryScanner.cs · BridgeChannel.cs (+ the paced BridgeSender) · Injector.cs
+  Native/    Win32.cs (P/Invoke) · GameProcess.cs · MemoryScanner.cs · BridgeChannel.cs (+ the paced BridgeSender) · Injector.cs
   Game/      Schema.cs (every setting, its default, tip, scope) · Packing.cs (gf_c0..c8 / gf_bot order — load-bearing) ·
              Channels.cs (GFSTATE/GFPLAYERS/GFCFG/GFMAP parsers) · Catalog.cs (maps, weapons, vehicles, perks, sounds…) · Commands.cs
   Services/  GameLink.cs (the tick, acks, queue) · ConfigWriter.cs · Prefs.cs · TracksService.cs · PropCatalog.cs (embedded map-props.json)
-  ViewModels/ Main · Settings rows/sections · Players · Tools · Props · Message · Maps (+ playlist) · Bots · Console · Inject · Toasts · Overlay
+  ViewModels/ Main · Settings rows/sections · Players · Tools · Props · Message · Maps (+ playlist) · Bots · Console · Inject · Toasts
   Views/     Theme (Theme/Theme.xaml) · Templates.xaml (row / section / player / toast / tile templates) · the tab UserControls
 ```
 
@@ -122,6 +130,3 @@ GfPanel/
    ROUND, BALANCE HUMANS, FREEZE ALL. TOOLS: god ALL, ammo ALL, perks, vision, drunk, sound, timescale, props / barrels.
 4. MAPS: Stage for lobby → the sidebar shows `next: …`; rotation ON with two maps → the next match stages.
 5. CONSOLE: `set gf_cmd_action countdown` + Send + go → 5..1 GO renders.
-6. Overlay (game in Fullscreen Borderless): Insert in a match → the panel over the right side, cursor
-   usable → Insert → back to the game with input. The five-step sheet and what each failure means:
-   `docs/notes/gf-panel.md` §6.

@@ -1,5 +1,67 @@
 # Team sizes
 
+## 🔓 2026-09-24 — where the lobby's slot count comes from, and the lobby payload that sets it
+
+klaze: *"increase the match player limit for gunfight (not 3v3) so the lobby can have up to 6v6 with 2
+spectators"*, then *"build maxplayers into the main mod, adjustable from the app, default 12 with spectators"*.
+
+### The mechanism — read from the UI Lua and the live exe (no gameplay test yet)
+
+| Layer | What it does | Evidence |
+|---|---|---|
+| Lobby UI (Lua) | in the custom-games lobby, on a UI-originated settings event, `SetLobbyMaxClients( type, maxPlayers + ( allowSpectating == 1 and maxCodcasterClients ) )` | `lui-source` `core_common_0025:154-167` (`Lobby.PartyPrivacy.OnGametypeSettingsChange`, gated `fromUI == true`) |
+| Lobby data | `maxCodcasterClients` = **4**, `maxLaunchClients` = 24, `maxClients` = 26 for MP custom | `scriptbundle/default/director_online_custom.json` (top-level `hash_f68d7d0` / `hash_7f60c82f`; override keys `#hash_62bf14968131be83` = h64 `maxcodcasterclients`, `#hash_24a523f3ae5c68d6` = `maxlaunchclients`, matched by hash) |
+| Engine | `com_maxclients = min( per-mode ceiling, private lobby's maxClients )`, then clamped 1–64. MP ceiling = **46**. `SetLobbyMaxClients` accepts 1–127, no clamp | live exe 2026-06-12 build, read-only (`tools/dvar-live`): setter `exe+0x5be9000..0x5be90c4`, ceiling fn `exe+0xc092740`, lobby field `[session+0x178]` via `exe+0xa2b22e0`, binding `exe+0x1d34bb0 → exe+0xadbe400 → exe+0xa2b5ab0`; **live read in a Gunfight match: lobby maxClients 8, com_maxclients 8** |
+
+It fits every reading on record: normal Gunfight 4 + 4 = **8**, 3v3 6 + 4 = **10**. (Both "unexplained 12"s also had
+`maxplayers` = 8, i.e. 8 + 4 — consistent, but how a SESSION switch recomputed the lobby field is NOT traced: the Lua
+recompute needs `fromUI`, and `LobbyVM.OnGameTypeChanged` is empty.) TDM reads 12 with `maxplayers` 12, i.e. +0 —
+presumably spectating off in its preset; unmeasured. **There is no 12-client ceiling in the engine.**
+
+What fires the recompute (`fromUI` events): a mode pick (`lobby_setgametype` — which also reloads the preset, so it
+RESETS `maxPlayers`), and **"Leave Custom Game Rules" → YES** (`core_ui_1455:2229-2245` → `core_ui_1414:5293`). A single
+rules-row edit does not (`core_ui_1455:2490-2523`). Lobby UI side rules: bot-add per side = `floor(maxPlayers / teams)`
+(`core_ui_1429:1072`); **Add Bot is unavailable and every bot is removed on a mode change when `maxPlayers > 12`**
+(`core_ui_1414:3493`, `:3806-3815`, `core_frontend_0470:36`); the slot list draws at most 6 a side + 2 casters
+(`core_ui_1414:1069-1085`); the lobby's N/M player count reads the same lobby field (`core_ui_1414:3189`).
+
+### What was built (2026-09-24, NOTHING of it has run in game)
+
+- **`src/gunfight_lobby/`** — core_common-only payload, hook `load_shared.gsc` (every VM), replace
+  **`containers_shared.gsc`** (a SECOND replace target, so it sits beside `gunfight_menu`'s bb.gsc/clientids_shared
+  pair; only `cp_common/load.gsc` #uses it, nothing references it by hash — clientids_shared's profile). In the lobby, on
+  the host, every 2 s, idempotent: `maxplayers ← gf_lobby_maxp` (default **12**, 0 = off) and `allowspectating ← 1`
+  while `gf_lobby_spec` = 1 (default). Readback `GFLOBBY|tick|v=1|t|mp|as|want|spec|wm|ws|h|n|gt|END`. 2,413 B,
+  check-gsc PASS, 16 strings, 0 headers. ⚠ **The pair is untested** — `scene_model_shared` once hung the lobby
+  return as a replace target.
+- **`gunfight_menu`** (live slot 66E8D22D): `gf_team_size` default **6**; `cfg_team_size()` now returns it clamped to
+  `com_maxclients / 2` (an 8-slot session plays 4v4 and every reader — fill, spawn family, anchors, state lines — sees
+  4); the in-game 6v6 pick is stored as asked, not clamped. In-match `maxplayers` = 6 × 2 + 2 = 14 when the session
+  seats it.
+- **gf-panel**: DASHBOARD → GUNFIGHT MATCH → *Lobby max players* (Off / 8 / 10 / **12** / 14 / 16) + *Lobby spectator
+  slots* (on); SETUP → *Lobby slots* status row (GFLOBBY), *Inject lobby payload*, and *Set up all* injects it too
+  (toggle in PANEL). `tools/inject.sh gunfight_lobby` does the same pair by hand.
+
+### Test sheet — first run (klaze)
+
+1. Set up all (menu + lobby payload) → play/restart a match → **leave to the lobby. Does the lobby come up?** (a hang on
+   "connecting to lobby" = the new replace target is bad: untick *Set up all also injects the lobby payload*, relaunch.)
+2. In a Gunfight lobby: SETUP → *Lobby slots* should read `live · lobby maxplayers 12 (asked 12), spectating 1 …`
+   (`-` or `asked 12` with `maxplayers 4` for more than ~4 s = the write is not landing: note `wm=`).
+3. Custom Game Rules → change any row → back → **YES**. The lobby's player count should read **N/16**.
+4. Seat 6 a side (bots via Add Bot are allowed at 12) + 2 casters, start. In match the menu's state line should show
+   `seats …/16`. Then **match → lobby → match** once more.
+5. Record: lobby count before/after step 3, com_maxclients in match, whether casters seated, any hang.
+
+### Untried — not ruled out
+- Whether *loading a saved custom game* recomputes the count by itself (the Lua fires nothing on load; P5's 4v4 fit 8).
+- Whether a SESSION switch / Stage carries an in-match `maxplayers` into the next lobby's count (the measured 12s hint
+  yes; the mechanism is unread).
+- A Lua-side route: `Engine.SetLobbyMaxClients` from an injected chunk (`luapool.py --inject`, untested) would skip the
+  Rules step; the stock *social_menu_player_limit* option calls it but is hard-disabled (`core_ui_1455:5300-5325`).
+
+---
+
 > ✅ **MEASURED in-game 2026-09-07: `com_maxclients` = 8 — and it is NOT a ceiling.**
 >
 > `src/mp_probe/` read `getdvarint( #"com_maxclients", 0 )` = **8** in a live private Gunfight lobby.

@@ -55,10 +55,8 @@ public sealed class Prefs
     public bool JoinBeep { get; set; } = true;
     public bool JoinToast { get; set; } = true;
     public bool ApplyLiveOnChange { get; set; } = true;
-    // The overlay (ViewModels/OverlayVM.cs): the panel laid over the game on a system-wide hotkey.
-    public bool OverlayEnabled { get; set; } = true;
-    public string OverlayHotkey { get; set; } = "Insert";    // "F9", "Ctrl+Insert", … (OverlayVM.TryParseHotkey)
-    public string OverlayLayout { get; set; } = "right";     // right | left | centre | full
+    /// <summary>Set up all also injects payloads\gunfight_lobby.gscc (the lobby slot count) on its own replace target.</summary>
+    public bool InjectLobby { get; set; } = true;
     public List<string> Bans { get; set; } = new();          // xuid list re-sent at match start
     public List<int> PropFavorites { get; set; } = new();     // universal prop indices the in-game menu shows (the GSC contract)
     // The same favourites by MODEL name: the universal list gets renumbered when the catalog is regenerated
@@ -68,6 +66,14 @@ public sealed class Prefs
     public int PropCatalogCount { get; set; }
     public Dictionary<string, string> TeamPlan { get; set; } = new();   // xuid -> a|x|s, re-sent at match start
     public Dictionary<string, string> KnownNames { get; set; } = new(); // xuid -> last seen name
+    // SPAWNS tab (the spawn atlas): scan every map the first time it loads; the dense-area search radius /
+    // height band (units); the minimum spots a side the area pairs must hold (0 = the team size)
+    // OFF by default (2026-09-22: the first atlas build crashed a match on its auto-scan - fixed, but the scan
+    // runs only when asked until one has been proven in game); renamed so an old saved "true" does not carry over
+    public bool SpawnAutoScanOn { get; set; }
+    public int SpawnAreaRadiusSet { get; set; }          // 0 = auto (scaled to the map); renamed from the fixed 650 default
+    public int SpawnAreaBand { get; set; } = 160;
+    public int SpawnMinPerSide { get; set; }
 
     [JsonIgnore] public static string Path => System.IO.Path.Combine(App.DataDir, "prefs.json");
 

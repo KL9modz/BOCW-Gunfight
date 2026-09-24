@@ -712,6 +712,10 @@ function private elem_close_if_open( p, e, idx )
 
 // printtoprightln is type 0 (retail) on the SERVER table, type 1 on the client one. The only run
 // was in the pregame lobby (pregame-routes.md P7), where iprintln did not render either.
+// 2026-09-24 (bocw-84): briefly disabled because tools/check-gsc.ps1 called it DEV-ONLY - a false positive:
+// the check merged the client table's type 1 into server scripts (fixed: dev-only is now decided by the
+// script's own VM pool; the SERVER row is type 0). Every stock caller is still debug code, and a server call
+// to it ran without a crash in the pregame lobby (P7) - so this stage is back, on a launch you can lose.
 function private st_topright( n, last, tg, secs )
 {
     hdr( n, last, "topright", "-", "3 yellow lines in the TOP-RIGHT corner" );
@@ -1082,22 +1086,13 @@ function private st_musing( n, last, tg, host )
 // menu.gsc). So multi-line centre text is the Zombies HUD, not a trick. What nobody has tried in MP is
 // ONE message carrying newlines. A raw newline in a sethintstring closed the match (hint-panel.md),
 // hence opt-in and last.
+// ❌ ANSWERED 2026-09-24 01:15-01:36 (klaze's game, gunfight_menu's nltest rows, 6 runs): every newline byte
+// the server sends CLOSES THE MATCH - "An error occurred: Kilo 946 Sick Crocodile" - in the centre print
+// (mid-text and one trailing break, stock's own straferun shape) and in the feed alike. The stage now only
+// says so: no 0x0A is in this payload.
 function private st_centre_nl( n, last, tg, secs )
 {
-    hdr( n, last, "centre_nl", "-", "ONE centre print with 2 newlines: 3 stacked lines, one line, or a closed match?" );
-    wait( 1.5 );
-    foreach ( p in tg )
-    {
-        p iprintlnbold( "^3GF line one\n^2GF line two\n^5GF line three" );
-    }
-    wait( secs );
-
-    hdr( n, last, "centre_nl", "-", "now the FEED: one iprintln with a newline - two feed lines?" );
-    wait( 1.5 );
-    foreach ( p in tg )
-    {
-        p iprintln( "^3GF feed line A\n^2GF feed line B" );
-    }
+    hdr( n, last, "centre_nl", "-", "SKIPPED - any newline byte closes the match (measured 2026-09-24)" );
     wait( secs );
 }
 

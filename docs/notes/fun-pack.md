@@ -14,6 +14,49 @@ the change**. The 37 are words inside strings and comments that the checker read
 function it calls is defined, brackets balance, and there is no unary minus on an expression (ACTS rejects
 it). `gf-panel` builds. Stages 1–2 (ACTS compile + round-trip) still need the Windows box.
 
+## ⚠ Ported 2026-09-24 (bocw-84) — what the working tree actually has
+
+This note was written on the cloud branch `claude/dazzling-wright-2xq7z3` (e1a3a2b + afb5ac9), which sits
+on 3d50004 and never saw the working tree's 2026-09-22/23 work. klaze (2026-09-24): *"pull the cloud branch
+and lets review everything and cherry pick and test its theories"*. The port was done **by hand** (the
+branch's build_tree / forge_place hunks could not apply to the trimmed tree), after four read-only reviews:
+
+- **Taken:** 72 of the branch's 91 new functions (the FUN PACK block, appended at the end of
+  `gunfight_menu.gsc`), the branch versions of the 9 functions the working tree still had as at 3d50004
+  (`mod_spawn_movement`, `mod_spawn_place`, `proj_is_nade`, `proj_think`, `proj_fire`, `act_proj_method`,
+  `forge_update_preview`, `forge_loop`, `veh_master` — +9 vehicle rows 67-75), and `forge_place( quiet )`
+  + auto-link merged into the working tree's version (bocw-12's GFLOG hooks kept on normal placements).
+- **Left out: ESP (19 functions, its Player page, the client-page row).** The working tree's RADAR &
+  MARKERS block (`radar_*`, 2026-09-23) already owns all three layers and is partly MEASURED: the minimap
+  flag and the per-viewer enemy objectives WORK (dm, 2026-09-23); the thermal glow does NOT draw on foot
+  (the client gates both glow fields on `function_266be0d4`). ESP would have been a second writer to the
+  same minimap flag (`esp_apply` writes 0 on every OFF; `radar_tick`'s change-guard would never re-send it)
+  and a second set of objectives from the same 64-id pool. Per-player radar, if wanted, = a `pers` bitmask
+  OR'd into `radar_bits_of`.
+- **Fixes from the review** (marked `bocw-84 port` in the code): Slide *No chain penalty* OFF restores the
+  measured stock 0.1 (not a `game.*` capture a new match loses); a player who dies disguised is `show()`n
+  on the next life (stock only shows at the initial spawn, globallogic_spawn.gsc:421) unless everyone is
+  hidden on purpose; Forge tools *Delete* acts on the aimed prop only; *Link* refuses a loop; the prop gun
+  sets `gf_owner`; grenade swap leaves a player's throws alone while their teleport grenade is armed
+  (`tpnade_wanted`); kept Model-cannon props are tagged `gf_cannon`, capped at 64, listed in the app's
+  ENTITIES tab and cleared with the props (`entdel` / `entclear`); at most 4 napalm fires burn at once.
+- **Forge spray log** (bocw-12's shape): a spray placement is `forge_place( 1 )` — no per-prop GFLOG record;
+  instead each burst writes a START record before its first prop and an END record (Fire released, the 200
+  cap, a clean forge exit): `spray <model> → started, N up` / `spray end → n placed, N up (cap)`.
+- **Where the controls are.** In game (the trimmed host tree): Round → *Fast restart*; Movement → *Fly bind*
+  + a *Slide* page; Forge mode → *Forge tools* (prop gun, spin, move, link, solid, delete, reverse, auto-link,
+  spin speed, spray, tilt); Player → *Disguise*; Camo → *Disco camo*. **App only** (the in-game projectile
+  pages went app-only on 2026-09-23): the 8 projectile types + method 7 (the existing projectile pickers),
+  shots per trigger, grenade swap, Model cannon. Everything is also in the app: TOOLS → **FUN PACK** and a
+  player's right-click → **Fun pack**, through ONE GSC verb `fun <what> [args]` (`fun_verb`: explicit on /
+  off, so a retried command never flips a switch back; picks travel as indices — the 47-byte bridge slot).
+- **Status:** check-gsc PASS (zero notes; every new builtin resolves: ghost, issliding, magicmissile,
+  moveto, rotateyaw/roll/pitch/to, setcontents, setplayercollision, setteam, solid, spawntimedfx); payload
+  679,360 B / 3,907 strings, LIVE SLOT `DE1BD8E3`. **NEVER RUN.** ⚠ `rotateroll` has only Zombies callers
+  in stock (same mover-method pool as rotateyaw / rotatepitch) — the one builtin to watch.
+- The test sheets below still name the in-game Projectiles pages for the projectile rows — those rows are
+  in the app now (TOOLS → FUN PACK / the projectile pickers).
+
 ## Where it came from — and what was NOT taken
 
 The reference is **PHA V1.00** (`ProjectHiNAtyu/T9_BOCW_GSC_Wiki`, `ModMenu/PHA_BOCW_V100/Compiled/
@@ -42,7 +85,7 @@ is rebuilt from stock's own call shapes and this file's helpers, and the stock p
 |---|---|---|---|
 | **Fast restart** | Round → *Fast restart* | `round_restart()`: `map_restart( true )` (PHA's `map_restart( 1 )`) + stock's transition steps + the vehicle sweep — already the app's `restartround` | whether every client reloads cleanly (the F-series restart caveats apply) |
 | **Fly bind** | Movement → *Fly bind: Tac + Melee* | TACTICAL + MELEE toggles `fly_think` with the menu closed; ignored while the menu is open, forging, or in a vehicle. Per player (menu target), kept across lives | whether holding Tactical starts a throw that Melee cancels cleanly (PHA ships the same combo) |
-| **Slide** | Movement → *Slide* → speed 150/200/300 %, *Long slide*, *Super slide* 600/1000/1600, *No chain penalty* | `issliding()` edge per life ([[slide]] §3 lever 1, `slide_probe`'s boost + hold); super slide = PHA's idea with a fixed speed: glide along the view until JUMP (6 s cap, humans only); chain = `slide_subsequentslidescale 0` (lever 2) | slide.md's own questions: does `setvelocity` at the start stick; joiner prediction; the dvar on clients |
+| **Slide** | Movement → *Slide* → speed 150/200/300 %, *Long slide*, *Super slide* 600/1000/1600, *No chain penalty* | `issliding()` edge per life ([[slide]] §3 lever 1, `slide_probe`'s boost + hold); super slide = PHA's idea with a fixed speed: glide along the view until JUMP (6 s cap, humans only); chain = `slide_subsequentslidescale 0` (lever 2). **2026-09-24 (klaze):** *No chain penalty* is **ON by default** (undefined = on; `mod_apply` → `slide_chain_apply()` sets the dvar every match, Off lasts the match). **Per-player presets** on the granted client's *Player* page + app (`fun slidemode 0\|1\|2`, player right-click → Fun pack → Slide preset; TOOLS → *My slide preset* chips for the host): *Super Slide* = 150 % + long slide, *Infinite Slide* = super slide 700 (the 6 s cap still applies). Kept in `pers[gf_slide_mode]`, so they are that player's alone and override the match-wide values for them | slide.md's own questions: does `setvelocity` at the start stick; joiner prediction; the dvar on clients |
 | **Disco camo** | Camo → *Disco camo* / *everyone* / *all OFF* | the Camo page's own `setcamo( getcurrentweapon(), id )`, a random row 1–121 every 0.2 s (PHA: 0–149 every 0.15 s) | visible flicker vs weapon-model churn; joiners see it (options are server state) |
 | **Disguise** (PHA "Models menu / Set model") | Player → *Disguise* → random / next / previous / 6 quick picks / size 0.5–4x / height / OFF | Prop Hunt's recipe (`prop.gsc` `setupprop` :1932–2002): non-solid, no-collision `script_model` linked to the player, player `ghost()`ed + third person; `show()` undoes (:2695); stock spawn shows every player again (`globallogic_spawn.gsc:421`) so death only deletes the prop. Models = `prop_master()` (423 universal props, `isassetloaded`-gated) | whether the ghosted player's gun still renders; whether bullets hitting the prop hurt the player (they hit the player's own hitbox, which is where the prop is) |
 | **Forge tools** | Forge mode → *Forge tools* | on the aimed prop (else our prop nearest the aim line — reaches non-solid ones — else the last placed): spin yaw/roll/pitch (`rotateyaw/roll/pitch` loop on the prop), bob up/down, slide left/right / fwd/back (`moveto` loop — moving platforms), link to previous (`linkto`, rides its spin/move), solid on/off, delete. **Tilt new props** (flat / 45 / side / upside down / nose up) feeds the preview. **Prop gun**: every shot places your forge pick where it lands, 250 ms apart, cap 200 props | whether a moving `script_model` carries a player standing on it (the elevator idiom says yes); motion + tilt are **not saved** across rounds (the layout save keeps position / yaw / scale) |

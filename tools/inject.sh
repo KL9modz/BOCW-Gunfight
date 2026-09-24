@@ -86,6 +86,14 @@ case "$NAME" in
     test_frontend|test_frontend_maxp|test_frontend_time|test_frontend_t90|test_lobbymap|test_lobbymap_live|test_frontend_dbg|test_uimodel|test_uimake|test_uiwrite|test_uicompat|test_lobbyprint|test_csc_alive)
         TARGET="$FE_TARGET"; FRONTEND=1 ;;
 esac
+# The LOBBY payload (src/gunfight_lobby, 2026-09-24): frontend hook AND its own replace target, so it
+# coexists with gunfight_menu (bb.gsc -> clientids_shared). containers_shared.gsc has clientids_shared's
+# profile (only cp_common/load.gsc #uses it) - ⚠ but the pair is UNTESTED: check a lobby return.
+case "$NAME" in
+    gunfight_lobby)
+        TARGET="$FE_TARGET"; FRONTEND=1
+        REPLACE='scripts\core_common\containers_shared.gsc' ;;
+esac
 if [ -n "${GF_TARGET:-}" ]; then
     TARGET="$GF_TARGET"
 fi
@@ -175,5 +183,6 @@ case "$NAME" in
     vehicle_probe)     echo "  two lines every 3s from 8s in: VPROBE3 (G must be 0, N 105, M names the resident vehicle) + PPROBE (tbl=0 means no prop table on this map)" ;;
     prop_probe)        echo "  PPROBE <map> tbl= rows= xs= s= m= l= xl= first= res= G= every 3s from 8s in. tbl=0 is a real result (no Prop Hunt table); G must be 0" ;;
     test_frontend)     echo "  inject at the MAIN MENU. match -> lobby -> set up 3v3 -> match. Read 50 FIRST: 0 = frontend half never ran" ;;
+    gunfight_lobby)    echo "  coexists with gunfight_menu. In the lobby: Custom Game Rules -> change any row -> back -> YES; the count should read N/16. FIRST RUN: check the lobby return" ;;
     *)    echo "  test a LOBBY RETURN afterwards if this payload writes anything" ;;
 esac

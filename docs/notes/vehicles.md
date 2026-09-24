@@ -625,6 +625,13 @@ self-correcting across content patches in a way a baked per-map table is not. Th
 squad* and *RCXD*) and four Fireteam-only hashes (`17e868e0…`, `3effd1dd…`, `3d2bbfdb…`, `631691623…`).
 Every other row of PHA's 86-entry vehicle page is a campaign / Zombies asset no MP zone loads. [[fun-pack]]
 
+✅ **Trimmed 2026-09-24 (klaze, after spawning them):** *"rcxd and rcxd alt look the same. but rcxd pha's
+name look different. so maybe use that one as the alt?"* → row 37 *RC-XD alt* is now `hash_7dd2944ddf7cc7e9`
+(its separate row is gone) and `vehicle_t9_rcxd_racing_alt`, the look-alike, is out; *"remove the 2 turrets
+from vehicles menu"* → `veh_missile_turret` and `veh_ultimate_turret` are out. The master is 73 rows,
+`Catalog.cs` re-synced row by row (0 mismatches). Measured by eye in game: `vehicle_t9_rcxd_racing` and
+`_alt` render the same; `hash_7dd2944ddf7cc7e9` renders differently and spawns.
+
 ✅ **Done 2026-09-17:** `veh_master()` dropped the six no-zone rows and added
 `vehicle_t9_mil_snowmobile_alt_single_seat` (drivable) and `vehicle_t8_mil_air_transport_infiltration`
 (other, untested). The `gf_dbg_assets` candidate list (index 105+) keeps the dead names on purpose —

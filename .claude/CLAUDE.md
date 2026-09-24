@@ -92,6 +92,39 @@ it rather than closing a question.
   pass/fail clause *is* the joiner: the Atian carry looks right on the host and **crashes connected
   clients**. A route that only looks correct locally has not been tested.
 
+## 🛑 GSC crash rules — read before writing or shipping any GSC
+
+Every rule below is a crash this project has taken in klaze's game, measured from the crash report.
+They apply to every session and every payload (`gunfight_menu.gsc` and any side build). Decode a new
+crash with [[crash-decode]] (`docs/notes/crash-decode.md`, `tools/sre-decode.py`) before guessing.
+
+- **No string may exceed 1024 characters.** A concatenation whose result is longer than 1024 chars
+  kills the game: error `0x91f84370`, no `sre_stack`, crash signature
+  `C55D66DA-A4F5F2D8-025B8155-05B7710E` (the engine's concat checks `len(a) + len(b) > 0x400`). It hit
+  the map census on Miami and the first spawn-atlas scan on Nuketown. Any string built in a loop —
+  app channel lines (`GFSTATE` / `GFPLAYERS` / `GFCFG` / `GFSPAWN` …), rosters, lists, menu or hint
+  text — needs a worst-case length bound: flush or cap by **length** (`s.size`), never by item count,
+  and leave room for the header added at publish time. Chunk anything that can grow.
+- **Every `namespace::fn` call needs its `#using`.** Without it the payload fails to link and every
+  match load dies 5–8 s in (`0x6394f836`, no `sre_stack`). `tools/check-gsc.ps1` fails this (`NO #USING`).
+- **Call only engine builtins bare** (`../reference/funcs_cw.csv`, beside the repo). A bare
+  call to a dump *script* function (e.g. `prop.gsc`'s `getmapname`) compiles and then fails to link.
+- **Builtins stock uses only in dev code are runtime traps** — `sethighlighted` on a `script_model`
+  crashed the forge. `check-gsc` cannot see these (the table lists them type 0): check how stock uses a
+  builtin before adopting it.
+- **`notify( X )` from a thread whose call chain `endon( X )`s kills that thread mid-function.** Restore
+  state first, then notify a different event.
+- **Never register or set dvars in bulk.** A 72-dvar pre-register overflowed the GSC dvar store
+  ("Can't register more dvar"), and an app button sending ~60 `set gf_*` at once crashed the game.
+  One setting at a time.
+- **Bridge commands are ≤ 47 bytes**, one per message, `gf_cmd_go` last. A 54-byte `set` hard-crashed
+  the game (access violation); the panel refuses longer lines.
+- **Map-sized work yields.** Walk entity / struct sets in O(n) with a `waitframe( 1 )` every few
+  hundred items — never nested scans over a map's entities in one resumption.
+- **Every payload goes through `tools/strip-strhdr.ps1`** after `acts gscc` (an unstripped build garbles
+  every string literal: map names, targetnames), then `check-gsc` PASS, then a count of entries still
+  carrying the `0x8B` header (must be 0) before it is promoted to the live slot.
+
 ## Anti-cheat reality
 
 | Layer | Battle.net | Steam | Notes |

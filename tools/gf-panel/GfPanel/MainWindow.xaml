@@ -34,16 +34,9 @@
           <Border Style="{StaticResource Badge}" BorderBrush="{StaticResource Wn}" Visibility="{Binding DryRunBadge, Converter={StaticResource NullVis}}" Margin="0,0,8,0">
             <TextBlock Text="{Binding DryRunBadge}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource Wn}" />
           </Border>
-          <Border Style="{StaticResource Badge}" BorderBrush="{StaticResource Ac}" Visibility="{Binding Overlay.Active, Converter={StaticResource Vis}}" Margin="0,0,8,0"
-                  ToolTip="The panel is laid over the game. The game has no input while it is up - your player stands still.">
-            <TextBlock Text="OVERLAY" FontSize="11" FontWeight="Bold" Foreground="{StaticResource Ac}" />
-          </Border>
           <TextBlock Text="{Binding SweepText}" Style="{StaticResource Dim}" FontSize="10" VerticalAlignment="Center" Margin="4,0,0,0" />
         </StackPanel>
         <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
-          <Button Content="{Binding Overlay.BackLabel}" Style="{StaticResource SmallBtn}" Command="{Binding Overlay.HideCmd}" Margin="0,0,8,0"
-                  Visibility="{Binding Overlay.Active, Converter={StaticResource Vis}}"
-                  ToolTip="Put the panel back where it was and give the game its focus back. The hotkey, Esc, or clicking the game does the same." />
           <Button Content="↻ Apply all live" Style="{StaticResource SmallBtn}" Command="{Binding ApplyAllLive}" ToolTip="Re-assert every live subsystem (movement / bots / periods / timer) from the current dvars - the old app's Apply now." Margin="0,0,8,0" />
           <Grid Width="280">
             <TextBox x:Name="SearchBox" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" Padding="26,4,8,4" ToolTip="Search every setting by label, dvar or tooltip. Press / anywhere to focus." />
@@ -87,6 +80,9 @@
         <TabItem Header="MAPS" Tag="maps">
           <v:MapsView />
         </TabItem>
+        <TabItem Header="SPAWNS" Tag="spawns">
+          <v:SpawnsView DataContext="{Binding Spawns}" />
+        </TabItem>
         <TabItem Header="ADVANCED" Tag="advanced">
           <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,12">
             <v:ColumnsPanel ItemsSource="{Binding AdvancedSections}" />
@@ -94,6 +90,9 @@
         </TabItem>
         <TabItem Header="TOOLS" Tag="tools">
           <v:ToolsView />
+        </TabItem>
+        <TabItem Header="ENTITIES" Tag="entities">
+          <v:EntitiesView />
         </TabItem>
         <TabItem Header="CONSOLE" Tag="console">
           <v:ConsoleView />

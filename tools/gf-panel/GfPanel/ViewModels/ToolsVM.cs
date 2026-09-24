@@ -35,6 +35,19 @@ public sealed class ToolsVM : ObservableObject
     public RelayCommand DropWeapon => new(() => Do("Drop weapon", "dropweapon"));
     public RelayCommand UnlockAll => new(() => Do("Unlock all", "unlockall"));
     public RelayCommand FreezeToggle => new(() => Do("Freeze everyone (toggle)", "freeze"));
+    // the in-game rows these replace are app-only since the 2026-09-23 menu trim (bocw-84)
+    public RelayCommand MatchInfo => new(() => Do("Match info to the feed", "matchinfo"));
+    public RelayCommand SpawnReport => new(() => Do("Spawn report to the feed", "spawnreport"));
+    public RelayCommand ZoneCensus => new(() => Do("Overtime-zone census to the feed", "zonecensus"));
+    public RelayCommand Announce => new(() => Do("Announce the settings to everyone", "announce"));
+    // klaze 2026-09-24 "lets try \n line breaks" - MEASURED that night: EVERY newline byte closed the match
+    // ("Kilo 946 Sick Crocodile": hint bar, centre mid-text x2, centre trailing x3, feed x1) - the text transport,
+    // not a widget. These probes send NO newline byte (GSC nltest_run): wrap / wrapfeed = one long line, does the
+    // widget wrap; escape = a literal backslash + n; parts = plain text + stock localized keys in one print (all
+    // four measured one line). loca..locf = the LOCALIZED separator: a stock string whose own text holds the
+    // break (read from the exe: the drop is the client's check on raw text; key text is spliced in after it).
+    // CommandParameter = the nltest argument. Close the in-game menu first (its own prints share the screen).
+    public RelayCommand TextTest => new(p => { if (p is string a && a.Length > 0) Do("Text test: " + a, "nltest", a); });
 
     // ── everyone-state (the rcon PLAYER STATE block) ──
     public RelayCommand GodAllOn => new(() => Do("God mode ALL on", "godall", "on"));
@@ -96,11 +109,12 @@ public sealed class ToolsVM : ObservableObject
     public int OperatorId { get => _op; set => Set(ref _op, value); }
     public int OutfitId { get => _outfit; set => Set(ref _outfit, value); }
     public Named[] CamoNames => Catalog.Camos;
-    public string[] OperatorNames => Catalog.Operators;
+    public Named[] OperatorNames => Catalog.Operators;
     public Named? SelectedCamo { get => null; set { if (value != null) CamoId = int.Parse(value.Value); } }
-    public string? SelectedOperator { get => null; set { if (value != null) OperatorId = Array.IndexOf(Catalog.Operators, value); } }
+    public Named? SelectedOperator { get => null; set { if (value != null) OperatorId = int.Parse(value.Value); } }
     public RelayCommand CamoHost => new(() => { CamoId = Math.Clamp(CamoId, 0, 149); Do("Camo " + CamoId, "camo", CamoId.ToString()); });
-    public RelayCommand OperatorHost => new(() => { OperatorId = Math.Clamp(OperatorId, 0, 60); Do("Operator " + OperatorId, "operator", OperatorId.ToString()); });
+    // id 0 = the invisible operator: removed (klaze 2026-09-23), so a typed id is clamped from 1
+    public RelayCommand OperatorHost => new(() => { OperatorId = Math.Clamp(OperatorId, 1, 60); Do("Operator " + OperatorId, "operator", OperatorId.ToString()); });
     public RelayCommand OutfitHost => new(() => { OutfitId = Math.Clamp(OutfitId, 0, 60); Do("Outfit " + OutfitId, "outfit", OutfitId.ToString()); });
 
     // ── teleport hub ──

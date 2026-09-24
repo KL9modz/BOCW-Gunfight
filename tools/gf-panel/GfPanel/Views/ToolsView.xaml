@@ -62,6 +62,277 @@
             <Button Content="Freeze toggle (menu verb)" Style="{StaticResource Chip}" Command="{Binding Tools.FreezeToggle}" Margin="0,2,4,2" />
             <Button Content="Fade probe" Style="{StaticResource Chip}" Command="{Binding Tools.FadeProbe}" Margin="0,2,4,2" ToolTip="fadeprobe - prints ONE stamped line on the feed and ONE in the centre; time each until it vanishes = the engine's hold. Set 'Menu repaint (ms)' (ADVANCED → IN-GAME MENU DISPLAY) just under the shorter one." />
           </WrapPanel>
+          <TextBlock Text="Feed readouts (were in-game menu rows until 2026-09-23)" Style="{StaticResource SubTitle}" />
+          <WrapPanel Style="{StaticResource Row}">
+            <Button Content="Match info" Style="{StaticResource Chip}" Command="{Binding Tools.MatchInfo}" Margin="0,2,4,2" ToolTip="matchinfo - the full state readout to the host's feed" />
+            <Button Content="Spawn report" Style="{StaticResource Chip}" Command="{Binding Tools.SpawnReport}" Margin="0,2,4,2" ToolTip="spawnreport - this round's spawn placements to the feed" />
+            <Button Content="Overtime-zone census" Style="{StaticResource Chip}" Command="{Binding Tools.ZoneCensus}" Margin="0,2,4,2" ToolTip="zonecensus - what the overtime zone would be built from, read only" />
+            <Button Content="Announce settings" Style="{StaticResource Chip}" Command="{Binding Tools.Announce}" Margin="0,2,4,2" ToolTip="announce - the match settings to everyone" />
+          </WrapPanel>
+          <TextBlock Text="Line breaks from stock text - the break lives in the game's own string table, none is sent" Style="{StaticResource SubTitle}" />
+          <WrapPanel Style="{StaticResource Row}">
+            <Button Content="1 Key control" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="loca" Margin="0,2,4,2" ToolTip="nltest loca - a stock localized key + one word, no break. Expect: Enemies forfeiting in GF seconds. Run first. Close the in-game menu first (or use Host → Text tests in game)." />
+            <Button Content="2 Unregistered key" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="locb" Margin="0,2,4,2" ToolTip="nltest locb - a stock key the game never pre-registers (like the break keys), no break. Expect: GF-A GF-B GF-C. Blank = such keys don't resolve, and 3-6 would print blank too." />
+            <Button Content="3 Break: 2 rows" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="locc" Margin="0,2,4,2" ToolTip="nltest locc - a stock key whose own text is row 1 [break] row 2. Two rows, one row, or blank? The wire carries no newline byte (read from the exe: the drop is the client's check on OUR text; key text is spliced in after it) - not run yet." />
+            <Button Content="4 Break: 3 rows" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="locd" Margin="0,2,4,2" ToolTip="nltest locd - a stock key with three rows and a blank line between each" />
+            <Button Content="5 Break: D rows" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="loce" Margin="0,2,4,2" ToolTip="nltest loce - OUR layout text with a stock 'D + break' key filled in twice: GF one ENABLED / GF two DISABLED / GF three on three rows? (every row but the last must end in a D)" />
+            <Button Content="6 Break: feed" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="locf" Margin="0,2,4,2" ToolTip="nltest locf - test 3 in the kill feed" />
+          </WrapPanel>
+          <TextBlock Text="Done 2026-09-24 - all stayed one line (every raw \n closed the match)" Style="{StaticResource SubTitle}" />
+          <WrapPanel Style="{StaticResource Row}">
+            <Button Content="Wrap: centre" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="wrap" Margin="0,2,4,2" ToolTip="nltest wrap - one ~190-character centre print: one long line, or wrapped onto 2+ lines? (if it wraps, padding can make rows). Close the in-game menu first." />
+            <Button Content="Wrap: feed" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="wrapfeed" Margin="0,2,4,2" ToolTip="nltest wrapfeed - the same long line in the feed" />
+            <Button Content="Escape" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="escape" Margin="0,2,4,2" ToolTip="nltest escape - a literal backslash + n (two characters, no newline byte): shown as text, or turned into a line break?" />
+            <Button Content="Key + text" Style="{StaticResource Chip}" Command="{Binding Tools.TextTest}" CommandParameter="parts" Margin="0,2,4,2" ToolTip="nltest parts - one print built from plain text + two stock localized keys (stock does this, killstreaks_shared.gsc:2140): the building block of a localized line-break separator" />
+          </WrapPanel>
+        </StackPanel>
+      </Expander>
+
+      <!-- RADAR & MARKERS (bocw-84 2026-09-23): gf_radar through the acked `radar <n>` verb; parachutes -->
+      <Expander Style="{StaticResource Block}" IsExpanded="True">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="RADAR &amp; MARKERS" Style="{StaticResource BlockTitle}" />
+            <TextBlock Text="instant, no reload · HOST = only you (spy plane / H.A.R.P.: your team) · EVERYONE = every player" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="520" />
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel>
+          <Grid Margin="0,0,0,2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="70" /><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="1" Text="HOST" Style="{StaticResource Dim}" FontSize="10" FontWeight="Bold" />
+            <TextBlock Grid.Column="2" Text="EVERYONE" Style="{StaticResource Dim}" FontSize="10" FontWeight="Bold" />
+          </Grid>
+          <ItemsControl ItemsSource="{Binding Radar.Features}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Grid Margin="0,2" ToolTip="{Binding Tip}" Background="Transparent">
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="70" /><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                  <TextBlock Text="{Binding Label}" VerticalAlignment="Center" FontSize="12" />
+                  <CheckBox Grid.Column="1" Style="{StaticResource Toggle}" IsChecked="{Binding Host}" VerticalAlignment="Center" />
+                  <CheckBox Grid.Column="2" Style="{StaticResource Toggle}" IsChecked="{Binding All}" VerticalAlignment="Center" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Marker icon" Style="{StaticResource RowLabel}" />
+            <ComboBox ItemsSource="{Binding Radar.IconList}" DisplayMemberPath="Label" SelectedItem="{Binding Radar.SelectedIcon}" Width="220"
+                      ToolTip="Which objective icon the enemy markers use. Enemy ping = the Cold War ping system's red 'enemy spotted' marker (resident every match, unmeasured as a server objective); Escort goal = the race-gate icon, MEASURED rendering - switch to it if the markers do not show." />
+            <Button Content="All radar OFF" Style="{StaticResource SmallBtn}" Command="{Binding Radar.AllOff}" Margin="8,0,0,0" />
+          </WrapPanel>
+          <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,2,0,6">Red debug boxes are not possible from a script: box / line / sphere / print3d are dev-only builtins that crash retail. The enemy markers are the stock stand-in. The glow only shows inside a streak's pilot view (measured: nothing on foot). Spy plane / H.A.R.P.: just the player in free-for-all, the whole team in team modes. The real streaks (Gunship, Chopper Gunner, Cruise Missile: right-click a player → Loadout → Give streak) show their pilot's markers; a menu-spawned AC-130 / Chopper Gunner (VEHICLES → Other) is untested for that.</TextBlock>
+          <TextBlock Text="PARACHUTES" Style="{StaticResource SubTitle}" />
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Free-fall + chute" Style="{StaticResource RowLabel}" />
+            <Button Content="Everyone" Style="{StaticResource Chip}" Command="{Binding Radar.ParaAll}" Margin="0,2,4,2" ToolTip="parachute 1 - the Fireteam free-fall + parachute on every map, everyone (fall from height: jump boost, a heli, flying). No reload." />
+            <Button Content="Host only" Style="{StaticResource Chip}" Command="{Binding Radar.ParaHost}" Margin="0,2,4,2" ToolTip="parachute 2" />
+            <Button Content="Off" Style="{StaticResource Chip}" Command="{Binding Radar.ParaOff}" Margin="0,2,4,2" ToolTip="parachute 0 - also DASHBOARD → MOVEMENT → Parachutes" />
+          </WrapPanel>
+        </StackPanel>
+      </Expander>
+
+      <!-- MENU BACKDROP (2026-09-24): hud_probe stage 9's LUIelemBar boxes behind the menu's centre line + hint row -->
+      <Expander Style="{StaticResource Block}" IsExpanded="True">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="MENU BACKDROP" Style="{StaticResource BlockTitle}" />
+            <TextBlock Text="boxes behind the menu while it is open - open your menu in game, then move the sliders" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" />
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel>
+          <ItemsControl ItemsSource="{Binding HudBoxes}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Margin="0,2,0,8">
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding Name}" Style="{StaticResource SubTitle}" />
+                    <TextBlock Text="{Binding Pixels}" Style="{StaticResource Dim}" FontSize="10" Margin="10,8,0,3" />
+                  </StackPanel>
+                  <WrapPanel>
+                    <TextBlock Text="X" Style="{StaticResource Dim}" VerticalAlignment="Center" Width="14" />
+                    <Slider Minimum="0" Maximum="128" Value="{Binding X}" Width="150" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="left edge, 15-px steps" />
+                    <TextBlock Text="{Binding X}" Width="30" Margin="4,0,10,0" VerticalAlignment="Center" />
+                    <TextBlock Text="Y" Style="{StaticResource Dim}" VerticalAlignment="Center" Width="14" />
+                    <Slider Minimum="0" Maximum="72" Value="{Binding Y}" Width="150" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="top edge, 15-px steps" />
+                    <TextBlock Text="{Binding Y}" Width="30" Margin="4,0,10,0" VerticalAlignment="Center" />
+                    <TextBlock Text="W" Style="{StaticResource Dim}" VerticalAlignment="Center" Width="16" />
+                    <Slider Minimum="1" Maximum="240" Value="{Binding W}" Width="150" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="width, 8-px steps (240 = 1920 px)" />
+                    <TextBlock Text="{Binding W}" Width="34" Margin="4,0,10,0" VerticalAlignment="Center" />
+                    <TextBlock Text="H" Style="{StaticResource Dim}" VerticalAlignment="Center" Width="14" />
+                    <Slider Minimum="1" Maximum="60" Value="{Binding H}" Width="120" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="height, 4-px steps" />
+                    <TextBlock Text="{Binding H}" Width="30" Margin="4,0,10,0" VerticalAlignment="Center" />
+                    <TextBlock Text="Opacity" Style="{StaticResource Dim}" VerticalAlignment="Center" Margin="0,0,4,0" />
+                    <Slider Minimum="0" Maximum="15" Value="{Binding A}" Width="100" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="0 = off, 15 = solid. If the box covers the menu text, lower it." />
+                    <TextBlock Text="{Binding A}" Width="24" Margin="4,0,10,0" VerticalAlignment="Center" />
+                  </WrapPanel>
+                  <WrapPanel Margin="0,4,0,0">
+                    <Button Content="Black" Style="{StaticResource Chip}" Command="{Binding Black}" Margin="0,2,4,2" />
+                    <Button Content="Navy" Style="{StaticResource Chip}" Command="{Binding Navy}" Margin="0,2,4,2" />
+                    <Button Content="Grey" Style="{StaticResource Chip}" Command="{Binding Grey}" Margin="0,2,4,2" />
+                    <Button Content="Purple" Style="{StaticResource Chip}" Command="{Binding Purple}" Margin="0,2,4,2" />
+                    <Button Content="Apply" Style="{StaticResource SmallAccent}" Command="{Binding Apply}" Margin="10,2,4,2" ToolTip="send this box now" />
+                    <Button Content="Off" Style="{StaticResource SmallBtn}" Command="{Binding Off}" Margin="0,2,4,2" ToolTip="opacity 0 = this box is not drawn" />
+                    <CheckBox Content="Live" IsChecked="{Binding Live}" VerticalAlignment="Center" Margin="10,0,0,0" ToolTip="send each change 0.35 s after you stop moving a slider" />
+                    <TextBlock Text="{Binding Line}" Style="{StaticResource Dim}" FontSize="10" VerticalAlignment="Center" Margin="12,0,0,0" />
+                  </WrapPanel>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,2,0,6">The boxes are hud_probe stage 9's bars (drawn by the game, no text of ours inside them), opened for whoever has the menu open - the host and granted clients - and closed with the menu. The positions are guesses until you tune them; tell me the numbers that line up and they become the defaults. The colour chips tint the box's fill; its 1-px frame stays black. A box takes about a second to appear (the game sends one setting per frame).</TextBlock>
+        </StackPanel>
+      </Expander>
+
+      <!-- FUN PACK: the cloud branch's fun pack 1 + 2 (claude/dazzling-wright-2xq7z3), ported 2026-09-24 - the GSC `fun` verb -->
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="FUN PACK" Style="{StaticResource BlockTitle}" />
+            <TextBlock Text="the cloud branch's fun pack - host scope here, a player: right-click → Fun pack - never run" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" />
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel>
+          <TextBlock Text="MOVEMENT" Style="{StaticResource SubTitle}" />
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Fly bind (Tac + Melee)" Style="{StaticResource RowLabel}" />
+            <Button Content="On" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="flybind on" Margin="0,2,4,2" ToolTip="fun flybind on - Tactical + Melee toggles fly with the menu closed (the host; a player: right-click → Fun pack)" />
+            <Button Content="Off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="flybind off" Margin="0,2,4,2" />
+            <Button Content="Fast restart (replay the round)" Style="{StaticResource Chip}" Command="{Binding Fun.FastRestart}" Margin="12,2,4,2" ToolTip="restartround - map_restart, score kept (also the in-game Round page)" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Slide speed" Style="{StaticResource RowLabel}" />
+            <Button Content="Stock" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="slide 100" Margin="0,2,4,2" ToolTip="fun slide 100 - everyone, per match: the horizontal speed at the slide's start" />
+            <Button Content="150%" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="slide 150" Margin="0,2,4,2" />
+            <Button Content="200%" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="slide 200" Margin="0,2,4,2" />
+            <Button Content="300%" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="slide 300" Margin="0,2,4,2" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Super slide" Style="{StaticResource RowLabel}" />
+            <Button Content="Off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="slidesuper 0" Margin="0,2,4,2" />
+            <Button Content="600" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="slidesuper 600" Margin="0,2,4,2" ToolTip="fun slidesuper 600 - from a slide, glide at 600 u/s along the view until JUMP (6 s cap), humans" />
+            <Button Content="1000" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="slidesuper 1000" Margin="0,2,4,2" />
+            <Button Content="1600" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="slidesuper 1600" Margin="0,2,4,2" />
+            <TextBlock Text="Long slide" Style="{StaticResource Dim}" VerticalAlignment="Center" Margin="12,0,6,0" />
+            <Button Content="On" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="slidehold on" Margin="0,2,4,2" ToolTip="fun slidehold - keep the start speed for the whole slide" />
+            <Button Content="Off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="slidehold off" Margin="0,2,4,2" />
+            <TextBlock Text="No chain penalty (default on)" Style="{StaticResource Dim}" VerticalAlignment="Center" Margin="12,0,6,0" />
+            <Button Content="On" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="slidechain on" Margin="0,2,4,2" ToolTip="fun slidechain - slide_subsequentslidescale 0 (off restores the stock 0.1). ON by default since 2026-09-24: the mod sets it at every match start; Off lasts the match. A joiner's prediction may still apply the penalty - unmeasured." />
+            <Button Content="Off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="slidechain off" Margin="0,2,4,2" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="My slide preset" Style="{StaticResource RowLabel}" />
+            <Button Content="Super Slide" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="slidemode 1" Margin="0,2,4,2" ToolTip="fun slidemode 1 - the HOST's own preset: 150% slide speed + long slide (a player: right-click → Fun pack → Slide preset; clients have it on their Player page)" />
+            <Button Content="Infinite Slide" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="slidemode 2" Margin="0,2,4,2" ToolTip="fun slidemode 2 - super slide 700: from a slide, glide the way you look until JUMP (the 6 s cap still applies)" />
+            <Button Content="Off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="slidemode 0" Margin="0,2,4,2" ToolTip="back to the match-wide slide settings above" />
+          </WrapPanel>
+
+          <TextBlock Text="CAMO + DISGUISE (the host; a player: right-click → Fun pack)" Style="{StaticResource SubTitle}" />
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Disco camo" Style="{StaticResource RowLabel}" />
+            <Button Content="Me on" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disco on" Margin="0,2,4,2" ToolTip="fun disco on - a random camo on the held gun every 0.2 s" />
+            <Button Content="Me off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disco off" Margin="0,2,4,2" />
+            <Button Content="Everyone on" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disco all on" Margin="0,2,4,2" />
+            <Button Content="Everyone off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disco all off" Margin="0,2,4,2" />
+            <Button Content="All OFF" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disco none" Margin="0,2,4,2" />
+            <Button Content="Random camo (once)" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="camorandom" Margin="12,2,4,2" ToolTip="fun camorandom - a random camo (1-121) on the gun in hand, once (the client menu's Camo → Random)" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Disguise" Style="{StaticResource RowLabel}" />
+            <Button Content="Random prop" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disg random" Margin="0,2,4,2" ToolTip="fun disg random - walk around as a prop (Prop Hunt's recipe): ghost()ed, third person, the prop linked to you" />
+            <Button Content="Next" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disg next" Margin="0,2,4,2" />
+            <Button Content="Previous" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disg prev" Margin="0,2,4,2" />
+            <ComboBox ItemsSource="{Binding Fun.DisguiseList}" DisplayMemberPath="Label" SelectedItem="{Binding Fun.SelectedDisguise}" Width="150" Margin="6,0,4,0" />
+            <Button Content="Be it" Style="{StaticResource SmallAccent}" Command="{Binding Fun.DisguisePick}" Margin="0,2,4,2" />
+            <Button Content="OFF" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disg off" Margin="6,2,4,2" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Disguise size / height" Style="{StaticResource RowLabel}" />
+            <Button Content="0.5x" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disgsize 0.5" Margin="0,2,4,2" />
+            <Button Content="1x" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disgsize 1" Margin="0,2,4,2" />
+            <Button Content="2x" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disgsize 2" Margin="0,2,4,2" />
+            <Button Content="4x" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disgsize 4" Margin="0,2,4,2" />
+            <Button Content="At the feet" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disgheight 0" Margin="12,2,4,2" />
+            <Button Content="Raised 20" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disgheight 20" Margin="0,2,4,2" />
+            <Button Content="Raised 40" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="disgheight 40" Margin="0,2,4,2" />
+          </WrapPanel>
+
+          <TextBlock Text="FORGE TOOLS - act on the prop the HOST aims at" Style="{StaticResource SubTitle}" />
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Spin" Style="{StaticResource RowLabel}" />
+            <Button Content="Yaw" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spin 0" Margin="0,2,4,2" ToolTip="fun ft spin - the aimed prop (else ours nearest the aim line, else the last placed) turns forever; motion is not saved across rounds" />
+            <Button Content="Roll" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spin 1" Margin="0,2,4,2" ToolTip="rotateroll - stock calls it only in Zombies; the one to watch" />
+            <Button Content="Pitch" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spin 2" Margin="0,2,4,2" />
+            <Button Content="Stop" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spin -1" Margin="0,2,4,2" />
+            <TextBlock Text="s a turn" Style="{StaticResource Dim}" VerticalAlignment="Center" Margin="12,0,6,0" />
+            <Button Content="1" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft speed 1" Margin="0,2,4,2" />
+            <Button Content="2" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft speed 2" Margin="0,2,4,2" />
+            <Button Content="3" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft speed 3" Margin="0,2,4,2" />
+            <Button Content="Reverse on" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft rev on" Margin="6,2,4,2" />
+            <Button Content="Reverse off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft rev off" Margin="0,2,4,2" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Move" Style="{StaticResource RowLabel}" />
+            <Button Content="Bob up/down" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft move updown" Margin="0,2,4,2" ToolTip="fun ft move - a moving platform (a solid moving model carries a player standing on it - the elevator idiom, untested)" />
+            <Button Content="Left/right" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft move leftright" Margin="0,2,4,2" />
+            <Button Content="Fwd/back" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft move fwdback" Margin="0,2,4,2" />
+            <Button Content="Stop" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft move stop" Margin="0,2,4,2" />
+            <Button Content="Link to previous" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft link 1" Margin="12,2,4,2" ToolTip="the aimed prop rides the one placed before it (loops refused)" />
+            <Button Content="Unlink" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft link 0" Margin="0,2,4,2" />
+            <Button Content="Solid toggle" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft solid" Margin="0,2,4,2" />
+            <Button Content="Delete aimed prop" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft delete" Margin="0,2,4,2" ToolTip="the prop under the host's crosshair only" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Tilt new props" Style="{StaticResource RowLabel}" />
+            <Button Content="Flat" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft tilt 0 0" Margin="0,2,4,2" />
+            <Button Content="45" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft tilt 45 0" Margin="0,2,4,2" />
+            <Button Content="On its side" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft tilt 0 90" Margin="0,2,4,2" />
+            <Button Content="Upside down" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft tilt 0 180" Margin="0,2,4,2" />
+            <Button Content="Nose up" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft tilt -90 0" Margin="0,2,4,2" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Spray (hold Fire)" Style="{StaticResource RowLabel}" />
+            <Button Content="Off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spray 0" Margin="0,2,4,2" />
+            <Button Content="0.5 s" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spray 500" Margin="0,2,4,2" ToolTip="fun ft spray - in the prop placer, holding Fire places a prop every interval, 200 props max; each burst is logged (start + end)" />
+            <Button Content="0.25 s" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spray 250" Margin="0,2,4,2" />
+            <Button Content="0.1 s" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spray 100" Margin="0,2,4,2" />
+            <TextBlock Text="Auto-link" Style="{StaticResource Dim}" VerticalAlignment="Center" Margin="12,0,6,0" />
+            <Button Content="On" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft autolink on" Margin="0,2,4,2" ToolTip="the next placed prop is the base, later ones ride it (spin / move the base, the build follows); not saved" />
+            <Button Content="Off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft autolink off" Margin="0,2,4,2" />
+            <TextBlock Text="Prop gun" Style="{StaticResource Dim}" VerticalAlignment="Center" Margin="12,0,6,0" />
+            <Button Content="On" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="propgun on" Margin="0,2,4,2" ToolTip="fun propgun - every shot places your forge pick where it lands (250 ms apart, 200 props max)" />
+            <Button Content="Off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="propgun off" Margin="0,2,4,2" />
+          </WrapPanel>
+
+          <TextBlock Text="PROJECTILE EXTRAS" Style="{StaticResource SubTitle}" />
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Shots per trigger" Style="{StaticResource RowLabel}" />
+            <Button Content="1" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="projcount 1" Margin="0,2,4,2" ToolTip="fun projcount - extra projectile spawns per trigger pull, spread 6 degrees (the projectile feature must be on)" />
+            <Button Content="3" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="projcount 3" Margin="0,2,4,2" />
+            <Button Content="5" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="projcount 5" Margin="0,2,4,2" />
+            <Button Content="8" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="projcount 8" Margin="0,2,4,2" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Grenade swap" Style="{StaticResource RowLabel}" />
+            <Button Content="Me on" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="nadeswap on" Margin="0,2,4,2" ToolTip="fun nadeswap - a thrown grenade is replaced by the picked type, thrown along the view (a player with the teleport grenade armed keeps theirs)" />
+            <Button Content="Me off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="nadeswap off" Margin="0,2,4,2" />
+            <Button Content="Everyone on" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="nadeswap all on" Margin="0,2,4,2" />
+            <Button Content="Everyone off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="nadeswap all off" Margin="0,2,4,2" />
+            <Button Content="All OFF" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="nadeswap none" Margin="0,2,4,2" />
+            <ComboBox ItemsSource="{Binding Fun.NadeTypeList}" DisplayMemberPath="Label" SelectedItem="{Binding Fun.SelectedNade}" Width="210" Margin="6,0,0,0" ToolTip="the swap-to type - sent when picked" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Model cannon" Style="{StaticResource RowLabel}" />
+            <Button Content="Me on" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="cannon on" Margin="0,2,4,2" ToolTip="fun cannon - every shot launches a prop to where the shot lands" />
+            <Button Content="Me off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="cannon off" Margin="0,2,4,2" />
+            <Button Content="Blast on" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="cannonblast on" Margin="8,2,4,2" />
+            <Button Content="Blast off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="cannonblast off" Margin="0,2,4,2" />
+            <Button Content="Ride a rocket on" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="cannonride on" Margin="8,2,4,2" ToolTip="the prop rides a real RPG rocket (its flight and hit)" />
+            <Button Content="Ride off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="cannonride off" Margin="0,2,4,2" />
+            <Button Content="Keep props on" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="cannonkeep on" Margin="8,2,4,2" ToolTip="landed props stay (not saved, 64 max, listed in ENTITIES, cleared with the props)" />
+            <Button Content="Keep off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="cannonkeep off" Margin="0,2,4,2" />
+            <ComboBox ItemsSource="{Binding Fun.CannonModelList}" DisplayMemberPath="Label" SelectedItem="{Binding Fun.SelectedCannon}" Width="150" Margin="6,0,0,0" ToolTip="what the cannon fires - sent when picked" />
+          </WrapPanel>
+          <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,2,0,6">The fun pack's 8 new projectile types and spawn method 7 (magicmissile) are in the projectile pickers; its 9 new vehicles are at the end of the vehicle list. ESP was left out: RADAR &amp; MARKERS already does the minimap, the markers and the glow.</TextBlock>
         </StackPanel>
       </Expander>
 
@@ -130,7 +401,7 @@
           </WrapPanel>
           <WrapPanel Style="{StaticResource Row}">
             <TextBlock Text="Operator id" Style="{StaticResource RowLabel}" />
-            <ComboBox ItemsSource="{Binding Tools.OperatorNames}" SelectedItem="{Binding Tools.SelectedOperator}" Width="170" />
+            <ComboBox ItemsSource="{Binding Tools.OperatorNames}" DisplayMemberPath="Label" SelectedItem="{Binding Tools.SelectedOperator}" Width="170" ToolTip="setspecialistindex id (the invisible operator, id 0, is removed - klaze 2026-09-23)" />
             <TextBox Text="{Binding Tools.OperatorId, UpdateSourceTrigger=PropertyChanged}" Width="48" Margin="6,0" />
             <Button Content="Set (host)" Style="{StaticResource SmallAccent}" Command="{Binding Tools.OperatorHost}" />
           </WrapPanel>
@@ -383,8 +654,12 @@
           <WrapPanel Style="{StaticResource Row}">
             <ComboBox ItemsSource="{Binding Forge.Humans}" DisplayMemberPath="Name" SelectedItem="{Binding Forge.GrantTarget}" Width="200" Margin="0,0,6,0" ToolTip="humans in the match (not you)" />
             <Button Content="Give client menu" Style="{StaticResource SmallAccent}" Command="{Binding Forge.GrantOn}" Margin="0,0,4,0" ToolTip="forgegrant on - their own mini mod-menu (hold ADS + Melee): Forge / Props / Vehicles, God / Ammo / 3rd person / Fly / Unlock, Teleport (me to host / crosshair / save / load), Weapons / Camo / Operator / Outfit, Display. No admin, no globals. NEVER RUN for a non-host; may need re-granting after a round (v2: persistence, personal speed / jump, me-to-a-player, teleport gun)." />
-            <Button Content="Revoke" Style="{StaticResource SmallBtn}" Command="{Binding Forge.GrantOff}" ToolTip="forgegrant off" />
-            <TextBlock Text="also: right-click a player → Client menu" Style="{StaticResource Dim}" FontSize="10.5" VerticalAlignment="Center" Margin="8,0,0,0" />
+            <Button Content="Revoke" Style="{StaticResource SmallBtn}" Command="{Binding Forge.GrantOff}" ToolTip="forgegrant off" Margin="0,0,10,0" />
+            <Button Command="{Binding MenuAllOn}" Style="{StaticResource SmallBtn}" Foreground="#FFC77DFF" Margin="0,0,4,0" ToolTip="menuall on - every human in the match (not you, not bots)">
+              <TextBlock Text="★ Give EVERYONE a menu" FontWeight="Bold" />
+            </Button>
+            <Button Content="✖ Take all back" Style="{StaticResource SmallBtn}" Command="{Binding MenuAllOff}" ToolTip="menuall off" />
+            <TextBlock Text="also: right-click a player → ★ Give client mod menu" Style="{StaticResource Dim}" FontSize="10.5" VerticalAlignment="Center" Margin="8,0,0,0" />
           </WrapPanel>
 
           <TextBlock Text="HINT BAR — LINES" Style="{StaticResource SubTitle}" />

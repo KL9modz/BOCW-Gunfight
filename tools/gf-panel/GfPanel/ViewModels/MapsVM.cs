@@ -91,6 +91,9 @@ public sealed class MapsVM : ObservableObject
     {
         var map = Selected?.Id;
         var gt = Gametype.Value;
+        // Switch NOW: the target map's spawn pick goes in first, so its first round already uses it (a Stage
+        // waits - the running match still needs its own pick; SpawnsVM pushes the staged map's at match end)
+        if (!stage && map != null) _m.Spawns.PrePush(map);
         _m.Link.Send((stage ? "Stage " : "Switch NOW ") + (map ?? "(current map)") + " / " + gt, Commands.Switch(map, gt, stage));
         if (stage) _m.Toasts.Show("Staging - do not end the match until the game says STAGE READY", LogLevel.Info);
     }

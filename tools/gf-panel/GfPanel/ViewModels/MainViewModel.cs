@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Threading;
 using GfPanel.Game;
 using GfPanel.Services;
@@ -32,13 +34,23 @@ public sealed class MainViewModel : ObservableObject
     public ToolsVM Tools { get; }
     public MessageVM Message { get; }
     public MapsVM Maps { get; }
+    public SpawnsVM Spawns { get; }
     public ConsoleVM Console { get; }
     public InjectVM Inject { get; }
     public BotsVM Bots { get; }
     public PropsVM Props { get; }
     public ForgeVM Forge { get; }
+    /// <summary>The ENTITIES tab: every prop / barrel / vehicle the mod spawned (GFENTS) - bocw-84 2026-09-23.</summary>
+    public EntitiesVM Entities { get; }
+    /// <summary>TOOLS → RADAR &amp; MARKERS (gf_radar) + the parachute quick-set.</summary>
+    public RadarVM Radar { get; }
+    /// <summary>TOOLS → FUN PACK (the cloud branch's fun pack, ported 2026-09-24): the GSC `fun` verb.</summary>
+    public FunVM Fun { get; }
+    /// <summary>TOOLS → MENU BACKDROP: the two LUIelemBar boxes behind the centre line (gf_hb0) and the hint row (gf_hb1).</summary>
+    public HudBoxVM[] HudBoxes { get; }
+    /// <summary>The ACTIVITY list through the filter chips (all / menu log / no sent lines / one player's menu log).</summary>
+    public ICollectionView ActivityView { get; }
     public ToastsVM Toasts { get; } = new();
-    public OverlayVM Overlay { get; }
     public List<SectionVM> Sections { get; } = new();
     public IEnumerable<SectionVM> DashboardSections => Sections.Where(s => s.Tab == "dashboard");
     public IEnumerable<SectionVM> AdvancedSections => Sections.Where(s => s.Tab == "advanced");
@@ -55,7 +67,6 @@ public sealed class MainViewModel : ObservableObject
         Link = new GameLink(Application.Current.Dispatcher, prefs);
         Writer = new ConfigWriter(Link);
         Tracks = new TracksService(Link);
-        Overlay = new OverlayVM(prefs, Toasts, () => Link.Pid);
         foreach (var s in Schema.Sections)
         {
             var vm = new SectionVM(this, s) { IsExpanded = !prefs.Collapsed.Contains("sec:" + s.Title) };
@@ -71,12 +82,24 @@ public sealed class MainViewModel : ObservableObject
         Players = new PlayersVM(this);
         Tools = new ToolsVM(this);
         Message = new MessageVM(this);
+        Spawns = new SpawnsVM(this);
         Maps = new MapsVM(this);
         Console = new ConsoleVM(this);
         Inject = new InjectVM(this);
         Bots = new BotsVM(this);
         Props = new PropsVM(this);
         Forge = new ForgeVM(this);
+        Entities = new EntitiesVM(this);
+        Radar = new RadarVM(this);
+        Fun = new FunVM(this);
+        // defaults = the GSC's hudbox_think fallbacks (guesses to tune live)
+        HudBoxes = new[]
+        {
+            new HudBoxVM(this, "Behind the centre line", "gf_hb0", 30, 18, 128, 12, 8),
+            new HudBoxVM(this, "Behind the hint row", "gf_hb1", 30, 46, 128, 12, 8),
+        };
+        ActivityView = CollectionViewSource.GetDefaultView(Link.Activity);
+        ActivityView.Filter = o => o is LogEntry e && ActivityPass(e);
         Tracks.Changed += RefreshTracks;
         RefreshTracks();
         RebuildFavorites();
@@ -84,9 +107,11 @@ public sealed class MainViewModel : ObservableObject
         Link.StateChanged += OnState;
         Link.PlayersChanged += OnPlayers;
         Link.ConfigChanged += OnConfig;
+        Link.LobbyChanged += OnLobby;
         Link.Toast += (t, l) => Toasts.Show(t, l);
         Link.Sender.LineSent += (line, _) => Application.Current.Dispatcher.BeginInvoke(() => Console.Add(line, "in"));
         Link.Log(App.DryRun ? "DRY RUN - commands are logged, nothing is sent" : "Gunfight Host Panel ready - waiting for the game", App.DryRun ? LogLevel.Warn : LogLevel.Info);
+        if (App.Fake) LoadFake();
         _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _clock.Tick += (_, _) => UpdateClock();
         _clock.Start();
@@ -130,7 +155,7 @@ public sealed class MainViewModel : ObservableObject
     // sidebar: server card, scoreboard, match control
     // ─────────────────────────────────────────────────────────────────────────
     private string _mapText = "—", _gtText = "—", _playersText = "—", _phaseText = "—", _timerText = "—", _roundText = "R —",
-                   _scoreA = "—", _scoreX = "—", _aliveA = "—", _aliveX = "—", _teamsText = "", _stagedText = "", _hostText = "";
+                   _scoreA = "—", _scoreX = "—", _aliveA = "—", _aliveX = "—", _teamsText = "", _stagedText = "", _hostText = "", _spawnText = "";
     public string MapText { get => _mapText; set => Set(ref _mapText, value); }
     public string GametypeText { get => _gtText; set => Set(ref _gtText, value); }
     public string PlayersText { get => _playersText; set => Set(ref _playersText, value); }
@@ -144,6 +169,7 @@ public sealed class MainViewModel : ObservableObject
     public string TeamsText { get => _teamsText; set => Set(ref _teamsText, value); }
     public string StagedText { get => _stagedText; set => Set(ref _stagedText, value); }
     public string HostText { get => _hostText; set => Set(ref _hostText, value); }
+    public string SpawnText { get => _spawnText; set => Set(ref _spawnText, value); }
     private bool _paused;
     public bool Paused { get => _paused; set { if (Set(ref _paused, value)) OnPropertyChanged(nameof(PauseLabel)); } }
     public string PauseLabel => Paused ? "▶  RESUME MATCH" : "⏸  PAUSE MATCH";
@@ -160,22 +186,26 @@ public sealed class MainViewModel : ObservableObject
         if (s == null)
         {
             MapText = GametypeText = PlayersText = PhaseText = TimerText = "—"; RoundText = "R —";
-            ScoreA = ScoreX = AliveA = AliveX = "—"; TeamsText = StagedText = HostText = "";
+            ScoreA = ScoreX = AliveA = AliveX = "—"; TeamsText = StagedText = HostText = SpawnText = "";
             Maps.OnState(null);
+            Spawns.OnState(null);
+            Entities.Clear();
             return;
         }
         MapText = Catalog.MapName(s.Map) + "  " + s.Map;
         GametypeText = s.Gametype;
         PlayersText = $"{s.PlayersA + s.PlayersX + s.Spectators} online · A {s.PlayersA} ({s.BotsA}b) · X {s.PlayersX} ({s.BotsX}b)" + (s.Spectators > 0 ? $" · {s.Spectators} spec" : "");
-        PhaseText = (s.Phase switch { "prematch" => "PRE-MATCH", "ended" => "ROUND OVER", "roundend" => "ROUND ENDING", "playing" => s.Overtime ? "OVERTIME" : "PLAYING", _ => s.Phase.ToUpperInvariant() }) + (s.Paused ? " · PAUSED" : "");
+        PhaseText = (s.Phase switch { "prematch" => "PRE-MATCH", "ended" => s.MatchOver ? "MATCH OVER" : "ROUND OVER", "roundend" => "ROUND ENDING", "playing" => s.Overtime ? "OVERTIME" : "PLAYING", _ => s.Phase.ToUpperInvariant() }) + (s.Paused ? " · PAUSED" : "");
         RoundText = "R " + s.Round;
         ScoreA = s.ScoreA.ToString(); ScoreX = s.ScoreX.ToString();
         AliveA = s.AliveA.ToString(); AliveX = s.AliveX.ToString();
         TeamsText = $"{s.TeamSize}v{s.TeamSize} · budget {s.MaxClients}";
         StagedText = s.StagedMap.Length > 0 ? $"next: {Catalog.MapName(s.StagedMap)} / {s.StagedGametype}" : "";
         HostText = s.Host;
+        SpawnText = s.SpawnNote.Length > 0 ? s.SpawnNote : "—";
         Paused = s.Paused; Frozen = s.FrozenAll;
         Maps.OnState(s);
+        Spawns.OnState(s);
         Props.OnState();
         UpdateClock();
         // a new match / map: re-push the bans + the staged team plan, stage the rotation's next map
@@ -213,6 +243,12 @@ public sealed class MainViewModel : ObservableObject
     }
 
     public RelayCommand RefreshPlayers => new(() => { Link.RequestRefresh(); Toasts.Show("Re-scanning for the current roster", LogLevel.Info); });
+    /// <summary>The ACTIVITY header's folder button: the saved daily logs (ActivityFile), today's selected.</summary>
+    public RelayCommand OpenLogs => new(() =>
+    {
+        try { ActivityFile.OpenFolder(); }
+        catch (Exception e) { Toasts.Show("Could not open the log folder: " + e.Message, LogLevel.Err); }
+    });
     public RelayCommand PauseResume => new(() => Link.Send(Paused ? "Resume match" : "Pause match", Commands.Action(Paused ? "resume" : "pause")));
     // explicit pair (the toggle label only flips on a GFSTATE readback, which an older payload never sends);
     // the flag flips optimistically on the click and the next state line corrects it
@@ -232,6 +268,40 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand RemoveBots => new(() => Link.Send("Remove all bots", Commands.Action("removebots")));
     public RelayCommand Countdown => new(() => Link.Send("Countdown 5..1 GO", Commands.Action("countdown")));
     public RelayCommand ApplyAllLive => new(() => Link.Send("apply all", Commands.Action("apply", "all")));
+    // klaze 2026-09-23: a give-all / take-all pair for the client menus (menuall on|off; host + bots skipped)
+    public RelayCommand MenuAllOn => new(() => Link.Send("Give EVERYONE a client menu", Commands.Action("menuall", "on")));
+    public RelayCommand MenuAllOff => new(() => { if (Confirm("Take back EVERY client menu?")) Link.Send("Take back all client menus", Commands.Action("menuall", "off")); });
+
+    // ── ACTIVITY filter chips (klaze 2026-09-23 "can we see log what people do in their menu from app?": the menu
+    //    log lines are "menu · <who> › <page> › <item> → <result>", saved to disk too) ──
+    private string _activityFilter = "all";
+    public string ActivityFilterText => _activityFilter switch
+    {
+        "menu" => "showing: menu actions",
+        "nosent" => "showing: all but sent lines",
+        var f when f.StartsWith("player:") => "showing: " + f[7..] + "'s menu actions",
+        _ => "",
+    };
+    public bool ActivityFiltered => _activityFilter != "all";
+    private void SetActivityFilter(string f)
+    {
+        _activityFilter = f;
+        ActivityView.Refresh();
+        OnPropertyChanged(nameof(ActivityFilterText)); OnPropertyChanged(nameof(ActivityFiltered));
+    }
+    private bool ActivityPass(LogEntry e) => _activityFilter switch
+    {
+        "menu" => e.Level == LogLevel.Menu,
+        "nosent" => e.Level != LogLevel.In,
+        var f when f.StartsWith("player:") => e.Level == LogLevel.Menu && e.Text.StartsWith("menu · " + Trim16(f[7..]), StringComparison.OrdinalIgnoreCase),
+        _ => true,
+    };
+    // the GSC caps a record's player name at 16 characters (gflog_field)
+    private static string Trim16(string s) => s.Length > 16 ? s[..16] : s;
+    public RelayCommand ActivityAll => new(() => SetActivityFilter("all"));
+    public RelayCommand ActivityMenu => new(() => SetActivityFilter("menu"));
+    public RelayCommand ActivityNoSent => new(() => SetActivityFilter("nosent"));
+    public void FilterActivityToPlayer(string name) { SetActivityFilter("player:" + name); Toasts.Show("ACTIVITY shows " + name + "'s menu actions - 'All' clears it", LogLevel.Info); }
 
     // ─────────────────────────────────────────────────────────────────────────
     // players / next match / bans
@@ -287,6 +357,15 @@ public sealed class MainViewModel : ObservableObject
             if (_rows.TryGetValue(dvar, out var row)) row.SetSilently(value);
         foreach (var row in _rows.Values) { row.NotifyBaseline(); row.NotifyLive(); }
         Bots.OnConfig();
+        if (c.Values.TryGetValue("gf_radar", out var radar)) Radar.FromConfig(radar);
+    }
+
+    /// <summary>The lobby payload's readback (GFLOBBY): the two lobby rows show what it read, SETUP shows the rest.</summary>
+    private void OnLobby(GfLobby l)
+    {
+        foreach (var (dvar, value) in new[] { ("gf_lobby_maxp", l.Want), ("gf_lobby_spec", l.Spec) })
+            if (_rows.TryGetValue(dvar, out var row)) { row.SetSilently(value); row.NotifyBaseline(); }
+        Inject.Refresh();
     }
 
     public int RowValue(string dvar) => _rows.TryGetValue(dvar, out var r) ? r.Value : Schema.ByDvar.GetValueOrDefault(dvar)?.Default ?? 0;
@@ -320,7 +399,8 @@ public sealed class MainViewModel : ObservableObject
                 Link.Send("Restart match", Commands.Action("restart"));
             else Toasts.Show("Saved - applies at the next match start", LogLevel.Info);
         }
-        else if (q == null && plan.Scope == null) Toasts.Show(plan.Summary + "  (next round)", LogLevel.Ok);
+        else if (q == null && plan.Scope == null)
+            Toasts.Show(plan.Summary + (changes.Keys.All(k => Schema.ByDvar.TryGetValue(k, out var d) && d.Eff == Eff.Live) ? "" : "  (next round)"), LogLevel.Ok);
         else Toasts.Show(plan.Summary, LogLevel.Ok);
     }
 
@@ -401,7 +481,7 @@ public sealed class MainViewModel : ObservableObject
             .OrderByDescending(x => x.r.Label.ToLowerInvariant().StartsWith(q) ? 3 : x.r.Dvar.Contains(q) ? 2 : x.r.Label.ToLowerInvariant().Contains(q) ? 1 : 0)
             .Take(12);
         foreach (var (s, r, _) in hits)
-            SearchHits.Add(new SearchHit { Label = r.Label, Sub = r.Dvar, Where = (s.Tab == "advanced" ? "ADVANCED › " : s.Tab == "tools" ? "TOOLS › " : "DASHBOARD › ") + s.Title, Row = r, Tab = s.Tab });
+            SearchHits.Add(new SearchHit { Label = r.Label, Sub = r.Dvar, Where = (s.Tab == "advanced" ? "ADVANCED › " : s.Tab == "tools" ? "TOOLS › " : s.Tab == "spawns" ? "SPAWNS › " : "DASHBOARD › ") + s.Title, Row = r, Tab = s.Tab });
         OnPropertyChanged(nameof(SearchOpen));
     }
     public event Action<SettingRowVM>? RevealRow;
@@ -423,6 +503,16 @@ public sealed class MainViewModel : ObservableObject
         Tools.SavedTracks.Clear();
         foreach (var l in Tracks.Labels) Tools.SavedTracks.Add(l);
         if (Tools.SelectedTrack == null && Tools.SavedTracks.Count > 0) Tools.SelectedTrack = Tools.SavedTracks[0];
+    }
+
+    /// <summary>--dry --fake: sample GFPLAYERS / GFENTS bodies through the real parsers (screenshot checks only).</summary>
+    private void LoadFake()
+    {
+        var roster = Roster.ParsePlayers("5|0;8bit;allies;host;1000001;1;350;7;2;gF|1;KL9;axis;human;a000000000000001;1;200;4;5;mF|2;[CLAN]Player0123;axis;human;a000000000000002;0;90;1;3;m|3;Player4;allies;human;a000000000000003;1;120;2;2;|4;bot Kasper;allies;bot;;1;50;1;4;");
+        if (roster != null) Players.Update(roster, true);
+        var ents = EntityList.Parse("v,41,RC-XD,8bit,300,1200,-450,50,;v,57,Hind gunship,KL9,1650,-200,900,400,o;p,63,usa_dumpster_01_full,8bit,250,1000,-600,0,;b,64,rus_oil_drum_01,KL9,800,300,50,0,;p,70,nt6_arcade_game,[CLAN]Player012,1200,-900,-1200,0,");
+        Entities.LoadFake(ents);
+        Radar.FromConfig(1 + 8 + 256 * 1);
     }
 
     public void Shutdown()

@@ -1,0 +1,275 @@
+<UserControl x:Class="GfPanel.Views.SpawnsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:v="clr-namespace:GfPanel.Views">
+  <UserControl.Resources>
+    <Style x:Key="Note" TargetType="{x:Type TextBlock}" BasedOn="{StaticResource Dim}">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Margin" Value="0,2,0,6" />
+    </Style>
+    <Style x:Key="Knob" TargetType="{x:Type TextBox}" BasedOn="{StaticResource {x:Type TextBox}}">
+      <Setter Property="Width" Value="64" />
+      <Setter Property="Margin" Value="4,0,12,0" />
+      <Setter Property="HorizontalContentAlignment" Value="Right" />
+    </Style>
+  </UserControl.Resources>
+
+  <Grid Margin="14,10,14,12">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <!-- ═══ map bar ═══ -->
+    <Border Background="{StaticResource Sf}" BorderBrush="{StaticResource Bd}" BorderThickness="1" CornerRadius="7" Padding="12,8" Margin="0,0,0,10">
+      <StackPanel>
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Map" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0" />
+          <ComboBox Grid.Column="1" ItemsSource="{Binding MapItems}" SelectedItem="{Binding Selected}" DisplayMemberPath="Display" MaxWidth="560" HorizontalAlignment="Left" MinWidth="360" />
+          <Button Grid.Column="2" Content="⟳  SCAN THE MAP RUNNING NOW" Style="{StaticResource Accent}" Command="{Binding Scan}" Margin="10,0,0,0"
+                  ToolTip="Sends spawnscan: the mod reads every spawn point on the loaded map (every mode's flags, starts, respawns, S&amp;D groups, BO2-named structs, the engine's live lists) and publishes it in chunks; the panel collects them and files docs/data/spawns/&lt;map&gt;.json. Needs the atlas build (gunfight_menu.atlas.gscc or newer) injected. Read-only in game." />
+          <TextBlock Grid.Column="3" Text="{Binding ScanState}" Foreground="{StaticResource Wn}" FontSize="11" VerticalAlignment="Center" Margin="10,0,0,0" />
+          <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0"
+                      ToolTip="Scan every map automatically the first time it loads (8 s in). Play or switch through the maps once with the panel open and the atlas fills itself.">
+            <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding AutoScan}" VerticalAlignment="Center" />
+            <TextBlock Text=" auto-scan new maps" VerticalAlignment="Center" FontSize="12" Margin="4,0,0,0" />
+          </StackPanel>
+          <Button Grid.Column="5" Content="📁" Style="{StaticResource SmallBtn}" Command="{Binding OpenFolder}" Margin="10,0,0,0" ToolTip="{Binding FolderText}" />
+        </Grid>
+        <TextBlock Text="{Binding StatusText}" Style="{StaticResource Dim}" FontSize="11" Margin="0,6,0,0" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+
+    <!-- ═══ plot | side panel ═══ -->
+    <Grid Grid.Row="1">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" MinWidth="360" />
+        <ColumnDefinition Width="6" />
+        <ColumnDefinition Width="500" MinWidth="360" />
+      </Grid.ColumnDefinitions>
+
+      <Border BorderBrush="{StaticResource Bd}" BorderThickness="1" CornerRadius="7" ClipToBounds="True">
+        <Grid>
+          <v:SpawnPlot x:Name="Plot" Atlas="{Binding Atlas}" Layer="{Binding LayerKey}" Layout="{Binding SelectedLayout}"
+                       Areas="{Binding Areas}" ShowAreas="{Binding ShowAreas}" Rotation="{Binding Rotation}" NorthUp="{Binding NorthUp}"
+                       Art="{Binding ArtImage}" ArtOpacity="{Binding ArtOpacity}" AlignMode="{Binding AlignMode}" ArtAlign="{Binding ArtAlign}"
+                       LiveEvents="{Binding LiveEvents}" ShowNumbers="{Binding ShowNumbers}" ShowObjectives="{Binding ShowObjectives}" />
+          <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8" Background="#E6141720" CornerRadius="6" Padding="8,6"
+                  BorderBrush="{StaticResource Bd}" BorderThickness="1">
+            <StackPanel>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Show" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <ComboBox ItemsSource="{Binding Layers}" SelectedItem="{Binding Layer}" DisplayMemberPath="Label" Width="250" />
+                <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding ShowAreas}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                <TextBlock Text=" dense areas" VerticalAlignment="Center" FontSize="11.5" Margin="4,0,10,0" />
+                <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding NorthUp}" VerticalAlignment="Center"
+                          ToolTip="North up, like the in-game map (the scan reads the map's north with getnorthyaw). Off = the world's +Y up." />
+                <TextBlock Text=" north up" VerticalAlignment="Center" FontSize="11.5" Margin="4,0,10,0" />
+                <Button Content="⟲ 90°" Style="{StaticResource SmallBtn}" Command="{Binding Rotate}" ToolTip="Turn the plot a further 90°." />
+                <Button Content="⤢ fit" Style="{StaticResource SmallBtn}" Click="Fit_Click" Margin="4,0,0,0" ToolTip="Reset zoom and pan (or double-click the map). Wheel = zoom, drag = pan." />
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <TextBlock Text="Picture" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <ComboBox ItemsSource="{Binding ArtChoices}" SelectedItem="{Binding SelectedArt}" DisplayMemberPath="Label" Width="230"
+                          ToolTip="The in-game tactical map (Call of Duty wiki, downloaded once into %LOCALAPPDATA%\GfPanel\mapart), laid on the game's minimap frame. Strike / 12v12 maps have both layouts." />
+                <Slider Value="{Binding ArtOpacity}" Minimum="0.1" Maximum="1" Width="80" VerticalAlignment="Center" Margin="8,0,8,0" ToolTip="picture brightness" />
+                <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding AlignMode}" VerticalAlignment="Center" ToolTip="Align the picture once per map if the points miss the streets: drag = move, Ctrl+wheel = scale, Shift+wheel = turn, hold Alt = fine. Saved per map and picture (docs/data/spawns/art-align.json)." />
+                <TextBlock Text=" align" VerticalAlignment="Center" FontSize="11.5" Margin="4,0,8,0" />
+                <Button Content="Reset" Style="{StaticResource SmallBtn}" Command="{Binding ResetAlign}" Margin="0,0,4,0" ToolTip="Back to the game's minimap frame exactly." />
+                <Button Content="Your picture…" Style="{StaticResource SmallBtn}" Command="{Binding LoadCustomArt}" Margin="0,0,12,0" ToolTip="Use your own image for this map (a site's layout picture, a screenshot); align it like the wiki art." />
+                <Button Content="🖼 Save image" Style="{StaticResource SmallAccent}" Click="SaveImage_Click" Margin="0,0,4,0" ToolTip="This view as a PNG (2x) in Pictures\Gunfight spawn maps." />
+                <Button Content="Save all maps" Style="{StaticResource SmallBtn}" Click="SaveAll_Click" ToolTip="Every scanned map as a picture: its map art, every spawn point, its pick (else what AUTO runs) highlighted." />
+              </StackPanel>
+              <TextBlock Text="{Binding ArtStatus}" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,4,0,0" TextWrapping="Wrap" MaxWidth="760"
+                         Visibility="{Binding ArtStatus, Converter={StaticResource NullVis}}" />
+              <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding ShowLive}" VerticalAlignment="Center"
+                          ToolTip="Where players ACTUALLY spawned (the mod reports every spawn): numbered in spawn order this round (1 = the first to spawn), team coloured, the tick shows facing; the spot each one used gets a white ring (x2, x3... = used that many times). Fill the lobby with bots and play or restart rounds to see which spots get used. Hover a dot for the player, the round and how they were placed." />
+                <TextBlock Text=" live spawns" VerticalAlignment="Center" FontSize="11.5" Margin="4,0,8,0" />
+                <ComboBox ItemsSource="{Binding LiveScopes}" SelectedItem="{Binding LiveScope}" Width="140"
+                          ToolTip="this round = numbered dots; this match / every round seen = earlier rounds as faded dots, rings count every use (a heat map of the spots)" />
+                <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding ShowNumbers}" VerticalAlignment="Center" Margin="12,0,0,0"
+                          ToolTip="Every spot's number next to it - the same number the hover shows and the in-game feed prints (spawn: ... near mp_spawn_point#N)." />
+                <TextBlock Text=" spot numbers" VerticalAlignment="Center" FontSize="11.5" Margin="4,0,8,0" />
+                <Button Content="Clear" Style="{StaticResource SmallBtn}" Command="{Binding ClearLive}" ToolTip="Forget the spawns collected for this map (the game keeps its own until the match ends)." />
+                <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding ShowObjectives}" VerticalAlignment="Center" Margin="12,0,0,0"
+                          ToolTip="★ = the objectives of every mode this map was scanned under: bomb sites, Domination flags, Hardpoint / Control zones, CTF flags (ring = the capture radius); small squares = the mode's other entities. Hover one for what it is. A mode's objectives exist only in its own scan - the scan tour collects them." />
+                <TextBlock Text=" objectives" VerticalAlignment="Center" FontSize="11.5" Margin="4,0,0,0" />
+              </StackPanel>
+              <TextBlock Text="{Binding LiveSpawnText}" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,4,0,0" TextWrapping="Wrap" MaxWidth="760"
+                         Visibility="{Binding LiveSpawnText, Converter={StaticResource NullVis}}" />
+            </StackPanel>
+          </Border>
+          <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="8" Background="#E6141720" CornerRadius="6" Padding="9,5"
+                  BorderBrush="{StaticResource Bd}" BorderThickness="1" IsHitTestVisible="False">
+            <StackPanel>
+              <TextBlock FontSize="10.5">
+                <Run Text="●" Foreground="{StaticResource TeamA}" /><Run Text=" allies side   " />
+                <Run Text="●" Foreground="{StaticResource TeamX}" /><Run Text=" axis side   " />
+                <Run Text="●" Foreground="{StaticResource TeamS}" /><Run Text=" either" />
+              </TextBlock>
+              <TextBlock FontSize="10.5" Style="{StaticResource Dim}" Text="filled = START (the mode opens there) · hollow = RESPAWN (mid-match pool) · tick = facing" />
+              <TextBlock FontSize="10.5" Style="{StaticResource Dim}" Text="■ BO2-named struct · ◆ S&amp;D group point · ★ objective · yellow ring = dense area · A / B halos = the selected layout" />
+              <TextBlock FontSize="10.5" Style="{StaticResource Dim}" Text="live: numbered dot = a real spawn this round (in order) · white ring = a spot that was used · faded = earlier rounds" />
+            </StackPanel>
+          </Border>
+        </Grid>
+      </Border>
+
+      <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ShowsPreview="False" />
+
+      <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
+        <StackPanel>
+
+          <Expander Style="{StaticResource Block}">
+            <Expander.Header><TextBlock Text="WHAT RUNS ON THIS MAP" Style="{StaticResource BlockTitle}" /></Expander.Header>
+            <StackPanel>
+              <TextBlock Text="LIVE (from the game)" Style="{StaticResource SubTitle}" Margin="0,0,0,2" />
+              <TextBlock Text="{Binding LiveText}" TextWrapping="Wrap" FontSize="11.5" FontFamily="{StaticResource Mono}" />
+              <TextBlock Style="{StaticResource Note}" Text="e = spawned by the engine's own start picker · a = on the mod's anchors · s = stock path (counts of living players this round)." />
+              <TextBlock Text="WITH NO PICK" Style="{StaticResource SubTitle}" />
+              <TextBlock Text="{Binding AutoText}" TextWrapping="Wrap" FontSize="11.5" />
+              <TextBlock Text="THIS MAP'S PICK" Style="{StaticResource SubTitle}" />
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding PickText}" TextWrapping="Wrap" FontSize="11.5" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Content="Clear pick" Style="{StaticResource SmallBtn}" Command="{Binding ClearPick}" Margin="8,0,0,0" ToolTip="Back to AUTO on this map (spawnpick clear)." />
+              </Grid>
+            </StackPanel>
+          </Expander>
+
+          <!-- the spawn settings (moved from ADVANCED): guard / family decide the WITH NO PICK line above -->
+          <ItemsControl ItemsSource="{Binding SettingsSections}" />
+
+          <Expander Style="{StaticResource Block}">
+            <Expander.Header><TextBlock Text="START LAYOUTS — EVERY WAY THE TEAMS COULD OPEN" Style="{StaticResource BlockTitle}" /></Expander.Header>
+            <StackPanel>
+              <TextBlock Style="{StaticResource Note}" Text="Each mode's authored starts, the S&amp;D group pairs, the engine's own list, and the best pairs of dense areas. Layouts that hold the team size on both sides come first. AUTO = what runs now with no pick." />
+              <ListBox ItemsSource="{Binding Layouts}" SelectedItem="{Binding SelectedLayout}" Height="280" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                       Background="{StaticResource Bg}" BorderBrush="{StaticResource Bd}" BorderThickness="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <StackPanel Margin="0,1">
+                      <StackPanel Orientation="Horizontal">
+                        <Border Style="{StaticResource Pill}" BorderBrush="{StaticResource Ok}" Margin="0,0,6,0" Visibility="{Binding Tag, Converter={StaticResource NullVis}}">
+                          <TextBlock Text="{Binding Tag}" Style="{StaticResource PillText}" Foreground="{StaticResource Ok}" />
+                        </Border>
+                        <TextBlock Text="{Binding Source}" FontWeight="SemiBold" FontSize="12" />
+                      </StackPanel>
+                      <TextBlock Text="{Binding Metrics}" Style="{StaticResource Dim}" FontSize="10.5" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <TextBlock Text="{Binding LayoutWhy}" Style="{StaticResource Note}" Margin="0,6,0,6" />
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                <Button Content="USE FOR THIS MAP" Style="{StaticResource OkBtn}" Command="{Binding UsePick}" Margin="0,0,3,0" MinHeight="34"
+                        ToolTip="Saves the layout as this map's pick (docs/data/spawns/picks.json) and, when the map is running, sends it (gf_sp_map / gf_sp_a / gf_sp_b + spawnpick): the next spawns use it. Other maps are never affected." />
+                <Button Grid.Column="1" Content="USE + RESTART ROUND" Style="{StaticResource WnBtn}" Command="{Binding UsePickRestart}" Margin="3,0,0,0" MinHeight="34"
+                        ToolTip="The same, then restart the round (map_restart(true), scores kept) so everyone spawns on it now." />
+              </Grid>
+            </StackPanel>
+          </Expander>
+
+          <Expander Style="{StaticResource Block}">
+            <Expander.Header><TextBlock Text="DENSE AREAS" Style="{StaticResource BlockTitle}" /></Expander.Header>
+            <StackPanel>
+              <TextBlock Style="{StaticResource Note}" Text="Where spawn points of ANY mode bunch together: the point with the most neighbours inside the radius (and height band) becomes an area, repeat. Pairs of areas holding the minimum a side are offered as start layouts - the game re-selects every spawn point inside each area's radius." />
+              <WrapPanel>
+                <TextBlock Text="radius" VerticalAlignment="Center" FontSize="11.5" />
+                <TextBox Style="{StaticResource Knob}" Text="{Binding AreaRadius, UpdateSourceTrigger=LostFocus}" ToolTip="units (150-3000); 0 = auto, scaled to the map (6 % of its spread, 200-800) - a Gunfight team opening spreads ~300-600" />
+                <TextBlock Text="height band" VerticalAlignment="Center" FontSize="11.5" />
+                <TextBox Style="{StaticResource Knob}" Text="{Binding AreaBand, UpdateSourceTrigger=LostFocus}" ToolTip="units up/down from the area's centre (keeps a rooftop out of a street area)" />
+                <TextBlock Text="min a side" VerticalAlignment="Center" FontSize="11.5" />
+                <TextBox Style="{StaticResource Knob}" Text="{Binding MinPerSide, UpdateSourceTrigger=LostFocus}" ToolTip="0 = the team size" />
+              </WrapPanel>
+            </StackPanel>
+          </Expander>
+
+          <Expander Style="{StaticResource Block}">
+            <Expander.Header><TextBlock Text="EVERY MODE ON THIS MAP — STARTS / MID-MATCH RESPAWNS" Style="{StaticResource BlockTitle}" /></Expander.Header>
+            <StackPanel>
+              <Grid Margin="6,0,6,2">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="50" /><ColumnDefinition Width="74" /><ColumnDefinition Width="84" /><ColumnDefinition Width="56" /></Grid.ColumnDefinitions>
+                <TextBlock Text="mode flag" Style="{StaticResource Dim}" FontSize="10" />
+                <TextBlock Grid.Column="1" Text="markers" Style="{StaticResource Dim}" FontSize="10" />
+                <TextBlock Grid.Column="2" Text="starts A+B" Style="{StaticResource Dim}" FontSize="10" />
+                <TextBlock Grid.Column="3" Text="respawns A+B" Style="{StaticResource Dim}" FontSize="10" />
+                <TextBlock Grid.Column="4" Text="either" Style="{StaticResource Dim}" FontSize="10" ToolTip="no side (.group_index 0): respawns, +Ns = starts" />
+              </Grid>
+              <ListBox ItemsSource="{Binding ModeRows}" SelectedItem="{Binding SelectedModeRow}" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <Grid ToolTip="{Binding Tip}">
+                      <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="50" /><ColumnDefinition Width="74" /><ColumnDefinition Width="84" /><ColumnDefinition Width="56" /></Grid.ColumnDefinitions>
+                      <TextBlock Text="{Binding Label}" FontSize="11.5" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Grid.Column="1" Text="{Binding Markers}" FontSize="11.5" FontFamily="{StaticResource Mono}" />
+                      <TextBlock Grid.Column="2" Text="{Binding StartsText}" FontSize="11.5" FontFamily="{StaticResource Mono}" />
+                      <TextBlock Grid.Column="3" Text="{Binding RespawnText}" FontSize="11.5" FontFamily="{StaticResource Mono}" />
+                      <TextBlock Grid.Column="4" Text="{Binding EitherText}" FontSize="11.5" FontFamily="{StaticResource Mono}" Foreground="{StaticResource TeamS}" />
+                    </Grid>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <TextBlock Style="{StaticResource Note}" Text="Click a row to plot it. A = allies side (.group_index 1), B = axis side (2), either = 0. The objective rows (DOM flags, Hardpoint zones, Control / Dem sets) are the respawn pools each objective state switches to." />
+            </StackPanel>
+          </Expander>
+
+          <Expander Style="{StaticResource Block}">
+            <Expander.Header><TextBlock Text="NAMED STRUCTS · S&amp;D GROUPS · OBJECTIVES · ENGINE LISTS" Style="{StaticResource BlockTitle}" /></Expander.Header>
+            <StackPanel>
+              <ListBox ItemsSource="{Binding Extras}" SelectedItem="{Binding SelectedExtra}" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <StackPanel ToolTip="{Binding Tip}">
+                      <TextBlock Text="{Binding Label}" FontSize="11.5" FontWeight="SemiBold" />
+                      <TextBlock Text="{Binding Value}" Style="{StaticResource Dim}" FontSize="10.5" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <TextBlock Style="{StaticResource Note}" Text="The engine lists are the LIVE lists of the mode shown in the status line at scan time (Gunfight when this map was scanned under it): start_spawn = where stock opens, auto_normal = its mid-match respawn pool. S&amp;D groups and objectives come from every mode scanned." />
+            </StackPanel>
+          </Expander>
+
+          <Expander Style="{StaticResource Block}">
+            <Expander.Header><TextBlock Text="SCAN TOUR — EVERY MAP UNDER ONE MODE" Style="{StaticResource BlockTitle}" /></Expander.Header>
+            <StackPanel>
+              <TextBlock Style="{StaticResource Note}" Text="The panel switches the session to each map in turn (Switch NOW - the lobby follows), waits for it to load under the mode, scans it and moves on: about a minute a map. Scans of the same map under different modes merge - run it once under Gunfight, then under S&amp;D, Domination, Hardpoint ... to collect each mode's groups and objectives. Start it from inside a match with the atlas build injected." />
+              <Grid Margin="0,2,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                <TextBlock Text="mode" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,8,4" />
+                <ComboBox Grid.Column="1" ItemsSource="{Binding TourGametypes}" SelectedItem="{Binding TourGametype}" DisplayMemberPath="Label" Margin="0,0,0,4" IsEnabled="{Binding TourIdle}" />
+                <TextBlock Grid.Row="1" Text="maps" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,8,0" />
+                <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding TourScopes}" SelectedItem="{Binding TourScope}" IsEnabled="{Binding TourIdle}" />
+              </Grid>
+              <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding TourReturn}" IsEnabled="{Binding TourIdle}" VerticalAlignment="Center" />
+                <TextBlock Text=" when done, switch back to the map + mode running now" VerticalAlignment="Center" FontSize="11.5" Margin="4,0,0,0" />
+              </StackPanel>
+              <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <Button Content="▶  START THE TOUR" Style="{StaticResource Accent}" Command="{Binding StartTour}" IsEnabled="{Binding TourIdle}" MinHeight="32"
+                        ToolTip="Asks once, then runs map after map: Switch NOW → wait for the map to load under the mode (150 s max, else skipped; two in a row halt the tour) → 8 s settle → spawnscan → file the atlas → next. The map already running goes first. Gunfight 3v3 counts as Gunfight." />
+                <Button Grid.Column="1" Content="■ Stop" Style="{StaticResource NgBtn}" Command="{Binding StopTour}" IsEnabled="{Binding TourRunning}" Margin="6,0,0,0" MinHeight="32" />
+              </Grid>
+              <TextBlock Text="{Binding TourStatus}" FontSize="11.5" TextWrapping="Wrap" Margin="0,6,0,0" Visibility="{Binding TourStatus, Converter={StaticResource NullVis}}" />
+              <ItemsControl ItemsSource="{Binding TourLog}" Margin="0,4,0,0">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate><TextBlock Text="{Binding}" FontSize="10.5" FontFamily="{StaticResource Mono}" Style="{StaticResource Dim}" TextWrapping="Wrap" /></DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Expander>
+
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+  </Grid>
+</UserControl>

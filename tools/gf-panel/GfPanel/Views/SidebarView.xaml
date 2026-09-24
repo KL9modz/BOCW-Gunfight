@@ -21,7 +21,7 @@
               <TextBlock Text="SERVER" Style="{StaticResource CardTitle}" />
               <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
                 <TextBlock Text="Map" Style="{StaticResource Dim}" FontSize="11" Margin="0,1,10,1" />
                 <TextBlock Grid.Column="1" Text="{Binding MapText}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,1" />
                 <TextBlock Grid.Row="1" Text="Gametype" Style="{StaticResource Dim}" FontSize="11" Margin="0,1,10,1" />
@@ -34,6 +34,9 @@
                 <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding PhaseText}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource Wn}" Margin="0,1" />
                 <TextBlock Grid.Row="5" Text="Host" Style="{StaticResource Dim}" FontSize="11" Margin="0,1,10,1" />
                 <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding HostText}" FontSize="11" Margin="0,1" />
+                <TextBlock Grid.Row="6" Text="Spawns" Style="{StaticResource Dim}" FontSize="11" Margin="0,1,10,1" />
+                <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding SpawnText}" FontSize="11" TextWrapping="Wrap" Margin="0,1"
+                           ToolTip="What the mod's spawn system runs this round (GFSTATE spn): a per-map pick, the family AUTO chose, or guard off - then how the living players were placed: e = the engine's start picker, a = the mod's anchors, s = stock. The SPAWNS tab has the whole picture." />
               </Grid>
               <TextBlock Text="{Binding StagedText}" Foreground="{StaticResource Wn}" FontSize="10.5" Margin="0,3,0,0" Visibility="{Binding StagedText, Converter={StaticResource NullVis}}" />
             </StackPanel>
@@ -86,11 +89,21 @@
             <TabItem Header="PLAYERS">
               <Grid>
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                <TextBlock Text="{Binding Players.Summary}" Style="{StaticResource Dim}" FontSize="10" Margin="4,4,0,2" />
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,2,4,2">
-                  <TextBlock Text="right-click a player for actions" Style="{StaticResource Dim}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0" />
-                  <Button Content="↻" Style="{StaticResource SmallBtn}" Command="{Binding RefreshPlayers}" Padding="6,0" ToolTip="re-scan the game now for the current roster / state (the panel also re-checks every 5 s)" />
+                <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Players.Summary}" Style="{StaticResource Dim}" FontSize="10" Margin="4,4,6,2" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                           ToolTip="{Binding Players.Summary}" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,2,4,2">
+                  <Button Command="{Binding MenuAllOn}" Style="{StaticResource SmallBtn}" Padding="6,0" Margin="0,0,4,0" Foreground="#FFC77DFF"
+                          ToolTip="menuall on - give EVERY human in the match (not you, not bots) their own client mod menu. Right-click one player to give or take one.">
+                    <TextBlock Text="★ Give all menus" FontSize="10.5" FontWeight="Bold" />
+                  </Button>
+                  <Button Command="{Binding MenuAllOff}" Style="{StaticResource SmallBtn}" Padding="6,0" Margin="0,0,6,0" ToolTip="menuall off - take back every client menu">
+                    <TextBlock Text="✖ Take all" FontSize="10.5" />
+                  </Button>
+                  <Button Content="↻" Style="{StaticResource SmallBtn}" Command="{Binding RefreshPlayers}" Padding="6,0" ToolTip="re-scan the game now for the current roster / state (the panel also re-checks every 5 s). Right-click a player for their actions." />
                 </StackPanel>
+                </Grid>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                   <StackPanel>
                     <Border Background="{StaticResource TeamADim}" BorderBrush="{StaticResource TeamA}" BorderThickness="3,0,0,0" Padding="6,2" Visibility="{Binding Players.Allies.Count, Converter={StaticResource CountVis}}">
@@ -133,9 +146,19 @@
       <Border Grid.Row="3" Style="{StaticResource Card}" BorderThickness="0,1,0,0">
         <Grid>
           <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-          <TextBlock Text="ACTIVITY" Style="{StaticResource CardTitle}" />
+          <DockPanel LastChildFill="False">
+            <TextBlock DockPanel.Dock="Left" Text="ACTIVITY" Style="{StaticResource CardTitle}" />
+            <!-- filter chips (bocw-84 2026-09-23): the menu log is the "menu · who › page › item → result" lines -->
+            <Button DockPanel.Dock="Left" Content="All" Style="{StaticResource SmallBtn}" Command="{Binding ActivityAll}" Padding="6,0" Margin="8,0,2,0" VerticalAlignment="Top" ToolTip="every line" />
+            <Button DockPanel.Dock="Left" Content="Menu log" Style="{StaticResource SmallBtn}" Command="{Binding ActivityMenu}" Padding="6,0" Margin="0,0,2,0" VerticalAlignment="Top"
+                    ToolTip="only what players did in their menus (host + every client menu): who › page › item → result. Right-click a player → Show their menu log for one player." />
+            <Button DockPanel.Dock="Left" Content="Hide sent" Style="{StaticResource SmallBtn}" Command="{Binding ActivityNoSent}" Padding="6,0" Margin="0,0,6,0" VerticalAlignment="Top" ToolTip="hide the raw lines the panel sent" />
+            <TextBlock DockPanel.Dock="Left" Text="{Binding ActivityFilterText}" Foreground="{StaticResource Wn}" FontSize="10" VerticalAlignment="Center" Visibility="{Binding ActivityFiltered, Converter={StaticResource Vis}}" />
+            <Button DockPanel.Dock="Right" Content="📂 saved logs" Style="{StaticResource SmallBtn}" Command="{Binding OpenLogs}" VerticalAlignment="Top"
+                    ToolTip="Every line here is also saved to %LOCALAPPDATA%\GfPanel\logs\activity-YYYY-MM-DD.log (one file a day, kept 90 days), with how each match ended, every player's menu actions and the last state line when a match stops." />
+          </DockPanel>
           <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-            <ItemsControl ItemsSource="{Binding Link.Activity}" />
+            <ItemsControl ItemsSource="{Binding ActivityView}" />
           </ScrollViewer>
         </Grid>
       </Border>

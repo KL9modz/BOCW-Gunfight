@@ -34,6 +34,7 @@ public sealed class KeyToBrush : IValueConverter
             "axis" or "x" => "TeamX",
             "spec" or "s" or "spectator" => "TeamS",
             "in" or "info" or "sent" => "Ac",
+            "menu" => "Tx",          // a player's menu action (GFLOG): plain text, the narrative of the match
             "ack" => "Ok",
             _ => "Dm",
         };

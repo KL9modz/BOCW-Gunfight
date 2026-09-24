@@ -55,7 +55,7 @@ answers go.
 | 7 | `EmpRebootIndicator` | EMP reboot overlay with a timed progress | — | times | per player | ✅ NEW · probe 6 |
 | 8 | objective progress ring, per-player markers, marker-on-entity | world icons | stock objective names | progress | all or chosen players | ✅ NEW · probe 7 |
 | 9 | `setclientuivisibilityflag` / `setclienthudhardcore` / `setclientminiscoreboardhide` | hide HUD / hardcore HUD / no mini-score | — | — | per player | ✅ NEW · probe 8 |
-| 10 | `printtoprightln` | top-right text, coloured | ✅ if it draws | ✅ | ? | ❓ NEW · probe 11 |
+| 10 | `printtoprightln` | top-right text, coloured | ✅ if it draws | ✅ | ? | 🚫 probe 11 disabled — dev-only in every stock caller, check-gsc fails it |
 | 11 | `setclientcgobjectivetext` | the per-client objective text (scoreboard / pause?) | ❓ | — | per player | ❓ NEW · probes 12 / 20 |
 | 12 | `lui::timer` → `HudElementTimer` | positioned countdown | — | ✅ | per player | ❓ probe 13 (listed untried in [lui-elems](lui-elems.md)) |
 | 13 | `MPHintText` | hint box | ❓ | — | per player | ❓ probes 14 / 21 (listed untried in [lui-elems](lui-elems.md)) |
@@ -121,6 +121,16 @@ Colours and alpha travel pre-quantised — the stock setters send `int( value * 
 `width`/`height` by **4** (`luielembar.gsc` `function_e5898fd7` / `function_35f52fe9`); the one
 calibration on record ([lui-elems](lui-elems.md), client-local `LUIelemText`) found non-pixel, per-axis
 scales, so expect to calibrate once from a screenshot.
+⚠ **The client Lua disagrees on WIDTH** (read 2026-09-24 from `lui-source` core_ui_0685 `#LUIelemBar` +
+core_ui_1446, not measured): it draws x / y at `15 * v`, height at `4 * v`, but **width at `8 * v`** — a
+stock-helper width comes out twice as wide. The bar is a BLACK background image plus a `uie_wipe_normal`
+foreground (1 px inset) filled by `bar_percent` (the Lua divides it by 63, so the stock 127 is over-full —
+still full); **red / green / blue tint the foreground only**; alpha is set on the element and on both images.
+It sets no draw priority. (`#luielemimage`'s image is `LUI.UIElement.createFake()` in this build — it draws
+nothing.) Transport: `lui_shared` sends ONE queued field event per server frame (`function_1c4c4975`, a
+global queue — no stock MP user) and skips a value it already sent (`function_bed1b789`'s per-player cache),
+so clear that cache before a RE-open as well as on close, or the reopened element never gets its fields.
+Used by the menu backdrop (`gunfight_menu.gsc` MENU BACKDROP, gf_hb0 / gf_hb1, 2026-09-24).
 
 **The call shape** — host GSC, no client payload, no `#using` of the element script (nothing in MP links
 `luielembar.gsc`; the builtins and `lui_shared` are enough):
@@ -129,7 +139,7 @@ scales, so expect to calibrate once from a screenshot.
 e = #"luielembar";                                   // == hash( "LUIelemBar" ); hash() lowercases
 player openluielem( e, 0, 0 );                       // instance 0 (nothing in MP uses the name)
 player lui::function_bb6bcb89( e, 0, 1, 8, 0 );      // x      (15-px units)
-player lui::function_bb6bcb89( e, 0, 3, 75, 0 );     // width  (4-px units)
+player lui::function_bb6bcb89( e, 0, 3, 75, 0 );     // width  (8-px units by the client Lua; the stock helper assumes 4)
 player lui::function_bb6bcb89( e, 0, 6, 15, 0 );     // alpha  (0-15)
 player lui::function_bb6bcb89( e, 0, 7, 15, 0 );     // red
 player lui::function_bb6bcb89( e, 0, 10, 127, 0 );   // bar_percent: full = a box
@@ -254,6 +264,10 @@ screen while the menu is open, a *hardcore HUD* toggle, a caster/recording mode.
   all 51 stock uses are debug. Only ever called in the **pregame lobby** ([pregame-routes](pregame-routes.md)
   P7), where `iprintln` did not render either, so the lobby null says nothing about a match. If it draws,
   it is a fourth free-text region (top right, coloured).
+  ⚠ **Stage 11 DISABLED in `hud_probe` (2026-09-24, bocw-84):** `tools/check-gsc.ps1` FAILS the payload on it
+  (*"DEV-ONLY printtoprightln() — Dev only calls must be wrapped in a devblock"*), and every stock call sits in a
+  dev block — the project's crash rule 4. The stage now only prints SKIPPED; the call is not in the payload.
+  Re-enabling it would need its own launch you can lose.
 - **`setclientcgobjectivetext( text )`** — the per-client objective text (`globallogic_ui.gsc:246-275`).
   Stock passes localized keys and `""`; Gunfight sets none. Where Cold War shows it (scoreboard header?
   pause menu?) is the first question; whether it takes plain text (probe 20) the second.
@@ -508,6 +522,84 @@ break into lines, or misbehave the same way. Probe stage 23, opt-in (`gf_hud_nl 
 lose; it tries the centre first, then the feed. If the centre takes it, the carousel can become a
 real multi-row centre list. If not, the multi-line surfaces stay the feed (~4 lines), `TempDialog` (stage 15)
 and the popup ([pause-menu](pause-menu.md)).
+
+❌ **MEASURED 2026-09-24 01:15 + 01:16 (8bit hosting, dm on Zoo, the panel's saved log): the CENTRE test CLOSES
+THE MATCH.** One `iprintlnbold( "^3GF line one\n^2GF line two\n^5GF line three" )` (two line breaks), 1 s after
+Host → *Line breaks: centre test* — the state feed went silent that second and the panel's verdict was
+"⚠ MATCH DROPPED mid-round"; repeated in the next match, same result (9 s in). Then (01:29 / 01:30 / 01:34,
+Raid) ONE TRAILING break — stock's exact `straferun.gsc:746` shape, `iprintlnbold( "GF TRAILING LINE BREAK
+TEST!\n" )` — dropped the match three times, and (01:36) the FEED, `iprintln` with one `\n`, dropped it too. The
+client shows **"An error occurred: Kilo 946 Sick Crocodile"**; no crash dump is written, the lobby survives.
+⇒ **Hint widget, centre print, feed: every 0x0A the server sends closes the match — it is the server-to-client
+TEXT TRANSPORT, not a widget.** Never send a string holding a newline byte, in any channel.
+▶ Rows WITHOUT that byte (build AAB2A185, `nltest wrap | wrapfeed | escape | parts`) — ✅ **MEASURED 2026-09-24
+02:00-02:03, no match drop, and ALL ONE LINE (klaze):** the centre print does NOT wrap a ~190-char line; a literal
+backslash + n is NOT turned into a break; one print built from plain text + stock localized keys (iprintlnbold is
+variadic — killstreaks_shared.gsc:2140) renders as ONE line — so composing text + keys works and is safe. The one
+row route left in the print channels is a **localized separator**: a stock key whose own TEXT holds a line break,
+placed between our strings (`iprintlnbold( "row 1", #"<key>", "row 2" )`) — the client inserts the break from its
+string table and the wire never carries 0x0A. Research running for such a key; other channels = `hud_probe`.
+
+▶ **In the menu since 2026-09-24 (bocw-84)** — no probe launch needed: stage 23's two prints, verbatim, as
+`gunfight_menu.gsc` `nltest_run( which )` behind **Host → *Line breaks: centre test* / *feed test*** and the
+app verb `nltest centre|feed` (TOOLS → *Line-break test*). One-shot, only when picked, one channel at a time,
+never the hint widget. The in-game row **closes the menu first and prints 1 s later** (`act_nltest` →
+`nltest_later`): the menu repaints the moment an action returns, and the region-2 carousel IS a centre
+print — it would draw straight over the test. The app verb prints at once, so close the in-game menu before
+pressing it. Stock retail code already carries a trailing `\n` in an `iprintlnbold`
+(`straferun.gsc:746/797`) — a data point, not proof it ran. Run it on a throwaway match: the host is the
+server, so a close ends it for everyone. (Those rows are gone: every text test now sits on **Host → *Text
+tests***, and none of them sends a newline byte.)
+
+▶ **Why the byte closes the match — read from the exe (research subagent 2026-09-24, static, not run).**
+`acts errdec Kilo 946 Sick Crocodile` → **0x4465AF10**, which appears once in the decrypted exe, inside the
+client's print-token decoder (function RVA 0xB722BF0; the server-side encoder is RVA 0xB723470). Each print
+argument travels as a tagged token: **0x10** localized key by bgcache index, **0x11** localized key by raw
+63-bit hash, **0x12** raw string (copied verbatim, no escaping), **0x13 / 0x14 / 0x15** `%d` / `%u` / `%f`,
+sent as the reliable command `%c "%s"`. The client reads a 0x12 string only while each byte is **≥ 0x20**, then
+expects the next byte to be a tag; 0x0A is none of 0x10-0x15, so it raises 0x4465AF10. ⇒ **any byte
+0x01-0x1F in a plain string should close the match the same way** (tab, CR) — not measured; the build
+verifier now counts strings holding any byte < 0x20 (must be 0). A localized token's TEXT is looked up,
+decrypted and spliced in AFTER that check — token 0 appended, token k replacing every `&&k` (`&&%d`); a token
+with no `&&k` to fill is dropped silently. So a break inside a stock string never meets the check, and the
+`parts` probe above (plain text FIRST) had nothing to fill — only its plain text showed. The template goes
+first, as stock does (`killstreaks_shared.gsc:2140`).
+
+Stock keys whose own text holds a break — checked byte for byte in the PATCHED English zones (`acts -t
+fastfile -p`; about 75 % of entries are encrypted, decrypted by emulating the game's DecryptString; 86,094
+keys, 1,273 with a break; none of these is bgcache-registered):
+
+| key | text | zone |
+|---|---|---|
+| `05d4b2d29288addf` | `&&1` ⏎ `^1&&2` (row 2 red unless the argument sets `^7`) | en_core_ui |
+| `4bbedc6ab4ae8696` | `&&1` ⏎⏎ `&&2` ⏎⏎ `&&3` (stock Lua uses it with 3 params) | en_core_ui |
+| `5bb215c6cac4bf1b` | `&&1` ⏎ ` - &&2` | en_core_ui |
+| `153d54ebf11dd5b5` | `^G&&1` ⏎ `^N&&2` ⏎ (current build only) | en_core_ui |
+| `45cdd914de33105a` | `D` ⏎ (fill it into OUR layout's `&&1`..`&&9`: every row ends in a "D") | en_mp_common |
+
+No key holds a lone line break. en_core_ui is loaded in MP matches (the MP HUD draws "MATCH BEGINS IN" from it).
+
+✅ **BUILT, NOT RUN (live AE827AAE, 2026-09-24 03:13): Host → *Text tests* and the app's TOOLS → PLAYER STATE
+block, *Line breaks from stock text* buttons 1-6, verb `nltest loca..locf`** — none sends a byte < 0x20:
+
+| test | call | expect |
+|---|---|---|
+| 1 `loca` control | `iprintlnbold( #"mp/opponent_forfeiting_in", "GF" )` | "Enemies forfeiting in GF seconds" |
+| 2 `locb` unregistered | `iprintlnbold( #"hash_6cac84e90d9b659", "GF-A", "GF-B", "GF-C" )` (`&&1 &&2 &&3`) | "GF-A GF-B GF-C"; blank = unregistered keys do not resolve (then 3-6 print blank too) |
+| 3 `locc` | `iprintlnbold( #"hash_5d4b2d29288addf", "^3GF row one", "^7GF row two" )` | two rows? |
+| 4 `locd` | `iprintlnbold( #"hash_4bbedc6ab4ae8696", "^3GF row 1", "^7GF row 2", "^2GF row 3" )` | three rows, gaps between |
+| 5 `loce` | `iprintlnbold( "^7GF one ENABLE&&1^7GF two DISABLE&&2^7GF three", #"hash_45cdd914de33105a", #"hash_45cdd914de33105a" )` | "GF one ENABLED / GF two DISABLED / GF three" |
+| 6 `locf` | test 3 through `iprintln` | two feed rows? |
+
+Unknown until run: whether the centre / feed widgets DRAW a localized break (the decoder does not block it),
+and which tag the print builtin gives a hash argument (0x10 or 0x11 — test 2 settles it). Read from the code,
+the worst case for an unregistered key is a blank print plus a non-fatal console line ("Quebec 646 Tropic
+Breakfast") — a drop is not expected, but that is inference. From the same research, read, not run: the MP
+centre shows ONE entry by design (mp_common_0175: multiplayer 1 line, other modes 7) and neither text element
+wraps (non-wrapping horizontal mode) — matching the measured wrap probes; the script message dialog
+(`ScriptMessageDialog_Compact`, core_ui_1146) DOES wrap plain text at 1000 px, the no-break multi-line route
+if the keys fail (modal; closing it is its own problem). Research files: the session scratchpad
+`nlresearch\` (`localize_en_decrypted.json`, `linebreak_keys.tsv`, `emudec.py`, `locdump2.py`, `merge.py`).
 
 ## Not in T9 — do not re-look
 
