@@ -11,6 +11,11 @@ public static class Program
 {
     public static int Main(string[] args)
     {
+        if (args.Contains("--write-ui-surface"))
+        {
+            UiSurfaceTests.WriteBaseline();
+            return 0;
+        }
         var listOnly = args.Contains("--list");
         var filters = args.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
 

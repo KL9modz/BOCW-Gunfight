@@ -1,0 +1,465 @@
+# Everything a user can do from the panel's views - kept reachable through the redesign (UiSurfaceTests).
+# cmd:<Command> [<literal parameter>|{<bound parameter>}]  ·  set:<two-way input property>  ·  click:<handler>
+# Regenerate after an INTENDED change:  dotnet run --project tools/gf-panel/GfPanel.Tests -- --write-ui-surface
+# 461 keys.
+click:Cancel_Click
+click:Fit_Click
+click:Ok_Click
+click:SaveAll_Click
+click:SaveImage_Click
+cmd:ActivityAll
+cmd:ActivityMenu
+cmd:ActivityNoSent
+cmd:AddAllies
+cmd:AddAuto
+cmd:AddAxis
+cmd:AddToPlaylist
+cmd:AllOff
+cmd:AmmoAll
+cmd:Announce
+cmd:Apply
+cmd:ApplyAllLive
+cmd:ApplyPreset Godlike
+cmd:ApplyPreset Potato
+cmd:ApplyPreset Stock Veteran copy
+cmd:ApplyPreset Veteran+ (custom default)
+cmd:ApplyPresetCmd {Binding}
+cmd:ApplyProfile
+cmd:BalanceHumans
+cmd:Ban
+cmd:Black
+cmd:Camo
+cmd:CamoHost
+cmd:Clear
+cmd:ClearBans
+cmd:ClearLive
+cmd:ClearPick
+cmd:ClearPlaylist
+cmd:ClearSelection
+cmd:CopyCommand
+cmd:CopyName
+cmd:CopyXuid
+cmd:Countdown
+cmd:Delete
+cmd:DeleteAllProps
+cmd:DeleteAllVehicles
+cmd:DeleteEverything
+cmd:DeletePreset
+cmd:DeletePresetCmd {Binding}
+cmd:DeleteProfile
+cmd:DestructAim
+cmd:DestructAll
+cmd:DestructNear
+cmd:DisguisePick
+cmd:DropWeapon
+cmd:DrunkOff
+cmd:DrunkOn
+cmd:EndMatch
+cmd:EndRoundAllies
+cmd:EndRoundAxis
+cmd:EndRoundDraw
+cmd:Enter
+cmd:EvenUp
+cmd:Exit
+cmd:ExpAgain
+cmd:ExpAll
+cmd:ExpNext
+cmd:ExpPrev
+cmd:ExpStop
+cmd:ExpStopAll
+cmd:FadeProbe
+cmd:FastRestart
+cmd:Fill
+cmd:Fill {Binding}
+cmd:FillBots
+cmd:Fly
+cmd:FlyCmd
+cmd:ForgeModeOff
+cmd:ForgeModeOn
+cmd:Freeze
+cmd:FreezeAll
+cmd:FreezeAllOff
+cmd:FreezeAllOn
+cmd:FreezeToggle
+cmd:Fun camorandom
+cmd:Fun cannon off
+cmd:Fun cannon on
+cmd:Fun disco off
+cmd:Fun disco on
+cmd:Fun disg next
+cmd:Fun disg off
+cmd:Fun disg prev
+cmd:Fun disg random
+cmd:Fun flybind off
+cmd:Fun flybind on
+cmd:Fun nadeswap off
+cmd:Fun nadeswap on
+cmd:Fun propgun off
+cmd:Fun propgun on
+cmd:Fun slidemode 0
+cmd:Fun slidemode 1
+cmd:Fun slidemode 2
+cmd:GiveAll
+cmd:GiveHost
+cmd:GivePerks
+cmd:GiveWeapon
+cmd:Go
+cmd:GoToHit {Binding}
+cmd:GodAllOff
+cmd:GodAllOn
+cmd:GodMode
+cmd:GrantOff
+cmd:GrantOn
+cmd:Grey
+cmd:InjectBridge
+cmd:InjectLobbyCmd
+cmd:InjectMenuCmd
+cmd:InsertColor {Code}
+cmd:InstallCwpatch
+cmd:InvisOff
+cmd:InvisOn
+cmd:Kick
+cmd:Kill
+cmd:LoadCustomArt
+cmd:MatchInfo
+cmd:MaxAmmo
+cmd:MenuAllOff
+cmd:MenuAllOn
+cmd:Message
+cmd:ModeAllOff
+cmd:ModeAllOn
+cmd:ModeHostOff
+cmd:ModeHostOn
+cmd:ModeTargetOff
+cmd:ModeTargetOn
+cmd:MoveAllies
+cmd:MoveAxis
+cmd:MoveDown {Binding}
+cmd:MoveUp {Binding}
+cmd:Navy
+cmd:Next
+cmd:Off
+cmd:OpenBundleDir
+cmd:OpenDataDir
+cmd:OpenFolder
+cmd:OpenLogs
+cmd:Operator
+cmd:OperatorHost
+cmd:Outfit
+cmd:OutfitHost
+cmd:ParaAll
+cmd:ParaHost
+cmd:ParaOff
+cmd:PauseCmd
+cmd:PerksAll
+cmd:PerksClear
+cmd:PickPayload
+cmd:PinCommand
+cmd:Place
+cmd:PlaySound
+cmd:Prev
+cmd:ProjAll
+cmd:ProjDebug
+cmd:ProjHoming
+cmd:ProjHost
+cmd:ProjMethodSet
+cmd:ProjOff
+cmd:ProjRateSet
+cmd:ProjTrail
+cmd:ProjWeapon
+cmd:Purple
+cmd:PushFavs
+cmd:Quake
+cmd:RaceClear
+cmd:RaceEndMatch
+cmd:RaceGate
+cmd:RaceLoad
+cmd:RaceMarkers
+cmd:RaceResetMe
+cmd:RaceStart
+cmd:RaceStop
+cmd:RaceUndo
+cmd:Refresh
+cmd:RefreshPlayers
+cmd:RelaunchMatch
+cmd:Remove {Binding}
+cmd:RemoveAll
+cmd:RemoveBots
+cmd:RemoveFav {Binding}
+cmd:RemoveOne
+cmd:ResetAlign
+cmd:ResetAllCommand
+cmd:ResetCommand
+cmd:RestartMatch
+cmd:RestartMatchCmd
+cmd:RestartRound
+cmd:ResumeCmd
+cmd:Rotate
+cmd:Run {Binding}
+cmd:SavePreset
+cmd:SaveProfile
+cmd:Scan
+cmd:Select {Binding}
+cmd:Send
+cmd:Send camorandom
+cmd:Send cannon off
+cmd:Send cannon on
+cmd:Send cannonblast off
+cmd:Send cannonblast on
+cmd:Send cannonkeep off
+cmd:Send cannonkeep on
+cmd:Send cannonride off
+cmd:Send cannonride on
+cmd:Send disco all off
+cmd:Send disco all on
+cmd:Send disco none
+cmd:Send disco off
+cmd:Send disco on
+cmd:Send disg next
+cmd:Send disg off
+cmd:Send disg prev
+cmd:Send disg random
+cmd:Send disgheight 0
+cmd:Send disgheight 20
+cmd:Send disgheight 40
+cmd:Send disgsize 0.5
+cmd:Send disgsize 1
+cmd:Send disgsize 2
+cmd:Send disgsize 4
+cmd:Send flybind off
+cmd:Send flybind on
+cmd:Send ft autolink off
+cmd:Send ft autolink on
+cmd:Send ft delete
+cmd:Send ft link 0
+cmd:Send ft link 1
+cmd:Send ft move fwdback
+cmd:Send ft move leftright
+cmd:Send ft move stop
+cmd:Send ft move updown
+cmd:Send ft rev off
+cmd:Send ft rev on
+cmd:Send ft solid
+cmd:Send ft speed 1
+cmd:Send ft speed 2
+cmd:Send ft speed 3
+cmd:Send ft spin -1
+cmd:Send ft spin 0
+cmd:Send ft spin 1
+cmd:Send ft spin 2
+cmd:Send ft spray 0
+cmd:Send ft spray 100
+cmd:Send ft spray 250
+cmd:Send ft spray 500
+cmd:Send ft tilt -90 0
+cmd:Send ft tilt 0 0
+cmd:Send ft tilt 0 180
+cmd:Send ft tilt 0 90
+cmd:Send ft tilt 45 0
+cmd:Send nadeswap all off
+cmd:Send nadeswap all on
+cmd:Send nadeswap none
+cmd:Send nadeswap off
+cmd:Send nadeswap on
+cmd:Send projcount 1
+cmd:Send projcount 3
+cmd:Send projcount 5
+cmd:Send projcount 8
+cmd:Send propgun off
+cmd:Send propgun on
+cmd:Send slide 100
+cmd:Send slide 150
+cmd:Send slide 200
+cmd:Send slide 300
+cmd:Send slidechain off
+cmd:Send slidechain on
+cmd:Send slidehold off
+cmd:Send slidehold on
+cmd:Send slidemode 0
+cmd:Send slidemode 1
+cmd:Send slidemode 2
+cmd:Send slidesuper 0
+cmd:Send slidesuper 1000
+cmd:Send slidesuper 1600
+cmd:Send slidesuper 600
+cmd:SendPulsed
+cmd:SetBoth -1
+cmd:SetBoth 0
+cmd:SetBoth 1
+cmd:SetBoth 2
+cmd:SetBoth 3
+cmd:SetBoth 4
+cmd:SetCommand
+cmd:SetNav
+cmd:SetNext {Binding}
+cmd:SetOthers
+cmd:SetupAll
+cmd:ShowMenuLog
+cmd:SlowmoApply
+cmd:SlowmoReset
+cmd:SpawnBarrel
+cmd:SpawnFav {Binding}
+cmd:SpawnProp
+cmd:SpawnReport
+cmd:Spectate
+cmd:Speed0
+cmd:Speed150
+cmd:Speed200
+cmd:Speed50
+cmd:Stage
+cmd:StageA
+cmd:StageApply
+cmd:StageClear
+cmd:StageClearAll
+cmd:StageNextNow
+cmd:StageS
+cmd:StageX
+cmd:StartTour
+cmd:StepDown
+cmd:StepUp
+cmd:StopTour
+cmd:StreakBow
+cmd:StreakGive
+cmd:StreakNuke
+cmd:StreakPicked
+cmd:StreakRcxd
+cmd:Strip
+cmd:SwitchNow
+cmd:TakeWeapon
+cmd:TextTest escape
+cmd:TextTest loca
+cmd:TextTest locb
+cmd:TextTest locc
+cmd:TextTest locd
+cmd:TextTest loce
+cmd:TextTest locf
+cmd:TextTest parts
+cmd:TextTest wrap
+cmd:TextTest wrapfeed
+cmd:ThirdAllOff
+cmd:ThirdAllOn
+cmd:ThirdPerson
+cmd:ThirdPersonCmd
+cmd:ToggleFav
+cmd:ToggleMenu
+cmd:TpAllAim
+cmd:TpAllCentre
+cmd:TpAllMe
+cmd:TpAllSaved
+cmd:TpEnemyAim
+cmd:TpEnemyMe
+cmd:TpGunAll
+cmd:TpGunHost
+cmd:TpMeAim
+cmd:TpMeCentre
+cmd:TpMeSaved
+cmd:TpMeToThem
+cmd:TpNadeAll
+cmd:TpNadeHost
+cmd:TpSave
+cmd:TpSwap
+cmd:TpTeamAim
+cmd:TpTeamMe
+cmd:TpToMe
+cmd:TrackDelete
+cmd:TrackLoad
+cmd:TrackSave
+cmd:Unban
+cmd:Undo
+cmd:UnlockAll
+cmd:UseLive
+cmd:UsePick
+cmd:UsePickRestart
+cmd:VehClear
+cmd:VehEnter
+cmd:VehLiveryNext
+cmd:VehLiveryPrev
+cmd:VehSpawn
+cmd:VehSpawnOther
+cmd:VisionApply
+cmd:VisionDefault
+cmd:ZoneCensus
+set:A
+set:AlignMode
+set:All
+set:ApplyLiveOnChange
+set:AreaBand
+set:AreaRadius
+set:ArtOpacity
+set:Audience
+set:AutoScan
+set:BarrelsOnly
+set:CamoId
+set:Dur
+set:Gametype
+set:GrantTarget
+set:H
+set:Host
+set:Indent
+set:InjectLobby
+set:Input
+set:IsDropDownOpen
+set:IsExpanded
+set:IsOn
+set:JoinBeep
+set:JoinToast
+set:Layer
+set:Live
+set:LiveScope
+set:Loc
+set:MinPerSide
+set:NavText
+set:NorthUp
+set:OperatorId
+set:OthersText
+set:OutfitId
+set:Payload
+set:PlaylistEnabled
+set:ProjMethod
+set:ProjRate
+set:Scale
+set:Search
+set:Selected
+set:SelectedArt
+set:SelectedCamo
+set:SelectedCannon
+set:SelectedChoice
+set:SelectedDisguise
+set:SelectedExtra
+set:SelectedIcon
+set:SelectedLayout
+set:SelectedModeRow
+set:SelectedNade
+set:SelectedOperator
+set:SelectedOtherVehicle
+set:SelectedPerk
+set:SelectedPreset
+set:SelectedProfile
+set:SelectedProjectile
+set:SelectedSound
+set:SelectedStreak
+set:SelectedTrack
+set:SelectedVehicle
+set:SelectedVision
+set:SelectedWeapon
+set:ShowAll
+set:ShowAreas
+set:ShowLive
+set:ShowMap
+set:ShowNumbers
+set:ShowObjectives
+set:ShowProps
+set:ShowUniversal
+set:ShowVehicles
+set:StreakTarget
+set:Text
+set:Timescale
+set:TourGametype
+set:TourReturn
+set:TourScope
+set:TrackName
+set:Value
+set:VisionName
+set:W
+set:X
+set:Y
