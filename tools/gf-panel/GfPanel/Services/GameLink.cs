@@ -41,6 +41,11 @@ public sealed class GameLink : IDisposable
     private int _busy;
     private DateTime _scannerSince = DateTime.MinValue, _lastSweep = DateTime.MinValue, _lastForce = DateTime.MinValue;
     private bool _fullDone;
+    // the main sweep's own result + readout: the RACING page's fast race sweep shares the scanner, and its
+    // LastSweepHit / How must not make the main tick think it is idle (a miss backs the main sweep off to 5 s)
+    private bool _mainSweepHit;
+    private string _mainSweepInfo = "";
+    private double _mainSweepMs;
     private int _refreshRequested;
     /// <summary>The PLAYERS ↻ button: the next tick sweeps for NEWER copies of every marker (see MemoryScanner.Sweep force).</summary>
     public void RequestRefresh() { Interlocked.Exchange(ref _refreshRequested, 1); Log("re-scanning the game for the current roster / state", LogLevel.Info); }
@@ -53,6 +58,8 @@ public sealed class GameLink : IDisposable
 
     private static readonly string[] Markers = { "GFSTATE", "GFPLAYERS", "GFCFG", "GFROSTER", "GFMAPVEH", "GFMAPPROP", "GFMAPSPAWN", "GFMAPDEST", "GFLOBBY" };
     public static readonly TimeSpan TickPeriod = TimeSpan.FromMilliseconds(1500);
+    /// <summary>The timer's own period: the full tick runs every third one, the RACING page's live read in between.</summary>
+    public static readonly TimeSpan FastPeriod = TimeSpan.FromMilliseconds(500);
     public static readonly TimeSpan StateFresh = TimeSpan.FromSeconds(6);
 
     public BridgeSender Sender { get; } = new();
@@ -131,6 +138,38 @@ public sealed class GameLink : IDisposable
     /// <summary>The ENTITIES tab's Refresh: collect on the next tick whatever the stamp says.</summary>
     public void RequestEntities() => Interlocked.Exchange(ref _entRefresh, 1);
 
+    // ── the RACING page (2026-09-24): GFRACE - every player's position + the race, published every 0.5 s while
+    //    gf_race_live is 1 - read on the fast tick while the page shows; GFTRACK - the whole track - collected
+    //    when its version moves (GFRACE ver, else GFSTATE rtv=) or on request ──
+    private static readonly string[] RaceMarkers = { "GFRACE" };
+    /// <summary>A newer live race line arrived.</summary>
+    public event Action<RaceLive>? RaceLiveReceived;
+    /// <summary>A complete track arrived (also when its version did not move - a requested re-read).</summary>
+    public event Action<RaceTrack>? TrackReceived;
+    private volatile bool _wantRace;
+    private long _lastRaceTick = -1, _trackWanted, _trackSeen = -1;
+    private int _trackRefresh, _trackTries, _trackForceTries, _fastN;
+    private DateTime _lastTrackCollect = DateTime.MinValue, _lastRaceRegion = DateTime.MinValue, _lastRaceAt = DateTime.MinValue, _lastLiveAsk = DateTime.MinValue;
+    /// <summary>The RACING page is showing: the game is asked for the live line (gf_race_live) and it is read every 0.5 s.</summary>
+    public bool WantRace
+    {
+        get => _wantRace;
+        set
+        {
+            if (_wantRace == value) return;
+            _wantRace = value;
+            AskLive(value);
+            if (value) RequestTrack();
+        }
+    }
+    private void AskLive(bool on)
+    {
+        _lastLiveAsk = DateTime.UtcNow;
+        _ = SendRaw(new[] { "set gf_race_live " + (on ? 1 : 0) }, 5);
+    }
+    /// <summary>Collect the track on the next fast tick whatever its version says (after an edit, before a Save).</summary>
+    public void RequestTrack() { Interlocked.Exchange(ref _trackRefresh, 1); _trackForceTries = 0; }
+
     // ── the live spawn events (GFSPAWNED): collected when GFSTATE spv= moves, never on a timer ──
     /// <summary>The match's spawn events arrived: (map, match id, events).</summary>
     public event Action<string, long, List<SpawnEvent>>? SpawnEventsReceived;
@@ -155,7 +194,7 @@ public sealed class GameLink : IDisposable
         Sender.DryRun = App.DryRun;
         Sender.LineSent += (line, listening) => _ui.BeginInvoke(() => Log((App.DryRun ? "[dry] " : "") + line + (listening ? "" : "   (bridge not listening)"), LogLevel.In));
         Matches = new MatchTracker(LogAt, ActivityFile.Detail, () => Players);
-        _timer = new Timer(_ => Tick(), null, 300, (int)TickPeriod.TotalMilliseconds);
+        _timer = new Timer(_ => Tick(), null, 300, (int)FastPeriod.TotalMilliseconds);
     }
 
     public void Dispose()
@@ -188,9 +227,57 @@ public sealed class GameLink : IDisposable
     private void Tick()
     {
         if (Interlocked.Exchange(ref _busy, 1) == 1) return;    // never overlap sweeps
-        try { TickBody(); }
+        try
+        {
+            if (_fastN++ % 3 == 0) TickBody();                  // the full tick: every TickPeriod
+            if (_wantRace) RaceTick();                           // the RACING page: every FastPeriod
+        }
         catch (Exception e) { LastError = e.Message; }
         finally { _busy = 0; }
+    }
+
+    /// <summary>The RACING page's read: the newest live line (the window around its last address - every line is a
+    /// new string near the last; the pool region at most every 3 s), and the whole track when its version moved.</summary>
+    private void RaceTick()
+    {
+        var scanner = _scanner;
+        if (scanner == null) return;
+        RaceLive? live = null;
+        RaceTrack? track = null;
+        var now = DateTime.UtcNow;
+        try
+        {
+            var regionOk = now - _lastRaceRegion >= TimeSpan.FromSeconds(3);
+            var hits = scanner.Sweep(RaceMarkers, false, 400, force: true, regionOk: regionOk);
+            if (scanner.LastSweepHow == "region") _lastRaceRegion = now;
+            if (hits.TryGetValue("GFRACE", out var h) && h.Tick > _lastRaceTick && RaceLive.Parse(h.Tick, h.Body) is { } l)
+            {
+                live = l;
+                _lastRaceTick = h.Tick; _lastRaceAt = now;
+                if (l.TrackVer != 0 && l.TrackVer != Interlocked.Read(ref _trackWanted)) Interlocked.Exchange(ref _trackWanted, l.TrackVer);
+            }
+            // no live line for 5 s while the game is up: it forgot gf_race_live (a relaunch clears dvars) - ask again
+            if (now - _lastRaceAt > TimeSpan.FromSeconds(5) && now - _lastLiveAsk > TimeSpan.FromSeconds(10) && SinceState < StateFresh) AskLive(true);
+
+            var tw = Interlocked.Read(ref _trackWanted);
+            var force = Interlocked.Exchange(ref _trackRefresh, 0) == 1;
+            if ((force || (tw != 0 && tw != _trackSeen)) && now - _lastTrackCollect >= TimeSpan.FromSeconds(1))
+            {
+                _lastTrackCollect = now;
+                track = RaceTrack.FromHits(scanner.CollectAll("GFTRACK", wide: _trackTries++ >= 2));
+                if (track != null && (tw == 0 || track.Ver == tw)) { _trackSeen = track.Ver; _trackTries = 0; }
+                else if (_trackTries > 8) { _trackSeen = tw; _trackTries = 0; }      // give up on this version; the next change retries
+                if (force && track == null && ++_trackForceTries < 6) Interlocked.Exchange(ref _trackRefresh, 1);
+            }
+            else if (force) Interlocked.Exchange(ref _trackRefresh, 1);            // throttled: keep the request for the next tick
+        }
+        catch (Exception e) { LastError = "race: " + e.Message; }
+        if (live != null || track != null)
+            _ui.BeginInvoke(() =>
+            {
+                if (live != null) RaceLiveReceived?.Invoke(live);
+                if (track != null) TrackReceived?.Invoke(track);
+            });
     }
 
     private void TickBody()
@@ -216,6 +303,7 @@ public sealed class GameLink : IDisposable
                 _scanner?.Dispose();
                 try { _scanner = new MemoryScanner(pid); } catch (Exception e) { _scanner = null; LastError = e.Message; }
                 _lastStateTick = _lastPlayersTick = _lastCfgTick = _lastRosterTick = -1;
+                _lastRaceTick = -1; _mainSweepHit = false;
                 _scannerSince = DateTime.UtcNow; _lastSweep = DateTime.MinValue; _fullDone = false;
             }
             if (_scanner != null)
@@ -226,7 +314,7 @@ public sealed class GameLink : IDisposable
                 // runs every 5 s, not every tick, and the whole-process fallback runs ONCE per game
                 // process, a minute in, then never again.
                 var now = DateTime.UtcNow;
-                var idle = !_scanner.LastSweepHit && _lastSweep != DateTime.MinValue;
+                var idle = !_mainSweepHit && _lastSweep != DateTime.MinValue;
                 // every 5 s (or on the ↻ button) distrust the quick probes and look for newer copies:
                 // an on-change line's old copy stays put while the new one lands elsewhere
                 var force = Interlocked.Exchange(ref _refreshRequested, 0) == 1 || (_scanner.HasEverHit && now - _lastForce >= TimeSpan.FromSeconds(5));
@@ -237,9 +325,12 @@ public sealed class GameLink : IDisposable
                     if (allowFull) _fullDone = true;
                     hits = _scanner.Sweep(Markers, allowFull, allowFull ? 20000 : 4000, force);
                     _lastSweep = now;
+                    _mainSweepHit = _scanner.LastSweepHit;
+                    _mainSweepInfo = $"{_scanner.LastSweepHow} {_scanner.LastSweepBytes / 1048576} MB";
+                    _mainSweepMs = _scanner.LastSweepMs;
                 }
-                sweepInfo = $"{_scanner.LastSweepHow} {_scanner.LastSweepBytes / 1048576} MB";
-                sweepMs = _scanner.LastSweepMs;
+                sweepInfo = _mainSweepInfo;
+                sweepMs = _mainSweepMs;
 
                 // the spawn atlas: every copy of every GFSPAWN chunk, newest complete scan wins. The pool
                 // region first (where the other markers live), the whole exe range from the 3rd try.
@@ -384,6 +475,9 @@ public sealed class GameLink : IDisposable
                     }
                     if (s.LogSeq > _logSeqWanted) _logSeqWanted = s.LogSeq;
                     if (s.EntVersion > 0 && s.EntVersion != Interlocked.Read(ref _evWanted)) Interlocked.Exchange(ref _evWanted, s.EntVersion);
+                    // the race track's version, when the live line is not there to say it (it is faster and newer)
+                    if (s.RaceTrackVer != 0 && DateTime.UtcNow - _lastRaceAt > TimeSpan.FromSeconds(5) && s.RaceTrackVer != Interlocked.Read(ref _trackWanted))
+                        Interlocked.Exchange(ref _trackWanted, s.RaceTrackVer);
                     UpdateLogWanted();
                     // a spawn landed (spv= moved): the tick collects the GFSPAWNED chunks for this map
                     if (s.SpawnEvVersion.Length > 0 && s.SpawnEvVersion != "0" && s.SpawnEvVersion != _spvWanted)

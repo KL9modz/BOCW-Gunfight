@@ -105,6 +105,7 @@ public partial class MainWindow : Window
         var shown = SubTabs(page)?.SelectedItem is TabItem { Tag: string sub } ? sub : tag;
         _prefs.LastTab = shown;                           // reopens on the sub-tab too
         _vm.Entities.IsActive = shown == "entities";      // the entity list is read only while FORGE → SPAWNED ENTITIES shows
+        _vm.Race.IsActive = shown == "racing";            // the game publishes the live race line only while RACING shows
     }
 
     private void Splitter_DragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)

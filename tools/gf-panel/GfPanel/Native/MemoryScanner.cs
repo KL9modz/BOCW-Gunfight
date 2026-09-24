@@ -118,7 +118,9 @@ public sealed class MemoryScanner : IDisposable
     /// publishes on change (GFPLAYERS) leaves its old copy intact at the remembered address while the new
     /// one lands elsewhere, so the quick probe keeps "finding" the stale roster (measured 2026-09-21: the
     /// panel's player list never updated). With force the window / region steps run for every marker.</param>
-    public Dictionary<string, Hit> Sweep(IReadOnlyList<string> markers, bool allowFull, int budgetMs = 4000, bool force = false)
+    /// <param name="regionOk">false stops after the window step: a fast reader (the RACING page's 0.5 s live line)
+    /// must not read the whole pool region every tick.</param>
+    public Dictionary<string, Hit> Sweep(IReadOnlyList<string> markers, bool allowFull, int budgetMs = 4000, bool force = false, bool regionOk = true)
     {
         var sw = Stopwatch.StartNew();
         var best = new Dictionary<string, Hit>();
@@ -169,6 +171,7 @@ public sealed class MemoryScanner : IDisposable
             missing = Missing();
             if (missing.Length == 0) goto done;
         }
+        if (!regionOk) goto done;
 
         how = "region";
         _module ??= GameProcess.ModuleRange(Pid);

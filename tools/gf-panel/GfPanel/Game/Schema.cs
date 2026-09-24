@@ -35,7 +35,7 @@ public sealed class SettingDef
 public sealed class SectionDef
 {
     public required string Title { get; init; }
-    public required string Tab { get; init; }        // the page: "rules" | "maps" | "spawns" (SPAWN ATLAS side panel) | "sandbox" | "forge" | "diagnostics"
+    public required string Tab { get; init; }        // the page: "rules" | "maps" | "spawns" (SPAWN ATLAS side panel) | "sandbox" | "racing" | "forge" | "diagnostics"
     public string Note { get; init; } = "";
     public required SettingDef[] Rows { get; init; }
 }
@@ -293,8 +293,8 @@ public static class Schema
         },
         new()
         {
-            Title = "RACE SETTINGS", Tab = "sandbox",
-            Note = "Read when a race STARTS (SANDBOX → RACE). Gates are placed where the host is, across his direction of travel.",
+            Title = "RACE SETTINGS", Tab = "racing",
+            Note = "Read when a race STARTS (RACING → RACE). Gates are placed where the host is, across his direction of travel.",
             Rows = new SettingDef[]
             {
                 new() { Dvar = "gf_race_laps", Label = "Laps", Kind = SettingKind.Choice, Default = 1, Choices = Nums(1, 2, 3, 5), Eff = Eff.Live, Tip = "gf_race_laps\nLaps through the start/finish gate (gate 0)." },

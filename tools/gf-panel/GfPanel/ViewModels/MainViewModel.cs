@@ -53,6 +53,10 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>The fun pack (the cloud branch's, ported 2026-09-24): the GSC `fun` verb - spread over SANDBOX's blocks
     /// by what each switch does since the redesign.</summary>
     public FunVM Fun { get; }
+    /// <summary>The RACING page: the game's track live on the map, the editor, the race, the saved tracks.</summary>
+    public RaceVM Race { get; }
+    /// <summary>A setting's row by dvar (the same object every page shows), or null.</summary>
+    public SettingRowVM? Setting(string dvar) => _rows.GetValueOrDefault(dvar);
     /// <summary>DIAGNOSTICS → MENU BACKDROP: the two LUIelemBar boxes behind the centre line (gf_hb0) and the hint row (gf_hb1).</summary>
     public HudBoxVM[] HudBoxes { get; }
     /// <summary>The ACTIVITY list through the filter chips (all / menu log / no sent lines / one player's menu log).</summary>
@@ -63,6 +67,7 @@ public sealed class MainViewModel : ObservableObject
     public IEnumerable<SectionVM> RulesSections => Sections.Where(s => s.Tab == "rules");
     public IEnumerable<SectionVM> MapsSections => Sections.Where(s => s.Tab == "maps");
     public IEnumerable<SectionVM> SandboxSections => Sections.Where(s => s.Tab == "sandbox");
+    public IEnumerable<SectionVM> RacingSections => Sections.Where(s => s.Tab == "racing");
     public IEnumerable<SectionVM> ForgeSections => Sections.Where(s => s.Tab == "forge");
     public IEnumerable<SectionVM> DiagnosticsSections => Sections.Where(s => s.Tab == "diagnostics");
     /// <summary>The ☆-pinned settings by section - MATCH → ★ PINNED SETTINGS (the FAVORITES tab until 2026-09-24).</summary>
@@ -103,6 +108,7 @@ public sealed class MainViewModel : ObservableObject
         Entities = new EntitiesVM(this);
         Radar = new RadarVM(this);
         Fun = new FunVM(this);
+        Race = new RaceVM(this);
         // defaults = the GSC's hudbox_think fallbacks (guesses to tune live)
         HudBoxes = new[]
         {
@@ -111,8 +117,6 @@ public sealed class MainViewModel : ObservableObject
         };
         ActivityView = CollectionViewSource.GetDefaultView(Link.Activity);
         ActivityView.Filter = o => o is LogEntry e && ActivityPass(e);
-        Tracks.Changed += RefreshTracks;
-        RefreshTracks();
         RebuildFavorites();
         Link.StatusChanged += OnStatus;
         Link.StateChanged += OnState;
@@ -502,7 +506,7 @@ public sealed class MainViewModel : ObservableObject
     }
     public static string PageName(string tab) => tab switch
     {
-        "rules" => "RULES", "maps" => "MAPS & SPAWNS", "spawns" => "MAPS & SPAWNS › SPAWN ATLAS", "sandbox" => "SANDBOX",
+        "rules" => "RULES", "maps" => "MAPS & SPAWNS", "spawns" => "MAPS & SPAWNS › SPAWN ATLAS", "sandbox" => "SANDBOX", "racing" => "RACING",
         "forge" => "FORGE", "diagnostics" => "DIAGNOSTICS", _ => tab.ToUpperInvariant(),
     };
     public event Action<SettingRowVM>? RevealRow;
@@ -519,13 +523,6 @@ public sealed class MainViewModel : ObservableObject
         catch { Toasts.Show("Clipboard blocked", LogLevel.Err); }
     }
 
-    private void RefreshTracks()
-    {
-        Tools.SavedTracks.Clear();
-        foreach (var l in Tracks.Labels) Tools.SavedTracks.Add(l);
-        if (Tools.SelectedTrack == null && Tools.SavedTracks.Count > 0) Tools.SelectedTrack = Tools.SavedTracks[0];
-    }
-
     /// <summary>--dry --fake: sample GFPLAYERS / GFENTS bodies through the real parsers (screenshot checks only).</summary>
     private void LoadFake()
     {
@@ -533,6 +530,7 @@ public sealed class MainViewModel : ObservableObject
         if (roster != null) Players.Update(roster, true);
         var ents = EntityList.Parse("v,41,RC-XD,8bit,300,1200,-450,50,;v,57,Hind gunship,KL9,1650,-200,900,400,o;p,63,usa_dumpster_01_full,8bit,250,1000,-600,0,;b,64,rus_oil_drum_01,KL9,800,300,50,0,;p,70,nt6_arcade_game,[CLAN]Player012,1200,-900,-1200,0,");
         Entities.LoadFake(ents);
+        Race.LoadFake();
         Radar.FromConfig(1 + 8 + 256 * 1);
     }
 

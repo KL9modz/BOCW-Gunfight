@@ -1,0 +1,202 @@
+<UserControl x:Class="GfPanel.Views.RaceView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:v="clr-namespace:GfPanel.Views">
+  <!-- RACING (2026-09-24). klaze: "a tab for Racing with a race track editor and viewer so I can create, save, and load
+       race tracks ... mostly from driving them in game while referencing the live viewer/editor". Left: the game's track
+       live on the map (TrackPlot, over the map picture the SPAWN ATLAS placed) with every player on it; right: build
+       and edit, the race, the saved tracks, RACE SETTINGS. The game owns the track (up to 64 gates); edits go to it
+       and come back. docs/notes/racing.md §11. -->
+  <UserControl.Resources>
+    <Style x:Key="Act" TargetType="{x:Type Button}" BasedOn="{StaticResource Chip}">
+      <Setter Property="Margin" Value="0,2,4,2" />
+    </Style>
+  </UserControl.Resources>
+  <Grid>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="*" MinWidth="380" />
+      <ColumnDefinition Width="410" />
+    </Grid.ColumnDefinitions>
+
+    <!-- ═══ the map ═══ -->
+    <Grid Margin="14,10,6,12">
+      <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+      <DockPanel Margin="0,0,0,6" LastChildFill="False">
+        <TextBlock DockPanel.Dock="Left" Text="{Binding Race.TrackStatus}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="560" ToolTip="{Binding Race.TrackStatus}" />
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+          <CheckBox Content="✎ Edit on the map" IsChecked="{Binding Race.EditMode}" Margin="0,0,12,0" VerticalAlignment="Center"
+                    ToolTip="On: drag a gate's centre to move it, drag a post to turn and widen it, Ctrl+click empty ground to add a gate after the selected one; keys Delete, [ ] turn (Shift 15°), + - width, arrows nudge. Off: the map only views and selects." />
+          <CheckBox Content="Follow me" IsChecked="{Binding Race.FollowHost}" Margin="0,0,12,0" VerticalAlignment="Center" ToolTip="Keep the host in the middle of the map while you drive" />
+          <CheckBox Content="Boundary" IsChecked="{Binding Race.ShowCorridor}" Margin="0,0,12,0" VerticalAlignment="Center" ToolTip="The track boundary: RACE SETTINGS → Track boundary width, drawn around the racing line" />
+          <CheckBox Content="Grid" IsChecked="{Binding Race.ShowGrid}" Margin="0,0,12,0" VerticalAlignment="Center" ToolTip="The start grid behind gate 0 (12 slots; RACE SETTINGS → Grid spacing)" />
+          <CheckBox Content="Names" IsChecked="{Binding Race.ShowNames}" Margin="0,0,12,0" VerticalAlignment="Center" />
+          <Button Content="Fit" Style="{StaticResource SmallBtn}" Command="{Binding Race.Fit}" ToolTip="Fit the track in view (double-click the map does the same)" />
+        </StackPanel>
+      </DockPanel>
+      <Border Grid.Row="1" BorderBrush="{StaticResource Bd}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+        <v:TrackPlot x:Name="Plot"
+                     Gates="{Binding Race.Gates}" Ghost="{Binding Race.Ghost}" Players="{Binding Race.Dots}"
+                     Frame="{Binding Race.Frame}" NorthYaw="{Binding Race.NorthYaw}" Art="{Binding Race.ArtImage}" ArtAlign="{Binding Race.ArtAlign}"
+                     SelectedGate="{Binding Race.SelectedGate}" EditMode="{Binding Race.EditMode}" FollowHost="{Binding Race.FollowHost}"
+                     ShowCorridor="{Binding Race.ShowCorridor}" CorridorWidth="{Binding Race.CorridorWidth}" ShowNames="{Binding Race.ShowNames}"
+                     ShowGrid="{Binding Race.ShowGrid}" GridGap="{Binding Race.GridGap}" Sprint="{Binding Race.Sprint}" EditCommand="{Binding Race.Edit}">
+          <v:TrackPlot.ContextMenu>
+            <ContextMenu>
+              <MenuItem Header="Add a gate after this one" Command="{Binding Race.InsertAfter}" />
+              <MenuItem Header="Turn this gate round" Command="{Binding Race.FlipGate}" />
+              <MenuItem Header="Make it the start" Command="{Binding Race.MakeStart}" />
+              <MenuItem Header="Delete this gate" Command="{Binding Race.DeleteGate}" />
+              <Separator />
+              <MenuItem Header="Fit the view" Command="{Binding Race.Fit}" />
+            </ContextMenu>
+          </v:TrackPlot.ContextMenu>
+        </v:TrackPlot>
+      </Border>
+      <StackPanel Grid.Row="2" Margin="2,6,2,0">
+        <TextBlock Text="{Binding Race.BackdropNote}" Foreground="{StaticResource Wn}" FontSize="10.5" TextWrapping="Wrap" Visibility="{Binding Race.BackdropNote, Converter={StaticResource NullVis}}" />
+        <TextBlock Style="{StaticResource Dim}" FontSize="10.5" TextWrapping="Wrap">Build by driving: press Gate here in game (menu → Race) or on this page at every checkpoint - each gate appears on the map as you place it, across the way you are heading, as wide as RACE SETTINGS → Gate width. Wheel zooms, drag pans, double-click fits, right-click a gate for its actions.</TextBlock>
+      </StackPanel>
+    </Grid>
+
+    <!-- ═══ the side ═══ -->
+    <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" Padding="6,10,14,12">
+      <StackPanel>
+
+        <!-- BUILD & EDIT -->
+        <Expander Style="{StaticResource Block}">
+          <Expander.Header>
+            <TextBlock Text="TRACK — BUILD &amp; EDIT" Style="{StaticResource BlockTitle}" />
+          </Expander.Header>
+          <StackPanel>
+            <TextBlock Text="In the game (at the host)" Style="{StaticResource SubTitle}" Margin="0,0,0,2" />
+            <WrapPanel>
+              <Button Content="⊕ Gate here" Style="{StaticResource SmallAccent}" Command="{Binding Race.RaceGate}" Margin="0,2,4,2" ToolTip="A gate where the host is (his vehicle when riding), across his travel direction. The first gate is the start / finish." />
+              <Button Content="Undo last gate" Style="{StaticResource Act}" Command="{Binding Race.RaceUndo}" />
+              <Button Content="Markers show/hide" Style="{StaticResource Act}" Command="{Binding Race.RaceMarkers}" ToolTip="The gate icons + palm-tree posts in game (up to 16 gates at once - a longer track shows a window that follows the leader)" />
+              <Button Content="Reload the game's copy" Style="{StaticResource Act}" Command="{Binding Race.RaceLoad}" ToolTip="race load: the track the game keeps in its dvars for this map (after a restart)" />
+              <Button Content="Clear track" Style="{StaticResource Act}" Command="{Binding Race.RaceClear}" ToolTip="Asks first. Save it below to keep it." />
+            </WrapPanel>
+
+            <TextBlock Text="{Binding Race.SelTitle}" Style="{StaticResource SubTitle}" />
+            <StackPanel IsEnabled="{Binding Race.HasSelection}">
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                <TextBlock Text="x" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <TextBox Grid.Column="1" Text="{Binding Race.SelX}" Margin="0,2,10,2" ToolTip="the gate's centre, game units - applies when you leave the box (Tab)" />
+                <TextBlock Grid.Column="2" Text="y" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <TextBox Grid.Column="3" Text="{Binding Race.SelY}" Margin="0,2,0,2" />
+                <TextBlock Grid.Row="1" Text="yaw" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Race.SelYaw}" Margin="0,2,10,2" ToolTip="the travel direction through the gate, the game's degrees (0 = +x, 90 = +y)" />
+                <TextBlock Grid.Row="1" Grid.Column="2" Text="width" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <TextBox Grid.Row="1" Grid.Column="3" Text="{Binding Race.SelW}" Margin="0,2,0,2" ToolTip="post to post, 64 - 4000 units" />
+              </Grid>
+              <WrapPanel Margin="0,4,0,0">
+                <Button Content="⟲ 15°" Style="{StaticResource Act}" Command="{Binding Race.TurnLeft}" CommandParameter="15" />
+                <Button Content="⟲ 5°" Style="{StaticResource Act}" Command="{Binding Race.TurnLeft}" CommandParameter="5" />
+                <Button Content="⟳ 5°" Style="{StaticResource Act}" Command="{Binding Race.TurnRight}" CommandParameter="5" />
+                <Button Content="⟳ 15°" Style="{StaticResource Act}" Command="{Binding Race.TurnRight}" CommandParameter="15" />
+                <Button Content="− width" Style="{StaticResource Act}" Command="{Binding Race.Narrower}" />
+                <Button Content="+ width" Style="{StaticResource Act}" Command="{Binding Race.Wider}" />
+                <Button Content="Turn round" Style="{StaticResource Act}" Command="{Binding Race.FlipGate}" ToolTip="the travel direction through this gate, reversed" />
+              </WrapPanel>
+              <WrapPanel>
+                <Button Content="Add a gate after" Style="{StaticResource Act}" Command="{Binding Race.InsertAfter}" ToolTip="halfway to the next gate (or 800 u on at the end); drag it into place" />
+                <Button Content="◀ earlier" Style="{StaticResource Act}" Command="{Binding Race.GateEarlier}" ToolTip="one place earlier in the course order" />
+                <Button Content="later ▶" Style="{StaticResource Act}" Command="{Binding Race.GateLater}" />
+                <Button Content="Make it the start" Style="{StaticResource Act}" Command="{Binding Race.MakeStart}" ToolTip="the circuit rotates so this gate becomes gate 0" />
+                <Button Content="Delete gate" Style="{StaticResource NgBtn}" Command="{Binding Race.DeleteGate}" Margin="0,2,4,2" />
+              </WrapPanel>
+            </StackPanel>
+            <WrapPanel Margin="0,6,0,0">
+              <Button Content="⇄ Run the course backwards" Style="{StaticResource Act}" Command="{Binding Race.ReverseTrack}" ToolTip="gate 0 stays the start; the rest in reverse order, every gate turned round (asks first)" />
+            </WrapPanel>
+            <TextBlock Style="{StaticResource ActionNote}" Margin="2,6,2,0">Every change goes to the game and shows on the map at once; the game's own copy comes back a moment later. The track cannot change while a race runs.</TextBlock>
+          </StackPanel>
+        </Expander>
+
+        <!-- RACE -->
+        <Expander Style="{StaticResource Block}">
+          <Expander.Header>
+            <TextBlock Text="RACE" Style="{StaticResource BlockTitle}" />
+          </Expander.Header>
+          <StackPanel>
+            <TextBlock Text="{Binding Race.RaceStatus}" FontSize="11.5" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,6" />
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+              <Button Content="START RACE  3-2-1-GO" Style="{StaticResource ActionOk}" Command="{Binding Race.RaceStart}" Margin="0,0,3,0" ToolTip="everyone not spectating races; the start grid lines them up behind gate 0 when it is on" />
+              <Button Grid.Column="1" Content="STOP / CANCEL" Style="{StaticResource ActionWn}" Command="{Binding Race.RaceStop}" Margin="3,0,0,0" />
+            </Grid>
+            <WrapPanel Margin="0,6,0,0">
+              <Button Content="Reset me" Style="{StaticResource Act}" Command="{Binding Race.RaceResetMe}" ToolTip="back to the last gate you passed - a flipped or stuck vehicle" />
+              <Button Content="End match (podium)" Style="{StaticResource NgBtn}" Command="{Binding Race.RaceEndMatch}" Margin="0,2,4,2" ToolTip="asks first" />
+            </WrapPanel>
+            <ItemsControl ItemsSource="{Binding Race.Standings}" Margin="0,8,0,0" Visibility="{Binding Race.HasStandings, Converter={StaticResource Vis}}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Grid Margin="0,1">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="36" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="64" /></Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding Place}" FontWeight="Bold" FontSize="12" Foreground="{StaticResource Ac}" />
+                    <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="2" Text="{Binding Progress}" Style="{StaticResource Dim}" FontSize="10.5" VerticalAlignment="Center" Margin="6,0" />
+                    <TextBlock Grid.Column="3" Text="{Binding Time}" FontSize="11" TextAlignment="Right" FontFamily="{StaticResource Mono}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Expander>
+
+        <!-- SAVED TRACKS -->
+        <Expander Style="{StaticResource Block}">
+          <Expander.Header>
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="SAVED TRACKS" Style="{StaticResource BlockTitle}" />
+              <TextBlock Text="race-tracks.json" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+          </Expander.Header>
+          <StackPanel>
+            <Grid Margin="0,0,0,6">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <TextBox Text="{Binding Race.TrackName, UpdateSourceTrigger=PropertyChanged}" ToolTip="a name for the game's track (empty = asks)" />
+              <Button Grid.Column="1" Content="💾 Save the game's track" Style="{StaticResource SmallAccent}" Command="{Binding Race.TrackSave}" Margin="6,0,0,0" ToolTip="the whole track as the game holds it (every gate), filed under this map + name, with the course type (circuit + laps / A to B)" />
+            </Grid>
+            <ListBox ItemsSource="{Binding Race.SavedTracks}" SelectedItem="{Binding Race.SelectedTrack}" Height="150" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     Background="{StaticResource Bg}" BorderBrush="{StaticResource Bd}" BorderThickness="1" HorizontalContentAlignment="Stretch">
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel Margin="0,1">
+                    <TextBlock Text="{Binding Label}" FontSize="12" />
+                    <TextBlock Text="{Binding Map}" Style="{StaticResource Dim}" FontSize="10" />
+                  </StackPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock Text="{Binding Race.LibraryNote}" Style="{StaticResource Dim}" FontSize="10.5" TextWrapping="Wrap" Margin="0,3,0,0" Visibility="{Binding Race.LibraryNote, Converter={StaticResource NullVis}}" />
+            <TextBlock Text="{Binding Race.SelectedTrackInfo}" FontSize="10.5" TextWrapping="Wrap" Margin="0,4,0,0" />
+            <WrapPanel Margin="0,4,0,0">
+              <Button Content="▶ Load into the game" Style="{StaticResource SmallAccent}" Command="{Binding Race.TrackLoad}" Margin="0,2,4,2" ToolTip="the game must be on the track's map; a gate every 0.5 s (~32 s for 64 gates); sets the course type it was saved with" />
+              <Button Content="Rename" Style="{StaticResource Act}" Command="{Binding Race.TrackRename}" />
+              <Button Content="Duplicate" Style="{StaticResource Act}" Command="{Binding Race.TrackDuplicate}" />
+              <Button Content="Delete" Style="{StaticResource Act}" Command="{Binding Race.TrackDelete}" />
+              <Button Content="Export…" Style="{StaticResource Act}" Command="{Binding Race.TrackExport}" ToolTip="one track as a file to share" />
+              <Button Content="Import…" Style="{StaticResource Act}" Command="{Binding Race.TrackImport}" />
+            </WrapPanel>
+            <StackPanel Orientation="Horizontal" Visibility="{Binding Race.Loading, Converter={StaticResource Vis}}" Margin="0,4,0,0">
+              <TextBlock Text="{Binding Race.LoadProgress}" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0" />
+              <Button Content="Cancel" Style="{StaticResource SmallBtn}" Command="{Binding Race.CancelLoad}" />
+            </StackPanel>
+            <TextBlock Text="{Binding Race.LoadProgress}" Style="{StaticResource Dim}" FontSize="10.5" Visibility="{Binding Race.Loading, Converter={StaticResource VisInv}}" Margin="0,4,0,0" />
+            <WrapPanel Margin="0,4,0,0">
+              <CheckBox Content="all maps" IsChecked="{Binding Race.AllMaps}" Margin="0,0,12,0" />
+              <CheckBox Content="preview on the map" IsChecked="{Binding Race.Preview}" ToolTip="the selected track, faint over the game's (when it is for this map)" />
+            </WrapPanel>
+          </StackPanel>
+        </Expander>
+
+        <!-- RACE SETTINGS (Schema Tab = "racing") -->
+        <ItemsControl ItemsSource="{Binding RacingSections}" />
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

@@ -2,7 +2,7 @@
 
 A **C# / .NET 9 WPF** desktop app that runs the modded Gunfight match from a real window, modelled on
 klaze's BO1 rcon tool (sidebar with SERVER / SCOREBOARD / PLAYERS + NEXT MATCH / ACTIVITY, pages
-MATCH · PLAYERS · RULES · MAPS & SPAWNS · SANDBOX · FORGE · DIAGNOSTICS · SETUP — see [Pages](#pages) — global
+MATCH · PLAYERS · RULES · MAPS & SPAWNS · SANDBOX · RACING · FORGE · DIAGNOSTICS · SETUP — see [Pages](#pages) — global
 search, pills, right-click menus, toasts, a sent→received command queue). It carries **every page and sub-option of the in-game
 menu** plus the rcon-only features BOCW can support (everyone-state, match control, fun & vision, a
 private-match rotation, presets, bot profiles, next-match team staging, session bans).
@@ -50,7 +50,8 @@ roster, next-match plan, ACTIVITY log) is on every page.
 | **PLAYERS** | PLAYER — pick one (or right-click a roster row → *Open on the PLAYERS page*) and every right-click action is a button: menus, powers, loadout, teleport, team, fun pack, moderation · EVERYONE & YOU (god / ammo / 3rd person / invisible for all, the host's fly / drop / unlock) · PERKS — EVERYONE · BANS (unban one or all) |
 | **RULES** | the match settings: GUNFIGHT MATCH · LOADOUT & CAMO · OVERTIME ZONE · BOTS · CUSTOM BOT TUNING · MOVEMENT · bot presets & profiles · CONFIG PRESETS |
 | **MAPS & SPAWNS** | sub-tabs **MAPS** (the grid, rotation, SESSION / MAP) and **SPAWN ATLAS** (the atlas, its layouts and SPAWN SETTINGS) |
-| **SANDBOX** | radar & markers, world & vision, movement fun, weapons & cosmetics, disguises, projectiles & map toys, teleport, streaks, vehicles (+ VEHICLE MODE), race (+ RACE SETTINGS) |
+| **SANDBOX** | radar & markers, world & vision, movement fun, weapons & cosmetics, disguises, projectiles & map toys, teleport, streaks, vehicles (+ VEHICLE MODE) |
+| **RACING** | the game's race track live on the map (the atlas's map picture, north up) with every player on it — gates numbered, the boundary and the start grid drawn; **the editor** (click a gate; with *Edit on the map*: drag to move, drag a post to turn / widen, Ctrl+click to add, Delete, `[` `]`, `+` `-`, arrows) and its side panel (x / y / yaw / width, turn, widen, add after, reorder, make start, run backwards); Gate here / undo / markers / clear; the race (start, stop, reset me, end match, live standings); **saved tracks** (save the game's whole track, load, rename, duplicate, delete, export / import a file to share); RACE SETTINGS. Up to 64 gates (docs/notes/racing.md §11) |
 | **FORGE** | sub-tabs **BUILD** (props & barrels, place / forge mode, forge tools, PLACEMENT & PROMPTS, FORGE CONTROLS) and **SPAWNED ENTITIES** (the live list; read from the game only while it shows) |
 | **DIAGNOSTICS** | sub-tabs **DEBUG & HUD** (feed readouts & probes, text tests, menu backdrop, hint bar lines, IN-GAME MENU DISPLAY, DEBUG FEED) and **CONSOLE** |
 | **SETUP** | status, inject, panel options |
@@ -60,8 +61,8 @@ the host or bots). Search (`/`) finds any setting and opens its home page.
 
 **Where the old tabs went:** FAVORITES → MATCH → ★ PINNED SETTINGS · DASHBOARD → RULES (its live actions →
 MATCH) · MAPS / SPAWNS → MAPS & SPAWNS · ADVANCED → split by subject: SESSION / MAP → MAPS, VEHICLE MODE + RACE
-SETTINGS → SANDBOX, PLACEMENT & PROMPTS → FORGE, IN-GAME MENU DISPLAY + DEBUG FEED → DIAGNOSTICS · TOOLS →
-SANDBOX, with PLAYER STATE → PLAYERS, FORGE & HINT BAR → FORGE / DIAGNOSTICS, feed readouts → DIAGNOSTICS ·
+SETTINGS → RACING, PLACEMENT & PROMPTS → FORGE, IN-GAME MENU DISPLAY + DEBUG FEED → DIAGNOSTICS · TOOLS →
+SANDBOX, with PLAYER STATE → PLAYERS, RACE → RACING, FORGE & HINT BAR → FORGE / DIAGNOSTICS, feed readouts → DIAGNOSTICS ·
 ENTITIES → FORGE → SPAWNED ENTITIES · CONSOLE → DIAGNOSTICS → CONSOLE · the sidebar's ban list → PLAYERS → BANS.
 Nine controls that duplicated another were dropped, each for the one that sends the same verb or dvar:
 `docs/notes/gf-panel.md` §11.
@@ -83,11 +84,13 @@ runs once per game process a minute in, never again. The header shows the sweep 
 
 | marker | from | carries |
 |---|---|---|
-| `GFSTATE` | `state_publish()` (new, 1 s) | map, gametype, round, scores, alive/players/bots per side, spectators, time limit + passed, phase, overtime, paused, frozen, staged map/gt, maxclients, team size, timer, **ack seq**, everyone-state flags, host, **last menu_say text**; since 2026-09-23 also match id `mid=`, match over `mo=`, entity count `ents=`, newest menu-log seq `lg=`; entity-list stamp `ev=` (bocw-84) |
+| `GFSTATE` | `state_publish()` (new, 1 s) | map, gametype, round, scores, alive/players/bots per side, spectators, time limit + passed, phase, overtime, paused, frozen, staged map/gt, maxclients, team size, timer, **ack seq**, everyone-state flags, host, **last menu_say text**; since 2026-09-23 also match id `mid=`, match over `mo=`, entity count `ents=`, newest menu-log seq `lg=`; entity-list stamp `ev=` (bocw-84); race track version `rtv=` (2026-09-24) |
 | `GFLOG` | `gflog_add()` (2026-09-23, on every menu action) | every player's menu actions (host + granted clients) and forge place/delete: seq, time, who, page, item, the action's confirmation — collected when `lg=` moves, written to the saved log |
 | `GFPLAYERS` | `players_publish()` (new, on change) | entnum;name;team;kind;xuid;alive;score;kills;deaths;flags (g god · f fly · t third person · z frozen · v riding · **m has a client menu** · **F forge mode**, 2026-09-23) |
 | `GFCFG` | `config_publish()` | the packed chunks gf_c0..c8 + oob/bar/trk/veh/bot/bot2 + (new) race/dbg/misc extras = every host setting's live value |
 | `GFENTS` | `ents_publish()` (2026-09-23, rebuilt 1 s, republished on change) | every prop / barrel / vehicle the mod spawned that is still in the level, in ≤ 880-char numbered chunks (max 16): `GFENTS\|<stamp>\|<i>\|<n>\|kind,entnum,label,owner,dist,x,y,z,flags;…\|END` (kind p/b/v, flags o occupied · m vehicle-mode ride) — collected while FORGE → SPAWNED ENTITIES is open and `ev=` moves |
+| `GFTRACK` | `race_track_build()` (2026-09-24, rebuilt when the track's version moves) | the whole race track, never cut, in ≤ 800-char chunks: `GFTRACK\|<ver>\|<i>\|<n>\|<map>\|<count>\|x,y,z,yaw,w;…\|END` — collected while RACING shows and its version (GFRACE / GFSTATE `rtv=`) moves |
+| `GFRACE` | `race_live_line()` (2026-09-24, every 0.5 s while `gf_race_live` is 1) | every player's position + the race: `GFRACE\|<tick>\|st\|laps\|sprint\|n\|ver\|el\|ff\|se\|entnum,x,y,yaw,flags,lap,next,place,tenths;…\|END` (flags h host · v riding · d dead · s spectator · r racing · f finished · o off track; `se` = the gate store's read-back check) — the RACING page sets `gf_race_live` while it shows and reads the line every 0.5 s |
 | `GFROSTER` | `roster_publish()` | the older 4-field roster (fallback when a payload lacks GFPLAYERS) |
 | `GFMAP*` | `mapdata_publish()` (opt-in `gf_mapscan`) | per-map vehicle / prop / spawn / destructible census |
 
@@ -126,6 +129,8 @@ verbs `panel_verb` dispatches from `cmd_action`'s default case:
 | `tpto` (+target = who moves) | player name (prefix ok) | put the target in front of that player, facing them (right-click → Teleport → Them to player) |
 | `entdel` | entnum | delete one mod-spawned prop / barrel / vehicle; re-checked in GSC (ours only, never an occupied vehicle); a prop also leaves the saved forge layout |
 | `entclear` | `props`/`vehicles`/`all` | props = forge clear (layout too); vehicles = every EMPTY spawned vehicle |
+| `racegset` · `racegins` (2026-09-24, the RACING page) | `i,x,y,yaw,w` (≤ 26 chars) | gate i := that / a new gate before i (i = count appends); the game floors the height itself (near the gate's old one / its neighbours') |
+| `racegdel` · `racegmov` · `racegrot` · `racegrev` | `i` · `i,j` · `i` · — | delete gate i · move gate i to j · gate i becomes the start (the circuit rotates) · the course backwards (gate 0 stays the start, the rest reversed and turned). Every track verb is refused while a race runs |
 | `radar` | n | writes `gf_radar` = host bits + 256 × everyone bits + 65536 × marker icon (bits 1 minimap · 2 UAV · 4 H.A.R.P. · 8 markers · 16 glow); `radar_think` applies it within 0.5 s, no reload |
 | `parachute` | `0`/`1`/`2` | `gf_parachute` off / everyone / host only — armed per player per spawn, no reload |
 | `matchinfo` · `spawnreport` · `zonecensus` | — | the feed readouts that were in-game Debug / Spawns / Zone rows until 2026-09-23 (DIAGNOSTICS → FEED READOUTS & PROBES) |
@@ -143,11 +148,14 @@ a failed state build still publishes a fallback line with `err=<count>|st=<stage
 GfPanel/
   Native/    Win32.cs (P/Invoke) · GameProcess.cs · MemoryScanner.cs · BridgeChannel.cs (+ the paced BridgeSender) · Injector.cs
   Game/      Schema.cs (every setting, its default, tip, scope) · Packing.cs (gf_c0..c8 / gf_bot order — load-bearing) ·
-             Channels.cs (GFSTATE/GFPLAYERS/GFCFG/GFMAP parsers) · Catalog.cs (maps, weapons, vehicles, perks, sounds…) · Commands.cs
-  Services/  GameLink.cs (the tick, acks, queue) · ConfigWriter.cs · Prefs.cs · TracksService.cs · PropCatalog.cs (embedded map-props.json)
+             Channels.cs (GFSTATE/GFPLAYERS/GFCFG/GFMAP parsers) · Catalog.cs (maps, weapons, vehicles, perks, sounds…) · Commands.cs ·
+             RaceTrack.cs (gates + their geometry, GFTRACK / GFRACE, the editor's arguments, the track library file)
+  Services/  GameLink.cs (the tick, acks, queue; the RACING page's 0.5 s race read) · ConfigWriter.cs · Prefs.cs ·
+             TracksService.cs (race-tracks.json) · PropCatalog.cs (embedded map-props.json)
   ViewModels/ Main · Settings rows/sections · Players · Tools · Props · Message · Maps (+ playlist) · Bots · Console · Inject · Toasts
   Views/     Theme (Theme/Theme.xaml) · Templates.xaml (row / section / player / toast / tile templates) · one UserControl per page:
-             Match · Players · Rules · Maps + Spawns · Sandbox · Forge (+ Entities) · Diagnostics (+ Console) · Setup · Sidebar
+             Match · Players · Rules · Maps + Spawns · Sandbox · Race (+ TrackPlot, the track map) · Forge (+ Entities) ·
+             Diagnostics (+ Console) · Setup · Sidebar
 ```
 
 ## Test order (needs the game + a payload that publishes GFSTATE)
