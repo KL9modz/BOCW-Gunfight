@@ -132,8 +132,19 @@
                   <Button Grid.Column="1" Content="✕ Clear plan" Command="{Binding StageClearAll}" Margin="3,0,0,0" />
                 </Grid>
                 <TextBlock Text="BANS (this session; re-sent at every match start)" Style="{StaticResource SubTitle}" />
-                <TextBlock Text="{Binding BansText}" FontSize="11" TextWrapping="Wrap" />
-                <Button Content="Clear bans" Style="{StaticResource SmallBtn}" Command="{Binding ClearBans}" HorizontalAlignment="Left" Margin="0,6,0,0" />
+                <TextBlock Text="none" Style="{StaticResource Dim}" FontSize="11" Visibility="{Binding HasBans, Converter={StaticResource VisInv}}" />
+                <ItemsControl ItemsSource="{Binding BanRows}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid Margin="0,1">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding Name}" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Xuid}" />
+                        <Button Grid.Column="1" Content="Unban" Style="{StaticResource SmallBtn}" Command="{Binding Unban}" Padding="6,0" ToolTip="unbanx - this XUID may join again" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Content="Clear all bans" Style="{StaticResource SmallBtn}" Command="{Binding ClearBans}" HorizontalAlignment="Left" Margin="0,6,0,0" Visibility="{Binding HasBans, Converter={StaticResource Vis}}" />
               </StackPanel>
             </TabItem>
           </TabControl>

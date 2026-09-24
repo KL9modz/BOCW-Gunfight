@@ -21,7 +21,7 @@ public sealed class QueuedCommand : ObservableObject
     /// match fire multiple quick restarts in a row and leave the match glitched with no HUD").</summary>
     public bool NoRetry { get; init; }
     private string _state = "sent";
-    public string State { get => _state; set => Set(ref _state, value); }
+    public string State { get => _state; set { if (Set(ref _state, value)) OnPropertyChanged(nameof(Icon)); } }
     private string _detail = "";
     public string Detail { get => _detail; set => Set(ref _detail, value); }
     public string Icon => State switch { "ack" => "✓", "timeout" => "✗", "fail" => "⚠", _ => "⏳" };
@@ -514,9 +514,8 @@ public sealed class GameLink : IDisposable
     // writes
     // ─────────────────────────────────────────────────────────────────────────
     private const int RetryAfterMs = 5000, MaxTries = 3, GiveUpMs = 16000;
-    /// <summary>Verbs that change or end the level: sent once, never retried, and every retry is paused
+    /// <summary>After a level-changing command (Commands.LevelChange: sent once, never retried) every retry is paused
     /// until the NEXT state line arrives from the new level (or 40 s pass).</summary>
-    private static readonly HashSet<string> OneShot = new(StringComparer.OrdinalIgnoreCase) { "restart", "restartround", "relaunch", "endmatch", "endround", "switch" };
     private DateTime _retryPausedUntil = DateTime.MinValue;
 
     /// <summary>Queue a command: payload lines + seq + go. Returns the queue entry (state flips on the ack).</summary>
@@ -524,14 +523,14 @@ public sealed class GameLink : IDisposable
     {
         var seq = ++_prefs.CommandSeq;
         var lines = Commands.Fire(payload, seq);
-        var action = lines.Select(l => l.StartsWith("set gf_cmd_action ", StringComparison.Ordinal) ? l["set gf_cmd_action ".Length..].Trim() : null).FirstOrDefault(a => a != null);
-        // a map switch / stage (gf_cmd_map, MAPS tab + the SPAWNS scan tour) is one-shot too: its ack is lost in the
-        // level change like a restart's, and a retry would switch again
-        var oneShot = (action != null && OneShot.Contains(action)) || lines.Any(l => l.StartsWith("set gf_cmd_map ", StringComparison.Ordinal));
+        // a level verb (restart / end ...), `race endmatch`, or a map switch / stage (gf_cmd_map, MAPS + the SPAWNS scan
+        // tour): its ack is lost in the level change, and a retry would restart / end / switch again
+        var level = Commands.LevelChange(lines);
+        var oneShot = level != null;
         if (oneShot)
         {
             _retryPausedUntil = DateTime.UtcNow.AddSeconds(40);
-            Matches.NoteLevelVerb(action != null && OneShot.Contains(action) ? action : "switch", DateTime.Now);   // a stop right after is the panel's doing
+            Matches.NoteLevelVerb(level!, DateTime.Now);   // a stop right after is the panel's doing
         }
         var q = new QueuedCommand { Seq = seq, Label = label, Lines = lines, NoRetry = oneShot };
         Queue.Insert(0, q);

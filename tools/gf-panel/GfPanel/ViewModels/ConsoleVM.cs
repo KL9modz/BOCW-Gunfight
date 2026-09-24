@@ -21,14 +21,13 @@ public sealed class ConsoleVM : ObservableObject
 
     public QuickCmd[] Quick { get; } =
     {
-        new("apply all", "set gf_cmd_action apply", "Re-run every live subsystem (movement / bots / periods / timer) - what the old app's Apply-now did. Needs a go pulse: use the Send button, it adds seq + go."),
+        new("apply all", "set gf_cmd_action apply", "Re-run every live subsystem (movement / bots / periods / timer) - what the old app's Apply-now did. Needs a go pulse: Run (or Send + go) adds seq + go; plain Send does not."),
         new("restart match", "set gf_cmd_action restart", "map_restart() - scores 0-0, same map."),
         new("fill bots", "set gf_cmd_action fillbots", "Fill both sides to the team size."),
         new("remove bots", "set gf_cmd_action removebots", ""),
         new("pause", "set gf_cmd_action pause", "The esports pause + BLINKER CHECKPOINT banner."),
         new("resume", "set gf_cmd_action resume", "5 s countdown then play."),
         new("freeze all", "set gf_cmd_action freeze", "Toggle: freeze / unfreeze everyone."),
-        new("gf_census 2", "set gf_c1 ,,2,,,", "⚠ example only - a raw chunk write overwrites 6 packed cells; use the settings rows instead."),
     };
 
     public ConsoleVM(MainViewModel m) { _m = m; }
@@ -54,6 +53,10 @@ public sealed class ConsoleVM : ObservableObject
             Add($"REFUSED ({Commands.ByteLength(c)} B > {Native.BridgeChannel.MaxCommandBytes}): a longer command overflows cwpatch's slot and hard-crashes the game", "out");
             return;
         }
+        // the same rule as the buttons: a pulsed line that restarts / ends / switches the level asks first
+        if (pulse && Commands.LevelChange(new[] { c }) is { } level &&
+            !_m.Confirm($"Send '{c}'?\n\nIt {(level == "switch" ? "switches the map" : "restarts or ends the match")} ({level})."))
+            return;
         _history.Insert(0, c); if (_history.Count > 100) _history.RemoveAt(_history.Count - 1);
         _histIdx = -1;
         Input = "";

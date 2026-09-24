@@ -62,5 +62,25 @@ public static class Commands
     /// <summary>A plain dvar write (unpacked setting).</summary>
     public static string Set(string dvar, int value) => $"set {dvar} {value}";
 
+    /// <summary>Verbs that change or end the level: sent once, never retried - the ack is lost in the reload, and a
+    /// retry ran map_restart AGAIN (klaze 2026-09-22: "restart round and restart match fire multiple quick restarts").</summary>
+    public static readonly HashSet<string> LevelVerbs = new(StringComparer.OrdinalIgnoreCase) { "restart", "restartround", "relaunch", "endmatch", "endround" };
+    /// <summary>Verb + argument pairs that end the level too. RACE → END MATCH is `race endmatch` - verb `race`, so the
+    /// verb list above missed it and a retry could land in the NEXT match (the 2026-09-24 panel review).</summary>
+    public static readonly HashSet<string> LevelVerbArgs = new(StringComparer.OrdinalIgnoreCase) { "race endmatch" };
+
+    /// <summary>What a command's lines do to the level: "switch" for a map switch / stage (gf_cmd_map), the verb (or
+    /// "verb arg") for a level verb, null for everything else.</summary>
+    public static string? LevelChange(IReadOnlyList<string> lines)
+    {
+        if (lines.Any(l => l.StartsWith("set gf_cmd_map ", StringComparison.Ordinal))) return "switch";
+        string? Value(string prefix) => lines.Where(l => l.StartsWith(prefix, StringComparison.Ordinal)).Select(l => l[prefix.Length..].Trim()).FirstOrDefault();
+        var action = Value("set gf_cmd_action ");
+        if (action == null) return null;
+        if (LevelVerbs.Contains(action)) return action;
+        var arg = Value("set gf_cmd_arg ");
+        return arg != null && LevelVerbArgs.Contains(action + " " + arg) ? action + " " + arg : null;
+    }
+
     public static int ByteLength(string line) => Encoding.ASCII.GetByteCount(line);
 }

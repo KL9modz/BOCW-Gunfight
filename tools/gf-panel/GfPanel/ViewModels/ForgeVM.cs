@@ -20,8 +20,12 @@ public sealed class ForgeVM : ObservableObject
     public RelayCommand Prev => new(() => Do("Forge: previous model", "forge", "prev"));
     public RelayCommand Clear => new(() => { if (_m.Confirm("Delete ALL props on this map?\n\nRemoves every placed prop and the saved forge layout (game.gf_forge) for this map, so nothing comes back next round.")) Do("Delete all props (forge clear)", "forge", "clear"); });
 
-    // ── grant forge to a non-host player (forgegrant on|off + target; forge session) ──
-    public PlayerRowVM? GrantTarget { get; set; }
+    // ── grant a non-host player their client menu (forgegrant on|off + target; forge session) ──
+    // Two pickers, two targets: the client-menu picker and the forge-mode picker shared ONE plain property until
+    // 2026-09-24, so the second picker's buttons acted on the first one's player (and neither picker showed it).
+    private PlayerRowVM? _grantTarget, _modeTarget;
+    public PlayerRowVM? GrantTarget { get => _grantTarget; set => Set(ref _grantTarget, value); }
+    public PlayerRowVM? ModeTarget { get => _modeTarget; set => Set(ref _modeTarget, value); }
     public IEnumerable<PlayerRowVM> Humans => _m.Players.Rows.Where(r => !r.IsBot && !r.IsHost);
     public void RefreshHumans() => OnPropertyChanged(nameof(Humans));
     public RelayCommand GrantOn => new(() => { if (GrantTarget == null) { _m.Toasts.Show("Pick a player first", LogLevel.Warn); return; } GrantTarget.ForgeGrant.Execute(null); });
@@ -33,8 +37,8 @@ public sealed class ForgeVM : ObservableObject
     public RelayCommand ModeHostOff => new(() => Do("Forge mode OFF (host)", "forgemode", "off"));
     public RelayCommand ModeAllOn => new(() => _m.Link.Send("Forge mode ON for everyone", Commands.Action("forgemode", "all on")));
     public RelayCommand ModeAllOff => new(() => _m.Link.Send("Forge mode OFF for everyone", Commands.Action("forgemode", "all off")));
-    public RelayCommand ModeTargetOn => new(() => { if (GrantTarget == null) { _m.Toasts.Show("Pick a player first", LogLevel.Warn); return; } GrantTarget.ForgeModeOn.Execute(null); });
-    public RelayCommand ModeTargetOff => new(() => { if (GrantTarget == null) { _m.Toasts.Show("Pick a player first", LogLevel.Warn); return; } GrantTarget.ForgeModeOff.Execute(null); });
+    public RelayCommand ModeTargetOn => new(() => { if (ModeTarget == null) { _m.Toasts.Show("Pick a player first", LogLevel.Warn); return; } ModeTarget.ForgeModeOn.Execute(null); });
+    public RelayCommand ModeTargetOff => new(() => { if (ModeTarget == null) { _m.Toasts.Show("Pick a player first", LogLevel.Warn); return; } ModeTarget.ForgeModeOff.Execute(null); });
 
     // ── hint bar ──
     public const int ChunkChars = 34;   // `set gf_ho0 "` (12) + 34 + `"` = 47

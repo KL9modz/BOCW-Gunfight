@@ -1,7 +1,7 @@
 # Everything a user can do from the panel's views - kept reachable through the redesign (UiSurfaceTests).
 # cmd:<Command> [<literal parameter>|{<bound parameter>}]  ·  set:<two-way input property>  ·  click:<handler>
 # Regenerate after an INTENDED change:  dotnet run --project tools/gf-panel/GfPanel.Tests -- --write-ui-surface
-# 461 keys.
+# 462 keys.
 click:Cancel_Click
 click:Fit_Click
 click:Ok_Click
@@ -408,6 +408,7 @@ set:Live
 set:LiveScope
 set:Loc
 set:MinPerSide
+set:ModeTarget
 set:NavText
 set:NorthUp
 set:OperatorId

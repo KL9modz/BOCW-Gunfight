@@ -17,6 +17,10 @@ public sealed class SearchHit
     public string? Tab { get; init; }
 }
 
+/// <summary>One banned XUID with its own Unban button: a banned player never reappears in the roster, so the
+/// row's right-click Unban could not be reached - the only way out was Clear bans (2026-09-24 panel review).</summary>
+public sealed record BanRowVM(string Xuid, string Name, RelayCommand Unban);
+
 public sealed class FavGroupVM
 {
     public string Title { get; init; } = "";
@@ -207,6 +211,7 @@ public sealed class MainViewModel : ObservableObject
         Maps.OnState(s);
         Spawns.OnState(s);
         Props.OnState();
+        Tools.NotifyMap();
         UpdateClock();
         // a new match / map: re-push the bans + the staged team plan, stage the rotation's next map
         var newMatch = s.Map != _lastMap || (s.Round == 1 && _lastRound > 1);
@@ -327,26 +332,35 @@ public sealed class MainViewModel : ObservableObject
         if (string.IsNullOrEmpty(p.Xuid)) { Toasts.Show("No XUID for " + p.Name, LogLevel.Err); return; }
         if (code == "") Prefs.TeamPlan.Remove(p.Xuid); else Prefs.TeamPlan[p.Xuid] = code;
         Prefs.Save();
-        Players.NotifyPlan();
+        NotifySession();
         Link.Send($"stage {p.Name} → {(code == "" ? "unstaged" : code.ToUpperInvariant())}", Commands.Action("stage", code == "" ? "-" : code, p.Name));
     }
     public RelayCommand StageApply => new(() => Link.Send("Apply staged plan", Commands.Action("stageapply")));
-    public RelayCommand StageClearAll => new(() => { Prefs.TeamPlan.Clear(); Prefs.Save(); Players.NotifyPlan(); Link.Send("Clear staged plan", Commands.Action("stageclear")); });
+    public RelayCommand StageClearAll => new(() => { Prefs.TeamPlan.Clear(); Prefs.Save(); NotifySession(); Link.Send("Clear staged plan", Commands.Action("stageclear")); });
     public string StagedPlanText => Prefs.TeamPlan.Count == 0 ? "no plan" : string.Join(", ", Prefs.TeamPlan.Select(kv => (Prefs.KnownNames.GetValueOrDefault(kv.Key) ?? kv.Key) + ":" + kv.Value.ToUpperInvariant()));
 
     public void BanPlayer(PlayerRowVM p)
     {
         if (!string.IsNullOrEmpty(p.Xuid) && !Prefs.Bans.Contains(p.Xuid)) { Prefs.Bans.Add(p.Xuid); Prefs.Save(); }
         Link.Send("Ban " + p.Name, Commands.Action("ban", null, p.Name));
-        Players.NotifyPlan();
+        NotifySession();
     }
     public void UnbanXuid(string xuid)
     {
-        Prefs.Bans.Remove(xuid); Prefs.Save(); Players.NotifyPlan();
+        Prefs.Bans.Remove(xuid); Prefs.Save(); NotifySession();
         Link.Send("Unban " + (Prefs.KnownNames.GetValueOrDefault(xuid) ?? xuid), Commands.Action("unbanx", xuid));
     }
     public string BansText => Prefs.Bans.Count == 0 ? "none" : string.Join(", ", Prefs.Bans.Select(x => Prefs.KnownNames.GetValueOrDefault(x) ?? x));
-    public RelayCommand ClearBans => new(() => { Prefs.Bans.Clear(); Prefs.Save(); Link.Send("Clear bans", Commands.Action("banclear")); Players.NotifyPlan(); });
+    public List<BanRowVM> BanRows => Prefs.Bans.Select(x => new BanRowVM(x, Prefs.KnownNames.GetValueOrDefault(x) ?? x, new RelayCommand(() => UnbanXuid(x)))).ToList();
+    public bool HasBans => Prefs.Bans.Count > 0;
+    public RelayCommand ClearBans => new(() => { if (!Confirm($"Clear all {Prefs.Bans.Count} ban(s)?")) return; Prefs.Bans.Clear(); Prefs.Save(); Link.Send("Clear bans", Commands.Action("banclear")); NotifySession(); });
+    /// <summary>The team plan / bans changed: the roster pills AND the computed texts (StagedPlanText / BansText never
+    /// refreshed after a Stage or a Ban until 2026-09-24).</summary>
+    private void NotifySession()
+    {
+        Players.NotifyPlan();
+        foreach (var n in new[] { nameof(StagedPlanText), nameof(BansText), nameof(BanRows), nameof(HasBans) }) OnPropertyChanged(n);
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // settings: readback + writes

@@ -159,7 +159,7 @@
                     <Slider Minimum="1" Maximum="240" Value="{Binding W}" Width="150" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="width, 8-px steps (240 = 1920 px)" />
                     <TextBlock Text="{Binding W}" Width="34" Margin="4,0,10,0" VerticalAlignment="Center" />
                     <TextBlock Text="H" Style="{StaticResource Dim}" VerticalAlignment="Center" Width="14" />
-                    <Slider Minimum="1" Maximum="60" Value="{Binding H}" Width="120" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="height, 4-px steps" />
+                    <Slider Minimum="1" Maximum="270" Value="{Binding H}" Width="120" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="height, 4-px steps" />
                     <TextBlock Text="{Binding H}" Width="30" Margin="4,0,10,0" VerticalAlignment="Center" />
                     <TextBlock Text="Opacity" Style="{StaticResource Dim}" VerticalAlignment="Center" Margin="0,0,4,0" />
                     <Slider Minimum="0" Maximum="15" Value="{Binding A}" Width="100" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1" ToolTip="0 = off, 15 = solid. If the box covers the menu text, lower it." />
@@ -644,7 +644,7 @@
           </WrapPanel>
           <WrapPanel Style="{StaticResource Row}">
             <TextBlock Text="A player" Style="{StaticResource RowLabel}" />
-            <ComboBox ItemsSource="{Binding Forge.Humans}" DisplayMemberPath="Name" SelectedItem="{Binding Forge.GrantTarget}" Width="200" Margin="0,0,6,0" ToolTip="humans in the match (not you)" />
+            <ComboBox ItemsSource="{Binding Forge.Humans}" DisplayMemberPath="Name" SelectedItem="{Binding Forge.ModeTarget}" Width="200" Margin="0,0,6,0" ToolTip="humans in the match (not you)" />
             <Button Content="On" Style="{StaticResource SmallAccent}" Command="{Binding Forge.ModeTargetOn}" Margin="0,0,4,0" />
             <Button Content="Off" Style="{StaticResource SmallBtn}" Command="{Binding Forge.ModeTargetOff}" />
             <TextBlock Text="also: right-click a player → Forge mode" Style="{StaticResource Dim}" FontSize="10.5" VerticalAlignment="Center" Margin="8,0,0,0" />
