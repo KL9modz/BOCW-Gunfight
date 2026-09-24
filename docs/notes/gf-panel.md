@@ -298,7 +298,7 @@ follows has something to catch what it breaks. `tools/gf-panel/GfPanel.Tests/` i
 (no NuGet, `RollForward=Major`, runs on Windows or Linux) that compiles the panel's UI-free code in directly
 (`Game\*.cs`, `MemoryScanner` / `Win32` / `GameProcess`, `MatchTracker` + `LogEntry`) — the panel itself is
 net9.0-windows WPF and cannot be referenced. `dotnet run --project tools\gf-panel\GfPanel.Tests`; exit code 1
-on any failure; a name filter as the argument. **55 checks, all green**, ~0.5 s.
+on any failure; a name filter as the argument. **57 checks, all green**, ~0.5 s.
 
 | Group | What it holds the panel to |
 |---|---|
@@ -328,6 +328,18 @@ renames a verb or reorders a list fails here as well. Run it after GSC edits too
    called — the dvar-pool crash). GSC fix: the publish uses 0. ⚠ Needs a payload rebuild (+ `check-gsc.ps1`).
 4. **Grab reach defaulted to 160 in the panel, 200 in the game** (the GSC moved on 2026-09-22). Schema = 200.
 5. (not a bug, a gap) the fun pick lists moved from `FunVM` into `Catalog` so the checks can compile them.
+
+**The redesign guard — `ui-surface.txt`** (klaze: *"without losing any functionality (only gaining it)"*):
+`GfPanel.Tests/ui-surface.txt` lists every thing a user can do from a view, as 461 keys read from the XAML —
+`cmd:<Command> [<parameter>]` for each button / menu item (81 `fun` switches are 81 keys), `set:<Property>` for
+each two-way input, `click:<handler>`. Keys use the last segment of a binding path, so moving a control to another
+view keeps its key; renaming changes it. `Nothing_the_panel_offered_has_become_unreachable` fails on any key no
+view offers any more (verified: deleting the *Swap places* menu item fails it with `cmd:TpSwap`). After an
+intended change: `dotnet run --project tools\gf-panel\GfPanel.Tests -- --write-ui-surface`, and the file's
+diff in the commit is the record of what moved. `Every_binding_names_a_member_some_view_model_has` catches the
+other silent WPF failure: a `{Binding X}` to a member that does not exist.
+The generator also lists view-model commands nothing binds or calls — 5 today, features the UI does not offer:
+`ForgeVM.SetBuild`, `MainViewModel.PauseResume`, `ToolsVM.PropPlace` / `PropUndo` / `PropClear`.
 
 Rules this sets for the redesign: `Game\` stays free of WPF (the harness compiles it whole); anything that
 sends a verb names it as a literal (the verb check reads call sites, and lists any it cannot read).
