@@ -66,6 +66,9 @@ region-2 carousel, which windows its items so nothing clips. **Recommendation: d
 (region 0/1) and the region-2 carousel are the menu surfaces. Left in the tree (bocw-06's) but not advised;
 the newline option is removed and the cursor hint is gone, so it is at least harmless now.
 
+🔓 **2026-09-23: a fourth positioned route is untried — event-backed luielems (`LUIelemBar`, `LUIelemCounter`),
+no clientfields and no material. [hud-channels](hud-channels.md) §1.** The line below is about the first three.
+
 ⇒ **All three positioned-menu routes are exhausted on retail 1.35:** LUIelemText = stock localized keys only
 (free text crashes, [[lui-elems]]), LUIelemImage boxes = blocked on material bgcache ([[lui-elems]]), hint
 widget = one non-wrapping line. Free positioned multi-row text has no T9 retail GSC route; the ~4-line feed

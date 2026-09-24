@@ -18,6 +18,9 @@ public sealed class InjectVM : ObservableObject
     private string _payload;
     public string Payload { get => _payload; set { if (Set(ref _payload, value)) { OnPropertyChanged(nameof(PayloadInfo)); OnPropertyChanged(nameof(PayloadIsLive)); } } }
     public string LivePayload => Path.Combine(PayloadDir, "gunfight_menu.gscc");
+    /// <summary>The lobby payload (src/gunfight_lobby): the lobby's maxplayers -> the lobby slot count. Its own replace target.</summary>
+    public string LobbyPayload => Path.Combine(PayloadDir, "gunfight_lobby.gscc");
+    private bool _lobbyInjected;
     public bool PayloadIsLive => string.Equals(Path.GetFullPath(Payload), Path.GetFullPath(LivePayload), StringComparison.OrdinalIgnoreCase);
     public string PayloadInfo => File.Exists(Payload)
         ? $"{(PayloadIsLive ? "LIVE SLOT" : "SIDE BUILD")} · {new FileInfo(Payload).Length:N0} B · {File.GetLastWriteTime(Payload):yyyy-MM-dd HH:mm}"
@@ -44,6 +47,19 @@ public sealed class InjectVM : ObservableObject
     }
     public string BridgeText => _m.Link.BridgeListening ? $"listening (seq {_m.Link.BridgeSeq})" : File.Exists(BridgeDll) ? "not loaded" : "gf_bridge.dll missing from the bundle";
     public string MenuText => _m.Link.StateFreshNow ? $"live · {_m.Link.State!.Gametype} on {_m.Link.State.Map}" : _m.Link.Players.Count > 0 ? "roster only (older payload - no GFSTATE)" : "not detected (inject, then restart the match)";
+    public string LobbyText
+    {
+        get
+        {
+            var l = _m.Link.Lobby;
+            if (_m.Link.LobbyFreshNow && l != null)
+                return l.Ok && l.Want >= 2 ? $"live · {l.Summary} · now Custom Game Rules → change any row → back → YES; the player count should read N/{l.Want + (l.Spec == 1 ? 4 : 0)}" : "live · " + l.Summary;
+            if (l != null) return "last seen in the lobby: " + l.Summary;
+            if (!File.Exists(LobbyPayload)) return "payloads\\gunfight_lobby.gscc missing (build src/gunfight_lobby)";
+            return _lobbyInjected ? "injected · it runs in the lobby after the next match (first run: check the lobby return)" : "not injected (Set up all, or Inject lobby payload)";
+        }
+    }
+    public bool LobbyOk => _m.Link.LobbyFreshNow && _m.Link.Lobby is { Ok: true };
     public bool GameOk => _m.Link.GameRunning;
     public bool CwpatchOk => _m.Link.GameRunning ? _m.Link.CwpatchLoaded : CwpatchText.StartsWith("installed");
     public bool BridgeOk => _m.Link.BridgeListening;
@@ -75,13 +91,14 @@ public sealed class InjectVM : ObservableObject
 
     public void Refresh()
     {
-        foreach (var n in new[] { nameof(GameText), nameof(CwpatchText), nameof(BridgeText), nameof(MenuText), nameof(GameOk), nameof(CwpatchOk), nameof(BridgeOk), nameof(MenuOk) })
+        foreach (var n in new[] { nameof(GameText), nameof(CwpatchText), nameof(BridgeText), nameof(MenuText), nameof(GameOk), nameof(CwpatchOk), nameof(BridgeOk), nameof(MenuOk), nameof(LobbyText), nameof(LobbyOk) })
             OnPropertyChanged(n);
     }
 
     public RelayCommand SetupAll => new(async () =>
     {
-        if (!_m.Confirm("Set up all: install cwpatch (if needed), load the bridge DLL, inject the menu payload.\n\ncwpatch is read at game start, so the first time you relaunch once. After the menu injects, restart the match to link it.")) return;
+        var lobby = _m.Prefs.InjectLobby && File.Exists(LobbyPayload);
+        if (!_m.Confirm("Set up all: install cwpatch (if needed), load the bridge DLL, inject the menu payload" + (lobby ? " + the lobby payload (lobby slot count)" : "") + ".\n\ncwpatch is read at game start, so the first time you relaunch once. After the menu injects, restart the match to link it." + (lobby ? "\n\nThe lobby payload is a NEW injection pair (load_shared + containers_shared): on its first run, check that leaving the match back to the lobby works." : ""))) return;
         var pid = _m.Link.Pid;
         var dir = _m.Link.GameDir;
         if (dir != null && Injector.Sha256(Path.Combine(dir, "discord_game_sdk.dll")) != Injector.CwpatchSha256)
@@ -94,7 +111,31 @@ public sealed class InjectVM : ObservableObject
         if (_m.Link.BridgeListening) _m.Link.Log("bridge already loaded - keeping it", LogLevel.Info);
         else _m.Link.Log(Injector.InjectDll(pid, BridgeDll), LogLevel.Ok);
         await InjectMenu();
+        if (lobby) await InjectLobby();
     });
+
+    public RelayCommand InjectLobbyCmd => new(async () =>
+    {
+        if (!File.Exists(LobbyPayload)) { _m.Toasts.Show("payloads\\gunfight_lobby.gscc is missing - build src/gunfight_lobby", LogLevel.Warn); return; }
+        if (!_m.Confirm("Inject the LOBBY payload (gunfight_lobby.gscc) into the running game?\n\nIt writes the lobby's max players (Lobby max players, default 12) so the pregame lobby seats 6v6 + spectators. It hooks load_shared.gsc with its own replace target (containers_shared.gsc), so it sits beside the menu payload.\n\n⚠ New injection pair: on its first run, check that leaving a match back to the lobby works, then a lobby → match → lobby cycle.")) return;
+        await InjectLobby();
+    });
+
+    private async Task InjectLobby()
+    {
+        Busy = "injecting the lobby payload...";
+        var (ok, output) = await Injector.ActsInjectAsync(Acts, LobbyPayload, Injector.LobbyHook, Injector.LobbyReplace);
+        Busy = "";
+        ok = ok && output.Contains("injected at", StringComparison.OrdinalIgnoreCase);
+        foreach (var line in output.Split('\n').TakeLast(4)) _m.Link.Log("  " + line.Trim(), ok ? LogLevel.Info : LogLevel.Err);
+        if (output.Contains("find replaced script", StringComparison.OrdinalIgnoreCase))
+            _m.Link.Log("  -> containers_shared.gsc is not in the script pool yet: load a private match once, then inject again", LogLevel.Warn);
+        _lobbyInjected = ok;
+        _m.Link.Log(ok ? "lobby payload injected - it runs in the lobby after the next match; then Custom Game Rules → change any row → back → YES"
+                       : "lobby payload inject failed", ok ? LogLevel.Ok : LogLevel.Err);
+        _m.Toasts.Show(ok ? "Lobby payload injected - first run: check the lobby return" : "Lobby payload inject failed - see the activity log", ok ? LogLevel.Ok : LogLevel.Err);
+        Refresh();
+    }
 
     public RelayCommand InjectMenuCmd => new(async () =>
     {

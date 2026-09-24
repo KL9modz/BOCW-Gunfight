@@ -215,6 +215,52 @@ public sealed class MemoryScanner : IDisposable
         return best;
     }
 
+    /// <summary>EVERY whole line of one marker (stale copies included) for the multi-chunk channels (GFSPAWN,
+    /// the spawn atlas), where Sweep's newest-per-marker rule would keep a single chunk. Reads the pool region
+    /// the other markers live in; <paramref name="wide"/> adds every region inside the exe image range.
+    /// Never the whole process.</summary>
+    public List<Hit> CollectAll(string marker, bool wide)
+    {
+        var pat = Encoding.ASCII.GetBytes(marker + "|");
+        var hits = new List<Hit>();
+        var seen = new HashSet<long>();
+        _module ??= GameProcess.ModuleRange(Pid);
+        _regions ??= EnumRegions().ToList();
+        var regions = new List<(long Base, long Size)>();
+        if (_lastRegion is { } lr) regions.Add(lr);
+        if (wide || regions.Count == 0)
+            foreach (var r in _regions)
+                if (_module is { } m && m.Base <= r.Base && r.Base < m.Base + m.Size && !regions.Contains(r)) regions.Add(r);
+
+        foreach (var region in regions)
+        {
+            long off = 0;
+            while (off < region.Size)
+            {
+                var want = (int)Math.Min(Step + MaxLen, region.Size - off);
+                var n = Read(region.Base + off, _buf, want);
+                if (n > 0)
+                {
+                    var span = new ReadOnlySpan<byte>(_buf, 0, n);
+                    var from = 0;
+                    while (from < n)
+                    {
+                        var idx = span[from..].IndexOf(pat);
+                        if (idx < 0) break;
+                        var at = from + idx;
+                        if (at >= Step) break;                       // the next chunk owns it
+                        var addr = region.Base + off + at;
+                        var hit = Parse(span[at..Math.Min(n, at + MaxLen)], marker, addr);
+                        if (hit != null && seen.Add(addr)) hits.Add(hit);
+                        from = at + pat.Length;
+                    }
+                }
+                off += Step;
+            }
+        }
+        return hits;
+    }
+
     private bool SweepRegion((long Base, long Size) region, (string Marker, byte[] Bytes)[] patterns,
                              Dictionary<string, Hit> best, ref long nbytes)
     {

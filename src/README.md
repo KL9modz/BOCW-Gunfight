@@ -45,6 +45,21 @@ gunfight_menu_c/  the CLIENT-side LUI-element probe. DIFFERENT PAIR: load_shared
                   LUIelemText renders in MP (stock key) — 💥 a plain string in it is a FATAL LUI
                   error (localizeentry). Now draws two stock-key rows, prints 77LCOPnn every 5s.
                   Stock keys only, ever. docs/notes/lui-elems.md
+subtitle_probe_c/ CLIENT pair (like gunfight_menu_c). subtitleprint( lcn, msec, text ), the client-only
+                  subtitle channel: step 1 passes the key NAME "mp/match_starting" as a plain string
+                  (crash-safe: localized -> "Match starting", raw -> "mp/match_starting"), step 2 the
+                  noAutoHide hold + flushsubtitles; free text / colours / width / newline only with
+                  gf_sub_plain / gf_sub_nl. Host-only. Built 2026-09-23, NEVER RUN. hud-channels.md §9
+hud_probe/        every display channel the menu does not use yet, one ~7 s stage each: screen
+                  flash + drawHUD veil, lower message, announcement, N-v-M banner, EMP overlay,
+                  objective progress/per-player markers, HUD switches, the EVENT-BACKED luielems
+                  (LUIelemBar box/bar, LUIelemCounter number - no clientfields, no material),
+                  printtoprightln, objective text, HudElementTimer, MPHintText, TempDialog, and a
+                  MENU MADE OF WORLD MARKERS (a world board with look-to-select, a view-locked icon,
+                  the on-screen objective "using" bar); plain-text stages opt-in (19-22); stage 23 (gf_hud_nl 1):
+                  one iprintlnbold carrying newlines - multi-line centre text in MP?
+                  gf_hud_all 1 = the joiner run. Built 2026-09-23,
+                  check-dump 0 fatal / check-args 0 mismatches, NEVER RUN. docs/notes/hud-channels.md
 
   ── staged tests. ONE PER MATCH. Each WRITES. Lobby return after each. ──
 test_maprestart/  B4 · can map_restart replace F7, and drop the cwpatch prerequisite?

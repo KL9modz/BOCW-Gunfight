@@ -7,6 +7,10 @@ shows spawns I've never seen that look good for Gunfight on some maps. I need th
 This is that picture, as far as the dump and the code allow, with the gaps named and a probe built to
 fill them. Read with `game-systems.md §16` (the pipeline), which this supersedes where they differ.
 
+▶ **The per-map data now comes from the game itself: [spawn-atlas](spawn-atlas.md)** (2026-09-22) — a
+census of every spawn point with the engine's full mode vocabulary, filed per map by the panel's SPAWNS
+tab, plus the per-map pick (`gf_sp_map`) and the widened Family AUTO.
+
 ---
 
 ## 1. How CW MP spawning works (the model)

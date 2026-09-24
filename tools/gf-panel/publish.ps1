@@ -7,6 +7,7 @@
 #     gf-bridge\gf_bridge.dll             the in-process bridge DLL (prebuilt, zig cc)
 #     vendor\discord_game_sdk.CWPATCH-13824.dll   cwpatch (hash-checked before it is ever copied)
 #     payloads\gunfight_menu.gscc         the menu payload (the LIVE build), + any side builds passed in
+#     spawns\*.json                       the spawn atlas (docs/data/spawns: scanned maps + picks.json)
 #
 #   powershell -ExecutionPolicy Bypass -File tools\gf-panel\publish.ps1 [-Payload C:\bocw\payloads\gunfight_menu.panel.gscc]
 #
@@ -37,9 +38,27 @@ if ($acts) {
     Write-Host "  acts: $acts (without deps\BlackOpsColdWar_dump.exe, *.gsccasm, scans\)"
 } else { Write-Warning "ACTS not found beside the repo - the bundle cannot inject the menu" }
 New-Item -ItemType Directory -Force "$Out\gf-bridge", "$Out\vendor", "$Out\payloads" | Out-Null
-if (Test-Path $bridge) { Copy-Item $bridge "$Out\gf-bridge\" -Force; Write-Host "  bridge: $bridge" } else { Write-Warning "gf_bridge.dll missing" }
-if (Test-Path $cwpatch) { Copy-Item $cwpatch "$Out\vendor\" -Force; Write-Host "  cwpatch: $cwpatch" } else { Write-Warning "cwpatch source missing" }
+# The DLLs are LOADED by a running game (the bridge from this very folder), so an unchanged file is left alone
+# instead of overwritten - publishing while the game runs used to stop here with "being used by another process".
+function Copy-IfChanged($src, $dstDir) {
+    $dst = Join-Path $dstDir (Split-Path $src -Leaf)
+    if ((Test-Path $dst) -and (Get-FileHash $src).Hash -eq (Get-FileHash $dst).Hash) { return "unchanged" }
+    Copy-Item $src $dstDir -Force
+    return "copied"
+}
+if (Test-Path $bridge) { $r = Copy-IfChanged $bridge "$Out\gf-bridge"; Write-Host "  bridge: $bridge ($r)" } else { Write-Warning "gf_bridge.dll missing" }
+if (Test-Path $cwpatch) { $r = Copy-IfChanged $cwpatch "$Out\vendor"; Write-Host "  cwpatch: $cwpatch ($r)" } else { Write-Warning "cwpatch source missing" }
 if (Test-Path $livePayload) { Copy-Item $livePayload "$Out\payloads\" -Force; Write-Host "  payload: $livePayload" } else { Write-Warning "live payload missing" }
+# the LOBBY payload (src/gunfight_lobby: the lobby's maxplayers -> slot count), injected beside the menu on its own replace target
+$lobbyPayload = "$repo\..\payloads\gunfight_lobby.gscc"
+if (Test-Path $lobbyPayload) { Copy-Item $lobbyPayload "$Out\payloads\" -Force; Write-Host "  payload: $lobbyPayload" } else { Write-Warning "lobby payload missing (src/gunfight_lobby not built)" }
+# the spawn atlas (SPAWNS tab): every scanned map + the per-map picks, so a friend's panel has them too
+$spawns = "$repo\docs\data\spawns"
+if (Test-Path $spawns) {
+    New-Item -ItemType Directory -Force "$Out\spawns" | Out-Null
+    Copy-Item "$spawns\*.json" "$Out\spawns\" -Force -ErrorAction SilentlyContinue
+    Write-Host ("  spawns: {0} file(s) from {1}" -f @(Get-ChildItem "$Out\spawns\*.json" -ErrorAction SilentlyContinue).Count, $spawns)
+}
 # -File passes "a,b" as ONE string (no PowerShell parsing), so split on commas ourselves
 foreach ($pl in ($Payload -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
     if (Test-Path $pl) { Copy-Item $pl "$Out\payloads\" -Force; Write-Host "  payload: $pl" } else { Write-Warning "payload not found: $pl" }

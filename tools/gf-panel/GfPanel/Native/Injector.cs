@@ -18,6 +18,11 @@ public static class Injector
 
     public const string MenuHook = @"scripts\mp_common\bb.gsc";
     public const string MenuReplace = @"scripts\core_common\clientids_shared.gsc";
+    // The LOBBY payload (src/gunfight_lobby): load_shared.gsc links in every VM, the pregame lobby included, and a
+    // SECOND replace target keeps its buffer apart from the menu's. containers_shared has clientids_shared's profile
+    // (only cp_common/load.gsc #uses it) - but the pair is UNTESTED: test a lobby return + match -> lobby -> match.
+    public const string LobbyHook = @"scripts\core_common\load_shared.gsc";
+    public const string LobbyReplace = @"scripts\core_common\containers_shared.gsc";
 
     public static string? Sha256(string path)
     {
@@ -74,7 +79,10 @@ public static class Injector
     }
 
     /// <summary>acts injectcw &lt;payload&gt; &lt;hook&gt; &lt;replace&gt;, off-thread. Returns (ok, output).</summary>
-    public static async Task<(bool Ok, string Output)> ActsInjectAsync(string acts, string payload, CancellationToken ct = default)
+    public static Task<(bool Ok, string Output)> ActsInjectAsync(string acts, string payload, CancellationToken ct = default)
+        => ActsInjectAsync(acts, payload, MenuHook, MenuReplace, ct);
+
+    public static async Task<(bool Ok, string Output)> ActsInjectAsync(string acts, string payload, string hook, string replace, CancellationToken ct = default)
     {
         if (!File.Exists(acts)) return (false, "acts.exe not found: " + acts);
         if (!File.Exists(payload)) return (false, "payload not found: " + payload);
@@ -88,8 +96,8 @@ public static class Injector
         };
         psi.ArgumentList.Add("injectcw");
         psi.ArgumentList.Add(payload);
-        psi.ArgumentList.Add(MenuHook);
-        psi.ArgumentList.Add(MenuReplace);
+        psi.ArgumentList.Add(hook);
+        psi.ArgumentList.Add(replace);
         try
         {
             using var p = Process.Start(psi)!;

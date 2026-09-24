@@ -35,7 +35,7 @@ public sealed class SettingDef
 public sealed class SectionDef
 {
     public required string Title { get; init; }
-    public required string Tab { get; init; }        // "dashboard" | "advanced"
+    public required string Tab { get; init; }        // "dashboard" | "advanced" | "tools" | "spawns" (the SPAWNS tab's side panel)
     public string Note { get; init; } = "";
     public required SettingDef[] Rows { get; init; }
 }
@@ -57,18 +57,23 @@ public static class Schema
             Note = "The match rules. Team size and the limits reload the match (RESTART); the rest lands next round.",
             Rows = new SettingDef[]
             {
-                new() { Dvar = "gf_team_size", Label = "Team size", Kind = SettingKind.Choice, Default = 4, RestartRequired = true, Eff = Eff.Restart,
+                new() { Dvar = "gf_team_size", Label = "Team size", Kind = SettingKind.Choice, Default = 6, RestartRequired = true, Eff = Eff.Restart,
                         Choices = C(("2v2", 2), ("3v3", 3), ("4v4", 4), ("5v5", 5), ("6v6", 6)),
-                        Tip = "gf_team_size\nPer side. Written to the maxplayers gametype setting (team size x 2 + spectator slots, capped at the lobby's com_maxclients). 6v6 needs a 12-slot session; a smaller lobby degrades to what fits." },
+                        Tip = "gf_team_size (default 6v6, klaze 2026-09-24)\nPer side. Written to the in-match maxplayers setting (team size x 2 + spectator slots, capped at the session's com_maxclients). The mod reads it clamped to com_maxclients / 2, so an 8-slot Gunfight lobby plays 4v4 until the lobby itself is bigger - that is 'Lobby max players' below (the lobby payload)." },
                 new() { Dvar = "gf_spec_slots", Label = "Spectator slots", Kind = SettingKind.Choice, Default = 2, RestartRequired = true, Eff = Eff.Restart,
                         Choices = C(("0", 0), ("2", 2), ("4", 4)),
                         Tip = "gf_spec_slots\nSlots ADDED to the maxplayers write on top of team size x 2, so a spectator / caster does not eat a player slot at bot fill or join time (4v4 + 1 spectator was filling 3v4)." },
+                new() { Dvar = "gf_lobby_maxp", Label = "Lobby max players", Kind = SettingKind.Choice, Default = 12, Eff = Eff.Live,
+                        Choices = C(("Off (stock)", 0), ("8 = 4v4", 8), ("10 = 5v5", 10), ("12 = 6v6", 12), ("14 (no lobby bots)", 14), ("16 (no lobby bots)", 16)),
+                        Tip = "gf_lobby_maxp - the LOBBY's slot count (needs the lobby payload, injected by Set up all / Inject lobby payload; SETUP shows its GFLOBBY readback).\nThe pregame lobby holds maxPlayers + 4 caster slots and the match launches with that many clients (lobby UI code + engine, read 2026-09-24). Gunfight's preset is 4 -> 8 clients; 12 -> 16 = 6v6 + spectators.\n⚠ The lobby recounts its slots only on a UI settings event: in the lobby open Custom Game Rules, change any row, back out and answer YES on 'Leave Custom Game Rules'. The player count then reads N/16. Picking a mode resets it (the payload rewrites maxplayers within 2 s; redo the Rules step).\nAbove 12 the lobby greys out Add Bot and removes bots on a mode change. Untested in game." },
+                new() { Dvar = "gf_lobby_spec", Label = "Lobby spectator slots", Kind = SettingKind.Toggle, Default = 1, Eff = Eff.Live,
+                        Tip = "gf_lobby_spec - keeps the lobby's Allow Spectating on, which is what adds the +4 CoD Caster slots to the lobby count (the lobby shows 2 caster seats). Off = the payload leaves that rules row alone." },
                 new() { Dvar = "gf_latejoin", Label = "Late joiners", Kind = SettingKind.Choice, Default = 1,
-                        Choices = C(("Place them (fewer humans > losing side > they pick)", 1), ("Stock (spectator)", 0)),
-                        Tip = "gf_latejoin\nA human who joins mid-match with no lobby side gets the side with fewer humans, then the losing side; on a full tie he is benched with a reminder to use the pause menu CHANGE TEAM. One bot leaves the joined side if it became the bigger one. Host feed line per join: JOIN <name> lobby=<side> humans A/X score A-X -> <pick> (<reason>). Read at each connect / round (bocw-1c 2026-09-21)." },
+                        Choices = C(("Always place them (fewer humans > losing side > auto)", 1), ("Stock (spectator)", 0)),
+                        Tip = "gf_latejoin\nklaze 2026-09-23 'always auto-place': a human who joins mid-match with no lobby side gets the side with fewer humans, then the losing side, and on a full tie fewer players overall / opposite the host - nobody is benched any more. Free-for-all joiners get the emptiest team. A safety net places anyone who never had a team and still spectates 8 s after connecting (two tries; someone who played and then chose to spectate is left alone). One bot leaves the joined side if it became the bigger one. Host feed / ACTIVITY line per join: JOIN <name> lobby=<side> ... -> <pick> (<reason>)." },
                 new() { Dvar = "gf_teamchange", Label = "Pause-menu CHANGE TEAM", Kind = SettingKind.Choice, Default = 1,
                         Choices = C(("On for everyone", 1), ("Off", 0)),
-                        Tip = "gf_teamchange\n1 = writes the hidden allowingameteamchange gametype setting + level.allow_teamchange so the pause menu's CHANGE TEAM works for everyone; 0 = writes it off (the stock default - the lobby UI never exposes this setting). Read at each connect / round." },
+                        Tip = "gf_teamchange\n1 = writes the hidden allowingameteamchange gametype setting + level.allow_teamchange so the pause menu's CHANGE TEAM works for everyone; 0 = writes it off (the stock default - the lobby UI never exposes this setting). Read at each connect / round. Late joiners no longer depend on it (they are always placed)." },
                 new() { Dvar = "gf_timer_seconds", Label = "Round timer (s)", Kind = SettingKind.Choice, Default = 60, Scope = "timer", Eff = Eff.Live,
                         Choices = C(("20 s", 20), ("30 s", 30), ("40 s", 40), ("60 s", 60), ("90 s", 90), ("120 s", 120), ("180 s", 180), ("300 s", 300), ("Unlimited", 0)),
                         Tip = "gf_timer_seconds\nRound length. 0 = no timer: rounds end by elimination only. Apply now = this round (the mod caches the limit per round so a lower value never ends the running round early); Next round = from the next round." },
@@ -116,9 +121,9 @@ public static class Schema
                 new() { Dvar = "gf_profile", Label = "Gunfight profile", Kind = SettingKind.Choice, Default = 1,
                         Choices = C(("On - real blob", 1), ("Off - raw hybrid", 0)),
                         Tip = "gf_profile\nWhen a Gunfight level runs on ANOTHER mode's settings blob (only an in-match Switch NOW from TDM does that), assert the real Gunfight blob: 1 life per round, no kill limit, fixed loadouts, no streaks. 0 = watch the raw hybrid on purpose." },
-                new() { Dvar = "gf_spyplane", Label = "Spy plane", Kind = SettingKind.Choice, Default = 0,
+                new() { Dvar = "gf_spyplane", Label = "Gunfight spy plane (Gunfight rule)", Kind = SettingKind.Choice, Default = 0,
                         Choices = C(("Off", 0), ("On", 1), ("Shared - hidden value", 3)),
-                        Tip = "gf_spyplane\nThe gunfightspyplane setting. 3 = the value the rules menu hides (shared minimap)." },
+                        Tip = "gf_spyplane\nGunfight's own gunfightspyplane rule (gunfight.gsc:112: a team spy plane at round start) - GUNFIGHT MATCHES ONLY, applied at the next match load. It does nothing in other modes. For a spy plane in any mode, live: TOOLS → RADAR & MARKERS. 3 = the value the rules menu hides (shared minimap)." },
                 new() { Dvar = "gf_camo", Label = "Pool camo", Kind = SettingKind.Choice, Default = -2, Group = "Camo",
                         Choices = C(("Random each round", -2), ("Random per player", -3), ("Stock - pool's own look", -1),
                                     ("Gold", 61), ("Diamond", 62), ("DM Ultra", 63), ("Golden Viper (ZM)", 64), ("Plague Diamond (ZM)", 65), ("Dark Aether (ZM)", 66),
@@ -217,6 +222,9 @@ public static class Schema
                 new() { Dvar = "gf_deathbarrier", Label = "Death barriers", Kind = SettingKind.Choice, Default = 1, Scope = "move", Eff = Eff.Live,
                         Choices = C(("Off - hurt volumes disabled", 1), ("Stock", 0), ("Off - hurt volumes deleted (this round)", 2), ("Off - hurt volumes sunk", 3)),
                         Tip = "gf_deathbarrier\nThe map's trigger_hurt kill volumes (the instant death off a ledge / in water / under the map) - NOT the restricted area, and god mode does not survive them. Disabled = triggerenable(0) (reversible) - measured working 2026-09-21, the default. Deleted = gone until the next round. Sunk = moved 40000u down; both fallbacks. The BARRIER debug line shows the census and the last death's cause." },
+                new() { Dvar = "gf_parachute", Label = "Parachutes", Kind = SettingKind.Choice, Default = 0, Eff = Eff.Live, Group = "Air",
+                        Choices = C(("Off - stock", 0), ("Everyone", 1), ("Host only", 2)),
+                        Tip = "gf_parachute\nThe Fireteam free-fall + parachute on every map (klaze 2026-09-23): fall from height - a jump boost, a heli, flying - and deploy it. A Fireteam mode's hidden setting makes the spawn call two player builtins (globallogic_spawn.gsc:674); the mod calls that pair itself per player per spawn, so no match reload. Lands on everyone alive within a second. The height a free-fall starts at is the engine's - unmeasured." },
                 new() { Dvar = "gf_fly_speed", Label = "Fly speed", Kind = SettingKind.Choice, Default = 20, Scope = "move", Eff = Eff.Live, Group = "Fly mode",
                         Choices = C(("10", 10), ("20", 20), ("40", 40), ("80", 80)),
                         Tip = "gf_fly_speed\nFly mode: units per server frame (Tools -> Fly). The Atian default is 20." },
@@ -227,8 +235,8 @@ public static class Schema
         },
         new()
         {
-            Title = "SPAWNS", Tab = "advanced",
-            Note = "The spawn guard: Family AUTO = the map's authored S&D starts, else TDM starts (measured good on Hijacked / Standoff).",
+            Title = "SPAWN SETTINGS", Tab = "spawns",
+            Note = "Every map · Gunfight only · a map's PICK wins",
             Rows = new SettingDef[]
             {
                 new() { Dvar = "gf_spawn_guard", Label = "Spawn guard", Kind = SettingKind.Choice, Default = 2,
@@ -263,7 +271,7 @@ public static class Schema
                 new() { Dvar = "gf_grab_dist", Label = "Grab reach (u)", Kind = SettingKind.Int, Default = 160, Min = 60, Max = 400, Step = 20, Eff = Eff.Live,
                         Tip = "gf_grab_dist\nHow close a map prop must be to grab it." },
                 new() { Dvar = "gf_ahint", Label = "Asset prompts", Kind = SettingKind.Toggle, Default = 1, Eff = Eff.Live,
-                        Tip = "gf_ahint\nThe on-screen prompts on grabbable / usable assets. 0 = off." },
+                        Tip = "gf_ahint\nThe on-screen prompts on grabbable / usable assets: the forge-mode prop prompts (now with the viewer's own interact-button icon) and the 'Hold [use] to control / fly / enter' line on menu-spawned rides that have no enter prompt of their own (RC-XD, streak rides - bocw-84 2026-09-23). 0 = off." },
             },
         },
         new()

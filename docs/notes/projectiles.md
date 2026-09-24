@@ -412,3 +412,24 @@ say, because the single `last:` field was overwritten.
 | 4 | *Projectile → Frag grenade*, one shot | launched (m4), fuse, explodes away from you |
 
 Record: `______`
+
+## 10. 2026-09-23 — fun-pack extras beside the diagnostic (never run)
+None of these change a run-2 step: **Shots per trigger** defaults to 1, which is the single spawn run 2
+measures. Added: *Shots per trigger* 3 / 5 / 8 (the extras jittered ±6°); seven more *Projectile* rows, all
+`core_common` (War Machine grenade, cruise missile, Hand Cannon, Death Machine, ballistic knife, napalm bomb,
+artillery shell) — `hero_pineapplegun` joins `proj_is_nade` because run 1 showed a launcher round via
+`magicbullet` drops at the feet; **Grenade swap** (`grenade_fire` → delete → `magicgrenadeplayer`); the
+**Model cannon** (a prop flown from the muzzle to the impact, optional explosive-rounds blast). [[fun-pack]]
+
+## 11. 2026-09-24 — fun pack 2: method 7, `magicmissile` (never run)
+PHA's decoded weapon table types four projectiles `"Missile"` and spawns them with `magicmissile`; stock
+spawns each of the four **only** that way (`jetfighter.gsc:571`, `planemortar_shared.gsc:582`,
+`napalm_strike_shared.gsc:392`, `_prop_controls.gsc:1577`). So: **Spawn method 7 = `magicmissile`**, and
+**AUTO** now sends jet fighter missile / artillery shell / napalm bomb / stun grenade to 7 (every other
+weapon keeps its run-2 route, so no run-2 step changes). Stock's argument shapes are kept per weapon — the
+jet missile takes a unit **direction** (it flies itself), the bombs a **velocity**. Method 7 teams the
+projectile (`setteam`, stock's own step) and scripts the payloads stock delivers by script: the jet missile
+gets PHA's `radiusdamage` 500/500/25 at impact (stock's only detonates on a locked target), the napalm bomb
+stock's land-fire `spawntimedfx` + our burn ticks. ⚠ Read the PROJ line's `lastcall` for `m7(auto)` when
+testing. *Stun grenade* joins the Projectile list; `gf-panel` offers method 7. [[fun-pack]] → fun pack 2.
+

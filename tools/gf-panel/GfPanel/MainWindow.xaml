@@ -80,6 +80,9 @@
         <TabItem Header="MAPS" Tag="maps">
           <v:MapsView />
         </TabItem>
+        <TabItem Header="SPAWNS" Tag="spawns">
+          <v:SpawnsView DataContext="{Binding Spawns}" />
+        </TabItem>
         <TabItem Header="ADVANCED" Tag="advanced">
           <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,12">
             <v:ColumnsPanel ItemsSource="{Binding AdvancedSections}" />
@@ -87,6 +90,9 @@
         </TabItem>
         <TabItem Header="TOOLS" Tag="tools">
           <v:ToolsView />
+        </TabItem>
+        <TabItem Header="ENTITIES" Tag="entities">
+          <v:EntitiesView />
         </TabItem>
         <TabItem Header="CONSOLE" Tag="console">
           <v:ConsoleView />

@@ -195,3 +195,43 @@ the injector's pattern scanning should make the exe difference moot, but that is
 - Discord: `GET https://discord.com/api/v10/invites/<code>?with_counts=true` (guild name, id → creation
   date from the snowflake, member/online counts). No login needed.
 - WebFetch 403s on Se7enSins/MPGH/CabCon/Nexus; `curl` with a browser UA gets Se7enSins only.
+
+## 7 · Menus read from their compiled `.gscc` (2026-09-23)
+
+`tools/gscc-inspect.py` reads a Cold War `.gscc` without ACTS: header, `#using` list, every import (the
+builtins and stock functions it calls, named), its own functions, and every string. Validated on
+`BlackOpsColdWar_atianmenu_pc.gscc`: its exports resolve to the Atian source's own names
+(`AtianMenuConfig`, `god_mode`, `key_mgr_init`, …). Source of the copies: `ModzCentral01/Cold-war-Mods`
+`PC Menus/` (7 files).
+
+**MuzzMan CW Public Release V5** (`MuzzManCWPublicReleaseV5.gscc`, 106,560 B, sha256 `cdcd32d8…9249c1`;
+klaze's MediaFire link names the same file, not compared byte-for-byte — mediafire.com is blocked here):
+- **It is the Atian Menu.** Same `#namespace atianmenu` (`0x61cac3a4`), same `#using` list, same engine
+  (`menu_drawing_function`, `key_mgr_*`, `add_menu_item`), built as the `clientids_shared.gsc` replacement,
+  ACTS's crc `0xc97916a2`, strings plain. Title `^1MuzzMan Public Menu`.
+- **Display: `iprintln` ×6 and `iprintlnbold` ×6, plus the `[{+bind}]` glyph tokens** — no hint string,
+  no LUI menu, no luielem, no objective, no `luinotifyevent`. Nothing for [hud-channels](hud-channels.md):
+  the public menus draw with the feed and the centre line, like ours.
+- **What it adds (~60 functions) is account work**: *Unlock All Stats*, *All 64 Weapons Fully Unlocked +
+  Mastery* (`addweaponstat` ×23, `stats::set_stat`, the `_gunlevels.csv` / `statsmilestones` tables),
+  *Unlock Dark Aether*, *Max Crystals*, *Unlock All Trophies* and ~50 single achievements
+  (`giveachievement` ×96: CP, ZM, MP, Dead Ops), `uploadstats` ×2 — each with **"for player"** and **"for
+  everyone … Host is not Included!"** variants, plus *Give / Remove Access* (menu for other players).
+  The rest is the Atian base (god mode, fly, third person, camos/outfits, vehicles, map + gametype via
+  `map()` / `switchmap_*`) and Zombies tools (insta-kill, kill-all loop, zombie position lock, open doors,
+  max points).
+- ⚠ **Out of scope, and a risk to other people.** Stats, weapon XP, camos and platform achievements pushed
+  with `uploadstats` are the "manipulation of game data" Activision bans for, and the "for everyone"
+  variants write **joiners'** accounts — the exposure the ground rules say is theirs to accept. Nothing
+  here is useful to Gunfight hosting that the project does not already have.
+- Not inspected yet: `ProjectHiNAtyu_V1_BOCW.gscc` (335 KB), `Lucy New update .gscc`, `Fun MenuAudio_Packet.gscc`,
+  `ZM-ColdwarUnlockCamo.gscc`, `compiled (Not working).gscc` — one command each.
+
+**SoCanKam `ColdWarGSCMenu`** (source, GPLv3, read 2026-09-23) — the same three surfaces as ours: the menu
+is one `sethintstring` on a player-glued `trigger_radius` (`initmenu.gsc:400-424`, the region-4 hint layout
+[hint-panel](hint-panel.md), no cursor hint so it wraps), plus `iprintlnbold` toasts and stock
+`luinotifyevent` popups (`lui_debug_menu.gsc`: level-up, UI error, challenge text, screen fade — the
+[lui-events](lui-events.md) channel, hash-args). Its clientfield writes are the Zombies HUD. **Two items
+folded into [hud-channels](hud-channels.md):** the `g_compassShowEnemies` visibility flag (§2g, forced
+radar) and the no-`lui_shared` `luinotifyevent` screen-fade route (§2a). Nothing new for the multi-line
+problem — it confirms the hint route is the ceiling.

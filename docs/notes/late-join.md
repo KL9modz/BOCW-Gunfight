@@ -1,6 +1,7 @@
 # Late joiners — placed, not benched (`gf_latejoin`, `gf_teamchange`)
 
-> **Status: built 2026-09-21, compiles + check-gsc PASS + check-args 0, NOT run in-game.**
+> **Status: built 2026-09-21; REWORKED 2026-09-23 (bocw-84) to "always placed" — see §2a. check-gsc PASS,
+> live slot `2B998AD8`. The team-mode pick has NOT run in-game; the FFA pass-through was seen live (§2a).**
 > klaze: *"theres a bug where players who join late get put as a spectator. could we auto assign
 > them to the team with LESS humans? if even go to loosing team. if tied they pick (choose your
 > team)?"* His calls on the three questions: the tie pick is the pause menu's **CHANGE TEAM, for
@@ -71,6 +72,36 @@ returns whichever team it iterated **last** — a stock bug, not a tiebreak.
   `JOIN <name> lobby=<side> -> stock`. **The `lobby=` value is the measurement** — whether the session
   hands a late joiner `none`, `spectator` or a side is engine-side and unreadable in the dump.
 
+## 2a. 2026-09-23 — always placed, FFA too, and a rescue check (bocw-84)
+
+klaze 2026-09-23: *"People joining late or in progress matches get stuck as spectator"* → asked how, his
+pick: **"Always auto-place"**. The only live evidence at that point: in the 2026-09-22 Miami FFA (dm)
+match every mid-match human printed `JOIN <name> lobby=none -> stock` — the lobby handed them no side
+and the hook passed FFA straight to stock (the §2 rule). Three changes, `LATE JOIN` block:
+
+- **The full-tie bench is gone.** Rule 3 above now auto-places like the countdown case: fewer players
+  overall, then the side opposite the host (reason `tie, auto`). Whether the pause menu's CHANGE TEAM
+  ever showed for a benched joiner was never measured, and one who could not find it sat out the
+  match. `gf_teamchange` still writes the setting (CHANGE TEAM for everyone, §3); late joiners no longer
+  depend on it. `latejoin_pick_reminder` is left in the file for a still-flagged reconnect, never started
+  for a new join.
+- **FFA joiners are placed too** (`latejoin_applies` no longer skips a non-team mode): the emptiest of
+  `level.teams` (`latejoin_ffa_team`; stock's FFA branch `function_b55ab4b3` seats a client by its
+  entity number and falls back to the value handed in — `none` for these joiners). Reason `free-for-all`.
+- **A rescue check under every path** (`latejoin_rescue_think`, level thread from `mod_latejoin`, every 3 s):
+  a human — not the host, not a bot, not a CoD caster — whose `pers["team"]` is not a playable team,
+  who has **never** had one this match (`pers["gf_had_team"]`, set the first time the loop sees them on a
+  team; survives the round boundary) and connected ≥ 8 s ago (`self.gf_lj_conn`, stamped by
+  `latejoin_on_connect`), is placed with the same pick through stock's `menuautoassign( 0, pick )`. Two
+  tries per player per match (`pers["gf_lj_tries"]`), the second 8 s after the first. Someone who played
+  and then chose to spectate is never touched. Feed line:
+  `JOIN <name> was still spectating -> <side> (<reason>, rescue N)`.
+
+⚠ Unmeasured: the FFA seat (which `level.teams` key a dm match offers and whether stock takes it
+verbatim); the rescue call on a client already parked on spectator (stock's `menuautoassign` normally
+runs for a fresh connect — the rescue passes `squad` undefined); and whether any of it fires before the
+joiner's first spawn wave.
+
 ## 3. The picker — `gf_teamchange` and the hidden "Team Change In-Game" setting
 
 The pause menu's CHANGE TEAM button is shown by the client only when
@@ -104,22 +135,27 @@ Start a private match with two or more humans, let round 1 begin, then have some
 | 1 | host feed | `JOIN <name> lobby=<v> humans A/X score A-X -> <side> (<reason>)` | the hook fired; `lobby=` is the engine's answer for a late joiner |
 | 2 | joiner's screen | class choice / spawn on `<side>` next spawn wave | stock accepted the handed side |
 | 3 | host feed, next frame | `JOIN bot dropped from <side> -> AvX` when that side had a bot and was bigger | the even-up drop |
-| 4 | tie case (equal humans, level score, not round 1 countdown) | joiner benched + *TEAMS ARE TIED* bold every 5 s; pause menu shows CHANGE TEAM; picking a side spawns him | the picker path end to end |
+| 4 | tie case (equal humans, level score) | `-> <side> (tie, auto)` — placed, never benched (2026-09-23; the old bench + *TEAMS ARE TIED* reminder is retired) | the tie rule |
+| 4b | FFA (dm) late join | `JOIN <name> lobby=none  -> <teamN> (free-for-all)`, the joiner spawns in the match | the FFA seat |
+| 4c | a joiner still spectating 8 s after connecting (any mode) | `JOIN <name> was still spectating -> <side> (<reason>, rescue 1)` | the rescue check; a `rescue 2` line means the first seat did not take |
 | 5 | match start | no reload after the countdown | `allowingameteamchange` is not a restart key |
 | 6 | `JOIN ... -> stock` line for a joiner who still benches | `lobby=spectator` | the session put him in a caster slot on purpose — `iscodcaster()` pass-through; report it |
 
-Rows 1-3 are the bug fix; row 4 is klaze's tie rule; rows 5-6 are the unknowns this build carries.
+Rows 1-3 are the bug fix; rows 4-4c are the 2026-09-23 always-placed rules; rows 5-6 are the unknowns
+this build carries.
 
 ## 5. Knobs
 
 | dvar | default | where |
 |---|---|---|
-| `gf_latejoin` | 1 | menu Teams → *Late join: fewer humans > losing side > pick* / *stock (spectator)*; app Teams row |
-| `gf_teamchange` | 1 | menu Teams → *Pause-menu CHANGE TEAM: on for everyone* / *off*; app Teams row |
+| `gf_latejoin` | 1 | app DASHBOARD → GUNFIGHT MATCH → *Late joiners*: *Always place them (fewer humans > losing side > auto)* / *Stock (spectator)* |
+| `gf_teamchange` | 1 | app DASHBOARD → GUNFIGHT MATCH → *Pause-menu CHANGE TEAM*: *On for everyone* / *Off* |
+
+(The in-game Teams rows for both went app-only in the 2026-09-23 host-menu trim.)
 
 Both plain dvars (not in the packed store). Bridge: `set gf_latejoin 0` (17 B), `set gf_teamchange 0`
 (19 B). Read on every connect (the hook checks `cfg_latejoin()` at call time) and each round
-(`mod_apply`); a `gf_teamchange` change from the app lands at the next round, from the menu at once.
+(`mod_apply`); a `gf_teamchange` change from the app lands at the next round.
 
 Related: [`lobby-settings.md`](lobby-settings.md) (Route A — the same setting reached from the lobby
 side), [`bots.md`](bots.md) (`humans_on`, the even-up drop), `game-systems.md` §16 *Team assignment*.

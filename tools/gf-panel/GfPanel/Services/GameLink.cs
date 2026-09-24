@@ -7,7 +7,8 @@ using GfPanel.ViewModels;
 
 namespace GfPanel.Services;
 
-public enum LogLevel { Info, Ok, Warn, Err, In }
+/// <summary>In = a line the panel sent; Menu = a player's menu action read back from the game (GFLOG).</summary>
+public enum LogLevel { Info, Ok, Warn, Err, In, Menu }
 
 public sealed record LogEntry(DateTime At, string Text, LogLevel Level)
 {
@@ -58,7 +59,7 @@ public sealed class GameLink : IDisposable
     private long _lastRosterTick = -1;
     private readonly Dictionary<string, string> _mapKinds = new();
 
-    private static readonly string[] Markers = { "GFSTATE", "GFPLAYERS", "GFCFG", "GFROSTER", "GFMAPVEH", "GFMAPPROP", "GFMAPSPAWN", "GFMAPDEST" };
+    private static readonly string[] Markers = { "GFSTATE", "GFPLAYERS", "GFCFG", "GFROSTER", "GFMAPVEH", "GFMAPPROP", "GFMAPSPAWN", "GFMAPDEST", "GFLOBBY" };
     public static readonly TimeSpan TickPeriod = TimeSpan.FromMilliseconds(1500);
     public static readonly TimeSpan StateFresh = TimeSpan.FromSeconds(6);
 
@@ -79,6 +80,12 @@ public sealed class GameLink : IDisposable
     public TimeSpan SinceState => _lastStateAt == DateTime.MinValue ? TimeSpan.MaxValue : DateTime.UtcNow - _lastStateAt;
     private DateTime _lastCfgAt = DateTime.MinValue;
     public bool ConfigFreshNow => Config != null && DateTime.UtcNow - _lastCfgAt < StateFresh;
+    // ── the lobby payload's readback (GFLOBBY, src/gunfight_lobby): only while the game sits in the lobby ──
+    private long _lastLobbyTick = -1;
+    private DateTime _lastLobbyAt = DateTime.MinValue;
+    private string _lastLobbySummary = "";
+    public GfLobby? Lobby { get; private set; }
+    public bool LobbyFreshNow => Lobby != null && DateTime.UtcNow - _lastLobbyAt < StateFresh;
     public IReadOnlyList<GfPlayer> Players { get; private set; } = Array.Empty<GfPlayer>();
     public bool PlayersRich { get; private set; }
     public GfConfig? Config { get; private set; }
@@ -90,13 +97,64 @@ public sealed class GameLink : IDisposable
     public ObservableCollection<QueuedCommand> Queue { get; } = new();
     public ObservableCollection<LogEntry> Activity { get; } = new();
     public string? LastError { get; private set; }
+    /// <summary>How each match went + every player's menu actions, into the Activity list and the saved log.</summary>
+    public MatchTracker Matches { get; }
+
+    // ── the menu log (GFLOG): collected when GFSTATE lg= moves past what was collected, and while records
+    // wait for their result; the last gasp collects GFSTATE + GFLOG once when the feed goes quiet ──
+    private int _logWanted, _gaspWanted, _logTries;
+    private long _logMatch, _logSeqWanted, _logSeqSeen;
+    private DateTime _lastLogCollect = DateTime.MinValue;
 
     public event Action? StatusChanged;
     public event Action<GfState?>? StateChanged;
     public event Action<IReadOnlyList<GfPlayer>, IReadOnlyList<GfPlayer>, IReadOnlyList<GfPlayer>>? PlayersChanged;   // (all, joined, left)
     public event Action<GfConfig>? ConfigChanged;
+    public event Action<GfLobby>? LobbyChanged;
     public event Action<string, LogLevel>? Toast;
     public event Action<string>? MapDataChanged;
+    /// <summary>A complete spawn-atlas scan arrived (the SPAWNS tab's Scan / auto-scan).</summary>
+    public event Action<SpawnAtlas>? AtlasReceived;
+    /// <summary>The atlas request timed out: the reason, for a toast.</summary>
+    public event Action<string>? AtlasFailed;
+
+    // ── the spawn atlas: a multi-chunk channel (GFSPAWN), collected on request, not every tick ──
+    private int _atlasWanted;
+    private long _atlasSince;
+    private string _atlasMap = "";
+    private DateTime _atlasDeadline;
+    private int _atlasTries;
+    public bool AtlasPending => Volatile.Read(ref _atlasWanted) == 1;
+
+    // ── the spawned-entity list (GFENTS, bocw-84 2026-09-23): collected when GFSTATE ev= moves while the ENTITIES
+    //    tab is open (WantEntities), or on its Refresh; at most every 2.5 s (a driven vehicle moves the stamp) ──
+    /// <summary>A complete entity list arrived: (stamp, entities).</summary>
+    public event Action<long, List<GfEntity>>? EntitiesReceived;
+    private long _evWanted, _evSeen;
+    private int _evTries, _entRefresh;
+    private DateTime _lastEntCollect = DateTime.MinValue;
+    private volatile bool _wantEntities;
+    /// <summary>The ENTITIES tab is showing: collect the list whenever the game republishes it.</summary>
+    public bool WantEntities { get => _wantEntities; set => _wantEntities = value; }
+    /// <summary>The ENTITIES tab's Refresh: collect on the next tick whatever the stamp says.</summary>
+    public void RequestEntities() => Interlocked.Exchange(ref _entRefresh, 1);
+
+    // ── the live spawn events (GFSPAWNED): collected when GFSTATE spv= moves, never on a timer ──
+    /// <summary>The match's spawn events arrived: (map, match id, events).</summary>
+    public event Action<string, long, List<SpawnEvent>>? SpawnEventsReceived;
+    private string _spvSeen = "", _spvWanted = "", _spvMap = "";
+    private int _spvTries;
+
+    /// <summary>Collect the next complete GFSPAWN scan of <paramref name="map"/> stamped after the current state
+    /// tick (the scan starts after the spawnscan verb lands), for up to 30 s.</summary>
+    public void RequestAtlas(string map)
+    {
+        _atlasSince = Math.Max(0, _lastStateTick);
+        _atlasMap = map ?? "";
+        _atlasDeadline = DateTime.UtcNow.AddSeconds(30);
+        _atlasTries = 0;
+        Interlocked.Exchange(ref _atlasWanted, 1);
+    }
 
     public GameLink(Dispatcher ui, Prefs prefs)
     {
@@ -104,6 +162,7 @@ public sealed class GameLink : IDisposable
         _prefs = prefs;
         Sender.DryRun = App.DryRun;
         Sender.LineSent += (line, listening) => _ui.BeginInvoke(() => Log((App.DryRun ? "[dry] " : "") + line + (listening ? "" : "   (bridge not listening)"), LogLevel.In));
+        Matches = new MatchTracker(LogAt, ActivityFile.Detail, () => Players);
         _timer = new Timer(_ => Tick(), null, 300, (int)TickPeriod.TotalMilliseconds);
     }
 
@@ -113,11 +172,16 @@ public sealed class GameLink : IDisposable
         _scanner?.Dispose();
     }
 
-    public void Log(string text, LogLevel level = LogLevel.Info)
+    public void Log(string text, LogLevel level = LogLevel.Info) => LogAt(DateTime.Now, text, level);
+
+    /// <summary>An Activity entry stamped <paramref name="at"/> (a menu action carries the game-side time it
+    /// happened). Every entry is also appended to the saved log (ActivityFile); the list keeps the last 300.</summary>
+    public void LogAt(DateTime at, string text, LogLevel level)
     {
-        if (!_ui.CheckAccess()) { _ui.BeginInvoke(() => Log(text, level)); return; }
-        Activity.Insert(0, new LogEntry(DateTime.Now, text, level));
-        while (Activity.Count > 200) Activity.RemoveAt(Activity.Count - 1);
+        if (!_ui.CheckAccess()) { _ui.BeginInvoke(() => LogAt(at, text, level)); return; }
+        Activity.Insert(0, new LogEntry(at, text, level));
+        while (Activity.Count > 300) Activity.RemoveAt(Activity.Count - 1);
+        ActivityFile.Write(at, text, level);
     }
 
     public void ShowToast(string text, LogLevel level = LogLevel.Info)
@@ -147,6 +211,12 @@ public sealed class GameLink : IDisposable
         Dictionary<string, MemoryScanner.Hit>? hits = null;
         var sweepInfo = "";
         double sweepMs = 0;
+        SpawnAtlas? atlas = null;
+        string? atlasFail = null;
+        (string Map, long Match, List<SpawnEvent> Events)? spawns = null;
+        (long Match, List<MenuAction> Actions)? menu = null;
+        (long Stamp, List<GfEntity> Items)? ents = null;
+        (GfState? State, string? Raw, (long Match, List<MenuAction> Actions)? Actions)? gasp = null;
         if (pid > 0)
         {
             if (_scanner == null || _scanner.Pid != pid)
@@ -178,6 +248,81 @@ public sealed class GameLink : IDisposable
                 }
                 sweepInfo = $"{_scanner.LastSweepHow} {_scanner.LastSweepBytes / 1048576} MB";
                 sweepMs = _scanner.LastSweepMs;
+
+                // the spawn atlas: every copy of every GFSPAWN chunk, newest complete scan wins. The pool
+                // region first (where the other markers live), the whole exe range from the 3rd try.
+                if (Volatile.Read(ref _atlasWanted) == 1)
+                {
+                    if (DateTime.UtcNow > _atlasDeadline)
+                    {
+                        Interlocked.Exchange(ref _atlasWanted, 0);
+                        atlasFail = $"no complete spawn scan of {_atlasMap} came back in 30 s - is the injected build the atlas build (gunfight_menu.atlas.gscc or newer)?";
+                    }
+                    else
+                    {
+                        try
+                        {
+                            var all = _scanner.CollectAll("GFSPAWN", wide: _atlasTries++ >= 2);
+                            atlas = SpawnAtlas.FromHits(all, _atlasSince, _atlasMap);
+                            if (atlas != null) Interlocked.Exchange(ref _atlasWanted, 0);
+                        }
+                        catch (Exception e) { LastError = "atlas: " + e.Message; }
+                    }
+                }
+
+                // the spawn events: GFSTATE's spv= moved since the last complete read -> collect the chunks
+                var want = Volatile.Read(ref _spvWanted);
+                if (want.Length > 0 && want != _spvSeen && Volatile.Read(ref _atlasWanted) == 0)
+                {
+                    try
+                    {
+                        var all = _scanner.CollectAll("GFSPAWNED", wide: _spvTries++ >= 2);
+                        var r = SpawnEvents.FromHits(all, _spvMap);
+                        // the newest complete set goes out even when it trails the announced version (the
+                        // publisher republishes up to 1 s after a spawn); keep collecting until it matches
+                        if (r != null) spawns = (_spvMap, r.Value.Match, r.Value.Events);
+                        if (r != null && $"{r.Value.Match}.{r.Value.Ver}" == want) { _spvSeen = want; _spvTries = 0; }
+                        else if (_spvTries > 8) { _spvSeen = want; _spvTries = 0; }   // give up on this version; the next spawn retries
+                    }
+                    catch (Exception e) { LastError = "spawns: " + e.Message; }
+                }
+
+                // the entity list (GFENTS): ev= moved while the ENTITIES tab is open, or its Refresh asked
+                var evw = Interlocked.Read(ref _evWanted);
+                var forceEnt = Interlocked.Exchange(ref _entRefresh, 0) == 1;
+                if ((forceEnt || (_wantEntities && evw > 0 && evw != _evSeen)) && (forceEnt || DateTime.UtcNow - _lastEntCollect >= TimeSpan.FromSeconds(2.5)))
+                {
+                    _lastEntCollect = DateTime.UtcNow;
+                    try
+                    {
+                        var r = EntityList.FromHits(_scanner.CollectAll("GFENTS", wide: _evTries++ >= 2));
+                        if (r != null) ents = r;
+                        if (r != null && (evw == 0 || r.Value.Stamp >= evw)) { _evSeen = evw; _evTries = 0; }
+                        else if (_evTries > 8) { _evSeen = evw; _evTries = 0; }   // give up on this stamp; the next change retries
+                    }
+                    catch (Exception e) { LastError = "entities: " + e.Message; }
+                }
+
+                // the last gasp: the state feed just went quiet - every copy of the state line and of the menu
+                // log still in memory, once (a dead level's strings linger until the pool is reused)
+                if (Interlocked.Exchange(ref _gaspWanted, 0) == 1)
+                {
+                    try
+                    {
+                        var top = _scanner.CollectAll("GFSTATE", wide: true).OrderByDescending(h => h.Tick).FirstOrDefault();
+                        var gs = top != null ? GfState.Parse(top.Tick, top.Body) : null;
+                        gasp = (gs, top != null ? top.Tick + "|" + top.Body : null, MenuLog.FromHits(_scanner.CollectAll("GFLOG", wide: true), Volatile.Read(ref _logMatch)));
+                    }
+                    catch (Exception e) { LastError = "last gasp: " + e.Message; gasp = (null, null, null); }
+                }
+                // the menu log: GFSTATE lg= moved past what was collected, or records wait for their result.
+                // Every copy of the line (each holds an overlapping window of records), unioned by seq.
+                else if (Volatile.Read(ref _logWanted) == 1 && DateTime.UtcNow - _lastLogCollect >= TimeSpan.FromSeconds(1.4))
+                {
+                    _lastLogCollect = DateTime.UtcNow;
+                    try { menu = MenuLog.FromHits(_scanner.CollectAll("GFLOG", wide: Volatile.Read(ref _logTries) >= 2), Volatile.Read(ref _logMatch)); }
+                    catch (Exception e) { LastError = "menu log: " + e.Message; }
+                }
             }
         }
         else if (_scanner != null)
@@ -186,7 +331,25 @@ public sealed class GameLink : IDisposable
             _scanner = null;
         }
 
-        _ui.BeginInvoke(() => Apply(pid, probe, cwp.Item1 && cwp.Item2 == Injector.CwpatchImageSize, gameDir, hits, sweepInfo, sweepMs));
+        _ui.BeginInvoke(() =>
+        {
+            // the last gasp first: it can close the match, and Apply's tick must then not ask for another
+            if (gasp is { } g) Matches.OnLastGasp(g.State, g.Raw, g.Actions, DateTime.Now);
+            Apply(pid, probe, cwp.Item1 && cwp.Item2 == Injector.CwpatchImageSize, gameDir, hits, sweepInfo, sweepMs);
+            if (menu is { } mn) OnMenuLog(mn.Match, mn.Actions);
+            if (atlas != null)
+            {
+                Log($"spawn atlas: {atlas.Map} - {atlas.Markers.Count} markers, {atlas.Named.Count} named, {atlas.Groups.Count} groups, {atlas.Lists.Count} engine lists ({atlas.Chunks} chunks)", LogLevel.Ok);
+                AtlasReceived?.Invoke(atlas);
+            }
+            if (atlasFail != null)
+            {
+                Log("spawn atlas: " + atlasFail, LogLevel.Warn);
+                AtlasFailed?.Invoke(atlasFail);
+            }
+            if (spawns is { } sp) SpawnEventsReceived?.Invoke(sp.Map, sp.Match, sp.Events);
+            if (ents is { } en) EntitiesReceived?.Invoke(en.Stamp, en.Items);
+        });
     }
 
     private void Apply(int pid, BridgeChannel.ProbeResult probe, bool cwpatch, string? gameDir,
@@ -197,8 +360,10 @@ public sealed class GameLink : IDisposable
         SweepInfo = sweepInfo; SweepMs = sweepMs;
         if (pid == 0 && wasRunning)
         {
-            State = null; Players = Array.Empty<GfPlayer>(); Config = null;
             Log("game closed", LogLevel.Warn);
+            Interlocked.Exchange(ref _gaspWanted, 0);
+            Matches.OnGameClosed(DateTime.Now);      // before the roster is cleared: an abrupt end lists it
+            State = null; Players = Array.Empty<GfPlayer>(); Config = null;
             StateChanged?.Invoke(null);
             PlayersChanged?.Invoke(Players, Array.Empty<GfPlayer>(), Array.Empty<GfPlayer>());
         }
@@ -218,6 +383,23 @@ public sealed class GameLink : IDisposable
                     if (s.IsFallback && prev != null) s = prev with { Tick = s.Tick, Phase = s.Phase, Err = s.Err, Stage = s.Stage };
                     State = s; _lastStateTick = st.Tick; _lastStateAt = DateTime.UtcNow;
                     ResolveAcks(s.AckSeq);
+                    // the saved log: match boundaries / rounds / how it ended, and the menu log's high-water mark
+                    Matches.OnState(s, st.Tick + "|" + st.Body, DateTime.Now, Players);
+                    if (s.MatchId != Volatile.Read(ref _logMatch))
+                    {
+                        Volatile.Write(ref _logMatch, s.MatchId);
+                        _logSeqSeen = 0; _logSeqWanted = 0; Volatile.Write(ref _logTries, 0);
+                    }
+                    if (s.LogSeq > _logSeqWanted) _logSeqWanted = s.LogSeq;
+                    if (s.EntVersion > 0 && s.EntVersion != Interlocked.Read(ref _evWanted)) Interlocked.Exchange(ref _evWanted, s.EntVersion);
+                    UpdateLogWanted();
+                    // a spawn landed (spv= moved): the tick collects the GFSPAWNED chunks for this map
+                    if (s.SpawnEvVersion.Length > 0 && s.SpawnEvVersion != "0" && s.SpawnEvVersion != _spvWanted)
+                    {
+                        _spvMap = s.Map;
+                        _spvTries = 0;
+                        Volatile.Write(ref _spvWanted, s.SpawnEvVersion);
+                    }
                     if (s.Err > 0 && (prev == null || prev.Err != s.Err)) Log($"GSC state_build FAILED ×{s.Err} at stage {s.Stage} (phase {s.Phase}) - report this", LogLevel.Err);
                     if (prev == null) Log($"mod live: {s.Gametype} on {s.Map}, round {s.Round}", LogLevel.Ok);
                     else if (prev.Say != s.Say && !string.IsNullOrEmpty(s.Say)) Log("game: " + (s.Say.Length > 160 ? s.Say[..160] + "…" : s.Say), s.Say.StartsWith("app: ") ? LogLevel.Ok : LogLevel.Info);
@@ -244,6 +426,24 @@ public sealed class GameLink : IDisposable
                     ConfigChanged?.Invoke(c);
                 }
             }
+            // the lobby payload (GFLOBBY): what the LOBBY's store holds + the two settings it read. Baseline gets the
+            // app-side values so the dashboard rows show them; a changed summary goes to the activity + saved log.
+            if (hits.TryGetValue("GFLOBBY", out var lb) && lb.Tick > _lastLobbyTick)
+            {
+                var l = GfLobby.Parse(lb.Tick, lb.Body);
+                if (l != null)
+                {
+                    _lastLobbyTick = lb.Tick; _lastLobbyAt = DateTime.UtcNow; Lobby = l;
+                    Baseline["gf_lobby_maxp"] = l.Want;
+                    Baseline["gf_lobby_spec"] = l.Spec;
+                    if (l.Summary != _lastLobbySummary)
+                    {
+                        _lastLobbySummary = l.Summary;
+                        Log("lobby: " + l.Summary, l.Warn ? LogLevel.Warn : l.Ok ? LogLevel.Ok : LogLevel.Info);
+                    }
+                    LobbyChanged?.Invoke(l);
+                }
+            }
             foreach (var m in new[] { "GFMAPVEH", "GFMAPPROP", "GFMAPSPAWN", "GFMAPDEST" })
             {
                 if (!hits.TryGetValue(m, out var h)) continue;
@@ -258,8 +458,34 @@ public sealed class GameLink : IDisposable
                 MapDataChanged?.Invoke(map);
             }
         }
+        // a quiet feed: the tracker decides when it is a stop, and asks for one last-gasp read
+        Matches.OnTick(DateTime.Now, pid > 0);
+        if (Matches.WantLastGasp && pid > 0) Interlocked.Exchange(ref _gaspWanted, 1);
         CheckTimeouts();
         StatusChanged?.Invoke();
+    }
+
+    /// <summary>A GFLOG collection landed (UI thread): hand it to the tracker, move the high-water mark, and
+    /// keep collecting while lg= is ahead of it or records wait for their result.</summary>
+    private void OnMenuLog(long match, List<MenuAction> actions)
+    {
+        if (match == Volatile.Read(ref _logMatch))
+        {
+            var max = actions.Count > 0 ? actions.Max(a => a.Seq) : 0;
+            if (max >= _logSeqWanted) Volatile.Write(ref _logTries, 0);
+            else Interlocked.Increment(ref _logTries);
+            if (max > _logSeqSeen) _logSeqSeen = max;
+        }
+        Matches.OnMenuActions(match, actions, DateTime.Now, final: false);
+        UpdateLogWanted();
+    }
+
+    private void UpdateLogWanted()
+    {
+        // a record the pool already reused never shows up: after 5 misses, stop asking for it
+        if (_logSeqWanted > _logSeqSeen && Volatile.Read(ref _logTries) > 5) _logSeqSeen = _logSeqWanted;
+        var want = (_logSeqWanted > _logSeqSeen || Matches.HasPending) && Volatile.Read(ref _logMatch) > 0;
+        Volatile.Write(ref _logWanted, want ? 1 : 0);
     }
 
     private void UpdatePlayers(List<GfPlayer> list)
@@ -289,8 +515,14 @@ public sealed class GameLink : IDisposable
         var seq = ++_prefs.CommandSeq;
         var lines = Commands.Fire(payload, seq);
         var action = lines.Select(l => l.StartsWith("set gf_cmd_action ", StringComparison.Ordinal) ? l["set gf_cmd_action ".Length..].Trim() : null).FirstOrDefault(a => a != null);
-        var oneShot = action != null && OneShot.Contains(action);
-        if (oneShot) _retryPausedUntil = DateTime.UtcNow.AddSeconds(40);
+        // a map switch / stage (gf_cmd_map, MAPS tab + the SPAWNS scan tour) is one-shot too: its ack is lost in the
+        // level change like a restart's, and a retry would switch again
+        var oneShot = (action != null && OneShot.Contains(action)) || lines.Any(l => l.StartsWith("set gf_cmd_map ", StringComparison.Ordinal));
+        if (oneShot)
+        {
+            _retryPausedUntil = DateTime.UtcNow.AddSeconds(40);
+            Matches.NoteLevelVerb(action != null && OneShot.Contains(action) ? action : "switch", DateTime.Now);   // a stop right after is the panel's doing
+        }
         var q = new QueuedCommand { Seq = seq, Label = label, Lines = lines, NoRetry = oneShot };
         Queue.Insert(0, q);
         while (Queue.Count > 8) Queue.RemoveAt(Queue.Count - 1);

@@ -200,14 +200,20 @@ if (-not $tablePath) {
 if ($tablePath) {
     $engine = @{}
     $devonly = @{}
+    # Dev-only is decided by THIS script's VM only (bocw-84 2026-09-24): the table has one row per VM - GSC-*
+    # pools for server scripts, CSC-* for client ones - and a builtin can be retail on one side and dev-only
+    # on the other. Merging both flagged a server call dev-only because of its client twin: printtoprightln
+    # (GSC type 0, CSC type 1 - and a server GSC call to it ran in the pregame lobby, pregame-routes.md P7)
+    # and adddebugcommand. Every name that is type 1 in the matching pool is still flagged.
+    $vm = if ($src -match '\.csc$') { 'CSC' } else { 'GSC' }
     Import-Csv $tablePath | ForEach-Object {
         if ($_.func) {
             $fn = $_.func.Trim().ToLower()
             $engine[$fn] = 1
             # type column: 0 = normal, 1 = DEV-ONLY (retail refuses it outside /# #/ with
             # "Dev only calls must be wrapped in a devblock" - crashed the game 2026-09-15,
-            # function_9e72a96 in the vehicle census). 110 such names in the table.
-            if ($_.type -and $_.type.Trim() -eq '1') { $devonly[$fn] = 1 }
+            # function_9e72a96 in the vehicle census).
+            if ($_.type -and $_.type.Trim() -eq '1' -and $_.pool -and $_.pool.Trim().StartsWith($vm)) { $devonly[$fn] = 1 }
         }
     }
     Write-Host ("  engine table: {0} builtins ({1} dev-only)" -f $engine.Count, $devonly.Count) -ForegroundColor DarkGray

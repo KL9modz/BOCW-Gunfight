@@ -55,16 +55,19 @@ public static class Catalog
 
     public static readonly (string Group, Named[] Items)[] Weapons =
     {
-        ("Assault rifles", new Named[] { new("XM4", "ar_standard_t9"), new("AK-47", "ar_damage_t9"), new("Krig 6", "ar_accurate_t9"), new("QBZ-83", "ar_fastfire_t9"), new("FFAR 1", "ar_fasthandling_t9"), new("Groza", "ar_mobility_t9"), new("FARA 83", "ar_slowfire_t9"), new("C58", "ar_slowhandling_t9"), new("EM2", "ar_british_t9"), new("Vargo 52 ?", "ar_season6_t9"), new("Grav ?", "ar_soviet_t9") }),
-        ("SMGs", new Named[] { new("MP5", "smg_standard_t9"), new("Milano 821", "smg_handling_t9"), new("AK-74u", "smg_heavy_t9"), new("KSP 45", "smg_burst_t9"), new("Bullfrog", "smg_capacity_t9"), new("MAC-10", "smg_fastfire_t9"), new("LC10", "smg_accurate_t9"), new("PPSh-41", "smg_spray_t9"), new("OTs 9 ?", "smg_cqb_t9"), new("TEC-9 ?", "smg_semiauto_t9"), new("LAPA ?", "smg_season6_t9"), new("smg_flechette_t9 (unknown)", "smg_flechette_t9") }),
-        ("Tactical rifles", new Named[] { new("M16", "tr_powerburst_t9"), new("AUG ?", "tr_longburst_t9"), new("CARV.2", "tr_fastburst_t9"), new("DMR 14", "tr_precisionsemi_t9"), new("Type 63", "tr_damagesemi_t9") }),
-        ("LMGs", new Named[] { new("Stoner 63", "lmg_light_t9"), new("RPD", "lmg_slowfire_t9"), new("M60", "lmg_fastfire_t9"), new("MG 82", "lmg_accurate_t9") }),
-        ("Snipers", new Named[] { new("Pelington 703", "sniper_standard_t9"), new("LW3 Tundra", "sniper_quickscope_t9"), new("M82", "sniper_powersemi_t9"), new("ZRG 20mm ?", "sniper_cannon_t9"), new("Swiss K31 ?", "sniper_accurate_t9") }),
-        ("Shotguns", new Named[] { new("Hauer 77", "shotgun_pump_t9"), new("Gallo SA12", "shotgun_fullauto_t9"), new("Streetsweeper", "shotgun_semiauto_t9"), new(".410 Ironhide", "shotgun_leveraction_t9") }),
+        // ⚠ VERIFIED 2026-09-23 (bocw-84) against the CoD wiki's Black Ops Cold War internal names (each weapon page's
+        // `console` field) - the older labels were inferred and 17 rows gave the wrong gun. Same table as build_tree.
+        ("Assault rifles", new Named[] { new("XM4", "ar_standard_t9"), new("AK-47", "ar_damage_t9"), new("Krig 6", "ar_accurate_t9"), new("QBZ-83", "ar_mobility_t9"), new("FFAR 1", "ar_fastfire_t9"), new("Groza", "ar_fasthandling_t9"), new("FARA 83", "ar_slowhandling_t9"), new("C58", "ar_slowfire_t9"), new("EM2", "ar_british_t9"), new("Vargo 52", "ar_soviet_t9"), new("Grav", "ar_season6_t9") }),
+        ("SMGs", new Named[] { new("MP5", "smg_standard_t9"), new("Milano 821", "smg_handling_t9"), new("AK-74u", "smg_heavy_t9"), new("KSP 45", "smg_burst_t9"), new("Bullfrog", "smg_capacity_t9"), new("MAC-10", "smg_fastfire_t9"), new("LC10", "smg_accurate_t9"), new("PPSh-41", "smg_spray_t9"), new("OTs 9", "smg_cqb_t9"), new("TEC-9", "smg_semiauto_t9"), new("LAPA", "smg_season6_t9"), new("UGR", "smg_flechette_t9") }),
+        ("Tactical rifles", new Named[] { new("M16", "tr_longburst_t9"), new("AUG", "tr_powerburst_t9"), new("CARV.2", "tr_fastburst_t9"), new("DMR 14", "tr_precisionsemi_t9"), new("Type 63", "tr_damagesemi_t9") }),
+        ("LMGs", new Named[] { new("Stoner 63", "lmg_accurate_t9"), new("RPD", "lmg_light_t9"), new("M60", "lmg_slowfire_t9"), new("MG 82", "lmg_fastfire_t9") }),
+        ("Snipers", new Named[] { new("Pelington 703", "sniper_quickscope_t9"), new("LW3 Tundra", "sniper_standard_t9"), new("M82", "sniper_powersemi_t9"), new("ZRG 20mm", "sniper_cannon_t9"), new("Swiss K31", "sniper_accurate_t9") }),
+        ("Shotguns", new Named[] { new("Hauer 77", "shotgun_pump_t9"), new("Gallo SA12", "shotgun_semiauto_t9"), new("Streetsweeper", "shotgun_fullauto_t9"), new(".410 Ironhide", "shotgun_leveraction_t9") }),
         ("Pistols", new Named[] { new("1911", "pistol_semiauto_t9"), new("Magnum", "pistol_revolver_t9"), new("Diamatti", "pistol_burst_t9"), new("AMP63", "pistol_fullauto_t9"), new("Marshal", "pistol_shotgun_t9"), new("1911 akimbo", "pistol_semiauto_t9_dw"), new("Magnum akimbo", "pistol_revolver_t9_dw"), new("Diamatti akimbo", "pistol_burst_t9_dw"), new("AMP63 akimbo", "pistol_fullauto_t9_dw"), new("Marshal akimbo", "pistol_shotgun_t9_dw") }),
         ("Launchers + special", new Named[] { new("Cigma 2", "launcher_standard_t9"), new("RPG-7", "launcher_freefire_t9"), new("M79", "special_grenadelauncher_t9"), new("R1 Shadowhunter", "special_crossbow_t9"), new("Nail Gun", "special_nailgun_t9"), new("Ballistic Knife", "special_ballisticknife_t9_dw") }),
-        ("Melee", new Named[] { new("Knife", "knife_loadout"), new("Sledgehammer", "melee_sledgehammer_t9"), new("Wakizashi", "melee_wakizashi_t9"), new("Machete", "melee_machete_t9"), new("E-Tool", "melee_etool_t9"), new("Baseball Bat", "melee_baseballbat_t9"), new("Mace", "melee_mace_t9"), new("Sai", "melee_sai_t9_dw"), new("Cane", "melee_cane_t9"), new("Battle Axe", "melee_battleaxe_t9"), new("Hammer & Sickle ?", "melee_coldwar_t9_dw"), new("melee_scythe_t9 (unknown)", "melee_scythe_t9"), new("Bowie Knife", "melee_bowie"), new("Bowie Knife - bloody", "melee_bowie_bloody"), new("Knife - Scream", "hash_28fdaa999c8aa3af"), new("Knife - Infected", "hash_3f47e8be065a0dc0") }),
-        ("Fun - BO4 leftovers, untested", new Named[] { new("Ray Gun", "ray_gun"), new("Flamethrower - Purifier", "hero_flamethrower"), new("Annihilator", "hero_annihilator"), new("War Machine", "hero_pineapplegun"), new("Death Machine", "sig_lmg"), new("Sparrow bow", "sig_bow_flame"), new("Turret gun", "ultimate_turret") }),
+        ("Melee", new Named[] { new("Knife", "knife_loadout"), new("Sledgehammer", "melee_sledgehammer_t9"), new("Wakizashi", "melee_wakizashi_t9"), new("Machete", "melee_machete_t9"), new("E-Tool", "melee_etool_t9"), new("Baseball Bat", "melee_baseballbat_t9"), new("Mace", "melee_mace_t9"), new("Sai", "melee_sai_t9_dw"), new("Cane", "melee_cane_t9"), new("Battle Axe", "melee_battleaxe_t9"), new("Hammer & Sickle", "melee_coldwar_t9_dw"), new("Scythe", "melee_scythe_t9"), new("Knife - Scream", "hash_28fdaa999c8aa3af"), new("Knife - Infected", "hash_3f47e8be065a0dc0") }),
+        // Ray Gun out (2026-09-23): ray_gun sits in no MP / core zone table (only frontend + ZM), never givable here
+        ("Scorestreak guns (BO4 leftovers, untested)", new Named[] { new("Flamethrower - Purifier", "hero_flamethrower"), new("Annihilator", "hero_annihilator"), new("War Machine", "hero_pineapplegun"), new("Death Machine", "sig_lmg"), new("Sparrow bow", "sig_bow_flame"), new("Turret gun", "ultimate_turret") }),
     };
 
     public static readonly Named[] Projectiles =
@@ -73,6 +76,10 @@ public static class Catalog
         new("Crossbow bolt", "special_crossbow_t9"), new("M79 grenade", "special_grenadelauncher_t9"),
         new("Combat bow arrow (explosive)", "sig_bow_flame"), new("Strafe run rocket", "straferun_rockets"),
         new("Cruise missile bomblet", "remote_missile_bomblet"), new("Jet fighter missile", "jetfighter_missile"), new("Frag grenade", "frag_grenade"),
+        // fun pack (PHA's bullet types) + fun pack 2 (the stun); the four streak/equipment ones spawn via magicmissile on AUTO
+        new("War Machine grenade", "hero_pineapplegun"), new("Cruise missile", "remote_missile_missile"), new("Hand Cannon round", "hero_annihilator"),
+        new("Death Machine round", "sig_lmg"), new("Ballistic knife", "special_ballisticknife_t9_dw"), new("Napalm bomb", "napalm_strike"),
+        new("Artillery shell", "planemortar"), new("Stun grenade", "eq_slow_grenade"),
     };
 
     // The menu's prop_universal() list, by label (the GSC matches the label or the model; the 47-byte slot takes the label).
@@ -97,7 +104,7 @@ public static class Catalog
     };
 
     // veh_master() in gunfight_menu.gsc: the app names a vehicle by its INDEX (an asset name does not fit the slot).
-    /// <summary>Mirror of the GSC veh_master() order (vehspawn is BY MASTER INDEX): regenerate from the .gsc whenever a row is added or removed (last sync 2026-09-22, 67 rows).</summary>
+    /// <summary>Mirror of the GSC veh_master() order (vehspawn is BY MASTER INDEX): regenerate from the .gsc whenever a row is added or removed (last sync 2026-09-24, 73 rows - the fun pack appended 67-75, then its RC-XD streak became 37 "RC-XD alt" and its two turrets were removed).</summary>
     public static readonly VehicleDef[] Vehicles =
     {
         new(0, "Light buggy (FAV)", 0), new(1, "Light buggy (FAV) alt", 0), new(2, "Heavy buggy (FAV)", 0), new(3, "Motorcycle", 0), new(4, "Motorcycle alt", 0),
@@ -114,6 +121,11 @@ public static class Catalog
         new(55, "Intro cinematic APC (The Pines)", 1), new(56, "Intro cinematic APC (Amerika)", 1), new(57, "Intro cinematic vehicle (Echelon)", 1), new(58, "Intro cinematic vehicle (Yamantau)", 1), new(59, "Intro cinematic vehicle (Apocalypse)", 1),
         new(60, "Intro cinematic vehicle (Cartel)", 1), new(61, "Intro cinematic vehicle (Collateral cia)", 1), new(62, "Intro cinematic vehicle (Collateral kgb)", 1), new(63, "Intro cinematic vehicle (Crossroads kgb)", 1), new(64, "Intro cinematic vehicle (Crossroads)", 1),
         new(65, "Intro cinematic vehicle (Crossroads kgb 2)", 1), new(66, "Intro cinematic vehicle (Crossroads cia)", 1),
+        // fun pack 2026-09-23: appended in the GSC too - resident on MP maps, missing until PHA V1.00's list showed them
+        // (klaze 2026-09-24: the RC-XD streak row moved up to 37 "RC-XD alt" - the old alt looked like the RC-XD - and
+        //  the two turrets are out, "remove the 2 turrets from vehicles menu"; the rows after them moved up)
+        new(67, "AI helicopter", 1), new(68, "Drone squad - PHA's name", 1),
+        new(69, "Helicopter (Sanatorium)", 1), new(70, "Fireteam reinsertion vehicle", 1), new(71, "Napalm strike plane, hpc intro", 1), new(72, "Outro helicopter (hpc/sl)", 1),
     };
 
     public static readonly Named[] Camos =
@@ -124,13 +136,17 @@ public static class Catalog
         new("PaP Forsaken 1", "119"), new("PaP Forsaken 2", "120"), new("PaP Forsaken 3", "121"),
     };
 
-    public static readonly string[] Operators =
+    // setspecialistindex ids: the array index IS the id. Id 0 ("Invisible") is removed from every picker (klaze
+    // 2026-09-23 "remove the invisible option from the operators menu") - the entry stays so the ids keep their numbers.
+    private static readonly string[] OperatorById =
     {
         "Invisible", "Adler", "Portnova", "Garcia", "Baker", "Sims", "Hunter", "Vargas", "Stone", "Song", "Powers", "Baker (2)", "Zeyna", "Wolf", "Beck", "Knight",
         "Antonov", "Park", "Stitch", "Bulldozer", "CDL 1", "CDL 2", "Woods", "Rivas", "Naga", "Maxis", "John Doe", "Jane Doe", "Base (M)", "Base (F)", "Wraith",
         "Baker (3)", "Park (2)", "Price", "John McClane", "Rambo", "Weaver", "Jackal", "Salah", "Kitsune", "Stryker", "Arthur Kingsley", "Hudson", "Mason", "Scream",
         "Fuze", "Zombie (F)", "Zombie (M)", "Lazar",
     };
+    /// <summary>The operator picker: label + setspecialistindex id, id 0 left out.</summary>
+    public static readonly Named[] Operators = OperatorById.Select((n, i) => new Named(n, i.ToString())).Skip(1).ToArray();
 
     // perk_hash() in the GSC: the short keys the panel may send. Effect in MP unmeasured per perk.
     public static readonly PerkDef[] Perks =

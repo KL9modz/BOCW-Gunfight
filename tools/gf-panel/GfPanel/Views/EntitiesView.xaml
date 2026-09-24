@@ -1,0 +1,43 @@
+<UserControl x:Class="GfPanel.Views.EntitiesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- klaze 2026-09-23: "app needs an asset/prop/vehicle list viewer so i can delete spawned entities in lobby. also add
+       buttons to delete all." The GFENTS channel (gunfight_menu.gsc ents_publish), read while this tab is open. -->
+  <Grid Margin="14,12">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <Border Background="{StaticResource Sf}" BorderBrush="{StaticResource Bd}" BorderThickness="1" CornerRadius="7" Padding="12,9" Margin="0,0,0,10">
+      <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="11.5">Everything the mod spawned that is still in the level: forge / menu / app props, explosive barrels, and vehicles (the Vehicles page, the app, vehicle mode). The list comes from the game while this tab is open. Delete removes one - the game re-checks it is one of ours and never deletes a vehicle with someone in it. Deleting props also rewrites the saved forge layout, so they do not come back next round.</TextBlock>
+    </Border>
+
+    <DockPanel Grid.Row="1" LastChildFill="False" Margin="0,0,0,8">
+      <TextBlock DockPanel.Dock="Left" Text="{Binding Entities.Summary}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+      <TextBlock DockPanel.Dock="Left" Text="{Binding Entities.Updated}" Style="{StaticResource Dim}" FontSize="10.5" VerticalAlignment="Center" Margin="10,0,0,0" />
+      <Button DockPanel.Dock="Right" Content="🗑 Delete EVERYTHING" Style="{StaticResource NgBtn}" Command="{Binding Entities.DeleteEverything}" Margin="6,0,0,0" ToolTip="entclear all - every prop + barrel (and the saved layout) and every empty spawned vehicle" />
+      <Button DockPanel.Dock="Right" Content="Delete all vehicles" Style="{StaticResource NgBtn}" Command="{Binding Entities.DeleteAllVehicles}" Margin="6,0,0,0" ToolTip="entclear vehicles - every EMPTY vehicle the menu / app / vehicle mode spawned" />
+      <Button DockPanel.Dock="Right" Content="Delete all props" Style="{StaticResource NgBtn}" Command="{Binding Entities.DeleteAllProps}" Margin="6,0,0,0" ToolTip="entclear props - every prop + barrel and this map's saved forge layout" />
+      <Button DockPanel.Dock="Right" Content="↻ Refresh" Style="{StaticResource SmallBtn}" Command="{Binding Entities.Refresh}" Margin="6,0,0,0" ToolTip="read the list from the game now" />
+    </DockPanel>
+
+    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,6">
+      <RadioButton Content="All" IsChecked="{Binding Entities.ShowAll}" Margin="0,0,14,0" />
+      <RadioButton Content="Props + barrels" IsChecked="{Binding Entities.ShowProps}" Margin="0,0,14,0" />
+      <RadioButton Content="Vehicles" IsChecked="{Binding Entities.ShowVehicles}" Margin="0,0,14,0" />
+    </StackPanel>
+
+    <Border Grid.Row="3" Background="{StaticResource Bg}" BorderBrush="{StaticResource Bd}" BorderThickness="1" CornerRadius="6">
+      <Grid>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <ItemsControl ItemsSource="{Binding Entities.Rows}" />
+        </ScrollViewer>
+        <TextBlock Text="No spawned entities in the list." Style="{StaticResource Dim}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Visibility="{Binding Entities.Any, Converter={StaticResource VisInv}}" />
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

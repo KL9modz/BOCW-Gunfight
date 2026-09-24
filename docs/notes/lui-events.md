@@ -42,3 +42,18 @@ in the dump — ~40 named events plus ~25 still-hashed ones.
 ⚠ Each event's handler validates its own parameter shape; a wrong arg count or type is at best
 ignored, at worst a client Lua error. Copy a stock call site exactly. Only `esports_game_paused`
 and `create_prematch_timer` (via `matchstarttimer`) have been seen working from the mod.
+
+## 2026-09-23 — more stock events, and how they travel ([hud-channels](hud-channels.md))
+
+- **An LUI event is a write to the client's `script_notify` UI model** — the client twin of the lower
+  message (`hud_message_shared.csc:27-41`) fires the same hash by writing `script_notify.arg1..N` +
+  `numArgs`. One slot per client, so stock sends **one event per client per frame** (the luielem queue,
+  `lui_shared.gsc:221-235`). Pace yours the same way.
+- **The lower message**: `player hud_message::setlowermessage( #"mp/waiting_to_spawn", secs )`
+  (`hud_message_shared.gsc:57` → `#"hash_424b9c54c8bf7a82"`, `2, text, secs`) — a lower-centre line with our
+  own countdown; `clearlowermessage()` takes it down.
+- **Gunfight's "N v M" banner**: `#"hash_6b67aa04e378d681"`, `3, 2, allies, axis` (`player_killed.gsc:2556`)
+  — an indexed notification; `1, 7` / `2, 1, n` / `2, 6, loadout` are its other stock shapes.
+- **`function_2891bd54`** (`exe+3d1f190`, beside `luinotifyevent`) is the same kind of event addressed to one
+  luielem instance — the transport of the event-backed luielems ([hud-channels](hud-channels.md) §1).
+

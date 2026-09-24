@@ -93,73 +93,158 @@
     </Expander>
   </DataTemplate>
 
-  <!-- ═══ a player row (sidebar) ═══ -->
+  <!-- ═══ a player row (sidebar) ═══
+       bocw-84 2026-09-23 (klaze): "App needs to clearly show who has a client menu. give them a color with something to
+       symbolize" - a purple ★ MENU badge + purple name; ⚒ FORGE for forge mode. The right-click menu leads with
+       "Give client mod menu" (coloured) and groups the rest into Player / Loadout / Teleport / Team / Moderation. -->
+  <SolidColorBrush x:Key="MenuC" Color="#FFC77DFF" />
+  <SolidColorBrush x:Key="MenuDim" Color="#29C77DFF" />
+  <SolidColorBrush x:Key="ForgeC" Color="#FF46D2FF" />
+  <SolidColorBrush x:Key="ForgeDim" Color="#2246D2FF" />
+  <Style x:Key="CtxHead" TargetType="{x:Type MenuItem}" BasedOn="{StaticResource {x:Type MenuItem}}">
+    <Setter Property="IsHitTestVisible" Value="False" />
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="Foreground" Value="{StaticResource Dm}" />
+    <Setter Property="FontWeight" Value="Bold" />
+    <Setter Property="FontSize" Value="11" />
+  </Style>
   <DataTemplate DataType="{x:Type vm:PlayerRowVM}">
-    <Border Padding="4,3" BorderBrush="{StaticResource Bd}" BorderThickness="0,0,0,1" Background="Transparent" ToolTip="{Binding Xuid}">
+    <Border Padding="4,3" BorderBrush="{StaticResource Bd}" BorderThickness="0,0,0,1" ToolTip="{Binding Xuid}">
+      <Border.Style>
+        <Style TargetType="{x:Type Border}">
+          <Setter Property="Background" Value="Transparent" />
+          <Style.Triggers>
+            <DataTrigger Binding="{Binding HasMenu}" Value="True">
+              <Setter Property="Background" Value="{StaticResource MenuDim}" />
+            </DataTrigger>
+          </Style.Triggers>
+        </Style>
+      </Border.Style>
       <Border.ContextMenu>
         <ContextMenu>
-          <MenuItem Header="{Binding Name}" IsEnabled="False" />
-          <MenuItem Header="✉ Message this player…" Command="{Binding Message}" />
-          <Separator />
-          <MenuItem Header="Move to allies" Command="{Binding MoveAllies}" />
-          <MenuItem Header="Move to axis" Command="{Binding MoveAxis}" />
-          <MenuItem Header="Move to spectator" Command="{Binding Spectate}" />
-          <MenuItem Header="Next match">
-            <MenuItem Header="Stage: Allies" Command="{Binding StageA}" />
-            <MenuItem Header="Stage: Axis" Command="{Binding StageX}" />
-            <MenuItem Header="Stage: Spectator" Command="{Binding StageS}" />
-            <MenuItem Header="Unstage" Command="{Binding StageClear}" />
+          <MenuItem Header="{Binding Name}" Style="{StaticResource CtxHead}" />
+          <MenuItem Command="{Binding ToggleMenu}" Visibility="{Binding ShowGiveMenu, Converter={StaticResource Vis}}" Foreground="{StaticResource MenuC}" FontWeight="Bold"
+                    ToolTip="forgegrant on - their own mod menu (hold ADS + Melee, controller: D-pad up): Props / Vehicles, Player (god, ammo, 3rd person, fly, speed, operator, outfit), Teleport (to the host, to any player, crosshair, gun, save / load), Weapons, Camo. No admin. Survives rounds and a rejoin.">
+            <MenuItem.Header>
+              <TextBlock Foreground="{StaticResource MenuC}"><Run Text="★" FontSize="13" /><Run Text="  Give client mod menu" /></TextBlock>
+            </MenuItem.Header>
           </MenuItem>
-          <Separator />
-          <MenuItem Header="God mode" Command="{Binding GodMode}" />
-          <MenuItem Header="Max ammo" Command="{Binding MaxAmmo}" />
-          <MenuItem Header="Third person" Command="{Binding ThirdPersonCmd}" />
-          <MenuItem Header="Fly" Command="{Binding FlyCmd}" />
-          <MenuItem Header="Freeze / unfreeze" Command="{Binding Freeze}" />
-          <MenuItem Header="Speed">
-            <MenuItem Header="50%" Command="{Binding Speed50}" />
-            <MenuItem Header="150%" Command="{Binding Speed150}" />
-            <MenuItem Header="200%" Command="{Binding Speed200}" />
-            <MenuItem Header="Back to global" Command="{Binding Speed0}" />
+          <MenuItem Command="{Binding ToggleMenu}" Visibility="{Binding ShowTakeMenu, Converter={StaticResource Vis}}" Foreground="{StaticResource MenuC}" ToolTip="forgegrant off">
+            <MenuItem.Header>
+              <TextBlock Foreground="{StaticResource MenuC}"><Run Text="✖" /><Run Text="  Take back client mod menu" /></TextBlock>
+            </MenuItem.Header>
           </MenuItem>
-          <MenuItem Header="Give the picked weapon (Tools)" Command="{Binding GiveWeapon}" />
-          <MenuItem Header="Give streak">
-            <MenuItem Header="RC-XD" Command="{Binding StreakRcxd}" ToolTip="streak recon_car - the stock care-package give; they use it with the normal streak button" />
-            <MenuItem Header="Bow (Sparrow)" Command="{Binding StreakBow}" ToolTip="streak sig_bow_flame" />
-            <MenuItem Header="Nuke" Command="{Binding StreakNuke}" ToolTip="streak nuke" />
-            <Separator />
-            <MenuItem Header="The one picked in Tools → Streaks" Command="{Binding StreakPicked}" />
-          </MenuItem>
-          <MenuItem Header="Give the picked perk (Tools)" Command="{Binding GivePerks}" />
-          <MenuItem Header="Cosmetics (ids from Tools)">
-            <MenuItem Header="Camo" Command="{Binding Camo}" />
-            <MenuItem Header="Operator" Command="{Binding Operator}" />
-            <MenuItem Header="Outfit" Command="{Binding Outfit}" />
-          </MenuItem>
-          <MenuItem Header="Forge mode (grab + edit props)">
-            <MenuItem Header="On" Command="{Binding ForgeModeOn}" ToolTip="forgemode on - they get tap-to-grab prompts on props (ours + map props within the grab reach) and can move / turn / scale / delete them" />
+          <MenuItem Header="⚒  Forge mode" Foreground="{StaticResource ForgeC}" Visibility="{Binding IsHuman, Converter={StaticResource Vis}}">
+            <MenuItem Header="On" Command="{Binding ForgeModeOn}" ToolTip="forgemode on - tap-to-grab prompts on props (ours + map props within the grab reach); move / turn / scale / delete them" />
             <MenuItem Header="Off" Command="{Binding ForgeModeOff}" ToolTip="forgemode off" />
           </MenuItem>
-          <MenuItem Header="Client menu (their own mini mod-menu, no admin)">
-            <MenuItem Header="Give client menu" Command="{Binding ForgeGrant}" ToolTip="forgegrant on - they hold ADS + Melee for their own menu: Forge / Props / Vehicles, God / Ammo / 3rd person / Fly / Unlock, Teleport (me to host / crosshair / save / load), Weapons / Camo / Operator / Outfit, Display. No admin, no globals. NEVER RUN for a non-host - first test = do they see and navigate it; may need re-granting after a round." />
-            <MenuItem Header="Revoke client menu" Command="{Binding ForgeRevoke}" ToolTip="forgegrant off" />
-          </MenuItem>
-          <MenuItem Header="Take current weapon" Command="{Binding TakeWeapon}" />
-          <MenuItem Header="Strip all weapons" Command="{Binding Strip}" />
-          <MenuItem Header="Kill" Command="{Binding Kill}" />
+          <MenuItem Header="✉  Message…" Command="{Binding Message}" />
           <Separator />
-          <MenuItem Header="Teleport">
-            <MenuItem Header="Them to me" Command="{Binding TpToMe}" />
+          <MenuItem Header="♥  Player">
+            <MenuItem Header="God mode" Command="{Binding GodMode}" />
+            <MenuItem Header="Max ammo" Command="{Binding MaxAmmo}" />
+            <MenuItem Header="Third person" Command="{Binding ThirdPersonCmd}" />
+            <MenuItem Header="Fly" Command="{Binding FlyCmd}" />
+            <MenuItem Header="Freeze / unfreeze" Command="{Binding Freeze}" />
+            <MenuItem Header="Speed">
+              <MenuItem Header="50%" Command="{Binding Speed50}" />
+              <MenuItem Header="150%" Command="{Binding Speed150}" />
+              <MenuItem Header="200%" Command="{Binding Speed200}" />
+              <MenuItem Header="Back to global" Command="{Binding Speed0}" />
+            </MenuItem>
+            <Separator />
+            <MenuItem Header="Kill" Command="{Binding Kill}" Foreground="{StaticResource Ng}" />
+          </MenuItem>
+          <MenuItem Header="🎒  Loadout">
+            <MenuItem Header="Give the picked weapon (Tools)" Command="{Binding GiveWeapon}" />
+            <MenuItem Header="Give streak">
+              <MenuItem Header="RC-XD" Command="{Binding StreakRcxd}" ToolTip="streak recon_car - the stock care-package give; they use it with the normal streak button" />
+              <MenuItem Header="Bow (Sparrow)" Command="{Binding StreakBow}" ToolTip="streak sig_bow_flame" />
+              <MenuItem Header="Nuke" Command="{Binding StreakNuke}" ToolTip="streak nuke" />
+              <Separator />
+              <MenuItem Header="The one picked in Tools → Streaks" Command="{Binding StreakPicked}" />
+            </MenuItem>
+            <MenuItem Header="Give the picked perk (Tools)" Command="{Binding GivePerks}" />
+            <MenuItem Header="Cosmetics (ids from Tools)">
+              <MenuItem Header="Camo" Command="{Binding Camo}" />
+              <MenuItem Header="Operator" Command="{Binding Operator}" />
+              <MenuItem Header="Outfit" Command="{Binding Outfit}" />
+            </MenuItem>
+            <Separator />
+            <MenuItem Header="Take current weapon" Command="{Binding TakeWeapon}" />
+            <MenuItem Header="Strip all weapons" Command="{Binding Strip}" />
+          </MenuItem>
+          <MenuItem Header="⌖  Teleport">
+            <MenuItem Header="Bring them to me" Command="{Binding TpToMe}" />
             <MenuItem Header="Me to them" Command="{Binding TpMeToThem}" />
             <MenuItem Header="Swap places" Command="{Binding TpSwap}" />
+            <Separator />
+            <MenuItem Header="Them to player" ItemsSource="{Binding OtherPlayers}" ToolTip="tpto - move this player in front of the one you pick, facing them">
+              <MenuItem.ItemContainerStyle>
+                <Style TargetType="{x:Type MenuItem}" BasedOn="{StaticResource {x:Type MenuItem}}">
+                  <Setter Property="Header" Value="{Binding Name}" />
+                  <Setter Property="Command" Value="{Binding Go}" />
+                </Style>
+              </MenuItem.ItemContainerStyle>
+            </MenuItem>
+          </MenuItem>
+          <MenuItem Header="⚑  Team">
+            <MenuItem Header="Move to allies" Command="{Binding MoveAllies}" />
+            <MenuItem Header="Move to axis" Command="{Binding MoveAxis}" />
+            <MenuItem Header="Move to spectator" Command="{Binding Spectate}" />
+            <Separator />
+            <MenuItem Header="Next match">
+              <MenuItem Header="Stage: Allies" Command="{Binding StageA}" />
+              <MenuItem Header="Stage: Axis" Command="{Binding StageX}" />
+              <MenuItem Header="Stage: Spectator" Command="{Binding StageS}" />
+              <MenuItem Header="Unstage" Command="{Binding StageClear}" />
+            </MenuItem>
+          </MenuItem>
+          <MenuItem Header="🎉  Fun pack" Visibility="{Binding IsHuman, Converter={StaticResource Vis}}" ToolTip="the cloud branch's fun pack, aimed at this player (the GSC fun verb + gf_cmd_target); never run">
+            <MenuItem Header="Fly bind (Tac + Melee)">
+              <MenuItem Header="On" Command="{Binding Fun}" CommandParameter="flybind on" />
+              <MenuItem Header="Off" Command="{Binding Fun}" CommandParameter="flybind off" />
+            </MenuItem>
+            <MenuItem Header="Slide preset" ToolTip="fun slidemode - this player's own slide (pers, survives rounds); the same rows are on a granted client's Player page">
+              <MenuItem Header="Super Slide (150% + long slide)" Command="{Binding Fun}" CommandParameter="slidemode 1" />
+              <MenuItem Header="Infinite Slide (glide 700 until JUMP)" Command="{Binding Fun}" CommandParameter="slidemode 2" />
+              <MenuItem Header="Off (match settings)" Command="{Binding Fun}" CommandParameter="slidemode 0" />
+            </MenuItem>
+            <MenuItem Header="Random camo (once)" Command="{Binding Fun}" CommandParameter="camorandom" />
+            <MenuItem Header="Disco camo">
+              <MenuItem Header="On" Command="{Binding Fun}" CommandParameter="disco on" />
+              <MenuItem Header="Off" Command="{Binding Fun}" CommandParameter="disco off" />
+            </MenuItem>
+            <MenuItem Header="Disguise">
+              <MenuItem Header="Random prop" Command="{Binding Fun}" CommandParameter="disg random" />
+              <MenuItem Header="Next prop" Command="{Binding Fun}" CommandParameter="disg next" />
+              <MenuItem Header="Previous prop" Command="{Binding Fun}" CommandParameter="disg prev" />
+              <MenuItem Header="Off" Command="{Binding Fun}" CommandParameter="disg off" />
+            </MenuItem>
+            <MenuItem Header="Prop gun">
+              <MenuItem Header="On" Command="{Binding Fun}" CommandParameter="propgun on" />
+              <MenuItem Header="Off" Command="{Binding Fun}" CommandParameter="propgun off" />
+            </MenuItem>
+            <MenuItem Header="Grenade swap">
+              <MenuItem Header="On" Command="{Binding Fun}" CommandParameter="nadeswap on" />
+              <MenuItem Header="Off" Command="{Binding Fun}" CommandParameter="nadeswap off" />
+            </MenuItem>
+            <MenuItem Header="Model cannon">
+              <MenuItem Header="On" Command="{Binding Fun}" CommandParameter="cannon on" />
+              <MenuItem Header="Off" Command="{Binding Fun}" CommandParameter="cannon off" />
+            </MenuItem>
           </MenuItem>
           <Separator />
-          <MenuItem Header="Copy name" Command="{Binding CopyName}" />
-          <MenuItem Header="Copy XUID" Command="{Binding CopyXuid}" />
-          <Separator />
-          <MenuItem Header="Kick" Command="{Binding Kick}" Visibility="{Binding IsHuman, Converter={StaticResource Vis}}" />
-          <MenuItem Header="Ban (kick + refuse this session)" Command="{Binding Ban}" Foreground="{StaticResource Ng}" Visibility="{Binding IsHuman, Converter={StaticResource Vis}}" />
-          <MenuItem Header="Unban" Command="{Binding Unban}" Visibility="{Binding IsBanned, Converter={StaticResource Vis}}" />
+          <MenuItem Header="📜  Show their menu log" Command="{Binding ShowMenuLog}" Visibility="{Binding IsHuman, Converter={StaticResource Vis}}" ToolTip="ACTIVITY shows only this player's menu actions (the GFLOG menu log) - the 'All' chip clears it" />
+          <MenuItem Header="⧉  Copy">
+            <MenuItem Header="Name" Command="{Binding CopyName}" />
+            <MenuItem Header="XUID" Command="{Binding CopyXuid}" />
+          </MenuItem>
+          <MenuItem Header="⛔  Moderation" Visibility="{Binding IsHuman, Converter={StaticResource Vis}}">
+            <MenuItem Header="Kick" Command="{Binding Kick}" />
+            <MenuItem Header="Ban (kick + refuse this session)" Command="{Binding Ban}" Foreground="{StaticResource Ng}" />
+            <MenuItem Header="Unban" Command="{Binding Unban}" Visibility="{Binding IsBanned, Converter={StaticResource Vis}}" />
+          </MenuItem>
         </ContextMenu>
       </Border.ContextMenu>
       <Grid>
@@ -169,7 +254,25 @@
         <Ellipse Width="7" Height="7" Fill="{StaticResource Ok}" VerticalAlignment="Center" Visibility="{Binding Alive, Converter={StaticResource Vis}}" ToolTip="alive" />
         <Ellipse Width="7" Height="7" Fill="{StaticResource Bd}" VerticalAlignment="Center" Visibility="{Binding Alive, Converter={StaticResource VisInv}}" ToolTip="dead / not spawned" />
         <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="6,0,0,0" VerticalAlignment="Center">
-          <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12" />
+          <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12">
+            <TextBlock.Style>
+              <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource {x:Type TextBlock}}">
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding HasMenu}" Value="True">
+                    <Setter Property="Foreground" Value="{StaticResource MenuC}" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </TextBlock.Style>
+          </TextBlock>
+          <Border Style="{StaticResource Pill}" BorderBrush="{StaticResource MenuC}" Background="{StaticResource MenuDim}" Visibility="{Binding HasMenu, Converter={StaticResource Vis}}"
+                  ToolTip="Has a client mod menu (ADS + Melee in game; controller D-pad up). Right-click → Take back client mod menu.">
+            <TextBlock Style="{StaticResource PillText}" Text="★ MENU" Foreground="{StaticResource MenuC}" />
+          </Border>
+          <Border Style="{StaticResource Pill}" BorderBrush="{StaticResource ForgeC}" Background="{StaticResource ForgeDim}" Visibility="{Binding ForgeMode, Converter={StaticResource Vis}}"
+                  ToolTip="Forge mode: tap-to-grab prompts on props. Right-click → Forge mode → Off.">
+            <TextBlock Style="{StaticResource PillText}" Text="⚒ FORGE" Foreground="{StaticResource ForgeC}" />
+          </Border>
           <Border Style="{StaticResource Pill}" BorderBrush="{StaticResource Bd}" Visibility="{Binding Tag, Converter={StaticResource NullVis}}">
             <TextBlock Style="{StaticResource PillText}" Text="{Binding Tag}" Foreground="{StaticResource Dm}" />
           </Border>
@@ -183,6 +286,30 @@
         <TextBlock Grid.Column="2" Text="{Binding Flags}" Style="{StaticResource Dim}" FontSize="10" Margin="6,0" VerticalAlignment="Center" />
         <TextBlock Grid.Column="3" Text="{Binding Score}" FontSize="11" Margin="6,0" VerticalAlignment="Center" MinWidth="28" TextAlignment="Right" ToolTip="score" />
         <TextBlock Grid.Column="4" Text="{Binding Kd}" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" MinWidth="36" TextAlignment="Right" ToolTip="kills / deaths" />
+      </Grid>
+    </Border>
+  </DataTemplate>
+
+  <!-- ═══ a spawned entity (ENTITIES tab, bocw-84 2026-09-23) ═══ -->
+  <DataTemplate DataType="{x:Type vm:EntityRowVM}">
+    <Border Padding="6,4" BorderBrush="{StaticResource Bd}" BorderThickness="0,0,0,1" Background="Transparent" ToolTip="{Binding Where}">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="28" /><ColumnDefinition Width="*" MinWidth="160" /><ColumnDefinition Width="150" /><ColumnDefinition Width="130" /><ColumnDefinition Width="140" /><ColumnDefinition Width="70" /><ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <TextBlock Text="{Binding Icon}" FontSize="14" VerticalAlignment="Center" />
+        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+          <TextBlock Text="{Binding Label}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{Binding KindText}" Style="{StaticResource Dim}" FontSize="10" />
+        </StackPanel>
+        <TextBlock Grid.Column="2" Text="{Binding Owner}" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="who placed it" />
+        <TextBlock Grid.Column="3" Text="{Binding Dist}" FontSize="11" VerticalAlignment="Center" ToolTip="distance from the host (50-unit steps)" />
+        <TextBlock Grid.Column="4" Text="{Binding Where}" Style="{StaticResource Dim}" FontSize="10" FontFamily="{StaticResource Mono}" VerticalAlignment="Center" ToolTip="position x, y, z" />
+        <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
+          <TextBlock Text="{Binding EntNum, StringFormat='#{0}'}" Style="{StaticResource Dim}" FontSize="10" FontFamily="{StaticResource Mono}" ToolTip="entity number" />
+          <TextBlock Text="{Binding Status}" Foreground="{StaticResource Wn}" FontSize="10" FontWeight="Bold" Margin="6,0,0,0" />
+        </StackPanel>
+        <Button Grid.Column="6" Content="✕ Delete" Style="{StaticResource NgBtn}" Command="{Binding Delete}" Padding="8,2" Margin="8,0,0,0" ToolTip="entdel - the game re-checks it is one of ours and never deletes an occupied vehicle" />
       </Grid>
     </Border>
   </DataTemplate>

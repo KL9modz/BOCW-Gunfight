@@ -10,6 +10,17 @@
 // host needs must be in the file that gets injected once per game launch.
 // gunfight_mod.gsc is untouched and remains the no-menu variant.
 //
+// ── 🛑 FATAL TRAPS — every one has crashed klaze's game (.claude/CLAUDE.md "GSC crash rules") ──
+//   * NO STRING OVER 1024 CHARS: a concatenation whose result passes 1024 kills the game
+//     (0x91f84370, sig C55D66DA-...; the engine concat checks len(a)+len(b) > 0x400). Bound every
+//     string built in a loop BY LENGTH (s.size), leave room for the header added at publish, chunk
+//     anything that grows - app channel lines, rosters, lists, menu / hint text. (Miami map census,
+//     Nuketown spawn-atlas scan 2026-09-22.)
+//   * every ns::fn call needs its #using (else link failure, every match load); only engine builtins
+//     (../reference/funcs_cw.csv) bare; no dev-only builtins (sethighlighted on a script_model);
+//     notify(X) never from a thread that endon(X)s; no bulk dvar registration / sets; bridge
+//     commands <= 47 bytes; map-sized walks O(n) + waitframe; strip-strhdr + check-gsc before promoting.
+//
 // ── WHERE THE MENU ENGINE COMES FROM, AND WHY IT IS REWRITTEN NOT COPIED ─────
 // The engine is a translation of ate47/t8-atian-menu's coldwar/scripts/core_common/
 // {menu,keymanager}.gsc - the same menu klaze already drives for the map carry, so
@@ -38,7 +49,9 @@
 //     whole match.
 // The dvars, read by mod_apply once per match:
 //
-//     gf_team_size      per side, default 4
+//     gf_team_size      per side, default 6 = 6v6 (klaze 2026-09-24). cfg_team_size() returns it
+//                       CLAMPED to com_maxclients / 2, so an 8-slot session plays 4v4 and says so.
+//                       The lobby's own slot count is the gunfight_lobby payload's job (src/gunfight_lobby).
 //     gf_spec_slots     2 (default) - spectator/caster slots ADDED to the maxplayers write (team
 //                       size x 2 + slots, capped at com_maxclients) so a spectator does not eat a
 //                       player slot at bot fill / join time (klaze 2026-09-15: 4v4 + 1 spectator = 3v4 fill).
@@ -130,6 +143,13 @@
 //                       field (measured on Hijacked: `tdm=1` is a plain script field on
 //                       mp_spawn_point), uses their side fields when present, and places EVERY
 //                       spawn on them. Gunfight on the S&D spawn set = 2.
+//     gf_sp_map         the per-map spawn PICK from the app's Spawns tab (spawn atlas, 2026-09-22):
+//                       "<map>:<kind>" - kind 1-7 = that family's authored starts (gf_spawn_family
+//                       numbering), 9 = AREA (gf_sp_a / gf_sp_b), 10 = stock. Ignored on any other
+//                       map, so a pick never leaks. Wins over gf_spawn_family / AUTO and forces the
+//                       anchors (no engine start picker). Empty = no pick. docs/notes/spawn-atlas.md
+//     gf_sp_a / gf_sp_b "x,y,z,r[,zr]" - an AREA pick's two start areas: every spawn point within
+//                       2D radius r of (x,y) and height band zr (default 160) of z.
 //     gf_dbg_flags      1 = one feed line: which flag fields the markers carry + value tallies.
 //     gf_spawn_pick     0 (default) near: the two sides sit around the centre at gf_spawn_gap -
 //                       TDM's respawn zone, the "closer up" spawns. 1 far ends: the two outermost
@@ -442,6 +462,7 @@
 #using scripts\core_common\struct;
 #using scripts\core_common\music_shared;
 #using scripts\core_common\exploder_shared;
+#using scripts\core_common\lui_shared;          // lui::function_bb6bcb89 - the menu backdrop's LUIelemBar fields (2026-09-24)
 #using scripts\core_common\bots\bot;
 // bot_difficulty: assign() is the stock "re-read bot_difficulty_<team> and install the bundle"
 // entry point (bot_difficulty.gsc:34). bot.gsc #uses it, so it links wherever bot does.
@@ -514,6 +535,8 @@ function private __init__()
     // movement handler so the rider's speed / oob / fall-damage state is in place first.
     callback::on_spawned( &mod_spawn_vehicle );
     callback::on_spawned( &forge_on_spawned );
+    // bocw-84 batch (2026-09-23): radar flags re-sent per life, parachute armed, vehicle prompts.
+    callback::on_spawned( &sandbox_on_spawned );
     // Death-barrier diagnosis (2026-09-19): every death's MOD / attacker classname / god flag,
     // read by the BARRIER debug line. Cheap, every gametype.
     callback::on_player_killed( &mod_on_player_killed );
@@ -529,7 +552,10 @@ function private __init__()
 // SETTINGS — dvar-backed, so they survive rounds and matches
 // ═════════════════════════════════════════════════════════════════════════════
 
-function private cfg_team_size()     { return cfg_geti( #"gf_team_size", 4 ); }
+// EFFECTIVE team size: the configured value (default 6v6, klaze 2026-09-24) clamped to what the
+// session seats, so fill / spawn family / anchors / state lines never ask for more than fits.
+// The raw configured value still rides the packed chunk (GFCFG readback is the raw cells).
+function private cfg_team_size()     { return clamp_team_size( cfg_geti( #"gf_team_size", 6 ) ); }
 function private cfg_spec_slots()    { return cfg_geti( #"gf_spec_slots", 2 ); }
 function private cfg_latejoin()      { return cfg_geti( #"gf_latejoin", 1 ); }    // LATE JOIN block: 1 place a late human / 0 stock (bench)
 function private cfg_teamchange()    { return cfg_geti( #"gf_teamchange", 1 ); }  // 1 allowingameteamchange on = pause-menu CHANGE TEAM / 0 off
@@ -623,7 +649,7 @@ function private cfg_spec()
     c = cfg_add( c, #"gf_strike", 0 );
     c = cfg_add( c, #"gf_switch_sides", 1 );
     c = cfg_add( c, #"gf_switch_wait", 0 );
-    c = cfg_add( c, #"gf_team_size", 4 );
+    c = cfg_add( c, #"gf_team_size", 6 );      // 6v6 default (klaze 2026-09-24)
     c = cfg_add( c, #"gf_timer_seconds", 60 );
     c = cfg_add( c, #"gf_zone", 1 );           // overtime zone ON by default (klaze, 2026-09-18)
     c = cfg_add( c, #"gf_zone_capture", 5 );
@@ -894,7 +920,7 @@ function private dvars_register()
     // ("Can't register more dvar"). Do NOT add more dvar_reg lines here expecting them to run, and
     // do NOT re-enable the call without a plan for the store cap. Kept for reference. See memory
     // dvar-pool-crash. (dvar_reg only sets when absent, so re-enabling would still overflow.)
-    dvar_reg( #"gf_team_size", 4 );
+    dvar_reg( #"gf_team_size", 6 );
     dvar_reg( #"gf_timer_seconds", 60 );
     dvar_reg( #"gf_prematch", 15 );
     dvar_reg( #"gf_preround", 7 );
@@ -974,6 +1000,10 @@ function private dvars_register()
 // seem to count towards the limit - 4v4 with one spectator makes it 3v4 bot fill". With the
 // budget at 12 (a TDM-config lobby) the only cap left at 9 clients is maxplayers = 8, so the
 // spectator is being counted against it; adding the slots lifts it to 10.
+// The default 6v6 + 2 writes 14, which needs a 14+ client session. The LOBBY's slot count is
+// maxPlayers + 4 casters, set by the lobby UI from its own copy of maxplayers - only the
+// gunfight_lobby payload reaches that (docs/notes/team-sizes.md, 2026-09-24): lobby maxplayers
+// 12 -> 16 slots -> com_maxclients 16 -> 6v6 + spectators here.
 function private maxplayers_value( per_side )
 {
     mp = per_side * 2 + cfg_spec_slots();
@@ -1042,12 +1072,20 @@ function private mod_apply()
     // yield-guarded (destruct_tally / this function) so it is safe when enabled.
     if ( cfg_mapscan() )
         level thread mapdata_publish();     // GAME->APP map census (mapdata_scan.py)
+    // The match id the app channels carry (GFSTATE mid=, GFLOG): stamped by the first mod_apply of a
+    // match - game. survives Gunfight's per-round map_restart and starts empty on the next match's load.
+    if ( !isdefined( game.gf_mid ) )
+        game.gf_mid = getrealtime();
+    gflog_publish();                   // the menu log back on its line after a round restart (no-op before the first action)
     level thread config_publish();     // GAME->APP live config readback (config_scan.py -> app "Load current")
     level thread state_publish();      // GAME->APP live state line (GFSTATE, tools/gf-panel)
+    level thread spawnev_publish();    // GAME->APP spawn events (GFSPAWNED, the SPAWNS tab's live overlay)
     level thread players_publish();    // GAME->APP rich roster (GFPLAYERS, tools/gf-panel)
 
     // Movement mods apply in EVERY gametype, so they run before the Gunfight gate.
     mod_movement();
+    // Slide: no chained-slide penalty is ON by default (klaze 2026-09-24) - one engine dvar.
+    slide_chain_apply();
 
     // Vehicle mode: resolve this map's ride for the round (every gametype) and tell the host.
     veh_mode_announce();
@@ -1057,6 +1095,11 @@ function private mod_apply()
     // Asset hint lines (ASSET HINTS block): every prop / vehicle this menu put down gets its own
     // hint trigger with its controls; one scanner per level.
     level thread ahint_scan();
+    // bocw-84 batch (2026-09-23): radar & markers (gf_radar), parachutes (gf_parachute), the app's
+    // entity list (GFENTS) - one thread each per level.
+    level thread radar_think();
+    level thread sandbox_watch();
+    level thread ents_publish();
 
     // Bots too: difficulty is a stock per-team gametype setting in every mode, and the
     // bots re-init at the round boundary (bot.gsc:239 on_player_connect -> assign), so
@@ -1763,6 +1806,26 @@ function private race_track_text()
         t += ";" + int( g.c[ 0 ] ) + "," + int( g.c[ 1 ] ) + "," + int( g.c[ 2 ] ) + "," + g.yaw + "," + g.w;
 
     return t;
+}
+
+// race_track_text() cut at a gate boundary to at most cap chars, the gate count rewritten to match
+// (config_publish: keeps GFCFG under the 1024-char concatenation limit with a 16-gate track).
+function private race_track_cut( trk, cap )
+{
+    head = getdvarstring( #"sv_mapname", "?" );
+    body = "";
+    n = 0;
+
+    foreach ( g in race_gates() )
+    {
+        piece = ";" + int( g.c[ 0 ] ) + "," + int( g.c[ 1 ] ) + "," + int( g.c[ 2 ] ) + "," + g.yaw + "," + g.w;
+        if ( head.size + 4 + body.size + piece.size > cap )
+            break;
+        body += piece;
+        n++;
+    }
+
+    return head + ";" + n + body;
 }
 
 function private cmd_race_track( map )
@@ -2936,6 +2999,7 @@ function private mod_spawn_movement()
 
     self speed_apply();
     self thread jump_boost_think();
+    self thread slide_think();       // fun pack: slide speed / long slide / super slide
 
     // Fall damage off, the engine-native way (2026-09-15): specialty_fallheight is the engine
     // perk behind "no fall damage" - Infected grants it to the infected (infect.gsc:87),
@@ -3904,11 +3968,48 @@ function private starts_line()
 // starts (klaze, 2026-09-15: "if a map doesn't have sd spawns we should use tdm spawns").
 // A map with neither authored resolves to tdm and mod_spawn_build does what it always did
 // for tdm (the geometric two-sides search) - so AUTO can never do worse than the old default.
+// WIDENED 2026-09-22 (klaze: "various maps require me to use different spawn guard and family
+// set combinations to achieve the same standard team based starting spawn positions"): the
+// first family whose authored starts cover the TEAM SIZE on both sides, in the order S&D
+// (groups / flagged / named), TDM (flagged / BO2-named), CTF, Domination, Control, Hardpoint.
+// Satellite ships TDM 100 markers / 0 starts but CTF 6+6 (mapdata census 2026-09-19) - a
+// family the old chain never looked at. None covers the team size -> the one with the most a
+// side when that is 2+ (the old rule), else tdm (the geometric split).
 function private mod_family_auto( pts )
 {
-    st = mod_family_starts( pts, 2 );
-    if ( st.a1.size >= 2 && st.a2.size >= 2 )
-        return 2;
+    need = cfg_team_size();
+    if ( need < 2 )
+        need = 2;
+
+    order = [];
+    order[ order.size ] = 2;
+    order[ order.size ] = 1;
+    order[ order.size ] = 4;
+    order[ order.size ] = 3;
+    order[ order.size ] = 6;
+    order[ order.size ] = 5;
+
+    best = 1;
+    bestmin = 0;
+
+    foreach ( f in order )
+    {
+        st = mod_family_starts( pts, f );
+        m = ( st.a1.size < st.a2.size ) ? st.a1.size : st.a2.size;
+
+        if ( m >= need )
+            return f;
+
+        if ( m > bestmin )
+        {
+            bestmin = m;
+            best = f;
+        }
+    }
+
+    if ( bestmin >= 2 )
+        return best;
+
     return 1;
 }
 
@@ -4862,6 +4963,20 @@ function private mod_spawn_build()
     center = mod_centroid( pts );
     level.gf_family_note = "";
 
+    // A per-map PICK from the app's spawn atlas (gf_sp_map "<map>:<kind>") wins over the family /
+    // AUTO chain below; a pick that finds nothing on this map says why (gf_sp_note) and falls through.
+    level.gf_sp_active = 0;
+    level.gf_sp_stock = 0;
+    level.gf_sp_note = "";
+    pk = spawn_pick_read();
+    if ( isdefined( pk ) && spawn_pick_build( pk, pts ) )
+    {
+        level.gf_sp_active = 1;
+        if ( cfg_spawn_diag() && isdefined( level.gfmenu_spawn ) )
+            mod_gf_emit( 60, level.gfmenu_spawn.team1.size + level.gfmenu_spawn.team2.size );
+        return;
+    }
+
     // A spawn FAMILY: only that mode's markers, and its own sides when the markers name them.
     fam = cfg_spawn_family();
     if ( fam == 8 )
@@ -5067,6 +5182,182 @@ function private mod_spawn_build()
         mod_gf_emit( 60, pts.size );   // armed, N spawn points gathered
 }
 
+// ── Per-map spawn PICK (the app's Spawns tab, docs/notes/spawn-atlas.md) ─────────────────────
+// gf_sp_map = "<map>:<kind>" names the map the pick is for - any other map ignores it, so one
+// map's pick never leaks onto the next. kind 1-7 = that family's authored starts (the
+// gf_spawn_family numbering: 1 tdm 2 sd 3 dom 4 ctf 5 koth 6 control 7 dm - flagged starts,
+// BO2-named starts, S&D groups, exactly mod_family_starts); 9 = AREA: every spawn point within
+// gf_sp_a / gf_sp_b = "x,y,z,r[,zr]" (2D radius r, height band zr, default 160) - the app's
+// density areas, "enough spots grouped together in certain areas" (klaze 2026-09-22); 10 = stock
+// (the hook steps aside on this map). A pick forces the anchors - mod_spawn_override skips the
+// engine start picker, because choosing the layout is the point of a pick.
+function private spawn_pick_read()
+{
+    v = getdvarstring( #"gf_sp_map", "" );
+    if ( v == "" )
+        return undefined;
+
+    tok = strtok( v, ":" );
+    if ( !isdefined( tok ) || tok.size < 2 )
+        return undefined;
+
+    if ( tolower( tok[ 0 ] ) != tolower( getdvarstring( #"sv_mapname", "" ) ) )
+        return undefined;
+
+    pk = spawnstruct();
+    pk.kind = int( tok[ 1 ] );
+
+    if ( pk.kind <= 0 )
+        return undefined;
+
+    if ( pk.kind == 9 )
+    {
+        pk.a = spawn_pick_area( getdvarstring( #"gf_sp_a", "" ) );
+        pk.b = spawn_pick_area( getdvarstring( #"gf_sp_b", "" ) );
+
+        if ( !isdefined( pk.a ) || !isdefined( pk.b ) )
+        {
+            level.gf_sp_note = "pick:area BAD";
+            return undefined;
+        }
+    }
+
+    return pk;
+}
+
+// "x,y,z,r[,zr]" -> { c, r, zr }, undefined when malformed.
+function private spawn_pick_area( v )
+{
+    if ( !isdefined( v ) || v == "" )
+        return undefined;
+
+    t = strtok( v, "," );
+    if ( !isdefined( t ) || t.size < 4 )
+        return undefined;
+
+    a = spawnstruct();
+    a.c = ( int( t[ 0 ] ), int( t[ 1 ] ), int( t[ 2 ] ) );
+    a.r = int( t[ 3 ] );
+    a.zr = ( t.size > 4 ) ? int( t[ 4 ] ) : 160;
+
+    if ( a.r <= 0 )
+        return undefined;
+
+    return a;
+}
+
+// Every point an AREA pick draws from: the markers + legacy-named structs (mod_gather_spawns)
+// and the S&D group points, de-duplicated by position (a struct can carry both names).
+function private spawn_pick_pool()
+{
+    pool = [];
+    seen = [];
+
+    foreach ( p in mod_gather_spawns() )
+    {
+        key = atlas_v( p.origin );
+        if ( isdefined( seen[ key ] ) )
+            continue;
+        seen[ key ] = 1;
+        pool[ pool.size ] = p;
+    }
+
+    gr = mod_spawn_groups();
+    groups = [];
+    foreach ( g in gr.g1 )
+        groups[ groups.size ] = g;
+    foreach ( g in gr.g2 )
+        groups[ groups.size ] = g;
+
+    foreach ( g in groups )
+    {
+        foreach ( p in g )
+        {
+            if ( !isdefined( p ) || !isdefined( p.origin ) )
+                continue;
+            key = atlas_v( p.origin );
+            if ( isdefined( seen[ key ] ) )
+                continue;
+            seen[ key ] = 1;
+            pool[ pool.size ] = p;
+        }
+    }
+
+    return pool;
+}
+
+// The pool points inside one area (2D radius, height band).
+function private spawn_pick_points( pool, area )
+{
+    out = [];
+    r2 = area.r * area.r;
+
+    foreach ( p in pool )
+    {
+        if ( abs( p.origin[ 2 ] - area.c[ 2 ] ) > area.zr )
+            continue;
+
+        if ( mod_dist2d_sq( p.origin, area.c ) > r2 )
+            continue;
+
+        out[ out.size ] = p;
+    }
+
+    return out;
+}
+
+// Arm level.gfmenu_spawn from a pick. true = armed (or the stock pick). A pick that finds no
+// points on a side leaves its reason in level.gf_sp_note and returns false (the chain runs).
+// AREA anchors face the other area's centre (the geometric default's rule); family starts keep
+// their authored angles.
+function private spawn_pick_build( pk, pts )
+{
+    rp0 = isdefined( game.roundsplayed ) ? game.roundsplayed : 0;
+
+    if ( pk.kind == 10 )
+    {
+        level.gf_sp_stock = 1;
+        level.gfmenu_spawn = undefined;
+        level.gf_family_note = "pick:stock";
+        return true;
+    }
+
+    if ( pk.kind == 9 )
+    {
+        pool = spawn_pick_pool();
+        a1 = spawn_pick_points( pool, pk.a );
+        a2 = spawn_pick_points( pool, pk.b );
+
+        if ( a1.size == 0 || a2.size == 0 )
+        {
+            level.gf_sp_note = "pick:area EMPTY " + a1.size + "/" + a2.size;
+            return false;
+        }
+
+        level.gfmenu_spawn = { #team1:mod_shuffle( mod_anchor_copies( a1, pk.b.c ) ), #team2:mod_shuffle( mod_anchor_copies( a2, pk.a.c ) ), #next1:0, #next2:0, #round:rp0 };
+        level.gf_family_note = "pick:area " + a1.size + "/" + a2.size;
+        return true;
+    }
+
+    if ( pk.kind >= 1 && pk.kind <= 7 )
+    {
+        st = mod_family_starts( pts, pk.kind );
+
+        if ( st.a1.size == 0 || st.a2.size == 0 )
+        {
+            level.gf_sp_note = "pick:" + family_name( pk.kind ) + " NONE " + st.a1.size + "/" + st.a2.size;
+            return false;
+        }
+
+        level.gfmenu_spawn = { #team1:mod_shuffle( mod_anchor_authored( st.a1 ) ), #team2:mod_shuffle( mod_anchor_authored( st.a2 ) ), #next1:0, #next2:0, #round:rp0 };
+        level.gf_family_note = "pick:" + family_name( pk.kind ) + " " + st.a1.size + "/" + st.a2.size;
+        return true;
+    }
+
+    level.gf_sp_note = "pick:kind " + pk.kind + "?";
+    return false;
+}
+
 // ── AUTO detection ───────────────────────────────────────────────────────────
 // Is THIS map one whose Gunfight start spawns are the wrong (12v12) layout?
 //
@@ -5232,6 +5523,12 @@ function private mod_spawn_override( predictedspawn )
     if ( !isplayer( self ) || !isdefined( self.team ) )
         return false;
 
+    self.gf_spawn_how = "stock";            // overwritten below when we place the player
+
+    // A per-map "stock" pick (the app's Spawns tab): the engine's own path on this map.
+    if ( is_true( level.gf_sp_stock ) )
+        return false;
+
     // AUTO (guard 2) tries the engine's OWN start picker FIRST on every map, for ANY family:
     // on a map whose stock spawns work (Diesel, Hijacked, every normal map) the engine returns a
     // real start spawn and spreads players exactly like stock - no override, no stacking. Only
@@ -5246,7 +5543,8 @@ function private mod_spawn_override( predictedspawn )
     // was always meant to be - it previously did this ONLY when no family was selected
     // (cfg_spawn_family()==0), but the DEFAULT family is AUTO=8, so AUTO overrode every map.
     // FORCE (guard 1) still uses the anchors always, for anyone who wants a specific S&D/TDM layout.
-    if ( cfg_spawn_guard() == 2 )
+    // A per-map pick (gf_sp_active) is a CHOSEN layout: straight to its anchors, no engine picker.
+    if ( cfg_spawn_guard() == 2 && !is_true( level.gf_sp_active ) )
     {
         // Sides: the engine path hands self.team straight to the picker and swaps nothing, so ask
         // for the OTHER team's start spawn while game.switchedsides (the same swap the anchors do).
@@ -5332,6 +5630,7 @@ function private mod_spawn_place()
     // re-arm for whoever wants them.
     self tp_spawn_rearm();
     self proj_spawn_rearm();
+    self fun_spawn_rearm();          // fun pack: disco camo, prop gun, grenade swap, model cannon
 
     // Loadout-pool camo: the stock give is done by now (give_loadout ran at
     // globallogic_spawn.gsc:637, this callback fires at :758), so repaint on top of it.
@@ -5724,6 +6023,9 @@ function private spawn_log_record()
 
     game.gf_spawnlog[ game.gf_spawnlog.size ] = line;
 
+    // The panel's live spawn overlay (SPAWNS tab): the same spawn as a compact event.
+    spawnev_add( self, how );
+
     // Compact per-round entry for the debug feed's SPAWN line (level. = this round only).
     if ( !isdefined( level.gf_spawn_round ) )
         level.gf_spawn_round = [];
@@ -5731,6 +6033,101 @@ function private spawn_log_record()
 
     if ( !cfg_dbg_spawn() )
         mod_host_say( "spawn: " + line );
+}
+
+// ── The live spawn overlay (klaze 2026-09-22: "how can i visualize where everyone is spawning?") ──
+// Every spawn this match as one event, drawn on the panel's SPAWNS map in spawn order (1 = first
+// to spawn this round), team coloured, with the spot it landed on ringed. Kept in game. (survives
+// the round boundary, resets with the match), the last 96, published as GFSPAWNED chunks by
+// spawnev_publish; GFSTATE spv= changes when a spawn lands so the panel collects only then.
+//   rec = round,order,entnum,team(1 allies / 2 axis / 0),x,y,z,yaw,how(e engine / a anchor / s stock),
+//         slot(k/n on the mod's anchors, else -),bot(1/0),name
+// ⚠ Every string stays under 1024 chars (CLAUDE.md "GSC crash rules"): a record is <= ~110 chars
+// (the name is capped by atlas_word), the chunks are atlas_add's 880.
+function private spawnev_add( p, how )
+{
+    if ( !isdefined( game.gf_spawnev ) )
+    {
+        game.gf_spawnev = [];
+        game.gf_spawnev_match = getrealtime();
+        game.gf_spawnev_ver = 0;
+    }
+
+    if ( !isdefined( level.gf_spawn_order ) )
+        level.gf_spawn_order = 0;
+    level.gf_spawn_order++;
+
+    rp = isdefined( game.roundsplayed ) ? game.roundsplayed : 0;
+    ang = p getplayerangles();
+    slot = "-";
+    if ( how == "anchor" && isdefined( p.gf_spawn_slot ) && isdefined( p.gf_spawn_slots ) )
+        slot = ( p.gf_spawn_slot + 1 ) + "/" + p.gf_spawn_slots;
+    tm = 0;
+    if ( isdefined( p.team ) && p.team == #"allies" )
+        tm = 1;
+    else if ( isdefined( p.team ) && p.team == #"axis" )
+        tm = 2;
+
+    rec = rp + "," + level.gf_spawn_order + "," + p getentitynumber() + "," + tm + "," + int( p.origin[ 0 ] ) + "," + int( p.origin[ 1 ] ) + "," + int( p.origin[ 2 ] ) + "," + int( ang[ 1 ] ) + "," + getsubstr( how, 0, 1 ) + "," + slot + "," + ( isbot( p ) ? 1 : 0 ) + "," + atlas_word( p.name );
+
+    // the last 96 of the match ([]-construction trim, as spawn_log_record does)
+    if ( game.gf_spawnev.size >= 96 )
+    {
+        trimmed = [];
+        for ( i = 1; i < game.gf_spawnev.size; i++ )
+            trimmed[ trimmed.size ] = game.gf_spawnev[ i ];
+        game.gf_spawnev = trimmed;
+    }
+
+    game.gf_spawnev[ game.gf_spawnev.size ] = rec;
+    game.gf_spawnev_ver++;
+}
+
+// Republish the events (at most once a second, only after a spawn has landed):
+//   GFSPAWNED|<stamp>|<map>|<i>|<n>|V,<match>,<ver>;E,<rec>;E,<rec>...|END
+function private spawnev_publish()
+{
+    if ( is_true( level.gf_spawnev_on ) )
+        return;
+
+    level.gf_spawnev_on = 1;
+
+    for ( ;; )
+    {
+        wait 1;
+
+        if ( !isdefined( game.gf_spawnev ) || !isdefined( game.gf_spawnev_ver ) )
+            continue;
+
+        if ( isdefined( level.gf_spawnev_pubver ) && level.gf_spawnev_pubver == game.gf_spawnev_ver )
+            continue;
+
+        level.gf_spawnev_pubver = game.gf_spawnev_ver;
+        spawnev_build();
+    }
+}
+
+function private spawnev_build()
+{
+    stamp = getrealtime();
+    map = tolower( getdvarstring( #"sv_mapname", "?" ) );
+    st = spawnstruct();
+    st.chunks = [];
+    st.cur = "";
+    atlas_add( st, "V," + game.gf_spawnev_match + "," + game.gf_spawnev_ver );
+
+    foreach ( rec in game.gf_spawnev )
+        atlas_add( st, "E," + rec );
+
+    if ( st.cur != "" )
+        st.chunks[ st.chunks.size ] = st.cur;
+
+    n = st.chunks.size;
+    out = [];
+    for ( c = 0; c < n; c++ )
+        out[ c ] = "GFSPA" + "WNED|" + stamp + "|" + map + "|" + c + "|" + n + "|" + st.chunks[ c ] + "|END";
+
+    level.gf_spawnev_pub = out;
 }
 
 // One struct's candidate fields -> "k=v k=v". Only defined ones print.
@@ -6331,6 +6728,7 @@ function private on_player_connect()
     stage_mark( "", "" );
 
     self thread menu_think();
+    self thread hudbox_think();         // the menu backdrop (LUIelemBar boxes behind the centre line + hint row)
     self thread cmd_poll();
     self thread caster_probe();
     level thread roster_publish();     // the app's Players panel reads this (roster_publish)
@@ -6766,6 +7164,11 @@ function private cmd_action( action, arg )
         case "race":        self cmd_race( tolower( arg ) );                              break;
         case "racetrack":   self cmd_race_track( arg );                                   break;
         case "racegate":    self cmd_race_gate( arg );                                    break;
+        // Spawn atlas (docs/notes/spawn-atlas.md, the app's Spawns tab): spawnscan publishes this
+        // map's full spawn census (GFSPAWN chunks); spawnpick re-reads the per-map pick dvars
+        // (gf_sp_map / gf_sp_a / gf_sp_b) and rebuilds the anchors - next spawns use it; clear = drop it.
+        case "spawnscan":   level thread spawn_atlas_scan( self );                        break;
+        case "spawnpick":   self cmd_spawnpick( tolower( arg ) );                         break;
         default:
             // App channel v2 verbs (tools/gf-panel): everyone-state, fun & vision, match control.
             r = self panel_verb( action, arg );
@@ -6836,6 +7239,7 @@ function private menu_restart()
     self notify( #"gfmenu_restart" );
     waitframe( 1 );
     self thread menu_think();
+    self thread hudbox_think();
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -6925,6 +7329,11 @@ function private menu_say( txt )
         txt += "  ^7(" + self.gfmenu.say_detail + ")";
         self.gfmenu.say_detail = undefined;
     }
+
+    // MENU LOG: the first confirmation an action prints is its result (menu_run_item clears this
+    // before the action and hands it to gflog_result after). Host and granted clients alike.
+    if ( isdefined( self.gfmenu ) && !isdefined( self.gfmenu.log_say ) )
+        self.gfmenu.log_say = txt;
 
     // A granted CLIENT gets exactly one feed line per action and nothing else (klaze 2026-09-21:
     // "hide the details info feed lines for the client menu, just fire one message in the feed
@@ -7066,6 +7475,18 @@ function private menu_run_item( item )
     // it appended as " (detail)", then it is cleared.
     self.gfmenu.say_detail = item.detail;
 
+    // MENU LOG (GFLOG): the record goes out BEFORE the action runs, so an action that takes the level
+    // down is already on the panel's line; its first menu_say is filled in as the result after it
+    // returns. Page navigation (data1 = a page id: menu_switch / act_client_hub) is not an action.
+    lseq = undefined;
+
+    if ( !( self gflog_is_nav( item ) ) )
+    {
+        cur = self menu_current();
+        lseq = gflog_add( self, isdefined( cur ) ? cur.name : "", item.name );
+        self.gfmenu.log_say = undefined;
+    }
+
     if ( isdefined( item.data2 ) )
         res = self [[ item.action ]]( item, item.data1, item.data2 );
     else if ( isdefined( item.data1 ) )
@@ -7074,6 +7495,10 @@ function private menu_run_item( item )
         res = self [[ item.action ]]( item );
 
     self.gfmenu.say_detail = undefined;
+
+    if ( isdefined( lseq ) && isdefined( self.gfmenu.log_say ) )
+        gflog_result( lseq, self.gfmenu.log_say );
+
     return res;
 }
 
@@ -7469,11 +7894,7 @@ function private menu_render_split( lines, list_center )
             txt = menu_nav_hint() + "   ^8|   ^3" + self menu_page_title( menu )
                 + " ^7" + ( ( n == 0 ) ? "-/-" : ( "" + ( menu.cursor + 1 ) + "/" + n ) );
 
-            if ( !isdefined( self.gfmenu.last_hint ) || self.gfmenu.last_hint != txt )
-            {
-                self.gfmenu.last_hint = txt;
-                self menu_hint_trigger() sethintstring( txt );
-            }
+            self menu_hint_set( txt );
         }
         else
         {
@@ -7590,7 +8011,10 @@ function private menu_hint_trigger()
 function private menu_hint_hide()
 {
     self notify( #"gfhint_hide" );
-    self.gfmenu.last_hint = undefined;
+
+    // guarded: a forge-mode player with no menu of his own (no gfmenu) comes through here too
+    if ( isdefined( self.gfmenu ) )
+        self.gfmenu.last_hint = undefined;
 
     if ( isdefined( self.gfmenu_hint ) )
     {
@@ -7598,6 +8022,37 @@ function private menu_hint_hide()
     }
 
     self.gfmenu_hint = undefined;
+}
+
+// THE one writer of the hint bar's text (menu legend, idle line, forge legend). The change-guard lives
+// ON THE TRIGGER (trig.gf_txt), not in gfmenu: klaze 2026-09-23 "the menu hint bar disappeared, not
+// showing the controls until I got back into the prop forge" - the old guard cached the text in
+// gfmenu.last_hint, which outlives the trigger entity (the round's level rebuild / the match-end
+// cleanup delete it), so a freshly made trigger was skipped as "already showing" and stayed BLANK
+// until some other text (the forge legend) came along. A new trigger has no gf_txt, so it always
+// gets its first string.
+// low = 1 for the always-on idle line: sethintlowpriority, the shape stock gives its own
+// player-linked remote-control trigger (remote_weapons.gsc:177), so a world prompt - a vehicle, a
+// prop, a pickup - wins over "Open menu" while you stand at it. The menu legend / forge legend are
+// normal priority (you are actively using them).
+function private menu_hint_set( txt, low = 0 )
+{
+    trig = self menu_hint_trigger();
+
+    if ( trig.gf_low !== low )
+    {
+        trig.gf_low = low;
+        trig sethintlowpriority( low );
+    }
+
+    if ( isdefined( self.gfmenu ) )
+        self.gfmenu.last_hint = txt;
+
+    if ( isdefined( trig.gf_txt ) && trig.gf_txt == txt )
+        return;
+
+    trig.gf_txt = txt;
+    trig sethintstring( txt );
 }
 
 // The trigger is its own entity: it would outlive the host and the match. Two watchers,
@@ -7674,7 +8129,7 @@ function private menu_render_hint()
             rows[ rows.size ] = self menu_item_line( menu, i );
     }
 
-    foot = "^2" + pos + "  RMB up LMB down R select V back";
+    foot = "^2" + pos + "  R Select | LMB Next | RMB Last | V Back";
     if ( isdefined( self.gfmenu.lastmsg ) && self.gfmenu.lastmsg != "" )
         foot += "  | " + self.gfmenu.lastmsg;
     rows[ rows.size ] = foot;
@@ -7686,8 +8141,7 @@ function private menu_render_hint()
     for ( i = 0; i < rows.size; i++ )
         txt += ( ( i > 0 ) ? sep : "" ) + rows[ i ];
 
-    trig = self menu_hint_trigger();
-    trig sethintstring( txt );
+    self menu_hint_set( txt );
 }
 
 // The menu as a single horizontal line for the one-line centre (region 2). A left-anchored
@@ -8220,7 +8674,7 @@ function private build_tree()
 {
     // ── Teams ────────────────────────────────────────────────────────────────
     self menu_item( "start_menu", "Close menu", &act_menu_close );
-    self menu_add( "teams", "Teams", "start_menu", 1 );
+    self menu_add( "teams", "Teams", "start_menu", 0 );
     self menu_item( "teams", "2v2", &act_team_size, 2, undefined, #"gf_team_size", 2 );
     self menu_item( "teams", "3v3", &act_team_size, 3, undefined, #"gf_team_size", 3 );
     self menu_item( "teams", "4v4", &act_team_size, 4, undefined, #"gf_team_size", 4 );
@@ -8229,20 +8683,8 @@ function private build_tree()
     // after a SESSION map switch (2026-09-12). clamp_team_size() bounds it at budget/2, so
     // in an 8- or 10-slot lobby this item degrades to 4v4 / 5v5 and says so.
     self menu_item( "teams", "6v6", &act_team_size, 6, undefined, #"gf_team_size", 6 );
-    // Spectator slots added to maxplayers on top of the team size (default 2 = the caster
-    // allowance) so a spectator does not eat a player slot at bot fill / join time.
-    self menu_item( "teams", "Spectator slots 0", &act_spec_slots, 0, undefined, #"gf_spec_slots", 0 );
-    self menu_item( "teams", "Spectator slots 2", &act_spec_slots, 2, undefined, #"gf_spec_slots", 2 );
-    self menu_item( "teams", "Spectator slots 4", &act_spec_slots, 4, undefined, #"gf_spec_slots", 4 );
-    // Late joiners (LATE JOIN block, klaze 2026-09-21): placed, not benched as spectators.
-    it = self menu_item( "teams", "Late join: auto", &act_latejoin, 1, undefined, #"gf_latejoin", 1 );
-    it.detail = "fewer humans > losing side > tie: they pick";
-    it = self menu_item( "teams", "Late join: stock", &act_latejoin, 0, undefined, #"gf_latejoin", 0 );
-    it.detail = "joiners sit as spectator";
-    it = self menu_item( "teams", "Change team: ON", &act_teamchange, 1, undefined, #"gf_teamchange", 1 );
-    it.detail = "pause menu CHANGE TEAM for everyone, any time";
-    it = self menu_item( "teams", "Change team: OFF", &act_teamchange, 0, undefined, #"gf_teamchange", 0 );
-    it.detail = "pause menu CHANGE TEAM hidden";
+    // (Spectator slots + the Late join / Change team switches: app-only since 2026-09-23 -
+    //  MATCH tab / DASHBOARD. Late joiners are always placed now - LATE JOIN block.)
     self menu_item( "teams", "Fill with bots", &act_fill_bots );
     self menu_item( "teams", "Remove all bots", &act_remove_bots );
 
@@ -8253,7 +8695,7 @@ function private build_tree()
     // opponents first. Even up = the fewest bots that make the sides equal (an odd
     // human count is the case it exists for): it removes surplus bots from the bigger
     // side before it adds any.
-    self menu_add( "bots", "Bots", "start_menu", 1 );
+    self menu_add( "bots", "Bots", "start_menu", 0 );
     it = self menu_item( "bots", "Add bot", &act_bot_add, 0 );
     it.detail = "auto: the smaller side";
     self menu_item( "bots", "Add bot - allies", &act_bot_add, 1 );
@@ -8279,28 +8721,14 @@ function private build_tree()
     it.detail = "tuned on the Custom page";
     it = self menu_item( "botdiff", "Lobby's value", &act_bot_diff, -1, undefined, #"gf_bot_diff_allies", -1 );
     it.detail = "the stock difficulty row";
-    self menu_add( "botdiff_team", "Per team", "botdiff", 1 );
-    self menu_item( "botdiff_team", "Allies: Recruit", &act_bot_diff_team, "allies", 0, #"gf_bot_diff_allies", 0 );
-    self menu_item( "botdiff_team", "Allies: Regular", &act_bot_diff_team, "allies", 1, #"gf_bot_diff_allies", 1 );
-    self menu_item( "botdiff_team", "Allies: Hardened", &act_bot_diff_team, "allies", 2, #"gf_bot_diff_allies", 2 );
-    self menu_item( "botdiff_team", "Allies: Veteran", &act_bot_diff_team, "allies", 3, #"gf_bot_diff_allies", 3 );
-    self menu_item( "botdiff_team", "Allies: CUSTOM", &act_bot_diff_team, "allies", 4, #"gf_bot_diff_allies", 4 );
-    self menu_item( "botdiff_team", "Allies: lobby's value", &act_bot_diff_team, "allies", -1, #"gf_bot_diff_allies", -1 );
-    self menu_item( "botdiff_team", "Axis: Recruit", &act_bot_diff_team, "axis", 0, #"gf_bot_diff_axis", 0 );
-    self menu_item( "botdiff_team", "Axis: Regular", &act_bot_diff_team, "axis", 1, #"gf_bot_diff_axis", 1 );
-    self menu_item( "botdiff_team", "Axis: Hardened", &act_bot_diff_team, "axis", 2, #"gf_bot_diff_axis", 2 );
-    self menu_item( "botdiff_team", "Axis: Veteran", &act_bot_diff_team, "axis", 3, #"gf_bot_diff_axis", 3 );
-    self menu_item( "botdiff_team", "Axis: CUSTOM", &act_bot_diff_team, "axis", 4, #"gf_bot_diff_axis", 4 );
-    self menu_item( "botdiff_team", "Axis: lobby's value", &act_bot_diff_team, "axis", -1, #"gf_bot_diff_axis", -1 );
-    // The custom profile: rebuilt from the dvars every time it opens (bot_custom_enter),
-    // each row shows its live value and SELECT cycles it. Presets at the top.
-    self menu_add( "botcustom", "Custom bot tuning", "botdiff", 1, &bot_custom_enter );
+    // (Per-team difficulty + Custom bot tuning pages: app-only since 2026-09-23 - the BOTS panel.
+    //  "CUSTOM" above still selects the app-tuned profile.)
 
     // ── Players — rebuilt from getplayers() every time the page opens ────────
-    self menu_add( "players", "Players", "start_menu", 1, &players_enter );
+    self menu_add( "players", "Players", "start_menu", 0, &players_enter );
 
     // ── Round ────────────────────────────────────────────────────────────────
-    self menu_add( "round", "Round", "start_menu", 1 );
+    self menu_add( "round", "Round", "start_menu", 0 );
     self menu_item( "round", "Timer 20s", &act_timer, 20, undefined, #"gf_timer_seconds", 20 );
     self menu_item( "round", "Timer 30s", &act_timer, 30, undefined, #"gf_timer_seconds", 30 );
     self menu_item( "round", "Timer 40s", &act_timer, 40, undefined, #"gf_timer_seconds", 40 );
@@ -8309,236 +8737,36 @@ function private build_tree()
     self menu_item( "round", "Timer 120s", &act_timer, 120, undefined, #"gf_timer_seconds", 120 );
     // 0 = no timer at all (see mod_gettimelimit). Elimination is the only way a round ends.
     self menu_item( "round", "Timer unlimited", &act_timer, 0, undefined, #"gf_timer_seconds", 0 );
-    // Pre-match / pre-round countdowns (mod_periods). Defaults 15s / 7s. A pick lands on the
-    // NEXT countdown - the current one was read before the menu existed this round. "Lobby's
-    // value" hands the row back to the custom-games menu (dvar -1).
-    self menu_add( "periods", "Pre-match / pre-round", "round", 1 );
-    self menu_item( "periods", "Pre-match 5s", &act_prematch, 5, undefined, #"gf_prematch", 5 );
-    self menu_item( "periods", "Pre-match 10s", &act_prematch, 10, undefined, #"gf_prematch", 10 );
-    self menu_item( "periods", "Pre-match 15s", &act_prematch, 15, undefined, #"gf_prematch", 15 );
-    self menu_item( "periods", "Pre-match 30s", &act_prematch, 30, undefined, #"gf_prematch", 30 );
-    self menu_item( "periods", "Pre-match lobby's value", &act_prematch, -1, undefined, #"gf_prematch", -1 );
-    self menu_item( "periods", "Pre-round off", &act_preround, 0, undefined, #"gf_preround", 0 );
-    self menu_item( "periods", "Pre-round 3s", &act_preround, 3, undefined, #"gf_preround", 3 );
-    self menu_item( "periods", "Pre-round 5s", &act_preround, 5, undefined, #"gf_preround", 5 );
-    self menu_item( "periods", "Pre-round 7s", &act_preround, 7, undefined, #"gf_preround", 7 );
-    self menu_item( "periods", "Pre-round 10s", &act_preround, 10, undefined, #"gf_preround", 10 );
-    self menu_item( "periods", "Pre-round lobby's value", &act_preround, -1, undefined, #"gf_preround", -1 );
+    // (Pre-match / pre-round page: app-only since 2026-09-23.)
     self menu_item( "round", "Restart match", &act_restart );
+    self menu_item( "round", "End match (host end)", &act_endmatch );
+    // Fun pack: PHA's "Fast restart" - replay THIS round, score kept (round_restart, map_restart( true )).
+    it = self menu_item( "round", "Fast restart", &act_round_restart );
+    it.detail = "replay this round, score kept";
 
-    // ── Loadout set — B6, never run ──────────────────────────────────────────
-    self menu_add( "loadout", "Loadout", "start_menu", 1 );
-    self menu_item( "loadout", "Default", &act_loadout, 0, undefined, #"gf_loadout", 0 );
-    self menu_item( "loadout", "Snipers", &act_loadout, 1, undefined, #"gf_loadout", 1 );
-    self menu_item( "loadout", "Blueprints", &act_loadout, 2, undefined, #"gf_loadout", 2 );
-    self menu_item( "loadout", "Melee", &act_loadout, 3, undefined, #"gf_loadout", 3 );
-    // The custom-classes gate. OFF = real Gunfight (fixed loadouts). It is what a switch
-    // from another mode leaves ON by accident (the settings blob carries), see mod_apply.
-    it = self menu_item( "loadout", "Custom classes OFF", &act_customcac, 0, undefined, #"gf_customcac", 0 );
-    it.detail = "Gunfight loadouts";
-    self menu_item( "loadout", "Custom classes ON", &act_customcac, 1, undefined, #"gf_customcac", 1 );
-    // The real Gunfight blob (column A) asserted at every Gunfight match start, so a Case-B
-    // launch (TDM lobby config) plays as real Gunfight. OFF = watch the raw hybrid on purpose.
-    it = self menu_item( "loadout", "Gunfight profile ON", &act_profile, 1, undefined, #"gf_profile", 1 );
-    it.detail = "the real blob";
-    it = self menu_item( "loadout", "Gunfight profile OFF", &act_profile, 0, undefined, #"gf_profile", 0 );
-    it.detail = "raw hybrid";
+    // (Loadout set + Pool camo pages: app-only since 2026-09-23.)
 
-    // ── Loadout-pool camo — every pool weapon, every player, every spawn. A pick repaints
-    //    everyone NOW as well (Gunfight has no respawn, so "next spawn" is next round).
-    //    Mastery and Pack-a-Punch by name; the rest of the 1-121 table by id. Untested. ──
-    self menu_add( "poolcamo", "Pool camo", "loadout", 1 );
-    self menu_item( "poolcamo", "Random each round", &act_poolcamo, -2, undefined, #"gf_camo", -2 );
-    self menu_item( "poolcamo", "Random per player", &act_poolcamo, -3, undefined, #"gf_camo", -3 );
-    it = self menu_item( "poolcamo", "Stock", &act_poolcamo, -1, undefined, #"gf_camo", -1 );
-    it.detail = "the pool's own look";
-    self menu_item( "poolcamo", "Random per weapon", &act_poolcamo_split, 1, undefined, #"gf_camo_split", 1 );
-    self menu_item( "poolcamo", "Random: same for both", &act_poolcamo_split, 0, undefined, #"gf_camo_split", 0 );
-    self menu_item( "poolcamo", "Gold", &act_poolcamo, 61, undefined, #"gf_camo", 61 );
-    self menu_item( "poolcamo", "Diamond", &act_poolcamo, 62, undefined, #"gf_camo", 62 );
-    self menu_item( "poolcamo", "DM Ultra", &act_poolcamo, 63, undefined, #"gf_camo", 63 );
-    self menu_item( "poolcamo", "Golden Viper (ZM gold)", &act_poolcamo, 64, undefined, #"gf_camo", 64 );
-    self menu_item( "poolcamo", "Plague Diamond (ZM)", &act_poolcamo, 65, undefined, #"gf_camo", 65 );
-    self menu_item( "poolcamo", "Dark Aether (ZM)", &act_poolcamo, 66, undefined, #"gf_camo", 66 );
-    self menu_item( "poolcamo", "Pack-a-Punch 1", &act_poolcamo, 67, undefined, #"gf_camo", 67 );
-    self menu_item( "poolcamo", "Pack-a-Punch 2", &act_poolcamo, 68, undefined, #"gf_camo", 68 );
-    self menu_item( "poolcamo", "Pack-a-Punch 3", &act_poolcamo, 69, undefined, #"gf_camo", 69 );
-    self menu_item( "poolcamo", "PaP Mauer der Toten 1", &act_poolcamo, 116, undefined, #"gf_camo", 116 );
-    self menu_item( "poolcamo", "PaP Mauer der Toten 2", &act_poolcamo, 117, undefined, #"gf_camo", 117 );
-    self menu_item( "poolcamo", "PaP Mauer der Toten 3", &act_poolcamo, 118, undefined, #"gf_camo", 118 );
-    self menu_item( "poolcamo", "PaP Forsaken 1", &act_poolcamo, 119, undefined, #"gf_camo", 119 );
-    self menu_item( "poolcamo", "PaP Forsaken 2", &act_poolcamo, 120, undefined, #"gf_camo", 120 );
-    self menu_item( "poolcamo", "PaP Forsaken 3", &act_poolcamo, 121, undefined, #"gf_camo", 121 );
-    self menu_item( "poolcamo", "Random: mastery+PaP", &act_poolcamo_pool, 0, undefined, #"gf_camo_pool", 0 );
-    self menu_item( "poolcamo", "Random: all 1-121", &act_poolcamo_pool, 1, undefined, #"gf_camo_pool", 1 );
-    self menu_add( "poolcamo_byid", "Pool camo by ID", "poolcamo", 1 );
-    for ( ci = 1; ci <= 121; ci++ )
-        self menu_item( "poolcamo_byid", "Camo " + ci, &act_poolcamo, ci, undefined, #"gf_camo", ci );
+    // (Spy plane SETTING page - the Gunfight periodic spy plane: app-only since 2026-09-23. The instant
+    //  radar / UAV / H.A.R.P. / marker toggles are the new Radar page.)
 
-    // ── Spy plane — value 3 is the one the rules menu hides. B7, never run ───
-    self menu_add( "spyplane", "Spy plane", "start_menu", 1 );
-    self menu_item( "spyplane", "Off", &act_spyplane, 0, undefined, #"gf_spyplane", 0 );
-    self menu_item( "spyplane", "On", &act_spyplane, 1, undefined, #"gf_spyplane", 1 );
-    self menu_item( "spyplane", "Shared - hidden value", &act_spyplane, 3, undefined, #"gf_spyplane", 3 );
+    // (Spawns page: app-only since 2026-09-23 - the SPAWNS tab.)
 
-    // ── Spawns — #spawn_guard. Default OFF, UNTESTED: test SOLO first ─────────
-    self menu_add( "spawns", "Spawns", "start_menu", 1 );
-    self menu_item( "spawns", "Spawn guard OFF", &act_spawn_guard, 0, undefined, #"gf_spawn_guard", 0 );
-    it = self menu_item( "spawns", "Spawn guard AUTO", &act_spawn_guard, 2, undefined, #"gf_spawn_guard", 2 );
-    it.detail = "only on bad maps";
-    it = self menu_item( "spawns", "Spawn guard FORCE", &act_spawn_guard, 1, undefined, #"gf_spawn_guard", 1 );
-    it.detail = "every map";
-    // Anti-stack net: fans out anyone who spawns on top of another player, on any map. Default ON.
-    self menu_item( "spawns", "Anti-stack net ON", &act_spawn_antistack, 1, undefined, #"gf_spawn_antistack", 1 );
-    self menu_item( "spawns", "Anti-stack net OFF", &act_spawn_antistack, 0, undefined, #"gf_spawn_antistack", 0 );
-    // Crossroads under Gunfight loads the full 12v12 map (its script opens it for every
-    // gametype outside its Strike list). ON keeps the Strike clips by renaming them before
-    // the map deletes them. No-op on other maps.
-    it = self menu_item( "spawns", "Crossroads: Strike", &act_strike, 1, undefined, #"gf_strike", 1 );
-    it.detail = "the Strike layout";
-    it = self menu_item( "spawns", "Crossroads: full", &act_strike, 0, undefined, #"gf_strike", 0 );
-    it.detail = "the stock layout";
-    // Which markers become the two sides: near = around the centre at the gap (TDM's
-    // respawn zone, the "closer up" spawns); far ends = the two extremes (TDM's openings).
-    it = self menu_item( "spawns", "Pick: near", &act_spawn_pick, 0, undefined, #"gf_spawn_pick", 0 );
-    it.detail = "gap based";
-    it = self menu_item( "spawns", "Pick: far ends", &act_spawn_pick, 1, undefined, #"gf_spawn_pick", 1 );
-    it.detail = "like TDM openings";
-    // How far apart the guard puts the two sides (units between the side centres).
-    self menu_item( "spawns", "Guard gap 1200", &act_spawn_gap, 1200, undefined, #"gf_spawn_gap", 1200 );
-    self menu_item( "spawns", "Guard gap 1800", &act_spawn_gap, 1800, undefined, #"gf_spawn_gap", 1800 );
-    self menu_item( "spawns", "Guard gap 2400", &act_spawn_gap, 2400, undefined, #"gf_spawn_gap", 2400 );
-    self menu_item( "spawns", "Guard gap 3200", &act_spawn_gap, 3200, undefined, #"gf_spawn_gap", 3200 );
-    self menu_item( "spawns", "Spawn report", &act_spawn_report );
-    // The evidence rows (docs/notes/spawn-system.md) - debug-feed toggles: one complete line
-    // every 3 s while on. Placements need gf_spawn_diag 1 (default) to be recorded.
-    self menu_item( "spawns", "Debug: placements", &act_dbg_spawn, undefined, undefined, #"gf_dbg_spawn", 1 );
-    self menu_item( "spawns", "Debug: structs", &act_dbg_structs, undefined, undefined, #"gf_dbg_structs", 1 );
-    self menu_item( "spawns", "Debug: families", &act_dbg_families, undefined, undefined, #"gf_dbg_families", 1 );
-    self menu_item( "spawns", "Debug: flags", &act_dbg_flags, undefined, undefined, #"gf_dbg_flags", 1 );
-    // Which mode's markers the guard builds from (every spawn on them when set).
-    it = self menu_item( "spawns", "Family: AUTO", &act_spawn_family, 8, undefined, #"gf_spawn_family", 8 );
-    it.detail = "authored S&D starts, else TDM";
-    it = self menu_item( "spawns", "Family: none", &act_spawn_family, 0, undefined, #"gf_spawn_family", 0 );
-    it.detail = "engine, geometric";
-    self menu_item( "spawns", "Family: S&D markers", &act_spawn_family, 2, undefined, #"gf_spawn_family", 2 );
-    self menu_item( "spawns", "Family: TDM markers", &act_spawn_family, 1, undefined, #"gf_spawn_family", 1 );
-    self menu_item( "spawns", "Family: Domination", &act_spawn_family, 3, undefined, #"gf_spawn_family", 3 );
-    self menu_item( "spawns", "Family: CTF markers", &act_spawn_family, 4, undefined, #"gf_spawn_family", 4 );
-    self menu_item( "spawns", "Family: Hardpoint", &act_spawn_family, 5, undefined, #"gf_spawn_family", 5 );
-    self menu_item( "spawns", "Family: Control", &act_spawn_family, 6, undefined, #"gf_spawn_family", 6 );
-    self menu_item( "spawns", "Family: FFA markers", &act_spawn_family, 7, undefined, #"gf_spawn_family", 7 );
+    // (Display + Debug feed pages: app-only since 2026-09-23 - ADVANCED -> IN-GAME MENU DISPLAY / DEBUG.)
 
-    // ── Display — the text layout. SPLIT is klaze's "status left, menu centre". Kept a
-    // live toggle so a build where the centre clips the list can be reverted in-menu. ──
-    self menu_add( "display", "Display", "start_menu", 1 );
-    // Region 4 = the HINT panel: the use-prompt widget, fed by sethintstring on a trigger
-    // linked to the host. No fade, no line cap, one call per repaint - the layout every
-    // "full HUD" Cold War GSC menu really uses (menu_render_hint). Never run here; the two
-    // knobs under it are the measurements it needs.
-    it = self menu_item( "display", "Layout: hint panel", &act_menu_region, 4, undefined, #"gf_menu_region", 4 );
-    it.detail = "the panel in the use-prompt widget";
-    self menu_item( "display", "Hint rows 6", &act_hint_lines, 6, undefined, #"gf_hint_lines", 6 );
-    self menu_item( "display", "Hint rows 8", &act_hint_lines, 8, undefined, #"gf_hint_lines", 8 );
-    self menu_item( "display", "Hint rows 12", &act_hint_lines, 12, undefined, #"gf_hint_lines", 12 );
-    // Newline separator removed: a \n in sethintstring closes the match (measured 2026-09-14).
-    // Rows are always packed with ^8| now; menu_render_hint hardcodes the separator.
-    // The centre shows only ONE line (engine limit), so region 2 renders the menu there as
-    // a HORIZONTAL carousel (items side by side, current bracketed, sliding as you scroll).
-    // Region 3 puts a vertical multi-row list in the ~4-line lower-left feed instead.
-    it = self menu_item( "display", "Layout: carousel", &act_menu_region, 2, undefined, #"gf_menu_region", 2 );
-    it.detail = "status left, menu centre, sideways";
-    it = self menu_item( "display", "Layout: list left", &act_menu_region, 3, undefined, #"gf_menu_region", 3 );
-    it.detail = "menu left, status centre";
-    it = self menu_item( "display", "Layout: feed", &act_menu_region, 0, undefined, #"gf_menu_region", 0 );
-    it.detail = "all in the lower-left feed";
-    self menu_item( "display", "Layout: all in centre", &act_menu_region, 1, undefined, #"gf_menu_region", 1 );
-    // Region-2 carousel width (entries shown at once in the centre bar).
-    self menu_item( "display", "Centre width 3", &act_menu_hspan, 3, undefined, #"gf_menu_hspan", 3 );
-    self menu_item( "display", "Centre width 4", &act_menu_hspan, 4, undefined, #"gf_menu_hspan", 4 );
-    self menu_item( "display", "Centre width 5", &act_menu_hspan, 5, undefined, #"gf_menu_hspan", 5 );
-    // Full state readout to the feed (more than the pane can hold at once).
-    self menu_item( "display", "Show match info", &act_match_info );
-    // Debug feed: every debug tool as an on/off that prints ONE complete feed line every
-    // 3 s while on (klaze, 2026-09-14). Persists across matches (dvars), restarts at match
-    // start. See DEBUG FEED.
-    self menu_add( "debug", "Debug feed", "display", 1 );
-    self menu_item( "debug", "Census: as launched", &act_dbg_census, 1, undefined, #"gf_census", 1 );
-    self menu_item( "debug", "Settings census: LIVE", &act_dbg_census, 2, undefined, #"gf_census", 2 );
-    it = self menu_item( "debug", "Spawn placements", &act_dbg_spawn, undefined, undefined, #"gf_dbg_spawn", 1 );
-    it.detail = "this round";
-    it = self menu_item( "debug", "Spawn structs", &act_dbg_structs, undefined, undefined, #"gf_dbg_structs", 1 );
-    it.detail = "structs + engine lists";
-    it = self menu_item( "debug", "Spawn families", &act_dbg_families, undefined, undefined, #"gf_dbg_families", 1 );
-    it.detail = "families + guard state";
-    self menu_item( "debug", "Marker flags census", &act_dbg_flags, undefined, undefined, #"gf_dbg_flags", 1 );
-    self menu_item( "debug", "Match info", &act_dbg_match, undefined, undefined, #"gf_dbg_match", 1 );
-    it = self menu_item( "debug", "Asset census", &act_dbg_assets, undefined, undefined, #"gf_dbg_assets", 1 );
-    it.detail = "vehicles + props + destructibles";
-    it = self menu_item( "debug", "Death barriers", &act_dbg_barrier, undefined, undefined, #"gf_dbg_barrier", 1 );
-    it.detail = "BARRIER census + last death";
-    it = self menu_item( "debug", "Projectiles", &act_dbg_proj );
-    it.detail = "PROJ pipeline counters";
-    it = self menu_item( "debug", "Race", &act_dbg_race, undefined, undefined, #"gf_dbg_race", 1 );
-    it.detail = "RACE state + host gate numbers";
-    self menu_item( "debug", "Everything off", &act_dbg_all_off );
-    // Caster diagnosis: prints button/render probe lines while the host is a CoD Caster.
-    self menu_item( "display", "Caster input probe ON", &act_caster_probe, 1, undefined, #"gf_caster_probe", 1 );
-    self menu_item( "display", "Caster input probe OFF", &act_caster_probe, 0, undefined, #"gf_caster_probe", 0 );
+    // (Overtime zone page: app-only since 2026-09-23.)
 
-    // ── Overtime zone — default OFF. Run the census first. docs/notes/overtime-zone.md ─
-    self menu_add( "zone", "Overtime zone", "start_menu", 1 );
-    self menu_item( "zone", "Zone census - read only", &act_zone_census );
-    it = self menu_item( "zone", "Zone ON", &act_zone, 1, undefined, #"gf_zone", 1 );
-    it.detail = "from the next round";
-    self menu_item( "zone", "Zone OFF - HP tiebreak", &act_zone, 0, undefined, #"gf_zone", 0 );
-    self menu_item( "zone", "Overtime 10s", &act_zone_overtime, 10, undefined, #"gf_zone_overtime", 10 );
-    self menu_item( "zone", "Overtime 20s", &act_zone_overtime, 20, undefined, #"gf_zone_overtime", 20 );
-    self menu_item( "zone", "Overtime 30s", &act_zone_overtime, 30, undefined, #"gf_zone_overtime", 30 );
-    self menu_item( "zone", "Capture 3s", &act_zone_capture, 3, undefined, #"gf_zone_capture", 3 );
-    self menu_item( "zone", "Capture 5s", &act_zone_capture, 5, undefined, #"gf_zone_capture", 5 );
-    self menu_item( "zone", "Capture 10s", &act_zone_capture, 10, undefined, #"gf_zone_capture", 10 );
-
-    // ── Match — first-to / round cap / loadout rotation. Keys verified in source ─
-    self menu_add( "match", "Match", "start_menu", 1 );
-    self menu_item( "match", "First to 2", &act_roundwinlimit, 2, undefined, #"gf_roundwinlimit", 2 );
-    self menu_item( "match", "First to 4", &act_roundwinlimit, 4, undefined, #"gf_roundwinlimit", 4 );
-    self menu_item( "match", "First to 6", &act_roundwinlimit, 6, undefined, #"gf_roundwinlimit", 6 );
-    self menu_item( "match", "First to 10", &act_roundwinlimit, 10, undefined, #"gf_roundwinlimit", 10 );
-    self menu_item( "match", "Round cap 6", &act_roundlimit, 6, undefined, #"gf_roundlimit", 6 );
-    self menu_item( "match", "Round cap 10", &act_roundlimit, 10, undefined, #"gf_roundlimit", 10 );
-    // Respawns: the player-lives row. 1 = unlimited lives (rounds end on the timer), 2 = one life.
-    it = self menu_item( "match", "Respawns ON", &act_respawns, 1, undefined, #"gf_respawns", 1 );
-    it.detail = "unlimited lives";
-    it = self menu_item( "match", "Respawns OFF", &act_respawns, 2, undefined, #"gf_respawns", 2 );
-    it.detail = "one life";
-    // Rotates the loadout AND switches sides every N rounds - stock couples both to this one
-    // setting (gunfight.gsc onendround). "Rotate 1" = switch every round.
-    self menu_item( "match", "Loadout+sides every 1", &act_rounds_loadout, 1, undefined, #"gf_rounds_loadout", 1 );
-    self menu_item( "match", "Loadout+sides every 2", &act_rounds_loadout, 2, undefined, #"gf_rounds_loadout", 2 );
-    self menu_item( "match", "Loadout+sides every 3", &act_rounds_loadout, 3, undefined, #"gf_rounds_loadout", 3 );
-    self menu_item( "match", "Loadout rotation: never", &act_rounds_loadout, 0, undefined, #"gf_rounds_loadout", 0 );
-    // Sides on their own cadence (mod-owned round end): same as the loadout / never / 1 / 2.
-    self menu_item( "match", "Sides: same as loadout", &act_rounds_sides, -1, undefined, #"gf_rounds_sides", -1 );
-    self menu_item( "match", "Sides: never switch", &act_rounds_sides, 0, undefined, #"gf_rounds_sides", 0 );
-    self menu_item( "match", "Sides every 1", &act_rounds_sides, 1, undefined, #"gf_rounds_sides", 1 );
-    self menu_item( "match", "Sides every 2", &act_rounds_sides, 2, undefined, #"gf_rounds_sides", 2 );
-    self menu_item( "match", "Friendly fire: lobby", &act_friendlyfire, -1, undefined, #"gf_friendlyfire", -1 );
-    self menu_item( "match", "Friendly fire OFF", &act_friendlyfire, 0, undefined, #"gf_friendlyfire", 0 );
-    self menu_item( "match", "Friendly fire ON", &act_friendlyfire, 1, undefined, #"gf_friendlyfire", 1 );
-    self menu_item( "match", "Friendly fire REFLECT", &act_friendlyfire, 2, undefined, #"gf_friendlyfire", 2 );
-    self menu_item( "match", "End match (host end)", &act_endmatch );
-    // Who flips the sides: the mod (bundle gate forced on, generic roundswitch path silenced -
-    // one flip per rotation) or stock (both paths live; two flips on one boundary cancel).
-    it = self menu_item( "match", "Side switch: mod", &act_switch_sides, 1, undefined, #"gf_switch_sides", 1 );
-    it.detail = "mod-owned, one flip";
-    self menu_item( "match", "Side switch: stock", &act_switch_sides, 0, undefined, #"gf_switch_sides", 0 );
+    // (Match rules page - first-to, round cap, respawns, loadout / side rotation, friendly fire, side
+    //  switch owner: app-only since 2026-09-23, the MATCH tab. "End match" moved to the Round page.)
 
     // ── Movement — a hub of sub-pages (the window is ~3 rows): gravity (verified),
     // jump (builtin, untested) + jump BOOST (setvelocity, stock's shape), speed
     // (setmovespeedscale, stock's scaler), fall damage, and the host's fly mode. ─────────
-    self menu_add( "movement", "Movement", "start_menu", 1 );
+    self menu_add( "movement", "Movement", "start_menu", 0 );
     self menu_item( "movement", "Fly mode - host", &act_fly );
+    // Fun pack: PHA's noclip bind - Tactical + Melee toggles fly with the menu closed.
+    it = self menu_item( "movement", "Fly bind: Tac + Melee", &act_fly_bind );
+    it.activated = pflag( self, #"gf_fly_bind" );
+    it.detail = "toggle fly with the menu closed";
     self menu_add( "mv_gravity", "Gravity", "movement", 1 );
     self menu_item( "mv_gravity", "Gravity normal 800", &act_gravity, 800, undefined, #"gf_gravity", 800 );
     self menu_item( "mv_gravity", "Gravity low 400", &act_gravity, 400, undefined, #"gf_gravity", 400 );
@@ -8554,13 +8782,7 @@ function private build_tree()
     self menu_item( "mv_jump", "Boost high ~700u", &act_jump_boost, 800, undefined, #"gf_jump_boost", 800 );
     self menu_item( "mv_jump", "Boost extreme ~1500u", &act_jump_boost, 1300, undefined, #"gf_jump_boost", 1300 );
     self menu_item( "mv_jump", "Boost insane ~3000u", &act_jump_boost, 1900, undefined, #"gf_jump_boost", 1900 );
-    // The setjumpheight builtin rows, kept: no stock caller, never watched - if a pick
-    // visibly changes the jump, it works and this comment goes.
-    self menu_item( "mv_jump", "Builtin jump: stock", &act_jump, -1, undefined, #"gf_jump", -1 );
-    self menu_item( "mv_jump", "Builtin jump 70", &act_jump, 70, undefined, #"gf_jump", 70 );
-    self menu_item( "mv_jump", "Builtin jump 200", &act_jump, 200, undefined, #"gf_jump", 200 );
-    self menu_item( "mv_jump", "Builtin jump 500", &act_jump, 500, undefined, #"gf_jump", 500 );
-    self menu_item( "mv_jump", "Builtin jump 1000", &act_jump, 1000, undefined, #"gf_jump", 1000 );
+    // (The setjumpheight "Builtin jump" rows: app-only since 2026-09-23 - gf_jump is still honoured.)
     self menu_add( "mv_speed", "Speed", "movement", 1 );
     self menu_item( "mv_speed", "Speed 50%", &act_speed, 50, undefined, #"gf_speed", 50 );
     self menu_item( "mv_speed", "Speed 75%", &act_speed, 75, undefined, #"gf_speed", 75 );
@@ -8589,151 +8811,77 @@ function private build_tree()
     it.detail = "hurt volumes deleted this round";
     it = self menu_item( "mv_barrier", "Barriers OFF: sink", &act_deathbarrier, 3, undefined, #"gf_deathbarrier", 3 );
     it.detail = "hurt volumes sunk 40000 u";
-    it = self menu_item( "mv_barrier", "Debug line", &act_dbg_barrier, undefined, undefined, #"gf_dbg_barrier", 1 );
-    it.detail = "BARRIER census + last death";
+    // (the BARRIER debug line toggle: app-only since 2026-09-23)
     self menu_add( "mv_fly", "Fly speed", "movement", 1 );
     self menu_item( "mv_fly", "Fly 10 / sprint 30", &act_fly_speed, 10, 30, #"gf_fly_speed", 10 );
     self menu_item( "mv_fly", "Fly 20 / sprint 60", &act_fly_speed, 20, 60, #"gf_fly_speed", 20 );
     self menu_item( "mv_fly", "Fly 40 / sprint 120", &act_fly_speed, 40, 120, #"gf_fly_speed", 40 );
     self menu_item( "mv_fly", "Fly 80 / sprint 240", &act_fly_speed, 80, 240, #"gf_fly_speed", 80 );
+    // Parachutes (PARACHUTE block, klaze 2026-09-23 "enable parashoot"): the Fireteam free-fall +
+    // parachute on every map - fall from height (a jump boost, a heli, flying) and deploy it.
+    // ── Slide (fun pack: PHA's super slide + slide.md's levers). Everyone, per match. Never run. ──
+    self menu_add( "mv_slide", "Slide", "movement", 1 );
+    self menu_add( "mv_slide_spd", "Slide speed", "mv_slide", 1 );
+    self menu_item( "mv_slide_spd", "Slide speed: stock", &act_slide_pct, 100 );
+    self menu_item( "mv_slide_spd", "Slide speed 150%", &act_slide_pct, 150 );
+    self menu_item( "mv_slide_spd", "Slide speed 200%", &act_slide_pct, 200 );
+    self menu_item( "mv_slide_spd", "Slide speed 300%", &act_slide_pct, 300 );
+    self menu_add( "mv_slide_sup", "Super slide", "mv_slide", 1 );
+    self menu_item( "mv_slide_sup", "Super slide OFF", &act_slide_super, 0 );
+    it = self menu_item( "mv_slide_sup", "Super slide 600", &act_slide_super, 600 );
+    it.detail = "glide along the view until JUMP";
+    self menu_item( "mv_slide_sup", "Super slide 1000", &act_slide_super, 1000 );
+    self menu_item( "mv_slide_sup", "Super slide 1600", &act_slide_super, 1600 );
+    it = self menu_item( "mv_slide", "Long slide", &act_slide_hold );
+    it.detail = "keeps the start speed";
+    it = self menu_item( "mv_slide", "No chain penalty", &act_slide_chain );
+    it.detail = "chained slides keep full speed (default ON)";
+    it.activated = slide_chain_on();
+    self menu_add( "mv_para", "Parachutes", "movement", 1 );
+    it = self menu_item( "mv_para", "Parachutes: everyone", &act_parachute, 1, undefined, #"gf_parachute", 1 );
+    it.detail = "free-fall + parachute from height";
+    self menu_item( "mv_para", "Parachutes: host only", &act_parachute, 2, undefined, #"gf_parachute", 2 );
+    self menu_item( "mv_para", "Parachutes: OFF", &act_parachute, 0, undefined, #"gf_parachute", 0 );
 
-    // ── Race (docs/notes/racing.md) — track editor + the race itself, prototype ──────
-    self menu_add( "race", "Race", "start_menu", 1 );
-    it = self menu_item( "race", "START RACE", &act_race_start );
-    it.detail = "3-2-1-GO";
-    it = self menu_item( "race", "Stop race", &act_race_stop );
-    it.detail = "cancel, stock hooks back";
-    it = self menu_item( "race", "Gate here", &act_race_gate );
-    it.detail = "the first one is start/finish";
-    self menu_item( "race", "Undo last gate", &act_race_undo );
-    self menu_item( "race", "Clear track", &act_race_clear );
-    it = self menu_item( "race", "Load saved track", &act_race_load );
-    it.detail = "this map's";
-    it = self menu_item( "race", "Markers: show/hide", &act_race_markers );
-    it.detail = "gate markers + posts, now";
-    it = self menu_item( "race", "End match now", &act_race_endmatch );
-    it.detail = "podium with the standings";
-    it = self menu_item( "race", "Reset me", &act_race_resetme );
-    it.detail = "back to the last gate";
-    it = self menu_item( "race", "Debug line", &act_dbg_race, undefined, undefined, #"gf_dbg_race", 1 );
-    it.detail = "RACE to the feed";
-    self menu_add( "race_cfg", "Race settings", "race", 1 );
-    self menu_item( "race_cfg", "Laps 1", &act_race_laps, 1, undefined, #"gf_race_laps", 1 );
-    self menu_item( "race_cfg", "Laps 2", &act_race_laps, 2, undefined, #"gf_race_laps", 2 );
-    self menu_item( "race_cfg", "Laps 3", &act_race_laps, 3, undefined, #"gf_race_laps", 3 );
-    self menu_item( "race_cfg", "Laps 5", &act_race_laps, 5, undefined, #"gf_race_laps", 5 );
-    it = self menu_item( "race_cfg", "Course: circuit", &act_race_sprint, 0, undefined, #"gf_race_sprint", 0 );
-    it.detail = "laps, the start gate is the finish";
-    it = self menu_item( "race_cfg", "Course: A to B", &act_race_sprint, 1, undefined, #"gf_race_sprint", 1 );
-    it.detail = "the LAST gate placed is the finish";
-    it = self menu_item( "race_cfg", "Finish timer 30 s", &act_race_grace, 30, undefined, #"gf_race_grace", 30 );
-    it.detail = "after the first finish";
-    self menu_item( "race_cfg", "Finish timer 45 s", &act_race_grace, 45, undefined, #"gf_race_grace", 45 );
-    self menu_item( "race_cfg", "Finish timer 60 s", &act_race_grace, 60, undefined, #"gf_race_grace", 60 );
-    self menu_item( "race_cfg", "Finish timer 90 s", &act_race_grace, 90, undefined, #"gf_race_grace", 90 );
-    self menu_item( "race_cfg", "Gate width 400", &act_race_width, 400, undefined, #"gf_race_width", 400 );
-    self menu_item( "race_cfg", "Gate width 600", &act_race_width, 600, undefined, #"gf_race_width", 600 );
-    self menu_item( "race_cfg", "Gate width 800", &act_race_width, 800, undefined, #"gf_race_width", 800 );
-    self menu_item( "race_cfg", "Gate width 1200", &act_race_width, 1200, undefined, #"gf_race_width", 1200 );
-    it = self menu_item( "race_cfg", "Combat OFF", &act_race_combat, 0, undefined, #"gf_race_combat", 0 );
-    it.detail = "during the race";
-    it = self menu_item( "race_cfg", "Combat ON", &act_race_combat, 1, undefined, #"gf_race_combat", 1 );
-    it.detail = "guns allowed";
-    it = self menu_item( "race_cfg", "After: end match", &act_race_end_cfg, 1, undefined, #"gf_race_end", 1 );
-    it.detail = "podium";
-    it = self menu_item( "race_cfg", "After: keep playing", &act_race_end_cfg, 0, undefined, #"gf_race_end", 0 );
-    it.detail = "races add up";
-    it = self menu_item( "race_cfg", "Boundary OFF", &act_race_corridor, 0, undefined, #"gf_race_corridor", 0 );
-    it.detail = "no corridor";
-    it = self menu_item( "race_cfg", "Boundary 800", &act_race_corridor, 800, undefined, #"gf_race_corridor", 800 );
-    it.detail = "tight";
-    self menu_item( "race_cfg", "Boundary width 1200", &act_race_corridor, 1200, undefined, #"gf_race_corridor", 1200 );
-    self menu_item( "race_cfg", "Boundary 1600", &act_race_corridor, 1600, undefined, #"gf_race_corridor", 1600 );
-    it = self menu_item( "race_cfg", "Boundary 2400", &act_race_corridor, 2400, undefined, #"gf_race_corridor", 2400 );
-    it.detail = "loose";
-    it = self menu_item( "race_cfg", "Off track: overlay", &act_race_oobhud, 1, undefined, #"gf_race_oobhud", 1 );
-    it.detail = "the stock combat-area overlay";
-    it = self menu_item( "race_cfg", "Off track: prints", &act_race_oobhud, 0, undefined, #"gf_race_oobhud", 0 );
-    it.detail = "bold OFF TRACK prints";
-    it = self menu_item( "race_cfg", "Off track: warn only", &act_race_reset_cfg, 0, undefined, #"gf_race_reset", 0 );
-    it.detail = "no reset";
-    it = self menu_item( "race_cfg", "Off track: reset 3 s", &act_race_reset_cfg, 3, undefined, #"gf_race_reset", 3 );
-    it.detail = "the overlay's countdown";
-    self menu_item( "race_cfg", "Off track: reset 5 s", &act_race_reset_cfg, 5, undefined, #"gf_race_reset", 5 );
-    self menu_item( "race_cfg", "Off track: reset 8 s", &act_race_reset_cfg, 8, undefined, #"gf_race_reset", 8 );
-    it = self menu_item( "race_cfg", "Start grid ON", &act_race_grid_cfg, 1, undefined, #"gf_race_grid", 1 );
-    it.detail = "line up behind the start gate";
-    it = self menu_item( "race_cfg", "Start grid OFF", &act_race_grid_cfg, 0, undefined, #"gf_race_grid", 0 );
-    it.detail = "start where you stand";
-    it = self menu_item( "race_cfg", "Grid vehicle: AUTO", &act_race_vehicle, 9, undefined, #"gf_race_vehicle", 9 );
-    it.detail = "this map's lightest ride";
-    it = self menu_item( "race_cfg", "Grid vehicle: none", &act_race_vehicle, 0, undefined, #"gf_race_vehicle", 0 );
-    it.detail = "on foot, keep your ride";
-    self menu_item( "race_cfg", "Grid: motorcycles", &act_race_vehicle, 1, undefined, #"gf_race_vehicle", 1 );
-    self menu_item( "race_cfg", "Grid: snowmobiles", &act_race_vehicle, 4, undefined, #"gf_race_vehicle", 4 );
-    self menu_item( "race_cfg", "Grid: quads+buggies", &act_race_vehicle, 5, undefined, #"gf_race_vehicle", 5 );
-    self menu_item( "race_cfg", "Grid: cars+trucks", &act_race_vehicle, 7, undefined, #"gf_race_vehicle", 7 );
-    self menu_item( "race_cfg", "Grid: tanks+APCs", &act_race_vehicle, 6, undefined, #"gf_race_vehicle", 6 );
-    self menu_item( "race_cfg", "Grid: care pkg heli", &act_race_vehicle, 3, undefined, #"gf_race_vehicle", 3 );
-    it = self menu_item( "race_cfg", "Grid: Hind", &act_race_vehicle, 2, undefined, #"gf_race_vehicle", 2 );
-    it.detail = "the attack heli";
-    it = self menu_item( "race_cfg", "Spacing 160", &act_race_grid_gap, 160, undefined, #"gf_race_grid_gap", 160 );
-    it.detail = "tight";
-    self menu_item( "race_cfg", "Spacing 220", &act_race_grid_gap, 220, undefined, #"gf_race_grid_gap", 220 );
-    it = self menu_item( "race_cfg", "Spacing 320", &act_race_grid_gap, 320, undefined, #"gf_race_grid_gap", 320 );
-    it.detail = "wide, for tanks";
-    it = self menu_item( "race_cfg", "Score: track time", &act_race_score_cfg, 1, undefined, #"gf_race_score", 1 );
-    it.detail = "seconds on the end screen";
-    it = self menu_item( "race_cfg", "Score: placement", &act_race_score_cfg, 0, undefined, #"gf_race_score", 0 );
-    it.detail = "placement points";
-    it = self menu_item( "race_cfg", "Gate posts: palms", &act_race_posts_cfg, 1, undefined, #"gf_race_posts", 1 );
-    it.detail = "palm trees at both ends";
-    it = self menu_item( "race_cfg", "Gate posts: none", &act_race_posts_cfg, 0, undefined, #"gf_race_posts", 0 );
-    it.detail = "icons only";
-    self menu_item( "race_cfg", "Start markers: on", &act_race_mk_cfg, 1, undefined, #"gf_race_markers", 1 );
-    self menu_item( "race_cfg", "Start markers: off", &act_race_mk_cfg, 0, undefined, #"gf_race_markers", 0 );
+    // (Race + Race settings pages: app-only since 2026-09-23 - TOOLS -> RACE; act_race_* stay for the app.)
 
     // ── Host — pause / freeze / broadcast ────────────────────────────────────
-    self menu_add( "host", "Host", "start_menu", 1 );
+    self menu_add( "host", "Host", "start_menu", 0 );
     it = self menu_item( "host", "Pause", &act_pause );
     it.detail = "freeze all, hold the timer, banner";
     it = self menu_item( "host", "Freeze everyone", &act_freeze_all );
     it.detail = "no banner";
     it = self menu_item( "host", "Countdown", &act_countdown );
     it.detail = "5..1 GO, bold centre";
-    it = self menu_item( "host", "Announce settings", &act_announce );
-    it.detail = "to everyone";
-    self menu_add( "say", "Broadcast a message", "host", 1 );
-    it = self menu_item( "say", "Welcome", &act_say, "Welcome! Custom Gunfight - the host runs the settings" );
-    it.detail = "custom Gunfight, host menu on";
-    it = self menu_item( "say", "Starting soon", &act_say, "Starting soon - get ready" );
-    it.detail = "get ready";
-    self menu_item( "say", "Map switch next round", &act_say, "Map switch next round - stay in the lobby" );
-    self menu_item( "say", "Sides switch next round", &act_say, "Sides switch next round" );
-    it = self menu_item( "say", "Bots joining", &act_say, "Bots joining to fill the teams" );
-    it.detail = "to fill the teams";
-    it = self menu_item( "say", "Custom rules on", &act_say, "Custom rules are ON - ask the host" );
-    it.detail = "ask the host";
-    it = self menu_item( "say", "Do not leave", &act_say, "Do not leave - wait for the host" );
-    it.detail = "wait for the host";
-    self menu_item( "say", "GG - lobby after this", &act_say, "GG! Back to the lobby after this one" );
-    self menu_item( "say", "One more round", &act_say, "One more round!" );
-    // Links coloured (^5 cyan) so they stand out from the message text.
-    self menu_item( "say", "Visit gunfight.us", &act_say, "Visit us at ^5gunfight.us" );
-    it = self menu_item( "say", "Join discord", &act_say, "Join us at ^5discord.gg/blackops" );
-    it.detail = "discord.gg/blackops";
-    // Hint-banner broadcasts: a PERSISTENT line at the use-prompt anchor, held until Clear
-    // (the centre/feed items above send once). broadcast_hint_start( msg, -1 ).
-    it = self menu_item( "say", "Banner: gunfight.us", &act_banner, "^7Custom Gunfight  ^5gunfight.us" );
-    it.detail = "held until Clear";
-    it = self menu_item( "say", "Banner: discord", &act_banner, "^7Join  ^5discord.gg/blackops" );
-    it.detail = "held until Clear";
-    it = self menu_item( "say", "Banner: waiting", &act_banner, "^3Waiting for the host..." );
-    it.detail = "held until Clear";
-    self menu_item( "say", "Clear banner", &act_banner_clear, undefined );
+    // (Announce settings + the Broadcast page: app-only since 2026-09-23 - the MESSAGE composer.)
+    // klaze 2026-09-24 "lets try \n line breaks" / "we need to find a way": the text tests, on their own
+    // Host sub-page (nltest_run). Every raw line-break byte CLOSED THE MATCH ("Kilo 946 Sick Crocodile"),
+    // so none of these sends one: the break rides inside a stock localized string (loc*). Host-only - a
+    // granted client starts at start_client and cannot back out into the host tree.
+    self menu_add( "texttest", "Text tests", "host", 1 );
+    it = self menu_item( "texttest", "Key: control", &act_nltest, "loca" );
+    it.detail = "stock key + text, no break";
+    it = self menu_item( "texttest", "Key: unregistered", &act_nltest, "locb" );
+    it.detail = "unregistered stock key, no break";
+    it = self menu_item( "texttest", "Break: 2 rows", &act_nltest, "locc" );
+    it.detail = "stock key with a break inside";
+    it = self menu_item( "texttest", "Break: 3 rows", &act_nltest, "locd" );
+    it.detail = "stock key, blank rows between";
+    it = self menu_item( "texttest", "Break: D rows", &act_nltest, "loce" );
+    it.detail = "our layout + the D-break key";
+    it = self menu_item( "texttest", "Break: 2 rows (feed)", &act_nltest, "locf" );
+    it.detail = "the 2-row key in the feed";
+    it = self menu_item( "texttest", "Wrap (centre)", &act_nltest, "wrap" );
+    it.detail = "done 09-24: one line";
+    it = self menu_item( "texttest", "Wrap (feed)", &act_nltest, "wrapfeed" );
+    it.detail = "done 09-24: one line";
+    it = self menu_item( "texttest", "Escape", &act_nltest, "escape" );
+    it.detail = "done 09-24: shown as text";
+    it = self menu_item( "texttest", "Key + text", &act_nltest, "parts" );
+    it.detail = "done 09-24: one line";
 
     // ── Vehicles — built per map from what is resident (veh_page_build) ──────
-    self menu_add( "vehicles", "Vehicles", "start_menu", 1 );
+    self menu_add( "vehicles", "Vehicles", "start_menu", 0 );
     // ── Streaks (klaze 2026-09-21: "for now, just RCXD, Bow, and nuke"; host menu + app, NOT the
     // client menu). Each row hands the STOCK killstreak to the target (menu_target: the host, or
     // the client picked on the Players page) via killstreaks::give - the inventory path a care
@@ -8741,70 +8889,64 @@ function private build_tree()
     // streak_master is the full kstype table the app verb validates against. ⚠ Never run.
     // ── Forge mode (klaze 2026-09-22): the host's toggle - me / everyone here, per player on the
     // Players page, `forgemode` from the app. Not on the client menu.
-    self menu_add( "forgemode", "Forge mode", "start_menu", 1 );
+    self menu_add( "forgemode", "Forge mode", "start_menu", 0 );
     self menu_item( "forgemode", "Me: toggle", &act_forgemode_me );
     self menu_item( "forgemode", "Everyone: ON", &act_forgemode_all, 1 );
     self menu_item( "forgemode", "Everyone: OFF", &act_forgemode_all, 0 );
+    // ── Forge tools (fun pack: PHA's advanced-forge extras). Act on the aimed prop, else the last
+    //    placed (Delete: the aimed one only). Motion is not saved across rounds. Never run. ─────────────────────────────────────
+    self menu_add( "forgetools", "Forge tools", "forgemode", 1 );
+    it = self menu_item( "forgetools", "Prop gun", &act_propgun );
+    it.activated = pflag( self, #"gf_propgun" );
+    it.detail = "each shot places your forge pick";
+    self menu_item( "forgetools", "Spin yaw", &act_ft_spin, 0 );
+    self menu_item( "forgetools", "Spin roll", &act_ft_spin, 1 );
+    self menu_item( "forgetools", "Spin pitch", &act_ft_spin, 2 );
+    self menu_item( "forgetools", "Spin stop", &act_ft_spin, -1 );
+    it = self menu_item( "forgetools", "Bob up/down", &act_ft_move, "updown" );
+    it.detail = "a moving platform";
+    self menu_item( "forgetools", "Slide left/right", &act_ft_move, "leftright" );
+    self menu_item( "forgetools", "Slide fwd/back", &act_ft_move, "fwdback" );
+    self menu_item( "forgetools", "Move stop", &act_ft_move, "stop" );
+    it = self menu_item( "forgetools", "Link to previous", &act_ft_link, 1 );
+    it.detail = "rides the prop placed before it";
+    self menu_item( "forgetools", "Unlink", &act_ft_link, 0 );
+    it = self menu_item( "forgetools", "Solid on/off", &act_ft_solid );
+    it.detail = "walk-through props";
+    self menu_item( "forgetools", "Delete aimed prop", &act_ft_delete );
+    // fun pack 2 (2026-09-24): PHA's spin modes, spawn interval and auto-link. Never run.
+    it = self menu_item( "forgetools", "Reverse spin", &act_ft_spin_rev );
+    it.activated = is_true( game.gf_ft_spin_rev );
+    it.detail = "for the next Spin";
+    it = self menu_item( "forgetools", "Auto-link new props", &act_forge_autolink );
+    it.activated = is_true( game.gf_forge_autolink );
+    it.detail = "later props ride the first";
+    self menu_add( "forge_spin", "Spin speed", "forgetools", 1 );
+    self menu_item( "forge_spin", "1 s a turn", &act_ft_spin_speed, 1 );
+    self menu_item( "forge_spin", "2 s a turn", &act_ft_spin_speed, 2 );
+    self menu_item( "forge_spin", "3 s a turn - default", &act_ft_spin_speed, 3 );
+    self menu_add( "forge_spray", "Spray - hold Fire", "forgetools", 1 );
+    self menu_item( "forge_spray", "Off - one per press", &act_forge_spray, 0 );
+    self menu_item( "forge_spray", "Every 0.5 s", &act_forge_spray, 500 );
+    self menu_item( "forge_spray", "Every 0.25 s", &act_forge_spray, 250 );
+    self menu_item( "forge_spray", "Every 0.1 s", &act_forge_spray, 100 );
+    self menu_add( "forge_tilt", "Tilt new props", "forgetools", 1 );
+    self menu_item( "forge_tilt", "Flat", &act_ft_tilt, 0, 0 );
+    self menu_item( "forge_tilt", "Tilt 45", &act_ft_tilt, 45, 0 );
+    self menu_item( "forge_tilt", "On its side", &act_ft_tilt, 0, 90 );
+    self menu_item( "forge_tilt", "Upside down", &act_ft_tilt, 0, 180 );
+    self menu_item( "forge_tilt", "Nose up", &act_ft_tilt, -90, 0 );
 
-    self menu_add( "streaks", "Streaks", "start_menu", 1 );
+    self menu_add( "streaks", "Streaks", "start_menu", 0 );
     self menu_item( "streaks", "RC-XD", &act_streak, "recon_car", "RC-XD" );
     self menu_item( "streaks", "Bow (Sparrow)", &act_streak, "sig_bow_flame", "Bow" );
     self menu_item( "streaks", "Nuke", &act_streak, "nuke", "Nuke" );
     self veh_mode_page_build();     // Vehicle MODE: everyone spawns riding (docs/notes/vehicle-mode.md)
     self veh_page_build();          // rows = what THIS map has resident (veh_master)
 
-    // ── Destructibles + radiant exploders — docs/notes/destructibles.md. Both pages are
-    //    rebuilt on entry (live counts, the map's own table). Nothing here has run in-game. ──
-    self menu_add( "destruct", "Destructibles", "start_menu", 1, &destruct_enter );
-    self menu_add( "exploders", "Radiant exploders", "destruct", 0, &exp_enter );
+    // (Destructibles / Radiant exploders pages: app-only since 2026-09-23 - TOOLS -> MAP TOYS.)
 
-    // ── Projectiles — docs/notes/projectiles.md: every shot also fires a projectile of the
-    //    chosen weapon down the aim line (magicbullet), rate-gated; optional homing. Per match. ──
-    self menu_add( "proj", "Projectiles", "start_menu", 1 );
-    self menu_item( "proj", "Fire mode - host", &act_proj, "host" );
-    self menu_item( "proj", "Fire mode - everyone", &act_proj, "all" );
-    self menu_item( "proj", "Everything OFF", &act_proj, "off" );
-    it = self menu_item( "proj", "Homing", &act_proj_homing );
-    it.detail = "locks the enemy I face";
-    it = self menu_item( "proj", "Smoke trail", &act_proj_trail );
-    it.detail = "FX call untested";
-    self menu_add( "proj_weapon", "Projectile", "proj", 1 );
-    it = self menu_item( "proj_weapon", "RPG rocket", &act_proj_weapon, #"launcher_freefire_t9", "RPG rockets" );
-    it.detail = "free-fire launcher";
-    it = self menu_item( "proj_weapon", "Cigma missile", &act_proj_weapon, #"launcher_standard_t9", "Cigma missiles" );
-    it.detail = "lock-on launcher";
-    self menu_item( "proj_weapon", "Crossbow bolt", &act_proj_weapon, #"special_crossbow_t9", "crossbow bolts" );
-    self menu_item( "proj_weapon", "M79 grenade", &act_proj_weapon, #"special_grenadelauncher_t9", "M79 grenades" );
-    it = self menu_item( "proj_weapon", "Combat bow arrow", &act_proj_weapon, #"sig_bow_flame", "combat bow arrows" );
-    it.detail = "explosive";
-    self menu_item( "proj_weapon", "Strafe run rocket", &act_proj_weapon, #"straferun_rockets", "strafe run rockets" );
-    self menu_item( "proj_weapon", "Cruise missile bomblet", &act_proj_weapon, #"remote_missile_bomblet", "cruise missile bomblets" );
-    self menu_item( "proj_weapon", "Jet fighter missile", &act_proj_weapon, #"jetfighter_missile", "jet fighter missiles" );
-    self menu_item( "proj_weapon", "Frag grenade", &act_proj_weapon, #"frag_grenade", "frag grenades" );
-    self menu_add( "proj_rate", "Rate", "proj", 1 );
-    self menu_item( "proj_rate", "One per 1000 ms", &act_proj_rate, 1000 );
-    self menu_item( "proj_rate", "One per 600 ms", &act_proj_rate, 600 );
-    self menu_item( "proj_rate", "One per 300 ms", &act_proj_rate, 300 );
-    self menu_item( "proj_rate", "One per 150 ms", &act_proj_rate, 150 );
-    it = self menu_item( "proj_rate", "Every shot", &act_proj_rate, 0 );
-    it.detail = "full-auto test";
-    // Spawn method (2026-09-20 diagnostic, projectiles.md §8): six ways to make the shot, read live.
-    self menu_add( "proj_method", "Spawn method", "proj", 1 );
-    it = self menu_item( "proj_method", "0 AUTO", &act_proj_method, 0, "AUTO by weapon class" );
-    it.detail = "grenade-class launched, else magicbullet";
-    it = self menu_item( "proj_method", "1 magicbullet, owner me", &act_proj_method, 1, "magicbullet, owner = shooter" );
-    it.detail = "the original";
-    self menu_item( "proj_method", "2 magicbullet, no owner", &act_proj_method, 2, "magicbullet, no owner" );
-    it = self menu_item( "proj_method", "3 give weapon first", &act_proj_method, 3, "give the weapon first" );
-    it.detail = "then magicbullet";
-    it = self menu_item( "proj_method", "4 magicgrenadeplayer", &act_proj_method, 4, "magicgrenadeplayer" );
-    it.detail = "grenade spawn";
-    it = self menu_item( "proj_method", "5 explosive rounds", &act_proj_method, 5, "explosive rounds" );
-    it.detail = "impact blast, no projectile";
-    it = self menu_item( "proj_method", "6 from the chest", &act_proj_method, 6, "chest start" );
-    it.detail = "magicbullet 40 u ahead";
-    it = self menu_item( "proj", "Debug line", &act_dbg_proj );
-    it.detail = "PROJ counters to the feed";
+    // (Projectiles pages: app-only since 2026-09-23 - TOOLS -> MAP TOYS; act_proj* stay for the app verbs.)
 
     // ── Props — docs/notes/static-props.md: this map's Prop Hunt table + a universal set,
     //    placed where the host looks. Rebuilt on entry. ─────────────────────────────────────
@@ -8812,23 +8954,45 @@ function private build_tree()
     // cycles ALL 439 universal props and drops the barrel-flagged ones as live explosives, so the old
     // Favourites / Explosive-barrels sub-lists are redundant. Per-map props live in the app; undo is
     // RELOAD inside forge (remove last placed); the round boundary clears everything. Client menu matches.
-    self menu_item( "start_menu", "Props", &forge_enter );
+    // (The root "Props" row is added by the ROOT ORDER list at the end of build_tree.)
 
     // ── Player tools — host only ─────────────────────────────────────────────
-    self menu_add( "player", "Player", "start_menu", 1 );
+    self menu_add( "player", "Player", "start_menu", 0 );
     self menu_item( "player", "Godmode", &act_godmode );
     self menu_item( "player", "Third person", &act_thirdperson );
     self menu_item( "player", "Give max ammo", &act_maxammo );
     self menu_item( "player", "Drop weapon", &act_dropweapon );
     it = self menu_item( "player", "Unlock all", &act_unlockall );
     it.detail = "best-effort - the real unlock is client-side";
+    // ── Disguise (fun pack: PHA's Models menu). Walk around as a prop - Prop Hunt's recipe. ──
+    self menu_add( "disguise", "Disguise", "player", 1 );
+    it = self menu_item( "disguise", "Random prop", &act_disg, "random" );
+    it.detail = "be a prop, third person";
+    self menu_item( "disguise", "Next prop", &act_disg, "next" );
+    self menu_item( "disguise", "Previous prop", &act_disg, "prev" );
+    self menu_item( "disguise", "Chicken", &act_disg, "pick", "p8_aml_chicken_female_03" );
+    self menu_item( "disguise", "Mannequin", &act_disg, "pick", "p9_nt6_mannequin_clothes_male_01_dirty_full_prophunt" );
+    self menu_item( "disguise", "Couch", &act_disg, "pick", "p9_usa_couch_04" );
+    self menu_item( "disguise", "Oil drum", &act_disg, "pick", "p9_rus_oil_drum_01" );
+    self menu_item( "disguise", "Dog tags", &act_disg, "pick", "p9_dogtags_adler_enemy" );
+    self menu_item( "disguise", "Energy portal", &act_disg, "pick", "p8_fxp_zm_energy_portal_alctrz" );
+    self menu_add( "disguise_size", "Size", "disguise", 1 );
+    self menu_item( "disguise_size", "Size 0.5x", &act_disg_scale, 0.5 );
+    self menu_item( "disguise_size", "Size 1x", &act_disg_scale, 1 );
+    self menu_item( "disguise_size", "Size 2x", &act_disg_scale, 2 );
+    self menu_item( "disguise_size", "Size 4x", &act_disg_scale, 4 );
+    self menu_add( "disguise_height", "Height", "disguise", 1 );
+    self menu_item( "disguise_height", "At the feet", &act_disg_height, 0 );
+    self menu_item( "disguise_height", "Raised 20", &act_disg_height, 20 );
+    self menu_item( "disguise_height", "Raised 40", &act_disg_height, 40 );
+    self menu_item( "disguise", "Disguise OFF", &act_disg_off );
 
     // ── Teleport — a hub (docs/notes/teleport.md): everyone / a side to a point, me to a
     // point, and the teleport gun / grenade toggles. The per-player rows (to me / me to
     // them / swap) live on the Players page. "Crosshair" = where the host aims, floored;
     // "saved point" = Save point below (game., survives rounds); "map centre" =
     // level.mapcenter. Nothing here has run in-game yet (2026-09-15). ────────────────
-    self menu_add( "teleport", "Teleport", "start_menu", 1 );
+    self menu_add( "teleport", "Teleport", "start_menu", 0 );
     self menu_add( "tp_all", "Everyone to...", "teleport", 1 );
     self menu_item( "tp_all", "All to me", &act_tp_all, "me", "all" );
     self menu_item( "tp_all", "All to my crosshair", &act_tp_all, "aim", "all" );
@@ -8861,19 +9025,24 @@ function private build_tree()
     // are inferred from the internal name and unverified in-game. There is NO rock /
     // gulag / throwable weapon anywhere in the T9 data (the Warzone gulag rock is an IW8
     // asset) - see the reference note. ──────────────────────────────────────────────────
-    self menu_add( "weapons", "Weapons", "start_menu", 1 );
+    self menu_add( "weapons", "Weapons", "start_menu", 0 );
     self menu_add( "wp_ar", "Assault rifles", "weapons", 1 );
     self menu_item( "wp_ar", "XM4", &act_giveweapon, #"ar_standard_t9", "XM4" );
     self menu_item( "wp_ar", "AK-47", &act_giveweapon, #"ar_damage_t9", "AK-47" );
     self menu_item( "wp_ar", "Krig 6", &act_giveweapon, #"ar_accurate_t9", "Krig 6" );
-    self menu_item( "wp_ar", "QBZ-83", &act_giveweapon, #"ar_fastfire_t9", "QBZ-83" );
-    self menu_item( "wp_ar", "FFAR 1", &act_giveweapon, #"ar_fasthandling_t9", "FFAR 1" );
-    self menu_item( "wp_ar", "Groza", &act_giveweapon, #"ar_mobility_t9", "Groza" );
-    self menu_item( "wp_ar", "FARA 83", &act_giveweapon, #"ar_slowfire_t9", "FARA 83" );
-    self menu_item( "wp_ar", "C58", &act_giveweapon, #"ar_slowhandling_t9", "C58" );
+    // ⚠ VERIFIED 2026-09-23 (bocw-84) against the CoD wiki's Black Ops Cold War internal names (the
+    // `console` field of each weapon page: ar_mobility = QBZ-83, ar_fastfire = FFAR, ar_fasthandling =
+    // Groza, ar_slowfire = C58, ar_slowhandling = FARA 83, ar_soviet = Vargo 52, ar_season6 = Grav) -
+    // the earlier labels were inferred from the archetype names and 17 rows gave the WRONG gun (klaze:
+    // "some give the wrong ones"). docs/reference/bocw-weapons.md carries the table + provenance.
+    self menu_item( "wp_ar", "QBZ-83", &act_giveweapon, #"ar_mobility_t9", "QBZ-83" );
+    self menu_item( "wp_ar", "FFAR 1", &act_giveweapon, #"ar_fastfire_t9", "FFAR 1" );
+    self menu_item( "wp_ar", "Groza", &act_giveweapon, #"ar_fasthandling_t9", "Groza" );
+    self menu_item( "wp_ar", "FARA 83", &act_giveweapon, #"ar_slowhandling_t9", "FARA 83" );
+    self menu_item( "wp_ar", "C58", &act_giveweapon, #"ar_slowfire_t9", "C58" );
     self menu_item( "wp_ar", "EM2", &act_giveweapon, #"ar_british_t9", "EM2" );
-    self menu_item( "wp_ar", "Vargo 52 ?", &act_giveweapon, #"ar_season6_t9", "Vargo 52 (ar_season6)" );
-    self menu_item( "wp_ar", "Grav ?", &act_giveweapon, #"ar_soviet_t9", "Grav (ar_soviet)" );
+    self menu_item( "wp_ar", "Vargo 52", &act_giveweapon, #"ar_soviet_t9", "Vargo 52" );
+    self menu_item( "wp_ar", "Grav", &act_giveweapon, #"ar_season6_t9", "Grav" );
     self menu_add( "wp_smg", "SMGs", "weapons", 1 );
     self menu_item( "wp_smg", "MP5", &act_giveweapon, #"smg_standard_t9", "MP5" );
     self menu_item( "wp_smg", "Milano 821", &act_giveweapon, #"smg_handling_t9", "Milano 821" );
@@ -8883,31 +9052,31 @@ function private build_tree()
     self menu_item( "wp_smg", "MAC-10", &act_giveweapon, #"smg_fastfire_t9", "MAC-10" );
     self menu_item( "wp_smg", "LC10", &act_giveweapon, #"smg_accurate_t9", "LC10" );
     self menu_item( "wp_smg", "PPSh-41", &act_giveweapon, #"smg_spray_t9", "PPSh-41" );
-    self menu_item( "wp_smg", "OTs 9 ?", &act_giveweapon, #"smg_cqb_t9", "OTs 9 (smg_cqb)" );
-    self menu_item( "wp_smg", "TEC-9 ?", &act_giveweapon, #"smg_semiauto_t9", "TEC-9 (smg_semiauto)" );
-    self menu_item( "wp_smg", "LAPA ?", &act_giveweapon, #"smg_season6_t9", "LAPA (smg_season6)" );
-    self menu_item( "wp_smg", "smg_flechette_t9", &act_giveweapon, #"smg_flechette_t9", "smg_flechette_t9" );
+    self menu_item( "wp_smg", "OTs 9", &act_giveweapon, #"smg_cqb_t9", "OTs 9" );
+    self menu_item( "wp_smg", "TEC-9", &act_giveweapon, #"smg_semiauto_t9", "TEC-9" );
+    self menu_item( "wp_smg", "LAPA", &act_giveweapon, #"smg_season6_t9", "LAPA" );
+    self menu_item( "wp_smg", "UGR", &act_giveweapon, #"smg_flechette_t9", "UGR" );
     self menu_add( "wp_tr", "Tactical rifles", "weapons", 1 );
-    self menu_item( "wp_tr", "M16", &act_giveweapon, #"tr_powerburst_t9", "M16" );
-    self menu_item( "wp_tr", "AUG ?", &act_giveweapon, #"tr_longburst_t9", "AUG (tr_longburst)" );
+    self menu_item( "wp_tr", "M16", &act_giveweapon, #"tr_longburst_t9", "M16" );
+    self menu_item( "wp_tr", "AUG", &act_giveweapon, #"tr_powerburst_t9", "AUG" );
     self menu_item( "wp_tr", "CARV.2", &act_giveweapon, #"tr_fastburst_t9", "CARV.2" );
     self menu_item( "wp_tr", "DMR 14", &act_giveweapon, #"tr_precisionsemi_t9", "DMR 14" );
     self menu_item( "wp_tr", "Type 63", &act_giveweapon, #"tr_damagesemi_t9", "Type 63" );
     self menu_add( "wp_lmg", "LMGs", "weapons", 1 );
-    self menu_item( "wp_lmg", "Stoner 63", &act_giveweapon, #"lmg_light_t9", "Stoner 63" );
-    self menu_item( "wp_lmg", "RPD", &act_giveweapon, #"lmg_slowfire_t9", "RPD" );
-    self menu_item( "wp_lmg", "M60", &act_giveweapon, #"lmg_fastfire_t9", "M60" );
-    self menu_item( "wp_lmg", "MG 82", &act_giveweapon, #"lmg_accurate_t9", "MG 82" );
+    self menu_item( "wp_lmg", "Stoner 63", &act_giveweapon, #"lmg_accurate_t9", "Stoner 63" );
+    self menu_item( "wp_lmg", "RPD", &act_giveweapon, #"lmg_light_t9", "RPD" );
+    self menu_item( "wp_lmg", "M60", &act_giveweapon, #"lmg_slowfire_t9", "M60" );
+    self menu_item( "wp_lmg", "MG 82", &act_giveweapon, #"lmg_fastfire_t9", "MG 82" );
     self menu_add( "wp_sniper", "Snipers", "weapons", 1 );
-    self menu_item( "wp_sniper", "Pelington 703", &act_giveweapon, #"sniper_standard_t9", "Pelington 703" );
-    self menu_item( "wp_sniper", "LW3 Tundra", &act_giveweapon, #"sniper_quickscope_t9", "LW3 Tundra" );
+    self menu_item( "wp_sniper", "Pelington 703", &act_giveweapon, #"sniper_quickscope_t9", "Pelington 703" );
+    self menu_item( "wp_sniper", "LW3 Tundra", &act_giveweapon, #"sniper_standard_t9", "LW3 Tundra" );
     self menu_item( "wp_sniper", "M82", &act_giveweapon, #"sniper_powersemi_t9", "M82" );
-    self menu_item( "wp_sniper", "ZRG 20mm ?", &act_giveweapon, #"sniper_cannon_t9", "ZRG 20mm (sniper_cannon)" );
-    self menu_item( "wp_sniper", "Swiss K31 ?", &act_giveweapon, #"sniper_accurate_t9", "Swiss K31 (sniper_accurate)" );
+    self menu_item( "wp_sniper", "ZRG 20mm", &act_giveweapon, #"sniper_cannon_t9", "ZRG 20mm" );
+    self menu_item( "wp_sniper", "Swiss K31", &act_giveweapon, #"sniper_accurate_t9", "Swiss K31" );
     self menu_add( "wp_shotgun", "Shotguns", "weapons", 1 );
     self menu_item( "wp_shotgun", "Hauer 77", &act_giveweapon, #"shotgun_pump_t9", "Hauer 77" );
-    self menu_item( "wp_shotgun", "Gallo SA12", &act_giveweapon, #"shotgun_fullauto_t9", "Gallo SA12" );
-    self menu_item( "wp_shotgun", "Streetsweeper", &act_giveweapon, #"shotgun_semiauto_t9", "Streetsweeper" );
+    self menu_item( "wp_shotgun", "Gallo SA12", &act_giveweapon, #"shotgun_semiauto_t9", "Gallo SA12" );
+    self menu_item( "wp_shotgun", "Streetsweeper", &act_giveweapon, #"shotgun_fullauto_t9", "Streetsweeper" );
     self menu_item( "wp_shotgun", ".410 Ironhide", &act_giveweapon, #"shotgun_leveraction_t9", ".410 Ironhide" );
     self menu_add( "wp_pistol", "Pistols", "weapons", 1 );
     self menu_item( "wp_pistol", "1911", &act_giveweapon, #"pistol_semiauto_t9", "1911" );
@@ -8940,8 +9109,7 @@ function private build_tree()
     self menu_item( "wp_melee", "Battle Axe", &act_giveweapon, #"melee_battleaxe_t9", "Battle Axe" );
     self menu_item( "wp_melee", "Hammer & Sickle", &act_giveweapon, #"melee_coldwar_t9_dw", "Hammer & Sickle" );
     self menu_item( "wp_melee", "Scythe", &act_giveweapon, #"melee_scythe_t9", "Scythe" );
-    self menu_item( "wp_melee", "Bowie Knife", &act_giveweapon, #"melee_bowie", "Bowie Knife" );
-    self menu_item( "wp_melee", "Bowie Knife (bloody)", &act_giveweapon, #"melee_bowie_bloody", "Bowie Knife (bloody)" );
+    // (melee_bowie / melee_bowie_bloody removed 2026-09-23: in NO zone's asset table, so never givable.)
     self menu_item( "wp_melee", "Knife (Scream)", &act_giveweapon, #"hash_28fdaa999c8aa3af", "Knife (Scream)" );
     self menu_item( "wp_melee", "Knife (Infected)", &act_giveweapon, #"hash_3f47e8be065a0dc0", "Knife (Infected)" );
     // BO4 hero/streak guns still in the T9 data and listed for MP by the Atian menu.
@@ -8958,7 +9126,14 @@ function private build_tree()
     self menu_item( "wp_fun", "Turret gun", &act_giveweapon, #"ultimate_turret", "Turret gun" );
 
     // ── Camo — applied to the current weapon, ownership ignored ───────────────
-    self menu_add( "camo", "Camo", "start_menu", 1 );
+    self menu_add( "camo", "Camo", "start_menu", 0 );
+    // klaze 2026-09-24: "add to client menu camo page: Random gives a random camo. Disco disco camo mode".
+    // The granted client menu opens THIS page (client_start_enter), so they lead it for everyone.
+    it = self menu_item( "camo", "Random", &act_camo_random );
+    it.detail = "a random camo on the gun in hand";
+    it = self menu_item( "camo", "Disco", &act_disco, "me" );
+    it.activated = pflag( self, #"gf_disco" );
+    it.detail = "a random camo every 0.2 s";
     self menu_item( "camo", "Gold", &act_camo, 61 );
     self menu_item( "camo", "Diamond", &act_camo, 62 );
     self menu_item( "camo", "DM Ultra", &act_camo, 63 );
@@ -8968,13 +9143,21 @@ function private build_tree()
     self menu_item( "camo", "Pack-a-Punch 1", &act_camo, 67 );
     self menu_item( "camo", "Pack-a-Punch 2", &act_camo, 68 );
     self menu_item( "camo", "Pack-a-Punch 3", &act_camo, 69 );
+    // Fun pack: PHA's disco camo for EVERYONE - the host's only (build_tree runs per menu owner, and a
+    // granted client menu is self-only: their Disco row is the one at the top).
+    if ( self ishost() )
+    {
+        it = self menu_item( "camo", "Disco: everyone", &act_disco, "all" );
+        it.activated = is_true( game.gf_disco_all );
+        self menu_item( "camo", "Disco: all OFF", &act_disco, "off" );
+    }
     self menu_add( "camo_byid", "Camo by ID (0-149)", "camo", 1 );
     for ( ci = 0; ci < 150; ci++ )
         self menu_item( "camo_byid", "Camo " + ci, &act_camo, ci );
 
     // ── Operator (skin) ───────────────────────────────────────────────────────
-    self menu_add( "operator", "Operator", "start_menu", 1 );
-    self menu_item( "operator", "Invisible", &act_skin, 0 );
+    // (id 0 "Invisible" removed - klaze 2026-09-23; the ids below keep their numbers)
+    self menu_add( "operator", "Operator", "start_menu", 0 );
     self menu_item( "operator", "Adler", &act_skin, 1 );
     self menu_item( "operator", "Portnova", &act_skin, 2 );
     self menu_item( "operator", "Garcia", &act_skin, 3 );
@@ -9025,7 +9208,7 @@ function private build_tree()
     self menu_item( "operator", "Lazar", &act_skin, 48 );
 
     // ── Outfit — by id (per-operator outfits) ─────────────────────────────────
-    self menu_add( "outfit", "Outfit", "start_menu", 1 );
+    self menu_add( "outfit", "Outfit", "start_menu", 0 );
     self menu_add( "start_client", "Client Menu", "", 0, &client_start_enter );
     self menu_add( "client_player", "Player", "start_client", 0, &client_player_enter );
     self menu_add( "client_tp", "Teleport", "start_client", 0, &client_tp_enter );
@@ -9041,23 +9224,9 @@ function private build_tree()
     // mp_village_rm is Standoff; mp_cliffhanger is Yamantau; mp_kgb is Checkmate).
     // Selecting any map (or a gametype, below) opens the stage/now page - see "── Map"
     // in the actions: "Stage for lobby - next match" or "Switch NOW".
-    self menu_add( "map", "Map", "start_menu", 1 );
-    // (ON) = SESSION, the default: the lobby follows the switch. Off = the old Atian
-    // load-time carry. Seeded from the dvar so the marker is right on first open.
-    // Only "Switch NOW" honours it; a stage is the session route by definition.
-    it = self menu_item( "map", "Session switch", &act_map_method );
-    it.detail = "the lobby follows";
-    it.activated = cfg_map_method();
-    // How long "Switch NOW" waits for #"switchmap_preload_finished" before committing.
-    // 25 = stock ZM's cap and the measured-working form, but only the FIRST switch of a
-    // session gets the notify - later ones sit the whole 25s (klaze, 2026-09-13: "works,
-    // long delay"). "none" is stock CAMPAIGN's immediate form: one network frame, then
-    // switch (cp_common/load.gsc:412-414). Untested in MP - flip it and look.
-    it = self menu_item( "map", "Switch wait: 25 s", &act_switch_wait, 25, undefined, #"gf_switch_wait", 25 );
-    it.detail = "proven";
-    self menu_item( "map", "Switch wait: 5s", &act_switch_wait, 5, undefined, #"gf_switch_wait", 5 );
-    it = self menu_item( "map", "Switch wait: none", &act_switch_wait, 0, undefined, #"gf_switch_wait", 0 );
-    it.detail = "cp form, untested";
+    self menu_add( "map", "Map", "start_menu", 0 );
+    // (The "Session switch" method toggle and the "Switch wait" rows are app-only since 2026-09-23 -
+    //  gf_map_method / gf_switch_wait stay dvars the app sets; the switch itself still honours them.)
     // (Zoo lives in the 6v6 folder like every other map - the old root "Zoo - verified"
     // shortcut was removed 2026-09-13 at klaze's request.)
     self menu_add( "map_6v6", "6v6 maps", "map", 1 );
@@ -9148,39 +9317,39 @@ function private build_tree()
     it = self menu_item( "map_ft", "Sanatorium", &act_map, "wz_sanatorium" );
     it.detail = "wz_sanatorium";
 
-    // ── Gametype — the SESSION switch with the gametype swapped and the map kept ─
-    // The Atian source's dead func_set_gametype(), wired in. Strings are the gametype
-    // SCRIPT names (scripts/mp_common/gametypes/<name>.gsc). Workflow this enables:
-    // create the lobby under TDM (any map is selectable there, 12 slots), start, then
-    // switch to gunfight here; the map and the session stay. The Gunfight fixes in
-    // mod_apply are gated on the gametype, so the menu is safe to link into TDM.
-    self menu_add( "gametype", "Gametype", "start_menu", 1 );
-    // Auto-switch to Gunfight on match start when this match is not Gunfight (mod_autoswitch).
-    // ON survives to the next match; set it, restart, and injecting lands you in Gunfight.
-    it = self menu_item( "gametype", "Auto-Gunfight ON", &act_autoswitch, 1, undefined, #"gf_autoswitch", 1 );
-    it.detail = "switch to Gunfight on inject";
-    it = self menu_item( "gametype", "Auto-Gunfight OFF", &act_autoswitch, 0, undefined, #"gf_autoswitch", 0 );
-    it.detail = "no switch on inject";
-    self menu_item( "gametype", "Gunfight", &act_gametype, "gunfight" );
-    self menu_item( "gametype", "Gunfight 3v3", &act_gametype, "gunfight_3v3" );
-    self menu_item( "gametype", "TDM", &act_gametype, "tdm" );
-    self menu_item( "gametype", "Free-for-all", &act_gametype, "dm" );
-    self menu_item( "gametype", "Domination", &act_gametype, "dom" );
-    self menu_item( "gametype", "Hardpoint", &act_gametype, "koth" );
-    self menu_item( "gametype", "Search & Destroy", &act_gametype, "sd" );
-    self menu_item( "gametype", "Kill Confirmed", &act_gametype, "conf" );
-    self menu_item( "gametype", "Control", &act_gametype, "control" );
-    self menu_item( "gametype", "Capture the Flag", &act_gametype, "ctf" );
-    self menu_item( "gametype", "Demolition", &act_gametype, "dem" );
-    self menu_item( "gametype", "Infected", &act_gametype, "infect" );
-    self menu_item( "gametype", "Gun Game", &act_gametype, "gun" );
-    self menu_item( "gametype", "Prop Hunt", &act_gametype, "prop" );
-    self menu_item( "gametype", "Sticks and Stones", &act_gametype, "sas" );
-    self menu_item( "gametype", "One in the Chamber", &act_gametype, "oic" );
-    self menu_item( "gametype", "Dropkick", &act_gametype, "dropkick" );
-    self menu_item( "gametype", "VIP Escort", &act_gametype, "vip" );
-    self menu_item( "gametype", "Team War", &act_gametype, "war" );
-    self menu_item( "gametype", "Cranked", &act_gametype, "cranked" );
+    // (Gametype page: app-only since 2026-09-23 - the MAPS tab switches map + mode; the act_gametype /
+    //  act_autoswitch verbs stay for the app.)
+
+    // ── NEW PAGES (bocw-84, 2026-09-23) - Radar & markers, the client "me to a player" list ──
+    self radar_page_build();
+    self menu_add( "client_tp_to", "Me to a player", "client_tp", 0, &client_tp_to_enter );
+
+    // ── ROOT ORDER (klaze 2026-09-23: "simplify the hosts mod menu and bring advanced stuff to the
+    // app only"). Four groups stay in-game, in this order: SELF TOOLS, the PLAYERS page, MATCH
+    // BASICS, SANDBOX. Everything else is app-only now - spawns, display + debug feeds, overtime
+    // zone, match rules, pre-match periods, bot tuning, race, projectiles, destructibles /
+    // exploders, loadout + pool camo, the spy-plane setting, gametype, broadcasts: those pages are
+    // gone from the tree, their act_* / cmd verbs stay for the app. Every page below is added with
+    // create_switch 0 so this list alone decides the root order.
+    self menu_item( "start_menu", "Player", &menu_switch, "player" );
+    self menu_item( "start_menu", "Weapons", &menu_switch, "weapons" );
+    self menu_item( "start_menu", "Teleport", &menu_switch, "teleport" );
+    self menu_item( "start_menu", "Camo", &menu_switch, "camo" );
+    self menu_item( "start_menu", "Operator", &menu_switch, "operator" );
+    self menu_item( "start_menu", "Outfit", &menu_switch, "outfit" );
+    self menu_item( "start_menu", "Players", &menu_switch, "players" );
+    self menu_item( "start_menu", "Teams", &menu_switch, "teams" );
+    self menu_item( "start_menu", "Bots", &menu_switch, "bots" );
+    self menu_item( "start_menu", "Round", &menu_switch, "round" );
+    self menu_item( "start_menu", "Host", &menu_switch, "host" );
+    self menu_item( "start_menu", "Map", &menu_switch, "map" );
+    // "Props" IS forge now (klaze 2026-09-21 "call forge mode props"): selecting it enters the placer.
+    self menu_item( "start_menu", "Props", &forge_enter );
+    self menu_item( "start_menu", "Forge mode", &menu_switch, "forgemode" );
+    self menu_item( "start_menu", "Vehicles", &menu_switch, "vehicles" );
+    self menu_item( "start_menu", "Streaks", &menu_switch, "streaks" );
+    self menu_item( "start_menu", "Movement", &menu_switch, "movement" );
+    self menu_item( "start_menu", "Radar", &menu_switch, "radar" );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -9199,13 +9368,16 @@ function private act_spec_slots( item, value )
 
 function private act_team_size( item, per_side )
 {
+    // Store what was ASKED for (2026-09-24): cfg_team_size() clamps at read time, so a 6v6 pick in
+    // an 8-slot session plays 4v4 now and 6v6 in the next session that seats it. Storing the
+    // clamped value used to lose the pick for good.
     clamped = clamp_team_size( per_side );
-    cfg_seti( #"gf_team_size", clamped );
+    cfg_seti( #"gf_team_size", per_side );
     gts_set( #"maxplayers", maxplayers_value( clamped ) );
 
     if ( clamped < per_side )
     {
-        self menu_say( "^3team size " + clamped + "v" + clamped + " - lobby budget is " + getdvarint( #"com_maxclients", 0 ) + " clients" );
+        self menu_say( "^3team size " + clamped + "v" + clamped + " now (" + per_side + "v" + per_side + " kept for a bigger lobby) - lobby budget is " + getdvarint( #"com_maxclients", 0 ) + " clients" );
     }
     else
     {
@@ -9527,6 +9699,7 @@ function private mod_latejoin()
 
     level.gf_autoassign_stock = level.autoassign;
     level.autoassign = &gf_autoassign;
+    level thread latejoin_rescue_think();
 }
 
 // self = the connecting player; stock's own signature ( comingfrommenu, lobby side, squad ).
@@ -9547,44 +9720,152 @@ function private gf_autoassign( comingfrommenu, teamname, squad )
         return;
     }
 
+    // ALWAYS placed (klaze 2026-09-23, "People joining late or in progress matches get stuck as
+    // spectator" -> "Always auto-place"): the old full-tie bench ("pause menu > CHANGE TEAM to pick")
+    // is gone - whether that button ever shows was never measured, and a joiner who could not find
+    // it sat on the bench for the whole match.
+    pick = self latejoin_pick_side();
+
+    latejoin_say( "^3JOIN ^7" + self.name + " lobby=" + latejoin_side_str( teamname ) + " " + level.gf_lj_note + " -> ^2" + latejoin_team_str( pick ) + " ^7(" + level.gf_lj_reason + ")" );
+
+    // (gf_had_team is set by latejoin_rescue_think once it SEES the team - so a seat that did not
+    //  take is still caught by the rescue net.)
+    self [[ fn ]]( 0, pick, squad );
+
+    if ( is_true( level.teambased ) )
+        level thread latejoin_bot_drop( pick );
+}
+
+// The side a late human gets. Team modes: fewer HUMANS, then the LOSING side, then (a full tie) fewer
+// players overall / opposite the host. FFA: the emptiest of the level's teams - stock's FFA branch
+// (team_assignment.gsc function_b55ab4b3) seats a client by its entity number and falls back to the
+// value handed in, so this is what a joiner whose number has no team slot gets instead of "none".
+// Sets level.gf_lj_reason / level.gf_lj_note for the JOIN line.
+function private latejoin_pick_side()
+{
+    if ( !is_true( level.teambased ) )
+    {
+        level.gf_lj_reason = "free-for-all";
+        level.gf_lj_note = "";
+        return latejoin_ffa_team();
+    }
+
     ha = humans_on( #"allies" );
     hx = humans_on( #"axis" );
     sa = info_score( #"allies" );
     sx = info_score( #"axis" );
+    level.gf_lj_note = "humans " + ha + "/" + hx + " score " + sa + "-" + sx;
 
     if ( ha != hx )
     {
-        pick = ( ha < hx ) ? #"allies" : #"axis";
-        reason = "fewer humans";
-    }
-    else if ( sa != sx )
-    {
-        pick = ( sa < sx ) ? #"allies" : #"axis";
-        reason = "losing side";
-    }
-    else if ( ( is_true( level.inprematchperiod ) && info_round() == 1 ) || !cfg_teamchange() )
-    {
-        pick = latejoin_auto_side();
-        reason = cfg_teamchange() ? "tie, launch countdown" : "tie, no picker";
-    }
-    else
-    {
-        pick = #"spectator";
-        reason = "tie - he picks";
+        level.gf_lj_reason = "fewer humans";
+        return ( ha < hx ) ? #"allies" : #"axis";
     }
 
-    latejoin_say( "^3JOIN ^7" + self.name + " lobby=" + latejoin_side_str( teamname ) + " humans " + ha + "/" + hx + " score " + sa + "-" + sx + " -> ^2" + latejoin_side_str( pick ) + " ^7(" + reason + ")" );
-
-    self [[ fn ]]( 0, pick, squad );
-
-    if ( pick == #"spectator" )
+    if ( sa != sx )
     {
-        self.pers[ #"gf_latejoin_pick" ] = 1;
-        self thread latejoin_pick_reminder();
+        level.gf_lj_reason = "losing side";
+        return ( sa < sx ) ? #"allies" : #"axis";
+    }
+
+    level.gf_lj_reason = "tie, auto";
+    return latejoin_auto_side();
+}
+
+// FFA: the team (of level.teams) with the fewest players - an empty one when there is one.
+function private latejoin_ffa_team()
+{
+    best = undefined;
+    bestn = 9999;
+
+    foreach ( t, _ in level.teams )
+    {
+        n = getplayers( t ).size;
+
+        if ( n < bestn )
+        {
+            best = t;
+            bestn = n;
+        }
+    }
+
+    return best;
+}
+
+// A team key for the JOIN line: allies / axis / spectator, else the level's own team string (FFA teamN).
+function private latejoin_team_str( t )
+{
+    s = latejoin_side_str( t );
+
+    if ( s == "other" && isdefined( t ) && isdefined( level.teams ) && isdefined( level.teams[ t ] ) )
+        return level.teams[ t ];
+
+    return s;
+}
+
+// The safety net under every path above (klaze 2026-09-23 "stuck as spectator"): every 3 s, a human
+// who has NEVER had a team this match (pers gf_had_team - survives the round boundary) and still sits
+// on spectator / no team 8 s after connecting is placed the same way. Whoever had a team and then
+// chose to spectate (pause menu, the host's To Spectator) is left alone; hosts, bots and CoD casters
+// are never touched. Two tries per player per match, so it can never fight the engine in a loop.
+function private latejoin_rescue_think()
+{
+    if ( isdefined( level.gf_lj_rescue_on ) )
         return;
-    }
 
-    level thread latejoin_bot_drop( pick );
+    level.gf_lj_rescue_on = 1;
+    level endon( #"game_ended" );
+
+    for ( ;; )
+    {
+        wait 3;
+
+        if ( !cfg_latejoin() || !isdefined( level.teams ) || is_true( level.gameended ) )
+            continue;
+
+        fn = isdefined( level.gf_autoassign_stock ) ? level.gf_autoassign_stock : level.autoassign;
+
+        if ( !isdefined( fn ) )
+            continue;
+
+        foreach ( p in getplayers() )
+        {
+            if ( !isdefined( p ) || !isplayer( p ) || isbot( p ) || p ishost() || p iscodcaster() || !isdefined( p.pers ) )
+                continue;
+
+            t = p.pers[ #"team" ];
+
+            if ( isdefined( t ) && isdefined( level.teams[ t ] ) )
+            {
+                p.pers[ #"gf_had_team" ] = 1;
+                continue;
+            }
+
+            if ( is_true( p.pers[ #"gf_had_team" ] ) )
+                continue;                                   // played, then chose to spectate
+
+            if ( !isdefined( p.gf_lj_conn ) || gettime() - p.gf_lj_conn < 8000 )
+                continue;
+
+            tries = isdefined( p.pers[ #"gf_lj_tries" ] ) ? p.pers[ #"gf_lj_tries" ] : 0;
+
+            if ( tries >= 2 )
+                continue;
+
+            p.pers[ #"gf_lj_tries" ] = tries + 1;
+            p.gf_lj_conn = gettime();                       // the second try waits another 8 s
+            pick = p latejoin_pick_side();
+
+            if ( !isdefined( pick ) )
+                continue;
+
+            latejoin_say( "^3JOIN ^7" + p.name + " was still spectating -> ^2" + latejoin_team_str( pick ) + " ^7(" + level.gf_lj_reason + ", rescue " + ( tries + 1 ) + ")" );
+            p [[ fn ]]( 0, pick, undefined );
+
+            if ( is_true( level.teambased ) )
+                level thread latejoin_bot_drop( pick );
+        }
+    }
 }
 
 function private latejoin_applies( comingfrommenu, teamname )
@@ -9595,8 +9876,11 @@ function private latejoin_applies( comingfrommenu, teamname )
     if ( !isplayer( self ) || isbot( self ) || self ishost() || self iscodcaster() )
         return false;
 
-    // Two-side team modes only (an FFA race has no sides to weigh).
-    if ( !is_true( level.teambased ) || !isdefined( level.teams ) || !isdefined( level.teams[ #"allies" ] ) || !isdefined( level.teams[ #"axis" ] ) )
+    if ( !isdefined( level.teams ) )
+        return false;
+
+    // Team modes need both sides; FFA (klaze 2026-09-23) is handled too - latejoin_pick_side.
+    if ( is_true( level.teambased ) && ( !isdefined( level.teams[ #"allies" ] ) || !isdefined( level.teams[ #"axis" ] ) ) )
         return false;
 
     // The lobby gave him a real side: stock's :419 branch, the join that already works. The
@@ -9671,6 +9955,8 @@ function private latejoin_pick_reminder()
 // bench keeps his reminder; one who found a side drops the flag.
 function private latejoin_on_connect()
 {
+    self.gf_lj_conn = gettime();        // the rescue net (latejoin_rescue_think) waits 8 s from here
+
     if ( !isplayer( self ) || isbot( self ) || !isdefined( self.pers ) || !is_true( self.pers[ #"gf_latejoin_pick" ] ) )
         return;
 
@@ -9709,7 +9995,7 @@ function private act_latejoin( item, value )
 {
     cfg_seti( #"gf_latejoin", value );
     mod_latejoin();
-    self menu_say( value ? "^2late join ON - a late human gets the side with fewer humans, then the losing side, then picks" : "^3late join OFF - stock benches a late joiner as a spectator" );
+    self menu_say( value ? "^2late join ON - late humans are always placed: fewer humans, losing side, else auto (+ a rescue for anyone stuck spectating)" : "^3late join OFF - stock benches a late joiner as a spectator" );
     return true;
 }
 
@@ -10121,6 +10407,9 @@ function private act_bot_preset( item, id )
 function private players_enter( menu )
 {
     self menu_clear_items( "players" );
+    // klaze 2026-09-23: a give-all / revoke-all pair for the client menus (the app has them too)
+    self menu_item( "players", "Give everyone a menu", &act_menu_all, 1 );
+    self menu_item( "players", "Take all menus back", &act_menu_all, 0 );
 
     // Humans first, then bots (same verbs - handy for a solo test), the host tagged so
     // his own row is obvious.
@@ -10139,6 +10428,8 @@ function private players_enter( menu )
                 tag = "bot " + tag;
             else if ( player ishost() )
                 tag = "host " + tag;
+            else if ( client_has_grant( player ) )
+                tag = "menu " + tag;
 
             self menu_item( "players", player.name + "  ^0" + tag, &act_player_page, player );
         }
@@ -10167,7 +10458,9 @@ function private players_refresh()
     {
         for ( i = 0; i < menu.items.size; i++ )
         {
-            if ( isdefined( menu.items[ i ].data1 ) && menu.items[ i ].data1 == keep )
+            // === : the give-all / take-all rows carry an int in data1, the player rows an entity - a
+            // plain == across the two types is a script error, strict equality is just false
+            if ( isdefined( menu.items[ i ].data1 ) && menu.items[ i ].data1 === keep )
             {
                 menu.cursor = i;
                 return;
@@ -10270,7 +10563,13 @@ function private config_publish()
 
         s += "|oob=" + cfg_oob();
         s += "|bar=" + cfg_deathbarrier();
-        s += "|trk=" + race_track_text();       // map;n;x,y,z,yaw,w;... -> the app's Save track (racing.md T8)
+        // map;n;x,y,z,yaw,w;... -> the app's Save track (racing.md T8). ⚠ Kept short enough that the
+        // whole line stays under 1024 chars (a longer concatenation is fatal, 0x91f84370 - see atlas_add):
+        // 16 gates are ~600 chars on a ~420-char line, so a long track is cut at a gate boundary here.
+        trk = race_track_text();
+        if ( trk.size > 440 )
+            trk = race_track_cut( trk, 440 );
+        s += "|trk=" + trk;
         s += "|veh=" + cfg_vehmode() + "," + cfg_veh_lock() + "," + cfg_veh_hp() + "," + cfg_veh_alt();
         s += "|bot=" + getdvarstring( #"gf_bot", "" );
         s += "|bot2=" + getdvarstring( #"gf_bot2", "" );
@@ -10288,7 +10587,8 @@ function private config_publish()
             + "," + cfg_geti( #"gf_hint_self_on", 1 ) + "," + cfg_geti( #"gf_menu_repaint", 3000 )
             + "," + cfg_geti( #"gf_rounds_sides", -1 ) + "," + cfg_geti( #"gf_friendlyfire", -1 )
             + "," + cfg_geti( #"gf_latejoin", 1 ) + "," + cfg_geti( #"gf_teamchange", 1 )
-            + "," + cfg_geti( #"gf_place_dist", 500 ) + "," + cfg_geti( #"gf_grab_dist", 200 ) + "," + cfg_geti( #"gf_ahint", 1 );
+            + "," + cfg_geti( #"gf_place_dist", 500 ) + "," + cfg_geti( #"gf_grab_dist", 200 ) + "," + cfg_geti( #"gf_ahint", 1 )
+            + "," + cfg_radar() + "," + cfg_parachute();      // bocw-84 2026-09-23 (append-only list)
         s += "|" + "END";
         level.gf_cfgpub = s;
         wait 2;
@@ -10401,6 +10701,9 @@ function private act_spectate( item, player )
 
 function private client_page_build( id, player )
 {
+    if ( !isbot( player ) && !( player ishost() ) )
+        self menu_item( id, client_has_grant( player ) ? "Client menu: take back" : "Client menu: give", &act_c_menu, player );
+
     it = self menu_item( id, "Godmode", &act_c_god, player );
     it.activated = is_true( player.gf_god );
     self menu_item( id, "Max ammo - every weapon", &act_c_ammo, player );
@@ -11698,7 +12001,10 @@ function private veh_master()
     m = veh_def( m, "vehicle_t9_mil_helicopter_care_package", "Care package heli", 0 );
     m = veh_def( m, #"hash_4209c5ff3b969c7a", "Vehicle-drop heli", 1, "vehicle_t9_mil_ru_heli_transport_vehicle_drop" );
     m = veh_def( m, "vehicle_t9_rcxd_racing", "RC-XD", 1 );
-    m = veh_def( m, "vehicle_t9_rcxd_racing_alt", "RC-XD alt", 1 );
+    // klaze 2026-09-24: "rcxd and rcxd alt look the same. but rcxd pha's name look different. so maybe use
+    // that one as the alt?" - so the alt is PHA V1.00's RC-XD (the fun pack's "RC-XD streak - PHA's name",
+    // every map); vehicle_t9_rcxd_racing_alt, the look-alike, is out. (Its old row 71 is gone: 72-75 -> 71-74.)
+    m = veh_def( m, #"hash_7dd2944ddf7cc7e9", "RC-XD alt", 1, "hash_7dd2944ddf7cc7e9" );
     // (the VIP-escort exfil chopper hash_58cc8ce25d32031f is out - klaze 2026-09-22 "remove the exfil
     //  heli", then "leave the fireteam one")
     m = veh_def( m, #"hash_437293ae239af1ab", "Exfil helicopter (Fireteam)", 1, "hash_437293ae239af1ab" );     // zm_silver_main_quest.gsc:3031
@@ -11731,6 +12037,19 @@ function private veh_master()
     m = veh_def( m, #"hash_3463002d802c1a98", "Intro cinematic vehicle (Crossroads)", 1, "hash_3463002d802c1a98" );
     m = veh_def( m, #"hash_581bb1b0fa4a3139", "Intro cinematic vehicle (Crossroads kgb 2)", 1, "hash_581bb1b0fa4a3139" );
     m = veh_def( m, #"hash_61b8f8f61f4b9ce7", "Intro cinematic vehicle (Crossroads cia)", 1, "hash_61b8f8f61f4b9ce7" );
+    // ── Fun pack 2026-09-23: resident on MP maps, missing here - PHA V1.00's vehicle page carries them
+    //    (vehicles.md §7 had already named the first three as resident-but-absent). APPENDED at the end so
+    //    the app's master indices do not move (Catalog.cs mirrors this order). kind 1 = untested, like
+    //    every other row in this group; PHA's own labels are kept where the asset name is unresolved.
+    m = veh_def( m, "heli_ai_mp", "AI helicopter", 1 );                                                    // every map
+    // (the two turrets, veh_missile_turret "Anti-air missile turret" + veh_ultimate_turret "Sentry turret", are
+    //  out - klaze 2026-09-24: "remove the 2 turrets from vehicles menu")
+    m = veh_def( m, #"hash_444804d03bdda785", "Drone squad - PHA's name", 1, "hash_444804d03bdda785" );    // every map
+    // (the RC-XD streak, hash_7dd2944ddf7cc7e9, moved up to be the "RC-XD alt" row - klaze 2026-09-24)
+    m = veh_def( m, #"hash_17e868e0ebf3c1d6", "Helicopter (Sanatorium)", 1, "hash_17e868e0ebf3c1d6" );     // wz_sanatorium
+    m = veh_def( m, #"hash_3effd1dd89ee3d36", "Fireteam reinsertion vehicle", 1, "hash_3effd1dd89ee3d36" ); // wz_*
+    m = veh_def( m, #"hash_3d2bbfdb89093d91", "Napalm strike plane, hpc intro", 1, "hash_3d2bbfdb89093d91" );  // wz_*
+    m = veh_def( m, #"hash_631691623ad368bd", "Outro helicopter (hpc/sl)", 1, "hash_631691623ad368bd" );   // wz_*
     level.gf_veh_master = m;
     return m;
 }
@@ -11966,6 +12285,524 @@ function private mapdata_publish()
     level.gf_mapdata_d = "GFMAP" + "DEST|" + map + "|n=" + dt.n + "|kinds=" + dt.names.size + "|" + destruct_tally_text( dt, 40 ) + "|END";
 }
 
+// ── SPAWN ATLAS: every spawn point on this map, for every mode, to the app (2026-09-22) ─────────
+// klaze: "calculate every spawn group on every map for every mode and include starting spawns and
+// mid match respawn points. on some maps, if theres enough spots grouped together in certain
+// areas, we may want to use those as our starting spots instead. so we need a clear picture of
+// every possibility." The dump has no map entity data (the markers live in each map's game_map /
+// entitylist asset - tables/data/assets/<map>.csv lists them by name only), so the census is read
+// HERE, one map per visit, and the app (tools/gf-panel, SPAWNS tab) files it per map, finds the
+// dense areas and plots it all. docs/notes/spawn-atlas.md
+//
+// One scan reads (all read-only; a frame per 12 markers / per list - the 0x91f84370 lesson: no
+// map-sized walk inside one VM resumption):
+//   M  every mp_spawn_point struct: position, yaw, .group_index, start / hq / disabled flags and
+//      the engine's WHOLE mode vocabulary - the fields function_82ca1565 tests
+//      (script_44b0b8420eabacad.gsc:306): 25 modes (m1), the objective sub-sets DOM flags A-F /
+//      Demolition / Control (m2), Hardpoint zones 0-9 + war zones 0-4 (m3 - function_fac242d0's
+//      numbered fields). A marker with a mode bit and NO start flag is that mode's mid-match
+//      RESPAWN pool (the engine's auto_normal list); with the start flag, its opening spawn.
+//   D/N the legacy-named structs (mod_spawn_families minus mp_spawn_point): the BO2 remasters'
+//      team starts live here (Standoff: mp_tdm_spawn_team1/2_start 6+6).
+//   G/Q every spawn_group_marker entity (S&D's selectable groups, userspawnselection.gsc:793) and
+//      each group's point structs.
+//   C  the minimap frame: the two minimap_corner points + getnorthyaw() (compass.gsc setupminimap),
+//      so the panel can lay the map art under the points, north up.
+//   O  this mode's objectives (bomb sites, DOM flags, Hardpoint / Control zones, CTF flags, the Gunfight
+//      flag, other entities kept for this mode) - deleted at load in every other mode, so a map needs a
+//      scan per mode; the panel merges the scans.
+//   L  the engine's LIVE lists for the loaded gametype: getspawnlists() names, each read per team
+//      with function_82061144( name, team ) - the call stock makes in function_b4f071cd
+//      (script_335d0650ed05d36d.gsc) - members as marker indices ('@x:y:z' for a non-marker).
+// Wire: level.gf_atlas[ i ] = "GFSPAWN|<stamp>|<map>|<i>|<n>|<records>|END", records ';'-separated,
+// fields ','-separated, ~1000 chars a chunk; <stamp> (getrealtime at the scan's start) ties one
+// scan's chunks together. Held for the level; a rescan replaces them.
+function private spawn_atlas_scan( who )
+{
+    if ( is_true( level.gf_atlas_busy ) )
+        return;
+
+    level.gf_atlas_busy = 1;
+    stamp = getrealtime();
+    map = tolower( getdvarstring( #"sv_mapname", "?" ) );
+    gt = tolower( getdvarstring( #"g_gametype", "?" ) );
+    st = spawnstruct();
+    st.chunks = [];
+    st.cur = "";
+
+    arr = struct::get_array( "mp_spawn_point", "targetname" );
+    if ( !isdefined( arr ) )
+        arr = [];
+
+    // H: version, map, gametype, marker count, map centre, host x/y/z/yaw, switched sides, team
+    // size, spawn guard, spawn family, then the source mod_spawn_build chose (free text, last).
+    hp = "-";
+    host = util::gethostplayer();
+    if ( isdefined( host ) && isalive( host ) )
+    {
+        ang = host getplayerangles();
+        hp = atlas_v( host.origin ) + "/" + int( ang[ 1 ] );
+    }
+
+    mc = isdefined( level.mapcenter ) ? atlas_v( level.mapcenter ) : "-";
+    sw = ( isdefined( game.switchedsides ) && game.switchedsides ) ? 1 : 0;
+    note = isdefined( level.gf_family_note ) ? level.gf_family_note : "";
+    atlas_add( st, "H,1," + map + "," + gt + "," + arr.size + "," + mc + "," + hp + "," + sw + "," + cfg_team_size() + "," + cfg_spawn_guard() + "," + cfg_spawn_family() + "," + atlas_word( note ) );
+
+    // C: the minimap frame - the two minimap_corner points and the map's north, exactly what
+    // compass.gsc setupminimap hands setminimap (function_d6cba2e9). The panel lays the map art on
+    // this rectangle, north up, like the in-game map. Entities in MP (util_shared reads them with
+    // getentarray); structs as a fallback.
+    corners = getentarray( "minimap_corner", "targetname" );
+    if ( !isdefined( corners ) || corners.size < 2 )
+        corners = struct::get_array( "minimap_corner", "targetname" );
+    ny = int( getnorthyaw() );
+    if ( isdefined( corners ) && corners.size >= 2 && isdefined( corners[ 0 ].origin ) && isdefined( corners[ 1 ].origin ) )
+        atlas_add( st, "C," + int( corners[ 0 ].origin[ 0 ] ) + "," + int( corners[ 0 ].origin[ 1 ] ) + "," + int( corners[ 1 ].origin[ 0 ] ) + "," + int( corners[ 1 ].origin[ 1 ] ) + "," + ny + "," + corners.size );
+    else
+        atlas_add( st, "C,-,-,-,-," + ny + "," + ( isdefined( corners ) ? corners.size : 0 ) );
+
+    for ( i = 0; i < arr.size; i++ )
+    {
+        s = arr[ i ];
+
+        if ( isdefined( s ) && isdefined( s.origin ) )
+            atlas_add( st, "M," + i + "," + atlas_pt( s ) + "," + ( isdefined( s.group_index ) ? int( s.group_index ) : -1 ) + "," + atlas_mflags( s ) + "," + atlas_m1( s ) + "," + atlas_m2( s ) + "," + atlas_m3( s ) );
+
+        if ( i % 12 == 11 )
+            waitframe( 1 );
+    }
+
+    waitframe( 1 );
+
+    // D / N: the legacy-named structs, one dictionary row per name that has any
+    k = 0;
+
+    foreach ( nm in mod_spawn_families() )
+    {
+        if ( nm == "mp_spawn_point" )
+            continue;
+
+        na = struct::get_array( nm, "targetname" );
+        if ( !isdefined( na ) || na.size == 0 )
+            continue;
+
+        atlas_add( st, "D," + k + "," + nm );
+
+        foreach ( s in na )
+        {
+            if ( isdefined( s ) && isdefined( s.origin ) )
+                atlas_add( st, "N," + k + "," + atlas_pt( s ) );
+        }
+
+        k++;
+    }
+
+    waitframe( 1 );
+
+    // G / Q: the S&D spawn groups and their points
+    gm = getentarray( "spawn_group_marker", "classname" );
+    if ( isdefined( gm ) )
+    {
+        for ( gi = 0; gi < gm.size; gi++ )
+        {
+            m = gm[ gi ];
+            if ( !isdefined( m ) || !isdefined( m.origin ) )
+                continue;
+
+            atlas_add( st, "G," + gi + "," + mod_group_side( m ) + "," + atlas_pt( m ) + "," + atlas_word( m.target ) + "," + atlas_word( m.script_objective ) + "," + atlas_word( m.script_team ) );
+
+            if ( isdefined( m.target ) )
+            {
+                raw = struct::get_array( m.target, "groupname" );
+                if ( isdefined( raw ) )
+                {
+                    foreach ( s in raw )
+                    {
+                        if ( isdefined( s ) && isdefined( s.origin ) )
+                            atlas_add( st, "Q," + gi + "," + atlas_pt( s ) );
+                    }
+                }
+            }
+
+            waitframe( 1 );
+        }
+    }
+
+    // O: this mode's objectives (bomb sites, flags, zones ...). Mode-specific map entities are
+    // DELETED at load in every other mode (gameobjects::main, entity_is_allowed on
+    // script_gameobjectname), so a scan sees only its own mode's: scan a map once per mode.
+    atlas_objectives( st );
+    waitframe( 1 );
+
+    // L: the engine's live lists for this gametype (string names only - the shape stock passes)
+    lists = getspawnlists();
+    if ( isdefined( lists ) && isarray( lists ) )
+    {
+        st.lut = [];
+        for ( i = 0; i < arr.size; i++ )
+        {
+            if ( isdefined( arr[ i ] ) && isdefined( arr[ i ].origin ) )
+                st.lut[ atlas_v( arr[ i ].origin ) ] = i;
+        }
+
+        waitframe( 1 );
+
+        foreach ( ln in lists )
+        {
+            if ( !isstring( ln ) )
+                continue;
+
+            atlas_list( st, ln, 1, function_82061144( ln, #"allies" ) );
+            waitframe( 1 );
+            atlas_list( st, ln, 2, function_82061144( ln, #"axis" ) );
+            waitframe( 1 );
+        }
+    }
+
+    if ( st.cur != "" )
+        st.chunks[ st.chunks.size ] = st.cur;
+
+    n = st.chunks.size;
+    out = [];
+    for ( c = 0; c < n; c++ )
+        out[ c ] = "GFSP" + "AWN|" + stamp + "|" + map + "|" + c + "|" + n + "|" + st.chunks[ c ] + "|END";
+
+    level.gf_atlas = out;
+    level.gf_atlas_stamp = stamp;
+    level.gf_atlas_busy = 0;
+
+    if ( isdefined( who ) )
+        who menu_say( "^2spawn atlas: " + arr.size + " markers, " + n + " chunks - the app files it" );
+}
+
+// The running mode's objectives as O records: "O,<kind>,x,y,z,yaw,<radius>,<targetname>,<label>,<gameobjectname>".
+// First the objective entities the stock gametypes read by name (the kind = that name), then every other
+// entity the gametype filter kept FOR THIS MODE (a script_gameobjectname other than "[all_modes]") that
+// is not a prop / brush / vehicle - kind "ent". 120 at most, a frame every 200 entities.
+function private atlas_objectives( st )
+{
+    names = [];
+    names[ names.size ] = "bombzone";
+    names[ names.size ] = "flag_primary";
+    names[ names.size ] = "flag_secondary";
+    names[ names.size ] = "koth_zone_center";
+    names[ names.size ] = "control_zone_center";
+    names[ names.size ] = "ctf_flag_pickup_trig";
+    names[ names.size ] = "ctf_flag_zone_trig";
+    names[ names.size ] = "gunfight_zone_center";
+    names[ names.size ] = "gunfight_flag_neutral";
+
+    seen = [];
+    n = 0;
+
+    foreach ( nm in names )
+    {
+        ents = getentarray( nm, "targetname" );
+        if ( !isdefined( ents ) )
+            continue;
+
+        foreach ( e in ents )
+        {
+            if ( n >= 120 || !isdefined( e ) || !isdefined( e.origin ) )
+                continue;
+
+            seen[ e getentitynumber() ] = 1;
+            atlas_add( st, atlas_obj( nm, e ) );
+            n++;
+        }
+    }
+
+    waitframe( 1 );
+
+    all = getentarray();
+    if ( !isdefined( all ) )
+        return;
+
+    for ( i = 0; i < all.size && n < 120; i++ )
+    {
+        if ( i % 200 == 199 )
+            waitframe( 1 );
+
+        e = all[ i ];
+        if ( !isdefined( e ) || !isdefined( e.origin ) || !isdefined( e.script_gameobjectname ) || isplayer( e ) )
+            continue;
+
+        if ( isstring( e.script_gameobjectname ) && e.script_gameobjectname == "[all_modes]" )
+            continue;
+
+        if ( isdefined( seen[ e getentitynumber() ] ) )
+            continue;
+
+        // classname is a STRING here (the form this file already compares, measured: death-barrier line,
+        // map-prop grab) - a hash literal would be a string/hash compare
+        cn = e.classname;
+        if ( isdefined( cn ) && isstring( cn ) && ( cn == "script_model" || cn == "script_brushmodel" || cn == "script_vehicle" || cn == "spawn_group_marker" ) )
+            continue;
+
+        atlas_add( st, atlas_obj( "ent", e ) );
+        n++;
+    }
+}
+
+function private atlas_obj( kind, e )
+{
+    r = ( isdefined( e.radius ) && !isstring( e.radius ) ) ? int( e.radius ) : 0;
+    return "O," + kind + "," + atlas_pt( e ) + "," + r + "," + atlas_word( e.targetname ) + "," + atlas_word( e.script_label ) + "," + atlas_word( e.script_gameobjectname );
+}
+
+// Append one record to the current chunk; start a new chunk before it passes 880 chars.
+// ⚠ A GSC string concatenation whose RESULT is longer than 1024 chars is FATAL: the engine's concat
+// (exe+0x1b75200) checks len(a) + len(b) > 0x400 and raises 0x91f84370 - MEASURED 2026-09-22, the
+// first atlas build crashed Nuketown at the publish step (a ~1000-char chunk + the GFSPAWN header), and
+// it is the same crash signature as the 09-19 Miami map-scan crash. So every string this scan builds
+// stays well under 1024: chunks <= 880 (+ the ~50-char header), list records flushed at 500.
+function private atlas_add( st, rec )
+{
+    if ( rec.size > 400 )
+        rec = getsubstr( rec, 0, 400 );
+
+    if ( st.cur != "" && st.cur.size + rec.size + 1 > 880 )
+    {
+        st.chunks[ st.chunks.size ] = st.cur;
+        st.cur = "";
+    }
+
+    st.cur += ( st.cur == "" ? "" : ";" ) + rec;
+}
+
+// One engine list for one side: "L,<name>,<side>,<size>,<members>" (members space-separated
+// marker indices, '@x:y:z' for a point that is not a marker), split once the member text passes 300
+// chars (by LENGTH, not count: '@x:y:z' members are ~20 chars each - the 1024-char concat limit).
+function private atlas_list( st, ln, side, pts )
+{
+    if ( !isdefined( pts ) || !isarray( pts ) )
+    {
+        atlas_add( st, "L," + ln + "," + side + ",-1," );
+        return;
+    }
+
+    rec = "";
+    cnt = 0;
+
+    foreach ( p in pts )
+    {
+        if ( !isdefined( p ) || !isdefined( p.origin ) )
+            continue;
+
+        key = atlas_v( p.origin );
+        rec += ( rec == "" ? "" : " " ) + ( isdefined( st.lut[ key ] ) ? ( "" + st.lut[ key ] ) : ( "@" + int( p.origin[ 0 ] ) + ":" + int( p.origin[ 1 ] ) + ":" + int( p.origin[ 2 ] ) ) );
+        cnt++;
+
+        if ( rec.size > 300 )
+        {
+            atlas_add( st, "L," + ln + "," + side + "," + pts.size + "," + rec );
+            rec = "";
+        }
+    }
+
+    if ( rec != "" || cnt == 0 )
+        atlas_add( st, "L," + ln + "," + side + "," + pts.size + "," + rec );
+}
+
+function private atlas_v( v )
+{
+    return int( v[ 0 ] ) + "/" + int( v[ 1 ] ) + "/" + int( v[ 2 ] );
+}
+
+// "x,y,z,yaw" of a struct / entity
+function private atlas_pt( s )
+{
+    return int( s.origin[ 0 ] ) + "," + int( s.origin[ 1 ] ) + "," + int( s.origin[ 2 ] ) + "," + ( isdefined( s.angles ) ? int( s.angles[ 1 ] ) : 0 );
+}
+
+// A free value as one wire-safe word: undefined "-", hash "#", separators folded to '_'.
+function private atlas_word( v )
+{
+    if ( !isdefined( v ) )
+        return "-";
+
+    if ( ishash( v ) )
+        return "#";
+
+    if ( !isstring( v ) )
+        v = "" + v;
+
+    if ( v.size > 64 )
+        v = getsubstr( v, 0, 64 );
+
+    out = "";
+    foreach ( w in strtok( v, ",;|" ) )
+        out += ( out == "" ? "" : "_" ) + w;
+
+    return out == "" ? "-" : out;
+}
+
+// 1 start (the engine's start_spawn flag, field hash 0xa3c53936) / 2 hq / 4 disabled
+function private atlas_mflags( s )
+{
+    f = 0;
+    if ( is_true( s._human_were ) ) f += 1;
+    if ( is_true( s.ishqspawn ) )   f += 2;
+    if ( is_true( s.disabled ) )    f += 4;
+    return f;
+}
+
+// The 25 modes of function_82ca1565, in its order (the app's SpawnModes table mirrors it).
+function private atlas_m1( s )
+{
+    m = 0;
+    if ( is_true( s.base ) )         m += 1;
+    if ( is_true( s.ffa ) )          m += 2;
+    if ( is_true( s.sd ) )           m += 4;
+    if ( is_true( s.ctf ) )          m += 8;
+    if ( is_true( s.domination ) )   m += 16;
+    if ( is_true( s.demolition ) )   m += 32;
+    if ( is_true( s.gg ) )           m += 64;
+    if ( is_true( s.tdm ) )          m += 128;
+    if ( is_true( s.infiltration ) ) m += 256;
+    if ( is_true( s.control ) )      m += 512;
+    if ( is_true( s.uplink ) )       m += 1024;
+    if ( is_true( s.kc ) )           m += 2048;
+    if ( is_true( s.hardpoint ) )    m += 4096;
+    if ( is_true( s.frontline ) )    m += 8192;
+    if ( is_true( s.ct ) )           m += 16384;
+    if ( is_true( s.escort ) )       m += 32768;
+    if ( is_true( s.bounty ) )       m += 65536;
+    if ( is_true( s.fireteam ) )     m += 131072;
+    if ( is_true( s.vip ) )          m += 262144;
+    if ( is_true( s.war ) )          m += 524288;
+    if ( is_true( s.dropkick ) )     m += 1048576;
+    if ( is_true( s.spy ) )          m += 2097152;
+    if ( is_true( s.var_3cb82e5e ) ) m += 4194304;
+    if ( is_true( s.var_d8e690f8 ) ) m += 8388608;
+    if ( is_true( s.var_3d72e6da ) ) m += 16777216;
+    return m;
+}
+
+// The objective sub-sets: DOM flags A-F, Demolition, Control (function_82ca1565's names;
+// registerlast_mapshouldstun is the dump's dictionary alias for control_defend_add_a's hash).
+function private atlas_m2( s )
+{
+    m = 0;
+    if ( is_true( s.domination_flag_a ) )          m += 1;
+    if ( is_true( s.domination_flag_b ) )          m += 2;
+    if ( is_true( s.domination_flag_c ) )          m += 4;
+    if ( is_true( s.var_99227e72 ) )               m += 8;
+    if ( is_true( s.var_6cd325d0 ) )               m += 16;
+    if ( is_true( s.var_991d7e64 ) )               m += 32;
+    if ( is_true( s.demolition_attacker_a ) )      m += 64;
+    if ( is_true( s.demolition_attacker_b ) )      m += 128;
+    if ( is_true( s.demolition_remove_a ) )        m += 256;
+    if ( is_true( s.demolition_remove_b ) )        m += 512;
+    if ( is_true( s.demolition_overtime ) )        m += 1024;
+    if ( is_true( s.demolition_start_spawn ) )     m += 2048;
+    if ( is_true( s.demolition_defender_a ) )      m += 4096;
+    if ( is_true( s.demolition_defender_b ) )      m += 8192;
+    if ( is_true( s.control_attack_add_a ) )       m += 16384;
+    if ( is_true( s.control_attack_add_b ) )       m += 32768;
+    if ( is_true( s.control_attack_remove_a ) )    m += 65536;
+    if ( is_true( s.control_attack_remove_b ) )    m += 131072;
+    if ( is_true( s.registerlast_mapshouldstun ) ) m += 262144;
+    if ( is_true( s.control_defend_add_b ) )       m += 524288;
+    if ( is_true( s.control_defend_remove_a ) )    m += 1048576;
+    if ( is_true( s.control_defend_remove_b ) )    m += 2097152;
+    return m;
+}
+
+// Hardpoint zones 0-9 (koth_zone_N) and war zones 0-4 (war_zone_N): function_fac242d0's lists.
+function private atlas_m3( s )
+{
+    m = 0;
+    if ( is_true( s.koth_zone_0 ) ) m += 1;
+    if ( is_true( s.koth_zone_1 ) ) m += 2;
+    if ( is_true( s.koth_zone_2 ) ) m += 4;
+    if ( is_true( s.koth_zone_3 ) ) m += 8;
+    if ( is_true( s.koth_zone_4 ) ) m += 16;
+    if ( is_true( s.koth_zone_5 ) ) m += 32;
+    if ( is_true( s.koth_zone_6 ) ) m += 64;
+    if ( is_true( s.koth_zone_7 ) ) m += 128;
+    if ( is_true( s.koth_zone_8 ) ) m += 256;
+    if ( is_true( s.koth_zone_9 ) ) m += 512;
+    if ( is_true( s.war_zone_0 ) )  m += 1024;
+    if ( is_true( s.war_zone_1 ) )  m += 2048;
+    if ( is_true( s.war_zone_2 ) )  m += 4096;
+    if ( is_true( s.war_zone_3 ) )  m += 8192;
+    if ( is_true( s.war_zone_4 ) )  m += 16384;
+    return m;
+}
+
+// The app's Spawns tab: re-read the per-map pick (gf_sp_map / gf_sp_a / gf_sp_b, written just
+// before this verb) and rebuild the anchors now - the NEXT spawn uses them (+ Restart round to see
+// it at once). "clear" drops the pick first.
+function private cmd_spawnpick( arg )
+{
+    if ( arg == "clear" )
+        setdvar( #"gf_sp_map", "" );
+
+    if ( !cfg_spawn_guard() )
+    {
+        self menu_say( "^3spawns: pick stored - the spawn guard is OFF, turn it on (AUTO) to use it" );
+        return;
+    }
+
+    mod_spawn_build();
+    level.var_cda5136b = &mod_spawn_override;
+    self menu_say( "^2spawns: " + spawn_source_note() + " - from the next spawn" );
+}
+
+function private act_spawn_atlas( item )
+{
+    level thread spawn_atlas_scan( self );
+    self menu_say( "^2spawn atlas: scanning this map for the app..." );
+    return true;
+}
+
+// The spawn source this level runs: the pick or family the guard armed, with a failed pick's
+// reason in front ("pick:area EMPTY 0/4 > tdm:78 starts 6/6").
+function private spawn_source_note()
+{
+    if ( !cfg_spawn_guard() )
+        return "guard off";
+
+    n = isdefined( level.gf_family_note ) ? level.gf_family_note : "";
+    if ( n == "" )
+        n = "stock";
+
+    if ( isdefined( level.gf_sp_note ) && level.gf_sp_note != "" && !is_true( level.gf_sp_active ) )
+        n = level.gf_sp_note + " > " + n;
+
+    return n;
+}
+
+// GFSTATE spn=: the source + how the living players were actually placed this round
+// (e engine start picker / a our anchors / s stock path).
+function private spawn_state_note()
+{
+    e = 0;
+    a = 0;
+    k = 0;
+
+    foreach ( p in getplayers() )
+    {
+        if ( !isalive( p ) || !isdefined( p.gf_spawn_how ) )
+            continue;
+
+        if ( p.gf_spawn_how == "engine" )
+            e++;
+        else if ( p.gf_spawn_how == "anchor" )
+            a++;
+        else
+            k++;
+    }
+
+    n = spawn_source_note() + " e" + e + " a" + a + " s" + k;
+    if ( n.size > 56 )
+        n = getsubstr( n, 0, 56 );
+
+    return n;
+}
+
 function private veh_spawn( item, type )
 {
     if ( !isassetloaded( "vehicle", type ) )
@@ -11993,6 +12830,7 @@ function private veh_spawn( item, type )
     veh.gf_spawned = 1;                        // ours: the round-end sweep / act_vehclear delete it
     veh.gf_owner = self;                       // whose: "Remove vehicles" sweeps only your own
     veh.gf_label = veh_label_of( type );       // its label (livery line / feed)
+    veh.gf_key = type;                         // the asset key (VEHICLE PROMPTS: fly / enter / control)
     veh.gf_kind = veh_kind_of( type );         // 1 = streak / intro / turret asset: no engine exit (crash 2026-09-20)
 
     if ( veh.gf_kind == 1 )
@@ -12452,9 +13290,16 @@ function private forgemode_apply_vis()
             continue;
 
         if ( show )
+        {
             t setvisibletoplayer( self );
+
+            if ( isdefined( t.gf_ent ) )
+                t sethintstringforplayer( self, self ahint_text_for( t.gf_ent ) );
+        }
         else
+        {
             t setinvisibletoplayer( self );
+        }
     }
 
     if ( !show && isdefined( self.gf_ahint_cursor ) )
@@ -12599,6 +13444,16 @@ function private ahint_scan()
     }
 }
 
+// The prompt one VIEWER reads (self = the viewer): his device's use-button token in front of the line.
+// klaze 2026-09-23 "forge mode missing its interact button icon": the prompts carried no token, and the
+// hint widget only draws that button when the token is IN the string (MEASURED 2026-09-22: the widget
+// hoists [{+activate}] / [{+usereload}] to the front of the line, a line without it draws no icon) -
+// HINT_ACTIVATE alone never drew one. Per viewer because the token differs per device (forge_bind).
+function private ahint_text_for( ent )
+{
+    return forge_key( "use" ) + " " + ahint_text( ent );
+}
+
 function private ahint_text( ent )
 {
     label = isdefined( ent.gf_model ) ? prop_short( ent.gf_model ) : "Prop";
@@ -12636,7 +13491,10 @@ function private ahint_attach( ent )
     foreach ( pl in getplayers() )
     {
         if ( is_true( pl.gf_forgemode ) && !is_true( pl.gf_ahint_hidden ) )
+        {
             t setvisibletoplayer( pl );
+            t sethintstringforplayer( pl, pl ahint_text_for( ent ) );
+        }
     }
 
     level.gf_ahints[ level.gf_ahints.size ] = t;
@@ -12757,10 +13615,12 @@ function private ahint_player_think()
         }
 
         open = ( isdefined( self.gfmenu ) && isdefined( self.gfmenu.current ) && self.gfmenu.current != "" ) || self forge_active();
+        pad = self gamepadusedlast();
 
-        if ( open != is_true( self.gf_ahint_hidden ) )
+        if ( open != is_true( self.gf_ahint_hidden ) || self.gf_ahint_pad !== pad )
         {
             self.gf_ahint_hidden = open;
+            self.gf_ahint_pad = pad;             // a device switch: the use-button glyph in his prompts
             self forgemode_apply_vis();
         }
 
@@ -12855,11 +13715,14 @@ function private ahint_aim( cur )
         return;
     }
 
-    if ( !isdefined( cur.gf_ent ) || cur.gf_ent != ent )
+    pad = self gamepadusedlast();
+
+    if ( !isdefined( cur.gf_ent ) || cur.gf_ent != ent || cur.gf_pad !== pad )
     {
         cur.gf_ent = ent;
+        cur.gf_pad = pad;
         cur.origin = ent.origin;
-        cur sethintstring( "^3Map prop   ^5grab" );
+        cur sethintstring( forge_key( "use" ) + " ^3Map prop   ^5grab" );     // the interact icon (klaze 2026-09-23)
         cur triggerenable( 1 );
     }
 }
@@ -13983,15 +14846,212 @@ function private act_giveweapon( item, whash, label )
     // Stock's own MP hand-out of a melee weapon (scream.gsc:605-609): give, start ammo, an
     // IMMEDIATE switch, and the loadout slot record so the weapon is a selectable primary - a bare
     // giveweapon + switchtoweapon left most melee weapons unselectable (klaze 2026-09-21).
-    p giveweapon( w );
-    p givestartammo( w );
-    p switchtoweapon( w, 1 );
+    // weapon_give_room does the give / ammo / switch and frees a slot when the player is full.
+    r = p weapon_give_room( w, label );
+
+    if ( !r.ok )
+    {
+        self menu_say( "^3Weapon: ^1not given - " + label + " ^8(" + r.held + " held)" );
+        return true;
+    }
 
     if ( isdefined( p.pers ) && isdefined( p.pers[ #"loadout" ] ) && isdefined( p.pers[ #"loadout" ].slots ) && isdefined( p.pers[ #"loadout" ].slots[ "primary" ] ) )
         p loadout::function_442539( "primary", w );
 
-    self menu_say( "^3Weapon: ^2" + label + self target_tail( p ) );
+    tail = isdefined( r.dropped ) ? ( " ^8(swapped out " + r.dropped + ")" ) : "";
+    self menu_say( "^3Weapon: ^2" + label + self target_tail( p ) + tail );
     return true;
+}
+
+// A player holds a limited number of weapons and a give past it is dropped with no error - klaze
+// 2026-09-23: "the weapons arent broke, they just stop giving once you are holding too many ... i
+// think the limit is 13". (The menu log that night: three melee gives took, then every give failed
+// whatever the weapon, the stock Knife and the launchers included.) So: a weapon already held is just
+// taken out; otherwise give it, and if the give did not take, free ONE slot and give again. The slot
+// = the oldest weapon this menu gave the player, else the gun in their hands, else another primary -
+// only getweaponslistprimaries() entries, never grenades, equipment, field upgrades or streak
+// weapons. If the retry fails too the removed weapon goes back (the slot was not the problem). No
+// count is assumed, so the real limit does not matter. self = the player; returns a struct:
+// ok, held (weapons held after), dropped (the label of what was swapped out, or undefined).
+function private weapon_give_room( w, label )
+{
+    r = spawnstruct();
+    r.ok = 0;
+
+    if ( self hasweapon( w ) )
+    {
+        self givestartammo( w );
+        weapon_ammo_topup( self, w );
+        self switchtoweapon( w, 1 );
+        r.ok = 1;
+        r.held = weapon_held_count( self );
+        return r;
+    }
+
+    self giveweapon( w );
+
+    if ( !( self hasweapon( w ) ) )
+    {
+        v = self weapon_give_victim( w );
+
+        if ( isdefined( v ) )
+        {
+            vl = self weapon_given_label( v );
+            self takeweapon( v );
+            self giveweapon( w );
+
+            if ( self hasweapon( w ) )
+            {
+                r.dropped = isdefined( vl ) ? vl : "a loadout gun";
+                self weapon_given_forget( v );
+            }
+            else
+            {
+                self giveweapon( v );
+                self givestartammo( v );
+            }
+        }
+    }
+
+    r.held = weapon_held_count( self );
+
+    if ( !( self hasweapon( w ) ) )
+        return r;
+
+    r.ok = 1;
+    self givestartammo( w );
+    weapon_ammo_topup( self, w );
+    self switchtoweapon( w, 1 );
+    self weapon_given_note( w, label );
+    return r;
+}
+
+// A streak / hero gun (Hand Cannon, War Machine, Death Machine, Flamethrower ...) comes out of a plain give
+// EMPTY - klaze 2026-09-24: "hand cannon is given with no ammo" - because stock fills those by hand when
+// it hands one out: killstreaks_shared.gsc:2167 setweaponammoclip( weapon, weapon.startammo ), zm
+// airsupport.gsc:99 setweaponammoclip( weapon, weapon.clipsize ), item_inventory.gsc:3825
+// setweaponammostock( weapon, weapon.maxammo ). Only an EMPTY clip / reserve is touched, so an ordinary
+// gun givestartammo already filled keeps exactly its stock ammo.
+function private weapon_ammo_topup( p, w )
+{
+    if ( p getweaponammoclip( w ) <= 0 )
+    {
+        n = 0;
+
+        if ( isdefined( w.clipsize ) && w.clipsize > 0 )
+            n = w.clipsize;
+        else if ( isdefined( w.startammo ) && w.startammo > 0 )
+            n = w.startammo;
+
+        if ( n > 0 )
+            p setweaponammoclip( w, n );
+    }
+
+    if ( p getweaponammostock( w ) <= 0 && isdefined( w.maxammo ) && w.maxammo > 0 )
+        p setweaponammostock( w, w.maxammo );
+}
+
+function private weapon_held_count( p )
+{
+    l = p getweaponslist();
+    return isdefined( l ) ? l.size : 0;
+}
+
+// The weapon to take out for room (self = the player; w = the one being given, never picked).
+function private weapon_give_victim( w )
+{
+    prim = self getweaponslistprimaries();
+
+    if ( !isdefined( prim ) || prim.size == 0 )
+        return undefined;
+
+    // 1. the oldest weapon this menu gave that is still held
+    if ( isdefined( self.gf_given ) )
+    {
+        foreach ( g in self.gf_given )
+        {
+            if ( isdefined( g.w ) && g.w != w && weapon_in_list( prim, g.w ) )
+                return g.w;
+        }
+    }
+
+    // 2. the gun in their hands
+    cur = self getcurrentweapon();
+
+    if ( isdefined( cur ) && cur != w && weapon_in_list( prim, cur ) )
+        return cur;
+
+    // 3. any other primary
+    foreach ( pw in prim )
+    {
+        if ( isdefined( pw ) && pw != w )
+            return pw;
+    }
+
+    return undefined;
+}
+
+function private weapon_in_list( list, w )
+{
+    foreach ( x in list )
+    {
+        if ( isdefined( x ) && x == w )
+            return true;
+    }
+
+    return false;
+}
+
+// self.gf_given = what this menu gave the player, oldest first ({ w, label }), pruned to what is
+// still held on every give, so it never outgrows the inventory.
+function private weapon_given_note( w, label )
+{
+    keep = [];
+
+    if ( isdefined( self.gf_given ) )
+    {
+        foreach ( g in self.gf_given )
+        {
+            if ( isdefined( g.w ) && g.w != w && self hasweapon( g.w ) )
+                keep[ keep.size ] = g;
+        }
+    }
+
+    e = spawnstruct();
+    e.w = w;
+    e.label = isdefined( label ) ? label : "weapon";
+    keep[ keep.size ] = e;
+    self.gf_given = keep;
+}
+
+function private weapon_given_label( w )
+{
+    if ( isdefined( self.gf_given ) )
+    {
+        foreach ( g in self.gf_given )
+        {
+            if ( isdefined( g.w ) && g.w == w )
+                return g.label;
+        }
+    }
+
+    return undefined;
+}
+
+function private weapon_given_forget( w )
+{
+    keep = [];
+
+    if ( isdefined( self.gf_given ) )
+    {
+        foreach ( g in self.gf_given )
+        {
+            if ( isdefined( g.w ) && g.w != w )
+                keep[ keep.size ] = g;
+        }
+    }
+
+    self.gf_given = keep;
 }
 
 // ── Cosmetics — force-applied via builtins, so they work regardless of whether
@@ -14004,6 +15064,25 @@ function private act_camo( item, id )
     if ( isdefined( w ) )
         p setcamo( w, id );
     self menu_say( "^2camo " + id + " on current weapon" + self target_tail( p ) );
+    return true;
+}
+
+// klaze 2026-09-24 ("Random gives a random camo"): act_camo's own call with a random row of the 121 mapped
+// camos - disco camo's range (1-121, docs/notes/loadout-camo.md), one shot.
+function private act_camo_random( item )
+{
+    p = self menu_target();
+    w = p getcurrentweapon();
+
+    if ( !isdefined( w ) || ( isdefined( level.weaponnone ) && w == level.weaponnone ) )
+    {
+        self menu_say( "^1Random camo: no gun in hand" + self target_tail( p ) );
+        return true;
+    }
+
+    id = 1 + randomint( 121 );
+    p setcamo( w, id );
+    self menu_say( "^3Random camo: ^2" + camo_label( id ) + self target_tail( p ) );
     return true;
 }
 
@@ -16093,7 +17172,7 @@ function private proj_is_nade( w )
     if ( is_true( w.isgrenadeweapon ) )
         return true;
 
-    return w == getweapon( #"special_grenadelauncher_t9" ) || w == getweapon( #"frag_grenade" );
+    return w == getweapon( #"special_grenadelauncher_t9" ) || w == getweapon( #"frag_grenade" ) || w == getweapon( #"hero_pineapplegun" );
 }
 
 // The weapon's own projectile speed where the def exposes it (zm_ai_hulk.gsc:2246 reads
@@ -16215,23 +17294,38 @@ function private proj_think()
 
         self.gf_proj_last = now;
         self proj_fire( w );
+
+        // Fun pack: extra spawns per trigger, spread 6 degrees (default 1 = none).
+        for ( extra = 1; extra < proj_count(); extra++ )
+            self proj_fire( w, 6 );
     }
 }
 
 // One shot -> one spawn, by the chosen method (0 = AUTO picks per weapon class). Counters
 // around the call so the line can tell "threw" (fire > ret) from "returned undefined" (none)
 // from "returned an entity" (ent + lastent).
-function private proj_fire( w )
+function private proj_fire( w, spread = 0 )
 {
     s = proj_stats();
     m = proj_method();
     use = m;
 
     if ( m == 0 )
-        use = proj_is_nade( w ) ? 4 : 1;
+    {
+        if ( proj_is_streak( w ) )
+            use = 7;
+        else
+            use = proj_is_nade( w ) ? 4 : 1;
+    }
 
     eye = self geteye();
-    fwd = anglestoforward( self getplayerangles() );
+    ang = self getplayerangles();
+
+    // spread > 0: an extra shot of Shots per trigger, jittered up to +-spread degrees.
+    if ( spread > 0 )
+        ang = ( ang[ 0 ] + randomint( spread * 2 + 1 ) - spread, ang[ 1 ] + randomint( spread * 2 + 1 ) - spread, ang[ 2 ] );
+
+    fwd = anglestoforward( ang );
     s.fire++;
 
     if ( use == 5 )
@@ -16269,7 +17363,17 @@ function private proj_fire( w )
         s.gave++;
     }
 
-    if ( use == 4 )
+    if ( use == 7 )
+    {
+        // Stock's own argument shapes: the jet missile gets a unit DIRECTION (jetfighter.gsc:571 -
+        // it flies itself), the bombs a VELOCITY (planemortar :582 ( 0, 0, -5000 ), napalm :392,
+        // Prop Hunt's stun fwd * 60).
+        if ( w == getweapon( #"jetfighter_missile" ) )
+            p = self magicmissile( w, start, fwd );
+        else
+            p = self magicmissile( w, start, vectorscale( fwd, proj_speed( w ) ) );
+    }
+    else if ( use == 4 )
         p = self magicgrenadeplayer( w, start, vectorscale( fwd, proj_speed( w ) ) );
     else if ( use == 2 )
         p = magicbullet( w, start, end );
@@ -16287,6 +17391,15 @@ function private proj_fire( w )
 
     s.ent++;
     level thread proj_watch( p, start, use );
+
+    if ( use == 7 )
+    {
+        // Stock teams every streak projectile it spawns (jetfighter.gsc:574-575, napalm :409-410),
+        // and PHA copies it; then the payloads stock delivers by SCRIPT, not by the weapon.
+        p.team = self.team;
+        p setteam( self.team );
+        level thread proj_impact( p, w, self );
+    }
 
     if ( use != 4 && isdefined( game.gf_proj_homing ) && game.gf_proj_homing )
     {
@@ -16552,9 +17665,9 @@ function private act_proj_rate( item, ms )
 // The spawn method (0 = AUTO, 1-6 explicit, see the block comment). Read live by proj_fire.
 function private act_proj_method( item, m, label )
 {
-    if ( m < 0 || m > 6 )
+    if ( m < 0 || m > 7 )
     {
-        self menu_say( "^1projectile method: 0 (auto) or 1-6" );
+        self menu_say( "^1projectile method: 0 (auto) or 1-7" );
         return true;
     }
 
@@ -16693,6 +17806,8 @@ function private forge_exit( item )
     if ( !fg.active )
         return true;
 
+    self forge_spray_end( fg, 0 );      // a clean exit mid-spray ends the burst record (no-op otherwise)
+
     // ⚠ forge_exit is called FROM forge_loop, which endon's #gf_forge_stop. Notifying that BEFORE the
     // restore killed this very thread mid-cleanup - forge stayed up, weapons stayed off (klaze). So
     // restore FIRST, then notify a DIFFERENT event (the loop does not endon #gf_forge_done).
@@ -16736,6 +17851,31 @@ function private forge_restore()
     }
 
     self others_hint_update();
+
+    // klaze 2026-09-23: "the forge mode ui when holding a prop stayed up even after dropping it". The
+    // forge legend sits on this player's hint trigger. A menu owner's menu_think paints the idle line
+    // over it the next frame, but a player who only has FORGE MODE (no menu of his own) runs no
+    // menu_think - nothing ever replaced the legend. So: no menu -> the trigger goes (the legend with
+    // it); a menu owner's trigger is marked stale so his idle line is re-sent whatever the cache says.
+    if ( self hint_has_menu() )
+    {
+        if ( isdefined( self.gfmenu_hint ) )
+            self.gfmenu_hint.gf_txt = undefined;
+    }
+    else
+    {
+        self menu_hint_hide();
+    }
+}
+
+// Does this player run a menu_think of his own (the host's menu, or a granted client menu)? Only those
+// repaint their hint bar; everybody else's hint trigger must be cleared by whoever painted it.
+function private hint_has_menu()
+{
+    if ( !isdefined( self.gfmenu ) )
+        return false;
+
+    return ( self ishost() || is_true( self.gf_client_menu ) );
 }
 
 // Safety net: if forge ends any way OTHER than a clean exit - DEATH (every Gunfight round), a
@@ -16911,7 +18051,40 @@ function private forge_loop()
                 self forge_cycle( ads ? -1 : 1 );   // weapon-switch (keyboard scroll) = cycle
 
             if ( a && !pa )
+            {
                 self forge_place();
+                fg.spray_t = gettime();
+                fg.spray_capped = 0;
+            }
+            else if ( a && forge_spray_ms() > 0 && isdefined( fg.spray_t ) && gettime() - fg.spray_t >= forge_spray_ms() )
+            {
+                // Held past the interval: SPRAY (fun pack 2, PHA's "Change object spawned interval").
+                // Quiet placements, capped like the prop gun so a held trigger cannot eat the entity pool.
+                fg.spray_t = gettime();
+
+                if ( isdefined( level.gf_props ) && level.gf_props.size >= 200 )
+                {
+                    if ( !is_true( fg.spray_capped ) )
+                    {
+                        self menu_say( "^1Spray: 200 props up - delete some first" );
+                        self forge_spray_end( fg, 1 );
+                    }
+
+                    fg.spray_capped = 1;
+                }
+                else
+                {
+                    if ( !is_true( fg.spray_on ) )
+                        self forge_spray_start( fg );
+
+                    self forge_place( 1 );
+                    fg.spray_n++;
+                }
+            }
+            else if ( !a && is_true( fg.spray_on ) )
+            {
+                self forge_spray_end( fg, 0 );      // Fire released: the burst is over
+            }
 
             // (no grab in the placer - grabbing is FORGE MODE's, klaze 2026-09-22: "separate grab entirely
             //  from the props placer. instead make forge mode its own thing")
@@ -16990,7 +18163,10 @@ function private forge_update_preview()
     }
 
     ent.origin = pos;
-    ent.angles = ( 0, ang[ 1 ] + 180 + fg.yaw, 0 );
+    // Fun pack tilt (act_ft_tilt): new props only - a grabbed prop keeps the flat behaviour.
+    tilt_p = ( isdefined( fg.grabbed ) || !isdefined( fg.tilt_p ) ) ? 0 : fg.tilt_p;
+    tilt_r = ( isdefined( fg.grabbed ) || !isdefined( fg.tilt_r ) ) ? 0 : fg.tilt_r;
+    ent.angles = ( tilt_p, ang[ 1 ] + 180 + fg.yaw, tilt_r );
     ent setscale( fg.scale );
 }
 
@@ -17086,7 +18262,7 @@ function private forge_centre_paint()
     self iprintlnbold( "^3[" + ( fg.idx + 1 ) + "/" + m.size + "]  ^7" + m[ fg.idx ].label + ( m[ fg.idx ].barrel ? "  ^1(barrel)" : "" ) );   // no code name (klaze 2026-09-21)
 }
 
-function private forge_place()
+function private forge_place( quiet = 0 )
 {
     fg = self forge_state();
     m = prop_master();
@@ -17113,6 +18289,14 @@ function private forge_place()
         pang = ( 0, ang[ 1 ] + 180 + fg.yaw, 0 );
     }
 
+    // MENU LOG: written before the spawn, so a placement that takes the level down is on record.
+    // quiet = a forge SPRAY placement (fun pack 2): logged per BURST instead (forge_spray_start / _end,
+    // bocw-12's two-record shape) - one record per prop at 10 a second would roll game.gf_log.
+    lseq = undefined;
+
+    if ( !quiet )
+        lseq = gflog_add( self, "Forge", "place " + prop_short( model ) );
+
     p = spawn( "script_model", org );
     p setmodel( model );
     p.angles = pang;
@@ -17123,6 +18307,7 @@ function private forge_place()
     p.targetname = "gf_prop";
     p.gf_model = model;             // tag so forge_resave rebuilds game.gf_forge from the live props
     p.gf_scale = fg.scale;
+    p.gf_owner = self;              // the app's entity list shows who placed it
 
     if ( !isdefined( level.gf_props ) )
         level.gf_props = [];
@@ -17138,8 +18323,27 @@ function private forge_place()
         p thread barrel_think();
     }
 
+    // Auto-link (fun pack 2, PHA's "Auto link on spawned"): the first prop placed with it on is the
+    // BASE, every later one rides it - a star, not a chain, so deleting one rider breaks nothing.
+    // Spin / move the base with Forge tools and the whole build turns with it. Not saved.
+    if ( is_true( game.gf_forge_autolink ) )
+    {
+        if ( !isdefined( level.gf_forge_link_base ) )
+            level.gf_forge_link_base = p;
+        else
+        {
+            p linkto( level.gf_forge_link_base );
+            p.gf_link_parent = level.gf_forge_link_base;
+        }
+    }
+
     self forge_resave();
-    self menu_say( "^2placed " + prop_short( model ) + " (" + level.gf_props.size + " up)" );
+
+    if ( !quiet )
+    {
+        self menu_say( "^2placed " + prop_short( model ) + " (" + level.gf_props.size + " up)" );
+        gflog_result( lseq, level.gf_props.size + " up" );
+    }
 }
 
 // ── Persistence: game.gf_forge[map] = array of packed "model;x;y;z;yaw;scale100;barrel" strings.
@@ -17272,6 +18476,7 @@ function private forge_delete_entity( ent )
         return false;
 
     ours = ( isdefined( ent.targetname ) && ent.targetname == "gf_prop" );
+    gflog_add( self, "Forge", ( ours ? "delete " : "delete map ent " ) + gflog_field( ent.model, 20 ) );
 
     if ( ours && isdefined( level.gf_props ) )
     {
@@ -17359,6 +18564,7 @@ function private forge_delete_grabbed()
     ent = fg.grabbed;
     ours = fg.grab_ours;
     fg.grabbed = undefined;
+    gflog_add( self, "Forge", ( ours ? "delete " : "delete map ent " ) + ( isdefined( ent ) ? gflog_field( ent.model, 20 ) : "-" ) );
 
     if ( ours && isdefined( level.gf_props ) )      // drop it from the live list before deleting
     {
@@ -17456,14 +18662,7 @@ function private forge_hint_paint()
     // as the menu / idle hints; every set re-runs the LUI transition = flicker).
     fg = self forge_state();
     txt = self forge_controls_hint( fg );
-
-    if ( isdefined( self.gfmenu ) && isdefined( self.gfmenu.last_hint ) && self.gfmenu.last_hint == txt )
-        return;
-
-    if ( isdefined( self.gfmenu ) )
-        self.gfmenu.last_hint = txt;
-
-    self menu_hint_trigger() sethintstring( txt );
+    self menu_hint_set( txt );
 }
 
 function private forge_controls_hint( fg )
@@ -17704,22 +18903,27 @@ function private menu_nav_hint()
     // 2026-09-21: Up=select gives select a visible D-pad glyph now the use-prompt Square is gone);
     // the vertical lists Up / Down = last / next, Right = select, Left = back - while keyboard / mouse shows R, RMB,
     // LMB, V (the reload token renders inline as the key cap there). Three-space spacers.
+    // klaze 2026-09-23: "edit the menu controls, add spacers between controls and capitalize them.
+    // use this order: Open | Next | Last | Back" - then (same day) "the menu control for select should say
+    // Select not Open": Select | Next | Last | Back, the forge legend's ^8| spacer.
+    sep = "  ^8|  ^7";
+
     if ( cfg_geti( #"gf_hint_glyphs", 1 ) )
     {
         if ( isdefined( self ) && isplayer( self ) && self gamepadusedlast() )
         {
             if ( cfg_menu_region() == 2 )
-                return "^7" + forge_key( "up" ) + " ^5select   ^7" + forge_key( "left" ) + " ^5last   ^7" + forge_key( "right" ) + " ^5next   ^7" + forge_key( "down" ) + " ^5back";
+                return "^7" + forge_key( "up" ) + " ^5Select" + sep + forge_key( "right" ) + " ^5Next" + sep + forge_key( "left" ) + " ^5Last" + sep + forge_key( "down" ) + " ^5Back";
 
             // vertical lists: select = D-right (keys_nav_refresh as4), shown with its own glyph too
-            return "^7" + forge_key( "right" ) + " ^5select   ^7" + forge_key( "up" ) + " ^5last   ^7" + forge_key( "down" ) + " ^5next   ^7" + forge_key( "left" ) + " ^5back";
+            return "^7" + forge_key( "right" ) + " ^5Select" + sep + forge_key( "down" ) + " ^5Next" + sep + forge_key( "up" ) + " ^5Last" + sep + forge_key( "left" ) + " ^5Back";
         }
 
-        return "^7" + forge_key( "reload" ) + " ^5select   ^7" + forge_key( "ads" ) + " ^5last   ^7" +
-               forge_key( "place" ) + " ^5next   ^7" + forge_key( "melee" ) + " ^5back";
+        return "^7" + forge_key( "reload" ) + " ^5Select" + sep + forge_key( "place" ) + " ^5Next" + sep +
+               forge_key( "ads" ) + " ^5Last" + sep + forge_key( "melee" ) + " ^5Back";
     }
 
-    return getdvarstring( #"gf_hint_nav", "^7R ^5select   ^7RMB ^5last   ^7LMB ^5next   ^7V ^5back" );
+    return getdvarstring( #"gf_hint_nav", "^7R ^5Select  ^8|  ^7LMB ^5Next  ^8|  ^7RMB ^5Last  ^8|  ^7V ^5Back" );
 }
 
 // Always-on host hint while idle (menu closed, not forging): how to open the menu, with glyphs.
@@ -17732,18 +18936,14 @@ function private menu_idle_hint()
     if ( isdefined( self.gf_ahint_txt ) && isdefined( self.gf_ahint_until ) && gettime() < self.gf_ahint_until )
         txt = self.gf_ahint_txt;
     else if ( is_true( self.gf_forgemode ) )
-        txt = "^3FORGE MODE  ^7aim at a prop to grab it";      // the prompt itself carries the button
+        txt = forge_key( "use" ) + " ^3FORGE MODE  ^7aim at a prop, tap to grab";      // the interact icon (klaze 2026-09-23)
     // Else: controller opens on D-pad Up, keyboard/mouse on ADS+Melee (menu_think) - device-aware (klaze).
     else if ( isplayer( self ) && self gamepadusedlast() )
         txt = "^3Open menu: ^7" + forge_key( "up" );
     else
         txt = "^3Open menu: ^7" + forge_key( "ads" ) + " ^7+ " + forge_key( "melee" );   // spaces round the + (klaze)
 
-    if ( isdefined( self.gfmenu.last_hint ) && self.gfmenu.last_hint == txt )
-        return;
-
-    self.gfmenu.last_hint = txt;
-    self menu_hint_trigger() sethintstring( txt );
+    self menu_hint_set( txt, 1 );       // low priority: a world prompt you stand at wins over this line
 }
 
 // ============================================================================================
@@ -17883,27 +19083,13 @@ function private cmd_forgegrant( arg )
         return;
     }
 
-    if ( tolower( arg ) == "off" )
-    {
-        if ( !isbot( p ) && isdefined( game.gf_client_grants ) )
-            game.gf_client_grants[ p getxuid() ] = undefined;
-        p client_menu_revoke();
-        self menu_say( "^2revoked client menu from " + p.name );
-    }
+    on = ( tolower( arg ) != "off" );
+    r = client_grant_set( p, on );
+
+    if ( r != "" )
+        self menu_say( "^1grant: " + r );
     else
-    {
-        // Persist the grant keyed by xuid so it survives the per-round level rebuild and a rejoin
-        // (klaze 2026-09-21: "make a client's menu access survive a restart"). forge_on_spawned
-        // re-applies it each spawn. Bots can't drive a menu, so they are not stored.
-        if ( !isbot( p ) )
-        {
-            if ( !isdefined( game.gf_client_grants ) )
-                game.gf_client_grants = [];
-            game.gf_client_grants[ p getxuid() ] = 1;
-        }
-        p thread client_menu_grant();
-        self menu_say( "^2gave client menu to " + p.name );
-    }
+        self menu_say( on ? ( "^2gave client menu to " + p.name ) : ( "^2revoked client menu from " + p.name ) );
 }
 
 function private client_menu_grant( silent = 0 )      // runs ON the granted (non-host) player
@@ -17922,6 +19108,7 @@ function private client_menu_grant( silent = 0 )      // runs ON the granted (no
 
     self notify( #"gfmenu_restart" );      // drop any prior menu_think so a re-grant does not stack threads
     self thread menu_think();
+    self thread hudbox_think();
     self others_hint_show();
 
     if ( !silent )                          // announce only the first grant, not the per-round re-establish
@@ -17987,6 +19174,15 @@ function private client_player_enter( menu )
     // Move speed is per player (gf_speed_pct, read by speed_apply each spawn), so a client can set
     // their own: the same cycle the host's per-client row uses, aimed at self (klaze 2026-09-22).
     self menu_item( "client_player", "Speed: " + client_speed_label( self ), &act_c_speed, self );
+    // Slide presets (klaze 2026-09-24) - this player's own, pers-held (slide_mode), one at a time.
+    it = self menu_item( "client_player", "Super Slide", &act_slide_mode, 1 );
+    it.detail = "150% speed + long slide";
+    it.gf_slidemode = 1;
+    it.activated = ( slide_mode( self ) == 1 );
+    it = self menu_item( "client_player", "Infinite Slide", &act_slide_mode, 2 );
+    it.detail = "glide the way you look, JUMP stops";
+    it.gf_slidemode = 2;
+    it.activated = ( slide_mode( self ) == 2 );
     // (no Unlock all here - klaze 2026-09-22)
     self menu_item( "client_player", "Operator", &act_client_hub, "operator" );
     self menu_item( "client_player", "Outfit / skin", &act_client_hub, "outfit" );
@@ -18009,6 +19205,8 @@ function private client_tp_enter( menu )
 {
     self menu_clear_items( "client_tp" );
     self menu_item( "client_tp", "Me to host", &act_ctp_host );
+    // klaze 2026-09-23: "in clients menu, let them choose any player for them to teleport to"
+    self menu_item( "client_tp", "Me to a player", &menu_switch, "client_tp_to" );
     self menu_item( "client_tp", "Me to crosshair", &act_tp_me, "aim" );
     it = self menu_item( "client_tp", "Teleport gun", &act_tpgun, "host" );
     it.detail = "shoot to go there";
@@ -18039,6 +19237,120 @@ function private act_ctp_host( item )
     if ( tp_place( self, h.origin, h.angles ) )
         self menu_say( "^2teleported to host" );
 
+    return true;
+}
+
+// "Me to a player" (klaze 2026-09-23): every other player in the match, rebuilt each time the page
+// opens; a row puts ME in front of that player, facing them - the Players page's "Teleport me to
+// them" (act_tp_player "metothem"), with the granted client as self. Dead / in-vehicle cases answer
+// the way that verb already does.
+function private client_tp_to_enter( menu )
+{
+    self menu_clear_items( "client_tp_to" );
+    n = 0;
+
+    foreach ( p in getplayers() )
+    {
+        if ( !isdefined( p ) || p == self || !isdefined( p.name ) )
+            continue;
+
+        tag = isbot( p ) ? "  ^8bot" : ( ( p ishost() ) ? "  ^8host" : "" );
+        self menu_item( "client_tp_to", p.name + tag, &act_tp_player, p, "metothem" );
+        n++;
+    }
+
+    if ( n == 0 )
+        self menu_item( "client_tp_to", "(nobody else here)", undefined );
+}
+
+// ── Client-menu grants, one or all (klaze 2026-09-23: "make it easier to give menus" + a give-all /
+// revoke-all button). The xuid store (game.gf_client_grants) is what survives the round rebuild and a
+// rejoin (forge_on_spawned re-grants from it); bots and the host never get one. "" = done.
+function private client_grant_set( p, on )
+{
+    if ( !isdefined( p ) || !isplayer( p ) )
+        return "no such player";
+
+    if ( p ishost() )
+        return "that is the host";
+
+    if ( isbot( p ) )
+        return "bots cannot use a menu";
+
+    if ( on )
+    {
+        if ( !isdefined( game.gf_client_grants ) )
+            game.gf_client_grants = [];
+
+        game.gf_client_grants[ p getxuid() ] = 1;
+        p thread client_menu_grant();
+    }
+    else
+    {
+        if ( isdefined( game.gf_client_grants ) )
+            game.gf_client_grants[ p getxuid() ] = undefined;
+
+        p client_menu_revoke();
+    }
+
+    return "";
+}
+
+function private client_has_grant( p )
+{
+    if ( !isdefined( p ) || !isplayer( p ) || isbot( p ) )
+        return false;
+
+    if ( is_true( p.gf_client_menu ) )
+        return true;
+
+    return isdefined( game.gf_client_grants ) && is_true( game.gf_client_grants[ p getxuid() ] );
+}
+
+// Every human but the host: on = give, off = take back. Returns how many changed.
+function private client_grant_all( on )
+{
+    n = 0;
+
+    foreach ( p in getplayers() )
+    {
+        if ( !isdefined( p ) || isbot( p ) || p ishost() )
+            continue;
+
+        if ( on == client_has_grant( p ) )
+            continue;
+
+        if ( client_grant_set( p, on ) == "" )
+            n++;
+    }
+
+    return n;
+}
+
+function private act_menu_all( item, on )
+{
+    n = client_grant_all( on );
+    self menu_say( on ? ( "^2client menu given to " + n + " player(s)" ) : ( "^3client menu taken from " + n + " player(s)" ) );
+    return true;
+}
+
+// The Players page's per-player row: give / take back that player's client menu.
+function private act_c_menu( item, player )
+{
+    if ( !client_ok( player ) )
+        return true;
+
+    on = !client_has_grant( player );
+    r = client_grant_set( player, on );
+
+    if ( r != "" )
+    {
+        self menu_say( "^1client menu: " + r );
+        return true;
+    }
+
+    item.name = on ? "Client menu: take back" : "Client menu: give";
+    self menu_say( on ? ( "^2gave client menu to " + player.name ) : ( "^3took the client menu from " + player.name ) );
     return true;
 }
 
@@ -18709,6 +20021,7 @@ function private act_barrel_spawn( item, model, scale )
     }
 
     b.targetname = "gf_prop";
+    b.gf_owner = self;              // the app's entity list shows who placed it
     b setmodel( model );
 
     if ( scale != 1 )
@@ -18887,6 +20200,7 @@ function private act_prop_spawn( item, model, scale )
     }
 
     prop.targetname = "gf_prop";
+    prop.gf_owner = self;           // the app's entity list shows who placed it
     prop setmodel( model );
 
     if ( scale != 1 )
@@ -19514,7 +20828,9 @@ function private act_gametype( item, gt )
 //   GFSTATE|<tick>|k=v|k=v|...|say=<text>|END     every 1 s (the tick and the clock move anyway)
 //   GFPLAYERS|<tick>|<n>|<rec>|<rec>|...|END      rebuilt every 1 s, published only on change
 //     rec = entnum;name;team;kind;xuid;alive;score;kills;deaths;flags
-//     flags: g god  f fly  t third person  z frozen  v riding
+//     flags: g god  f fly  t third person  z frozen  v riding  m client menu  F forge mode
+//   GFSPAWN|<stamp>|<map>|<i>|<n>|<records>|END  the spawn atlas, n chunks of one scan (spawn_atlas_scan)
+//   GFSPAWNED|<stamp>|<map>|<i>|<n>|V,..;E,..|END the match's spawn events, the live overlay (spawnev_publish)
 //
 // Command acks: the app writes `gf_cmd_seq N` before `gf_cmd_go 1`. cmd_poll records N in
 // level.gf_ack_seq once the command has been dispatched and IGNORES a pulse that repeats the
@@ -19635,6 +20951,17 @@ function private state_build()
     level.gf_state_st = 9;
     host = util::gethostplayer();
     s += "|host=" + ( ( isdefined( host ) && isdefined( host.name ) ) ? host.name : "" );
+    s += "|spn=" + spawn_state_note();
+    s += "|spv=" + ( isdefined( game.gf_spawnev_ver ) ? ( game.gf_spawnev_match + "." + game.gf_spawnev_ver ) : "0" );
+    // The saved-log fields (2026-09-23): match id, match over (the FINAL round's end, not any round's),
+    // entity count (sampled every 5 s), the newest menu-log seq (the panel collects GFLOG when it moves).
+    // Four numbers, < 60 chars together - the line stays far under 1024.
+    level.gf_state_st = 12;
+    s += "|mid=" + ( isdefined( game.gf_mid ) ? game.gf_mid : 0 );
+    s += "|mo=" + ( state_match_over() ? 1 : 0 );
+    s += "|ents=" + state_ents();
+    s += "|lg=" + ( isdefined( game.gf_log_seq ) ? game.gf_log_seq : 0 );
+    s += "|ev=" + ( isdefined( level.gf_entlist_ver ) ? level.gf_entlist_ver : 0 );   // GFENTS stamp (bocw-84)
     level.gf_state_st = 10;
     say = ( isdefined( level.gf_lastsay ) && isstring( level.gf_lastsay ) ) ? level.gf_lastsay : "";
 
@@ -19661,6 +20988,157 @@ function private state_phase()
         return "playing";
 
     return "other";
+}
+
+// mo=1: the MATCH is over - the end screen of its final round. Stock marks every round end the same
+// way (gamestate postgame + level.gameended, globallogic.gsc:2327-2329) and tells the last one apart
+// with util::isoneround() || util::waslastround() (globallogic.gsc:2227). Those read level fields
+// globallogic sets at start (roundlimit / forcedend / scorelimit / scoreroundwinbased), guarded here.
+function private state_match_over()
+{
+    if ( !is_true( level.gameended ) )
+        return false;
+
+    if ( !isdefined( level.roundlimit ) || !isdefined( level.forcedend ) || !isdefined( level.scorelimit ) || !isdefined( level.scoreroundwinbased ) )
+        return false;
+
+    return util::isoneround() || util::waslastround();
+}
+
+// ents=: every entity in the level - getentarray() with no argument, as stock MP calls it
+// (serversettings.gsc:139, gameobjects_shared.gsc:583) - sampled every 5 s, not every line. The panel
+// keeps each match's peak, so a level that runs out of entities shows the climb in the saved log.
+function private state_ents()
+{
+    now = gettime();
+
+    if ( !isdefined( level.gf_ents ) || !isdefined( level.gf_ents_at ) || now - level.gf_ents_at >= 5000 || now < level.gf_ents_at )
+    {
+        a = getentarray();
+        level.gf_ents = isdefined( a ) ? a.size : -1;
+        level.gf_ents_at = now;
+    }
+
+    return level.gf_ents;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MENU LOG (GFLOG) — klaze 2026-09-23: "build out the log system with saves. can we log what users do
+// in their menus too?" - after the 2026-09-22 Miami match that dropped everyone to the lobby left
+// nothing on disk to explain it. Every menu action (the host's and every granted client's) and every
+// forge placement / delete is one record; the panel collects the line when GFSTATE lg= moves and
+// writes each record into its saved activity log, so a match that dies leaves "who did what" on disk.
+//
+//   GFLOG|<tick>|<mid>|<rec>;<rec>;...|END      republished on every add, newest record last
+//   rec = seq,ms,entnum,who,page,item,result
+//     seq     per match (game.) - the panel dedupes across republishes and round restarts
+//     ms      getrealtime() when the action STARTED (the panel maps it to wall time via GFSTATE's tick)
+//     result  the action's first menu_say, filled in after it returns. An EMPTY result on the newest
+//             record = the action never returned (the level died inside it).
+// The record goes out BEFORE the action runs, so an action that takes the level down is on the line.
+// ⚠ < 1024 chars (CLAUDE.md "GSC crash rules"): every field is capped (atlas_word strips , ; |), a
+// record is <= ~130 chars, and the line keeps only the newest records that fit in 880 chars - by
+// LENGTH, never by count. game.gf_log holds the match's last 24 for republishing after a round restart.
+// ═════════════════════════════════════════════════════════════════════════════
+
+function private gflog_add( p, page, item )
+{
+    if ( !isdefined( game.gf_log ) )
+    {
+        game.gf_log = [];
+        game.gf_log_seq = 0;
+    }
+
+    game.gf_log_seq++;
+    ent = -1;
+    who = "?";
+
+    if ( isdefined( p ) && isplayer( p ) )
+    {
+        ent = p getentitynumber();
+        who = gflog_field( p.name, 16 );
+    }
+
+    // strings, not structs, in game. (the forge store's rule: they survive the round rebuild reliably);
+    // the trailing comma is the empty result gflog_result fills in
+    rec = game.gf_log_seq + "," + getrealtime() + "," + ent + "," + who + "," + gflog_field( page, 16 ) + "," + gflog_field( item, 28 ) + ",";
+
+    if ( game.gf_log.size >= 24 )
+    {
+        kept = [];
+
+        for ( i = game.gf_log.size - 23; i < game.gf_log.size; i++ )
+            kept[ kept.size ] = game.gf_log[ i ];
+
+        game.gf_log = kept;
+    }
+
+    game.gf_log[ game.gf_log.size ] = rec;
+    gflog_publish();
+    return game.gf_log_seq;
+}
+
+// Fill in a record's result (once: only while it is still empty) and republish.
+function private gflog_result( seq, txt )
+{
+    if ( !isdefined( seq ) || !isdefined( txt ) || !isdefined( game.gf_log ) )
+        return;
+
+    prefix = seq + ",";
+
+    for ( i = game.gf_log.size - 1; i >= 0; i-- )
+    {
+        rec = game.gf_log[ i ];
+
+        if ( rec.size < prefix.size || getsubstr( rec, 0, prefix.size ) != prefix )
+            continue;
+
+        if ( getsubstr( rec, rec.size - 1 ) == "," )
+        {
+            game.gf_log[ i ] = rec + gflog_field( txt, 44 );
+            gflog_publish();
+        }
+
+        return;
+    }
+}
+
+// The newest records that fit in 880 chars, oldest first, behind the stamp and the match id.
+function private gflog_publish()
+{
+    if ( !isdefined( game.gf_log ) || game.gf_log.size == 0 )
+        return;
+
+    body = "";
+
+    for ( i = game.gf_log.size - 1; i >= 0; i-- )
+    {
+        rec = game.gf_log[ i ];
+
+        if ( body != "" && body.size + rec.size + 1 > 880 )
+            break;
+
+        body = ( body == "" ) ? rec : ( rec + ";" + body );
+    }
+
+    level.gf_log_pub = "GF" + "LOG|" + getrealtime() + "|" + ( isdefined( game.gf_mid ) ? game.gf_mid : 0 ) + "|" + body + "|" + "END";
+}
+
+// One record field: atlas_word (undefined -> "-", a hash -> "#", , ; | stripped, <= 64) cut to cap.
+function private gflog_field( v, cap )
+{
+    w = atlas_word( v );
+
+    if ( w.size > cap )
+        w = getsubstr( w, 0, cap );
+
+    return w;
+}
+
+// A row whose data1 names a page is navigation (menu_switch / act_client_hub), not an action.
+function private gflog_is_nav( item )
+{
+    return isdefined( item.data1 ) && isstring( item.data1 ) && isdefined( self.gfmenu.menus[ item.data1 ] );
 }
 
 function private players_publish()
@@ -19717,14 +21195,28 @@ function private players_build()
         if ( is_true( p.gf_tp ) )     fl += "t";
         if ( is_true( p.gf_frozen ) ) fl += "z";
         if ( isdefined( p.gf_veh ) )  fl += "v";
+        // m = has a granted client menu (the flag, or the xuid grant store that re-grants it each spawn)
+        // F = forge mode (klaze 2026-09-23: "App needs to clearly show who has a client menu")
+        if ( !bot && ( is_true( p.gf_client_menu ) || ( isdefined( game.gf_client_grants ) && isdefined( xuid ) && is_true( game.gf_client_grants[ xuid ] ) ) ) )
+            fl += "m";
+        if ( is_true( p.gf_forgemode ) ) fl += "F";
 
-        s += "|" + p getentitynumber() + ";" + p.name + ";" + team_tag( p ) + ";" + kind
+        rec = "|" + p getentitynumber() + ";" + p.name + ";" + team_tag( p ) + ";" + kind
             + ";" + ( isdefined( xuid ) ? ( "" + xuid ) : "" )
             + ";" + ( isalive( p ) ? 1 : 0 )
             + ";" + ( isdefined( p.score ) ? p.score : 0 )
             + ";" + ( isdefined( p.kills ) ? p.kills : 0 )
             + ";" + ( isdefined( p.deaths ) ? p.deaths : 0 )
             + ";" + fl;
+
+        // ⚠ a concatenation RESULT over 1024 chars is fatal (0x91f84370, measured 2026-09-22 - see
+        // atlas_add): a human record is up to ~80 chars, so a full human lobby could pass 1024. Stop
+        // listing before the line (+ its ~30-char GFPLAYERS header) gets there; the players stay in
+        // the game, only the panel's list is short.
+        if ( s.size + rec.size > 940 )
+            continue;
+
+        s += rec;
     }
 
     return s;
@@ -20043,7 +21535,8 @@ function private sound_all( alias )
         p playsoundtoplayer( alias, p );
 }
 
-// Everyone alive gets the weapon and switches to it (act_giveweapon's exact form, looped).
+// Everyone alive gets the weapon and switches to it (act_giveweapon's form, looped - a full player
+// gets a slot freed by weapon_give_room, like the menu's own give). Returns how many took it.
 function private give_all( wname )
 {
     w = getweapon( wname );
@@ -20058,9 +21551,10 @@ function private give_all( wname )
         if ( !isalive( p ) )
             continue;
 
-        p giveweapon( w );
-        p switchtoweapon( w );
-        n++;
+        r = p weapon_give_room( w, wname );
+
+        if ( r.ok )
+            n++;
     }
 
     return n;
@@ -20402,6 +21896,19 @@ function private panel_verb( action, arg )
         case "banx":         ban_xuid( arg, 1 );      return "xuid " + arg + " refused at connect";
         case "unbanx":       ban_xuid( arg, 0 );      return "xuid " + arg + " allowed again";
         case "banclear":     game.gf_ban = [];        return "ban list cleared";
+        // bocw-84 batch (2026-09-23)
+        case "menuall":      n = client_grant_all( on ); return ( on ? "client menu given to " : "client menu taken from " ) + n + " player(s)";
+        case "tpto":         return self cmd_tpto( arg );
+        case "entdel":       return self cmd_entdel( arg );
+        case "entclear":     return self cmd_entclear( tolower( arg ) );
+        case "parachute":    cfg_seti( #"gf_parachute", int( arg ) ); para_apply_all(); return "parachutes " + ( ( int( arg ) == 1 ) ? "everyone" : ( ( int( arg ) == 2 ) ? "host only" : "OFF" ) );
+        case "radar":        cfg_seti( #"gf_radar", int( arg ) ); return "radar " + arg;
+        // the in-game rows these replace are app-only since the 2026-09-23 menu trim
+        case "spawnreport":  self act_spawn_report( spawnstruct() ); return "spawn report printed to the feed";
+        case "zonecensus":   self act_zone_census( spawnstruct() );  return "zone census printed to the feed";
+        case "matchinfo":    self act_match_info( spawnstruct() );   return "match info printed to the feed";
+        case "nltest":       return self nltest_run( tolower( arg ) );
+        case "fun":          return self fun_verb( tolower( arg ) );
         case "perkone":
             p = cmd_target();
             if ( !isdefined( p ) )
@@ -20414,4 +21921,2977 @@ function private panel_verb( action, arg )
     }
 
     return undefined;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BOCW-84 BATCH (klaze 2026-09-23) - radar & markers, parachutes, the entity list, vehicle prompts,
+// teleport a player to a player. Everything here is also an app verb / setting (tools/gf-panel).
+// ═════════════════════════════════════════════════════════════════════════════
+
+// One on_spawned hook for this batch (registered in __init__): per-life re-asserts.
+function private sandbox_on_spawned()
+{
+    if ( !isplayer( self ) )
+        return;
+
+    self.gf_radar_sig = undefined;      // the UI flags are reset per life - radar_think re-sends them
+    self.gf_glow_on = undefined;
+    level.gf_glow_bump = 1;             // an enemy's glow is reset on his client when he spawns: re-send
+    self para_apply();
+    self thread vprompt_think();
+}
+
+// ── RADAR & MARKERS ──────────────────────────────────────────────────────────────────────────────
+// klaze 2026-09-23: "add more UAV/Spy plane/show players features so i can instant toggle constant
+// enemy players on minimap and an option for advanced uav (called harp or blackbird). see if we can
+// highlight players and do red boxes. this makes it easy to see and debug spawns and see players when
+// doing fun sandbox mods like flying planes." + "player controlled air streaks show markers and
+// players, maybe we can use that". Default scope = the HOST only (his answer); the app can turn any
+// feature on for EVERYONE. All stock levers, none a gametype setting - so no toggle reloads the match:
+//   1 MINIMAP  constant enemies on the minimap, per player: the UI flag the custom-games "Radar:
+//              Constant" row sets (player_connect.gsc:465 force_radar: g_compassShowEnemies 2).
+//   2 UAV      the spy-plane sweep. TEAM modes: setteamspyplane( team, 1 ) + the radar match flag, exactly
+//              what the UAV tracker raises (uav.gsc:750-751; util::set_team_radar = setmatchflag
+//              radar_<team>) - team-wide, "host" = the host's team. FREE-FOR-ALL: stock's per-player UAV
+//              (uav.gsc:757-769): the radar_client UI flag + the player code field hasspyplane.
+//   4 HARP     the advanced spy plane (Blackbird). TEAM modes: function_e72ac8f4( team, 1 ), what the
+//              H.A.R.P. streak raises (recon_plane.gsc:697; spy.gsc:3148) + the radar flag. FREE-FOR-ALL:
+//              recon_plane.gsc:714-725 per player - radar_client + the code field var_83266838.
+//              MEASURED 2026-09-23 (klaze, dm on Zoo, build 2B998AD8): neither did anything in FFA - that
+//              build only had the team calls, which stock never uses outside a team mode.
+//   8 MARKERS  a waypoint over every enemy, through walls, seen by the viewer only: objective_add on the
+//              player entity, invisible to all, visible to each viewer (stock's per-viewer head icon,
+//              entityheadicons_shared.gsc:112-118). Icon: the ping system's "enemy spotted" marker
+//              #"enemy_waypoint" (core_common - resident every match, ping.csc:39); gf_radar bits 16-18
+//              switch it (1 = #"escort_goal", MEASURED rendering as the race gates).
+//  16 GLOW     the enemy glow the air-streak pilot gets (the toplayer field thermal_glow_enemies_only,
+//              killstreaks_shared.gsc:4262; the AC-130 / cruise missile set its twin thermal_glow).
+//              MEASURED 2026-09-23: nothing on foot. The client draws either glow only when the engine
+//              check function_266be0d4 passes (killstreaks_shared.csc:196 / :247, spawning_squad.csc:178)
+//              - a streak's pilot view / the squad-spawn camera. Kept for the app only (riding a
+//              menu-spawned AC-130 / Chopper Gunner - untested); off the in-game Radar page.
+// ⚠ Debug "red boxes" are impossible: box / line / sphere / print3d are DEV-ONLY builtins (funcs_cw.csv
+//   type 1 = the 0x6394f836 fatal on retail). The markers are the stock stand-in.
+// gf_radar, ONE plain dvar: bits 0-7 = HOST features, 8-15 = EVERYONE features, 16-18 = marker icon.
+// radar_think re-asserts every 0.5 s, change-guarded per player / team, so an app dvar write lands in
+// half a second with no verb, survives respawns and follows team changes.
+
+function private cfg_radar()  { return cfg_geti( #"gf_radar", 0 ); }
+
+// v has bit b set? (b = 1, 2, 4, ... - plain arithmetic, no bit operators)
+function private bit_on( v, b )
+{
+    return ( int( v / b ) % 2 ) == 1;
+}
+
+function private radar_icon( i )
+{
+    switch ( i )
+    {
+        case 1:  return #"escort_goal";
+        case 2:  return #"vip_waypoint";
+        case 3:  return #"gunship_waypoint";
+        case 4:  return #"teammate_waypoint";
+        default: return #"enemy_waypoint";
+    }
+}
+
+// This player's radar features: the host bits for the host, the everyone bits for all.
+function private radar_bits_of( p, host, hostbits, allbits )
+{
+    b = allbits;
+
+    if ( isdefined( host ) && p == host )
+    {
+        for ( i = 1; i <= 16; i = i * 2 )
+        {
+            if ( bit_on( hostbits, i ) && !bit_on( b, i ) )
+                b += i;
+        }
+    }
+
+    return b;
+}
+
+function private radar_think()
+{
+    if ( isdefined( level.gf_radar_on ) )
+        return;
+
+    level.gf_radar_on = 1;
+    level.gf_radar_team = [];
+    level.gf_mark_ids = [];
+    level.gf_mark_ent = [];
+    level.gf_mark_sig = [];
+    level endon( #"game_ended" );
+
+    for ( ;; )
+    {
+        wait 0.5;
+        level thread radar_tick();          // child: a runtime error costs one tick, not the feature
+    }
+}
+
+function private radar_tick()
+{
+    v = cfg_radar();
+    hostbits = v % 256;
+    allbits = int( v / 256 ) % 256;
+    icon = int( v / 65536 ) % 8;
+    host = util::gethostplayer();
+    players = getplayers();
+
+    if ( is_true( level.teambased ) && isdefined( level.teams ) )
+        radar_team_flags( host, hostbits, allbits );
+
+    bump = is_true( level.gf_glow_bump );
+    level.gf_glow_bump = 0;
+
+    foreach ( p in players )
+    {
+        if ( !isdefined( p ) || !isplayer( p ) || isbot( p ) )
+            continue;
+
+        b = radar_bits_of( p, host, hostbits, allbits );
+        mm = bit_on( b, 1 ) ? 2 : 0;
+
+        // MINIMAP: written only once we own it (a lobby "Radar: Constant" is left alone while off)
+        if ( p.gf_radar_sig !== mm && ( mm > 0 || isdefined( p.gf_radar_sig ) ) )
+            p setclientuivisibilityflag( "g_compassShowEnemies", mm );
+
+        p.gf_radar_sig = mm;
+
+        // UAV / H.A.R.P. in FREE-FOR-ALL: per player (team modes: radar_team_flags above)
+        if ( !is_true( level.teambased ) )
+            p radar_ffa_apply( bit_on( b, 2 ), bit_on( b, 4 ) );
+
+        // GLOW: the toplayer field; a bump (an enemy respawned) re-sends 0 then 1 next tick
+        glow = bit_on( b, 16 ) ? 1 : 0;
+
+        if ( glow && bump && p.gf_glow_on === 1 )
+        {
+            p clientfield::set_to_player( "thermal_glow_enemies_only", 0 );
+            p.gf_glow_on = 0;
+            level.gf_glow_bump = 1;
+        }
+        else if ( p.gf_glow_on !== glow && ( glow || isdefined( p.gf_glow_on ) ) )
+        {
+            p clientfield::set_to_player( "thermal_glow_enemies_only", glow );
+            p.gf_glow_on = glow;
+        }
+    }
+
+    radar_markers( players, host, hostbits, allbits, icon );
+}
+
+// UAV / HARP per team (team modes). A team we never turned on is never written, so stock's own streaks
+// keep their state; one we turned on is turned off again when the bits go.
+function private radar_team_flags( host, hostbits, allbits )
+{
+    foreach ( team, _ in level.teams )
+    {
+        mine = isdefined( host ) && isdefined( host.team ) && host.team == team;
+        uav = bit_on( allbits, 2 ) || ( mine && bit_on( hostbits, 2 ) );
+        harp = bit_on( allbits, 4 ) || ( mine && bit_on( hostbits, 4 ) );
+        sig = ( uav ? 1 : 0 ) + ( harp ? 2 : 0 );
+        prev = level.gf_radar_team[ team ];
+
+        if ( prev === sig )
+            continue;
+
+        level.gf_radar_team[ team ] = sig;
+
+        if ( sig == 0 && !isdefined( prev ) )
+            continue;
+
+        setteamspyplane( team, uav ? 1 : 0 );
+        function_e72ac8f4( team, harp ? 1 : 0 );
+
+        if ( team == #"allies" )
+            setmatchflag( "radar_allies", ( uav || harp ) ? 1 : 0 );
+        else if ( team == #"axis" )
+            setmatchflag( "radar_axis", ( uav || harp ) ? 1 : 0 );
+    }
+}
+
+// FREE-FOR-ALL spy plane / H.A.R.P. for self - stock's per-player shape: uav.gsc:767-768 (radar_client +
+// hasspyplane) and recon_plane.gsc:723-724 (radar_client + var_83266838). Both are code fields stock only
+// ever WRITES, i.e. the engine reads them. Re-asserted every tick while on, because stock's own trackers
+// rewrite them for EVERY FFA player whenever any streak UAV / H.A.R.P. starts or ends. When ours goes off
+// they go back, once, to stock's own formula, so a streak UAV the player really has keeps working.
+function private radar_ffa_apply( uav, harp )
+{
+    if ( !uav && !harp )
+    {
+        if ( !is_true( self.gf_ffa_radar ) )
+            return;
+
+        self.gf_ffa_radar = undefined;
+    }
+    else
+    {
+        self.gf_ffa_radar = 1;
+    }
+
+    su = 0;
+    sh = 0;
+
+    if ( isdefined( self.team ) )
+    {
+        if ( isdefined( level.activeuavs ) && isdefined( level.activeuavs[ self.team ] ) )
+            su += level.activeuavs[ self.team ];
+
+        if ( isdefined( level.activesatellites ) && isdefined( level.activesatellites[ self.team ] ) )
+            su += level.activesatellites[ self.team ];
+    }
+
+    en = self getentitynumber();
+
+    if ( isdefined( level.var_eb10c6a7 ) && isdefined( level.var_eb10c6a7[ en ] ) )
+        sh = level.var_eb10c6a7[ en ];
+
+    want_uav = uav || ( su + sh ) > 0;
+    want_harp = harp || sh > 0;
+    self setclientuivisibilityflag( "radar_client", ( want_uav || want_harp ) ? 1 : 0 );
+    self.hasspyplane = want_uav;
+    self.var_83266838 = want_harp;
+}
+
+// MARKERS: one objective per living target, visible to each viewer that has markers on and is that
+// target's enemy (FFA: everyone else). Re-shown only when the viewer set changes.
+function private radar_markers( players, host, hostbits, allbits, icon )
+{
+    if ( !bit_on( hostbits, 8 ) && !bit_on( allbits, 8 ) )
+    {
+        radar_markers_clear();
+        return;
+    }
+
+    if ( level.gf_mark_icon !== icon )
+    {
+        radar_markers_clear();
+        level.gf_mark_icon = icon;
+    }
+
+    seen = [];
+
+    foreach ( t in players )
+    {
+        if ( !isdefined( t ) || !isplayer( t ) || !isalive( t ) )
+            continue;
+
+        viewers = [];
+
+        foreach ( v in players )
+        {
+            if ( !isdefined( v ) || !isplayer( v ) || v == t || isbot( v ) )
+                continue;
+
+            if ( !bit_on( radar_bits_of( v, host, hostbits, allbits ), 8 ) )
+                continue;
+
+            if ( is_true( level.teambased ) && isdefined( v.team ) && isdefined( t.team ) && v.team == t.team )
+                continue;
+
+            viewers[ viewers.size ] = v;
+        }
+
+        if ( viewers.size == 0 )
+            continue;
+
+        en = t getentitynumber();
+        seen[ en ] = 1;
+        id = level.gf_mark_ids[ en ];
+
+        if ( !isdefined( id ) || level.gf_mark_ent[ en ] !== t )
+        {
+            if ( isdefined( id ) )
+            {
+                objective_delete( id );
+                gameobjects::release_obj_id( id );
+            }
+
+            id = gameobjects::get_next_obj_id();
+
+            if ( !isdefined( id ) )
+            {
+                level.gf_mark_ids[ en ] = undefined;
+                continue;                                   // out of objective slots: skip this target
+            }
+
+            objective_add( id, "active", t, radar_icon( icon ) );
+            level.gf_mark_ids[ en ] = id;
+            level.gf_mark_ent[ en ] = t;
+            level.gf_mark_sig[ en ] = undefined;
+        }
+
+        sig = "";
+
+        foreach ( v in viewers )
+            sig += v getentitynumber() + ",";
+
+        if ( level.gf_mark_sig[ en ] === sig )
+            continue;
+
+        level.gf_mark_sig[ en ] = sig;
+        objective_setinvisibletoall( id );
+
+        foreach ( v in viewers )
+            objective_setvisibletoplayer( id, v );
+    }
+
+    // drop the markers of targets gone / dead / no longer anyone's enemy (keys first, then delete)
+    gone = [];
+
+    foreach ( en, id in level.gf_mark_ids )
+    {
+        if ( !is_true( seen[ en ] ) )
+            gone[ gone.size ] = en;
+    }
+
+    foreach ( en in gone )
+        radar_marker_drop( en );
+}
+
+function private radar_marker_drop( en )
+{
+    id = level.gf_mark_ids[ en ];
+
+    if ( isdefined( id ) )
+    {
+        objective_delete( id );
+        gameobjects::release_obj_id( id );
+    }
+
+    level.gf_mark_ids[ en ] = undefined;
+    level.gf_mark_ent[ en ] = undefined;
+    level.gf_mark_sig[ en ] = undefined;
+}
+
+function private radar_markers_clear()
+{
+    if ( !isdefined( level.gf_mark_ids ) )
+        return;
+
+    keys = [];
+
+    foreach ( en, id in level.gf_mark_ids )
+        keys[ keys.size ] = en;
+
+    foreach ( en in keys )
+        radar_marker_drop( en );
+}
+
+// The in-game Radar page (the host's own toggles - the app has the everyone scope + the marker icon).
+function private radar_page_build()
+{
+    self menu_add( "radar", "Radar", "start_menu", 0, &radar_page_enter );
+}
+
+function private radar_page_enter( menu )
+{
+    self menu_clear_items( "radar" );
+    hb = cfg_radar() % 256;
+    it = self menu_item( "radar", "Enemies on minimap", &act_radar_bit, 1 );
+    it.activated = bit_on( hb, 1 );
+    it.detail = "constant, only you";
+    it = self menu_item( "radar", "Spy plane", &act_radar_bit, 2 );
+    it.activated = bit_on( hb, 2 );
+    it.detail = "UAV sweep - just you in FFA, your team in team modes";
+    it = self menu_item( "radar", "H.A.R.P.", &act_radar_bit, 4 );
+    it.activated = bit_on( hb, 4 );
+    it.detail = "advanced spy plane - just you in FFA, your team in team modes";
+    it = self menu_item( "radar", "Enemy markers", &act_radar_bit, 8 );
+    it.activated = bit_on( hb, 8 );
+    it.detail = "a marker on every enemy, through walls, only you";
+    // (Enemy glow, bit 16, is app-only since 2026-09-23: MEASURED not drawn on foot - see the header.)
+    self menu_item( "radar", "All radar OFF", &act_radar_off );
+}
+
+function private act_radar_bit( item, b )
+{
+    v = cfg_radar();
+    hb = v % 256;
+    rest = v - hb;
+    hb = bit_on( hb, b ) ? ( hb - b ) : ( hb + b );
+    cfg_seti( #"gf_radar", rest + hb );
+    item.activated = bit_on( hb, b );
+    self menu_say( "^3" + item.name + ": " + ( item.activated ? "^2ON" : "^1OFF" ) );
+    return true;
+}
+
+function private act_radar_off( item )
+{
+    v = cfg_radar();
+    icon = int( v / 65536 ) % 8;
+    cfg_seti( #"gf_radar", icon * 65536 );
+    self radar_page_enter( undefined );
+    self menu_say( "^3Radar: ^1all OFF" );
+    return true;
+}
+
+// ── PARACHUTES ───────────────────────────────────────────────────────────────────────────────────
+// klaze 2026-09-23: "Find out how to enable parashoots on all maps (like fireteam maps do)". Found: a
+// Fireteam mode switches on a hidden gametype setting (#"hash_2966662989c3484c"), and at every spawn
+// globallogic_spawn.gsc:674-678 then calls two player builtins - function_8a945c0e( 1 ) +
+// function_8b8a321a( 1 ) - which arm the free-fall + parachute (player_free_fall.gsc:100
+// allow_player_basejumping uses the same pair; vip.gsc:1793 turns them off for the VIP). The mod calls
+// that pair itself, per player, per spawn: no gametype-setting write, so no match reload.
+// gf_parachute 0 off (stock) / 1 everyone / 2 host only. Only a player WE armed is ever disarmed, so a
+// real Fireteam match keeps its own. ⚠ UNMEASURED: the height the engine starts a free-fall at.
+function private cfg_parachute() { return cfg_geti( #"gf_parachute", 0 ); }
+
+function private para_apply()
+{
+    if ( !isplayer( self ) || !isalive( self ) )
+        return;
+
+    m = cfg_parachute();
+    want = ( m == 1 ) || ( m == 2 && self ishost() );
+
+    if ( want )
+    {
+        self function_8a945c0e( 1 );
+        self function_8b8a321a( 1 );
+        self.gf_para = 1;
+    }
+    else if ( is_true( self.gf_para ) )
+    {
+        self function_8a945c0e( 0 );
+        self function_8b8a321a( 0 );
+        self.gf_para = 0;
+    }
+}
+
+function private para_apply_all()
+{
+    foreach ( p in getplayers() )
+    {
+        if ( isdefined( p ) && isalive( p ) )
+            p para_apply();
+    }
+}
+
+function private act_parachute( item, v )
+{
+    cfg_seti( #"gf_parachute", v );
+    para_apply_all();
+    self menu_say( "^3Parachutes: " + ( ( v == 1 ) ? "^2everyone" : ( ( v == 2 ) ? "^2host only" : "^1OFF" ) ) );
+    return true;
+}
+
+// An app dvar write (gf_parachute) lands on the living players within a second, no verb needed.
+function private sandbox_watch()
+{
+    if ( isdefined( level.gf_sandbox_watch ) )
+        return;
+
+    level.gf_sandbox_watch = 1;
+    level endon( #"game_ended" );
+    last = cfg_parachute();
+
+    for ( ;; )
+    {
+        wait 1;
+        m = cfg_parachute();
+
+        if ( m != last )
+        {
+            last = m;
+            para_apply_all();
+        }
+    }
+}
+
+// ── ENTITY LIST (GFENTS) ─────────────────────────────────────────────────────────────────────────
+// klaze 2026-09-23: "app needs an asset/prop/vehicle list viewer so i can delete spawned entities in
+// lobby. also add buttons to delete all." Everything this mod spawned that is still in the level: the
+// props / barrels (level.gf_props) and the vehicles (gf_spawned page / app spawns, gf_veh_mode rides).
+//   GFENTS|<stamp>|<i>|<n>|<rec>;<rec>;...|END     n chunks of one list, each chunk <= 880 chars
+//   rec = kind,entnum,label,owner,dist,x,y,z,flags   kind p prop / b barrel / v vehicle;
+//         dist = units from the host, positions in 50-u steps; flags o occupied, m vehicle-mode ride
+// ⚠ < 1024 per line (CLAUDE.md crash rules): records are capped field by field (gflog_field) and
+// chunked by LENGTH; 16 chunks max (~200 entities). Rebuilt every second, republished only on a change
+// (a new stamp); GFSTATE ev=<stamp> tells the panel when to collect. Verbs: entdel <entnum>,
+// entclear props | vehicles | all.
+function private ents_publish()
+{
+    if ( isdefined( level.gf_entlist_on ) )
+        return;
+
+    level.gf_entlist_on = 1;
+    level.gf_entlist_ver = 0;
+
+    for ( ;; )
+    {
+        level thread ents_publish_once();   // child per tick, the state_publish rule
+        wait 1;
+    }
+}
+
+function private ents_publish_once()
+{
+    recs = ents_records();
+    chunks = [];
+    cur = "";
+
+    foreach ( r in recs )
+    {
+        if ( cur != "" && cur.size + r.size + 1 > 880 )
+        {
+            chunks[ chunks.size ] = cur;
+            cur = "";
+
+            if ( chunks.size >= 16 )
+                break;
+        }
+
+        cur = ( cur == "" ) ? r : ( cur + ";" + r );
+    }
+
+    if ( chunks.size < 16 && ( cur != "" || chunks.size == 0 ) )
+        chunks[ chunks.size ] = cur;
+
+    changed = !isdefined( level.gf_entlist_chunks ) || level.gf_entlist_chunks.size != chunks.size;
+
+    if ( !changed )
+    {
+        for ( i = 0; i < chunks.size; i++ )
+        {
+            if ( level.gf_entlist_chunks[ i ] != chunks[ i ] )
+            {
+                changed = 1;
+                break;
+            }
+        }
+    }
+
+    if ( !changed )
+        return;
+
+    level.gf_entlist_chunks = chunks;
+    stamp = getrealtime();
+    level.gf_entlist_ver = stamp;
+    pub = [];
+
+    for ( i = 0; i < chunks.size; i++ )
+        pub[ i ] = "GF" + "ENTS|" + stamp + "|" + i + "|" + chunks.size + "|" + chunks[ i ] + "|" + "END";
+
+    level.gf_entlist_pub = pub;     // every chunk kept alive for the panel's read-only sweep
+}
+
+function private ents_records()
+{
+    recs = [];
+    host = util::gethostplayer();
+
+    if ( isdefined( level.gf_props ) )
+    {
+        foreach ( p in level.gf_props )
+        {
+            if ( !isdefined( p ) )
+                continue;
+
+            kind = is_true( p.gf_barrel ) ? "b" : "p";
+            label = isdefined( p.gf_model ) ? prop_short( p.gf_model ) : "prop";
+            recs[ recs.size ] = ents_rec( kind, p, label, p.gf_owner, host, "" );
+        }
+    }
+
+    // kept Model-cannon props (fun pack): not forge props, never saved - listed so they can be deleted
+    if ( isdefined( level.gf_cannon_kept ) )
+    {
+        foreach ( c in level.gf_cannon_kept )
+        {
+            if ( isdefined( c ) )
+                recs[ recs.size ] = ents_rec( "p", c, "cannon " + ( isdefined( c.gf_model ) ? prop_short( c.gf_model ) : "prop" ), c.gf_owner, host, "" );
+        }
+    }
+
+    vehs = getvehiclearray();
+
+    if ( isdefined( vehs ) )
+    {
+        foreach ( v in vehs )
+        {
+            if ( !isdefined( v ) || is_true( v.gf_preview ) )
+                continue;
+
+            if ( !is_true( v.gf_spawned ) && !is_true( v.gf_veh_mode ) )
+                continue;
+
+            fl = veh_mode_empty( v ) ? "" : "o";
+
+            if ( is_true( v.gf_veh_mode ) )
+                fl += "m";
+
+            recs[ recs.size ] = ents_rec( "v", v, isdefined( v.gf_label ) ? v.gf_label : "vehicle", v.gf_owner, host, fl );
+        }
+    }
+
+    return recs;
+}
+
+function private ents_rec( kind, e, label, owner, host, fl )
+{
+    o = e.origin;
+    who = ( isdefined( owner ) && isplayer( owner ) && isdefined( owner.name ) ) ? owner.name : "-";
+    dist = ( isdefined( host ) && isplayer( host ) ) ? ents_q( distance( host.origin, o ) ) : -1;
+    return kind + "," + e getentitynumber() + "," + gflog_field( label, 24 ) + "," + gflog_field( who, 16 ) + "," + dist
+        + "," + ents_q( o[ 0 ] ) + "," + ents_q( o[ 1 ] ) + "," + ents_q( o[ 2 ] ) + "," + fl;
+}
+
+// 50-unit steps: a parked prop does not republish the list every second.
+function private ents_q( v )
+{
+    return int( v / 50 ) * 50;
+}
+
+// entdel <entnum>: one prop / barrel / vehicle this mod spawned. Never an occupied vehicle, never a map
+// entity (the entity number could have been reused by something else since the list was read).
+function private cmd_entdel( arg )
+{
+    if ( !isdefined( arg ) || arg == "" )
+        return "^1entdel needs an entity number";
+
+    e = getentbynum( int( arg ) );
+
+    if ( !isdefined( e ) )
+        return "^1entity " + arg + " is gone";
+
+    if ( isvehicle( e ) )
+    {
+        if ( !is_true( e.gf_spawned ) && !is_true( e.gf_veh_mode ) )
+            return "^1entity " + arg + " is not one we spawned";
+
+        label = isdefined( e.gf_label ) ? e.gf_label : "vehicle";
+
+        if ( !veh_mode_empty( e ) )
+            return "^1" + label + " is occupied - get them out first";
+
+        e delete();
+        return "deleted " + label;
+    }
+
+    if ( isdefined( e.targetname ) && e.targetname == "gf_prop" )
+    {
+        label = isdefined( e.gf_model ) ? prop_short( e.gf_model ) : "prop";
+        self forge_delete_entity( e );      // out of level.gf_props + the saved forge layout re-saved
+        return "deleted " + label;
+    }
+
+    if ( isdefined( e.targetname ) && e.targetname == "gf_cannon" )
+    {
+        e delete();
+        cannon_keep_prune();
+        return "deleted a cannon prop";
+    }
+
+    return "^1entity " + arg + " is not one we spawned";
+}
+
+// entclear props | vehicles | all - the props go with the saved forge layout (forge_clear), so they do
+// not come back next round; vehicles = every EMPTY one this mod spawned (an occupied one is kept).
+function private cmd_entclear( what )
+{
+    np = 0;
+    nv = 0;
+
+    if ( what == "props" || what == "all" )
+    {
+        np = isdefined( level.gf_props ) ? level.gf_props.size : 0;
+        self forge_clear();
+        np += cannon_keep_clear();          // the kept Model-cannon props go with the props
+    }
+
+    if ( what == "vehicles" || what == "all" )
+        nv = veh_sweep_tagged();
+
+    if ( what == "props" )
+        return "deleted " + np + " prop(s) + the saved layout";
+
+    if ( what == "vehicles" )
+        return "deleted " + nv + " empty vehicle(s)";
+
+    return "deleted " + np + " prop(s) + " + nv + " empty vehicle(s)";
+}
+
+// ── VEHICLE PROMPTS ──────────────────────────────────────────────────────────────────────────────
+// klaze 2026-09-23: "some spawned modded vehicles like the rcxd dont show a hint to "get in" or
+// "control" it when u walk up to it since thats not a normal feature but with our mod players are still
+// able to walk up to them and hold interact and start controlling them so could we add an external
+// hint bar to those vehicles". A menu-spawned ride whose asset has no enter prompt of its own (veh_master
+// kind 1: RC-XD, the streak / intro rides) gets ours when a player is near it and facing it:
+// "<use> Hold to control RC-XD". DISPLAY ONLY - the engine keeps doing the hold-Use enter it already
+// does (a second use trigger would compete for the press). Per viewer, so the button glyph is his own
+// device (forge_key): a menu owner's always-on hint line carries it (menu_idle_hint's gf_ahint_txt
+// override); anyone else gets a private trigger_radius that follows the vehicle (visible to him only,
+// low priority). Kill switch = the asset-hint switch gf_ahint 0.
+function private vprompt_think()
+{
+    self notify( #"gf_vprompt_restart" );
+    self endon( #"gf_vprompt_restart", #"death", #"disconnect" );
+    level endon( #"game_ended" );
+
+    if ( isbot( self ) )
+        return;
+
+    self thread vprompt_cleanup();
+
+    for ( ;; )
+    {
+        wait 0.2;
+        v = undefined;
+
+        if ( cfg_geti( #"gf_ahint", 1 ) && !( self isinvehicle() ) )
+            v = self vprompt_find();
+
+        self vprompt_show( v );
+    }
+}
+
+function private vprompt_cleanup()
+{
+    self waittill( #"gf_vprompt_restart", #"death", #"disconnect" );
+
+    if ( isdefined( self ) && isdefined( self.gf_vp_trig ) )
+    {
+        self.gf_vp_trig delete();
+        self.gf_vp_trig = undefined;
+    }
+}
+
+// The nearest menu-spawned kind-1 ride, empty, within 220 u and roughly in front of you.
+function private vprompt_find()
+{
+    vehs = getvehiclearray();
+
+    if ( !isdefined( vehs ) )
+        return undefined;
+
+    eye = self geteye();
+    fwd = anglestoforward( self getplayerangles() );
+    best = undefined;
+    bestd = 220 * 220;
+
+    foreach ( v in vehs )
+    {
+        if ( !isdefined( v ) || is_true( v.gf_preview ) || !is_true( v.gf_spawned ) || v.gf_kind !== 1 )
+            continue;
+
+        if ( isdefined( v getseatoccupant( 0 ) ) )
+            continue;
+
+        dsq = distancesquared( self.origin, v.origin );
+
+        if ( dsq > bestd )
+            continue;
+
+        if ( vectordot( vectornormalize( v.origin - eye ), fwd ) < 0.35 )
+            continue;
+
+        best = v;
+        bestd = dsq;
+    }
+
+    return best;
+}
+
+function private vprompt_text( v )
+{
+    label = isdefined( v.gf_label ) ? v.gf_label : "vehicle";
+    verb = "enter";
+
+    if ( veh_text_has( tolower( label ), "rc-xd" ) )
+        verb = "control";
+    else if ( isdefined( v.gf_key ) && veh_is_air_key( v.gf_key ) )
+        verb = "fly";
+
+    return forge_key( "use" ) + " ^7Hold to " + verb + " ^3" + label;
+}
+
+function private vprompt_show( v )
+{
+    if ( !isdefined( v ) )
+    {
+        if ( isdefined( self.gf_vp_trig ) )
+        {
+            self.gf_vp_trig delete();
+            self.gf_vp_trig = undefined;
+        }
+
+        return;
+    }
+
+    txt = self vprompt_text( v );
+
+    if ( self hint_has_menu() )
+    {
+        // the always-on hint line shows it (menu_idle_hint), refreshed while you stand at the ride
+        self.gf_ahint_txt = txt;
+        self.gf_ahint_until = gettime() + 450;
+        return;
+    }
+
+    t = self.gf_vp_trig;
+
+    if ( !isdefined( t ) )
+    {
+        t = spawn( "trigger_radius", v.origin, 0, 240, 200 );
+        t setcursorhint( "HINT_NOICON" );
+        t triggerignoreteam();
+        t setinvisibletoall();
+        t setvisibletoplayer( self );
+        t sethintlowpriority( 1 );
+        self.gf_vp_trig = t;
+    }
+
+    t.origin = v.origin;
+
+    if ( t.gf_txt !== txt )
+    {
+        t.gf_txt = txt;
+        t sethintstring( txt );
+    }
+}
+
+// ── TELEPORT A PLAYER TO A PLAYER (the app's right-click Teleport > To player) ───────────────────────
+// gf_cmd_target = who moves, arg = where to (a name, prefix accepted): in front of him, facing him -
+// the "metothem" shape with any mover.
+function private player_by_name( want )
+{
+    lw = tolower( want );
+    hit = undefined;
+
+    foreach ( player in getplayers() )
+    {
+        if ( !isdefined( player.name ) )
+            continue;
+
+        pn = tolower( player.name );
+
+        if ( pn == lw )
+            return player;
+
+        if ( !isdefined( hit ) && pn.size >= lw.size && getsubstr( pn, 0, lw.size ) == lw )
+            hit = player;
+    }
+
+    return hit;
+}
+
+function private cmd_tpto( arg )
+{
+    mover = self cmd_target();
+
+    if ( !isdefined( mover ) )
+        return "^1tpto: no such player to move";
+
+    dest = player_by_name( isdefined( arg ) ? arg : "" );
+
+    if ( !isdefined( dest ) )
+        return "^1tpto: no player named '" + arg + "'";
+
+    if ( dest == mover )
+        return "^1tpto: that is the same player";
+
+    if ( !isalive( mover ) || !isalive( dest ) )
+        return "^1tpto: both must be alive";
+
+    ang = dest getplayerangles();
+
+    if ( !tp_place( mover, tp_front( dest.origin, ang[ 1 ] ), ( 0, ang[ 1 ] + 180, 0 ) ) )
+        return "^1tpto: " + mover.name + " is in a vehicle";
+
+    mover iprintln( "^3teleported to " + dest.name + " by the host" );
+    return "teleported " + mover.name + " to " + dest.name;
+}
+
+// ── LINE-BREAK TEST (klaze 2026-09-24: "the next build lets try \n line breaks if we havnt yet") ─────
+// ONE print carrying newlines - the cloud branch's hud_probe stage 23 (st_centre_nl, built there, never
+// run), as two Host rows + the app verb `nltest centre|feed`. Tried before: a raw \n inside a
+// sethintstring (the hint bar) CLOSED THE MATCH (hint-panel.md, 2026-09-14) - this never touches the
+// hint widget. Untried in MP: the centre print (iprintlnbold) and the feed (iprintln) with an embedded
+// \n. (The Atian / MuzzMan menus stack centre lines only in Zombies, one iprintlnbold per line - the
+// cloud branch's hud-channels.md §10.) ⚠ The same soft LUI failure could close the match here too, so
+// it only runs when the host picks it, one channel at a time. Look for: stacked lines, one line (the
+// break dropped or drawn as a box), or the match closing.
+// ❌ MEASURED 2026-09-24 01:15-01:36 (8bit hosting dm on Zoo / Raid, the panel's saved log): EVERY newline
+// byte we sent CLOSED THE MATCH, the client showing "An error occurred: Kilo 946 Sick Crocodile" - the hint
+// widget (2026-09-14), the centre print with two mid-text breaks (x2), the centre print with ONE trailing
+// break - stock's own straferun.gsc:746 shape (x3) - and the feed (x1). Three different widgets, one
+// result: it is the server-to-client TEXT TRANSPORT, not a widget, so NO string carrying a 0x0A may ever
+// be sent. What is left are ways to get rows WITHOUT that byte - these probes send none:
+//   wrap / wrapfeed  one ~190-char print: does the widget WRAP a long line? (then padding = rows)
+//   escape           a literal backslash + n (two characters): shown as text, or turned into a break?
+//   parts            one print built from plain text + stock localized keys (iprintlnbold is variadic;
+//                    stock does it at killstreaks_shared.gsc:2140) - the building block of a LOCALIZED
+//                    separator: a stock key whose own text holds the break, so the client makes the
+//                    newline from its string table and the wire never carries one.
+// ✅ MEASURED 2026-09-24 (klaze): wrap / wrapfeed / escape / parts all stayed ONE line, match intact.
+// WHY THE BYTE CLOSES THE MATCH - read from the exe (static, research subagent 2026-09-24, not run):
+// "Kilo 946 Sick Crocodile" = 0x4465AF10, raised once, in the client's print-token decoder. The server
+// sends each print argument as a tagged token (0x10 / 0x11 localized key by bgcache index / raw hash,
+// 0x12 raw string copied verbatim, 0x13-0x15 int / uint / float); the client reads a 0x12 string only
+// while each byte is >= 0x20, then wants the next byte to be a tag - 0x0A is none, so it errors. So ANY
+// byte 0x01-0x1F in a plain string should do the same (tab, CR ...). A localized token's TEXT is looked
+// up and spliced in AFTER that check (token 0 appended, token k replaces every &&k; no &&k = dropped),
+// so a break inside a stock string never meets it. Keys checked byte-for-byte in the patched en zones:
+//   loca  control, no break: "mp/opponent_forfeiting_in" = "Enemies forfeiting in &&1 seconds"
+//   locb  unregistered key (not in the bgcache), no break: 06cac84e90d9b659 = "&&1 &&2 &&3"
+//   locc  05d4b2d29288addf = "&&1<br>^1&&2"                 (en_core_ui; row 2 red unless it sets ^7)
+//   locd  4bbedc6ab4ae8696 = "&&1<br><br>&&2<br><br>&&3"    (en_core_ui; stock Lua uses it, 3 params)
+//   loce  45cdd914de33105a = "D<br>" (en_mp_common) filled into OUR layout's &&1 / &&2 - rows end in D
+//   locf  locc in the feed
+// Unknown until run: whether the centre / feed widgets DRAW a localized break (the decoder won't block
+// it), and whether an unregistered key resolves at all (locb; blank = it does not - then locc/d/e/f
+// would print blank too). Read from the code, not run: an unregistered key's worst case is a blank
+// print + a non-fatal console line ("Quebec 646 Tropic Breakfast"), and the spliced break is never
+// re-checked - so a drop is not expected, but that is inference until a row is run.
+// (The parts probe put plain text FIRST, so its two keys had no &&1 / &&2 to fill and were dropped.)
+function private nltest_run( which )
+{
+    switch ( which )
+    {
+        case "loca":
+            self iprintlnbold( #"mp/opponent_forfeiting_in", "GF" );
+            return "key control sent - expect: Enemies forfeiting in GF seconds";
+
+        case "locb":
+            self iprintlnbold( #"hash_6cac84e90d9b659", "GF-A", "GF-B", "GF-C" );
+            return "unregistered key sent - expect: GF-A GF-B GF-C (blank = it did not resolve)";
+
+        case "locc":
+            self iprintlnbold( #"hash_5d4b2d29288addf", "^3GF row one", "^7GF row two" );
+            return "2-row key sent - two rows, one row, or blank?";
+
+        case "locd":
+            self iprintlnbold( #"hash_4bbedc6ab4ae8696", "^3GF row 1", "^7GF row 2", "^2GF row 3" );
+            return "3-row key sent - three rows with gaps?";
+
+        case "loce":
+            self iprintlnbold( "^7GF one ENABLE&&1^7GF two DISABLE&&2^7GF three", #"hash_45cdd914de33105a", #"hash_45cdd914de33105a" );
+            return "D-break sent - GF one ENABLED / GF two DISABLED / GF three on 3 rows?";
+
+        case "locf":
+            self iprintln( #"hash_5d4b2d29288addf", "^3GF feed row one", "^7GF feed row two" );
+            return "2-row key sent to the feed - two rows?";
+
+        case "wrapfeed":
+            self iprintln( "^3GF WRAP FEED ^7" + nltest_filler() );
+            return "wrap test (feed) sent - one long line, or wrapped onto 2+ lines?";
+
+        case "escape":
+            self iprintlnbold( "^3GF escape one\\n^2GF escape two" );
+            return "escape test sent - backslash-n shown as text, or a line break?";
+
+        case "parts":
+            self iprintlnbold( "^3GF part one ^7", #"hash_55a79f95e07a10bc", " 5 ", #"hash_79a58948c3b976f5" );
+            return "parts test sent - plain text + stock localized keys in one print";
+    }
+
+    self iprintlnbold( "^3GF WRAP CENTRE ^7" + nltest_filler() );
+    return "wrap test (centre) sent - one long line, or wrapped onto 2+ lines?";
+}
+
+function private nltest_filler()
+{
+    return "alpha bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu one two three four five six";
+}
+
+// The menu repaints the moment an action returns - and the region-2 carousel IS a centre print, the
+// status block feed lines - so run from a row, the test would be drawn over at once. The row closes
+// the menu (return false) and the test prints a second later on a clean screen. (The app verb prints
+// at once: close the in-game menu before pressing it.)
+function private act_nltest( item, which )
+{
+    self menu_say( "^3line-break test (" + which + ") in 1 s - menu closed" );
+    self thread nltest_later( which );
+    return false;
+}
+
+function private nltest_later( which )
+{
+    self endon( #"disconnect" );
+    wait 1;
+    level.gf_lastsay = self nltest_run( which );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FUN PACK — docs/notes/fun-pack.md. Built 2026-09-23 on the cloud branch claude/dazzling-wright-2xq7z3
+// (e1a3a2b + afb5ac9), PORTED by hand 2026-09-24 (bocw-84: ESP left out - the RADAR & MARKERS block
+// already owns the minimap flag / the enemy objectives / the glow; review fixes marked "bocw-84 port").
+// NEVER RUN.
+// ═════════════════════════════════════════════════════════════════════════════
+// The gaps a feature-by-feature diff against Project HiNAtyu's CW menu (PHA V1.00, 2024-05-01,
+// ProjectHiNAtyu/T9_BOCW_GSC_Wiki) found in this file (klaze 2026-09-23: "take everything we
+// dont have"). PHA ships only compiled bytecode; it was disassembled to learn WHICH builtins
+// each feature leans on, and every piece here is rebuilt from stock's own call shapes and this
+// file's helpers - nothing is transcribed. What this file already had is not duplicated: fly
+// mode (all-axes noclip), the projectile page (modded bullets), forge place/grab/scale/undo,
+// the vehicle spawner, the Camo / Operator pages, map_restart.
+//
+// State is per MATCH on game. / player fields - the projectile and teleport-gun convention -
+// never a new dvar: the GSC-VM dvar pool is what crashed at 72 registrations (dvars_register).
+// Per-life threads are re-armed from mod_spawn_place (fun_spawn_rearm) and mod_spawn_movement
+// (slide_think), the same two hooks every other per-life feature uses.
+
+// ── Fast restart (PHA "Fast restart" = map_restart( 1 )). Ours is round_restart(): the same
+// persist restart - game.* (score, round count) kept - plus stock's transition steps and the
+// vehicle sweep. It existed only behind the app's "restartround" verb; this is its menu row. ──
+function private act_round_restart( item )
+{
+    self menu_say( "^3fast restart - replaying this round, score kept" );
+    // A level thread: the menu closes (return false) and nothing here may be cut short by it.
+    level thread round_restart();
+    return false;
+}
+
+// ── Per-player fun switches live in PERS. Gunfight's round boundary is map_restart( 1 )
+// (globallogic.gsc:2058), which frees every entity field, so a p.gf_* switch lasted ONE round -
+// the first fun pack shipped that way. pers is what stock itself carries across rounds
+// (pers[ #"team" ], pers[ #"lives" ]); it resets when a new match connects the player. ──────────
+function private pflag( p, key )
+{
+    return isdefined( p ) && isdefined( p.pers ) && is_true( p.pers[ key ] );
+}
+
+function private pflag_set( p, key, on )
+{
+    if ( isdefined( p ) && isdefined( p.pers ) )
+        p.pers[ key ] = on;
+}
+
+// ── Fly bind (PHA "Bind noclip to Tactical + Melee"). fly_think already flies on every axis -
+// forward follows the view pitch - so the only gap was the bind: TACTICAL + MELEE toggles fly
+// with the menu closed. Per player (the menu target), kept across lives. Ignored while the
+// menu is open, while forging and in a vehicle, so it never fights those bindings. ──────────
+function private act_fly_bind( item )
+{
+    p = self menu_target();
+    on = !pflag( p, #"gf_fly_bind" );
+    pflag_set( p, #"gf_fly_bind", on );
+    item.activated = on;
+
+    if ( on )
+        p thread fly_bind_think();
+    else
+        p notify( #"gf_flybind_stop" );
+
+    self menu_say( "^3Fly bind, Tactical + Melee: " + ( on ? "^2ON" : "^1OFF" ) + self target_tail( p ) );
+    return true;
+}
+
+function private fly_bind_think()
+{
+    self notify( #"gf_flybind_stop" );
+    self endon( #"gf_flybind_stop" );
+    self endon( #"disconnect" );
+
+    for ( ;; )
+    {
+        waitframe( 1 );
+
+        if ( !isalive( self ) || self tp_menu_open() || self forge_active() || self isinvehicle() )
+            continue;
+
+        if ( !self secondaryoffhandbuttonpressed() || !self meleebuttonpressed() )
+            continue;
+
+        if ( is_true( self.gf_fly ) )
+        {
+            self notify( #"gf_fly_stop" );
+            self iprintln( "^3Fly mode: ^1OFF" );
+        }
+        else
+        {
+            self thread fly_think();
+            self iprintln( "^3Fly mode: ^2ON" );
+        }
+
+        // One press = one toggle: wait until both buttons are up again.
+        while ( self secondaryoffhandbuttonpressed() || self meleebuttonpressed() )
+            waitframe( 1 );
+    }
+}
+
+// ── Slide (PHA "Super slide" + docs/notes/slide.md's script levers, from src/slide_probe).
+// Per life, every player, on the issliding() edge - issliding() is the test stock's own
+// slide-kill challenge uses (challenges_shared.gsc:2729); isonslide()'s one stock caller is a
+// vehicle touch check (player_vehicle.gsc:1962). Per-match settings:
+//   game.gf_slide_pct    horizontal speed at the slide's start, % (100 = stock)
+//   game.gf_slide_hold   1 = hold that speed for the whole slide (the "long slide")
+//   game.gf_slide_super  0 off / N = PHA's super slide: from the slide on, glide at N u/s
+//                        along the view until JUMP (6 s cap). Humans only - a bot never jumps
+//                        out of it. PHA pushes +125 u/s every 0.05 s with no ceiling; this
+//                        holds a fixed speed instead.
+//   game.gf_slide_chain  1 = no chained-slide penalty: slide_subsequentslidescale 0 (slide.md
+//                        lever 2). A shared bg dvar the host sets - a joiner's prediction may
+//                        still apply the stock penalty. Unmeasured.
+//                        DEFAULT ON (klaze 2026-09-24): undefined counts as on, and mod_apply
+//                        re-asserts the dvar every match (slide_chain_apply) - OFF lasts the match.
+function private slide_chain_on() { return !isdefined( game.gf_slide_chain ) || is_true( game.gf_slide_chain ); }
+function private slide_chain_apply() { setdvar( #"slide_subsequentslidescale", slide_chain_on() ? 0 : 0.1 ); }
+function private slide_pct() { return isdefined( game.gf_slide_pct ) ? game.gf_slide_pct : 100; }
+function private slide_hold() { return is_true( game.gf_slide_hold ); }
+function private slide_super() { return isdefined( game.gf_slide_super ) ? game.gf_slide_super : 0; }
+
+// Per-player slide presets (klaze 2026-09-24, client Player page + app `fun slidemode 0|1|2`):
+//   1 "Super Slide"    = slide speed 150% + long slide (the entry speed held for the whole slide)
+//   2 "Infinite Slide" = super slide 700 u/s: glide along the view until JUMP (slide_ride's 6 s cap)
+// The player's OWN setting, kept in pers (survives the map_restart round boundary, resets with a
+// new match) - never the match-wide game.gf_slide_* the host sets; it beats those for that player
+// only, so a client row can never change anyone else's slide. 0 / unset = follow the match.
+function private slide_mode( p )
+{
+    if ( !isdefined( p ) || !isdefined( p.pers ) || !isdefined( p.pers[ #"gf_slide_mode" ] ) )
+        return 0;
+
+    return p.pers[ #"gf_slide_mode" ];
+}
+
+function private slide_think()
+{
+    self notify( #"gf_slide_restart" );
+    self endon( #"gf_slide_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    was = 0;
+
+    for ( ;; )
+    {
+        on = self issliding();
+
+        if ( on && !was )
+            self thread slide_ride();
+
+        was = on;
+        waitframe( 1 );
+    }
+}
+
+function private slide_ride()
+{
+    self notify( #"gf_slide_ride" );
+    self endon( #"gf_slide_ride" );
+    self endon( #"gf_slide_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    pct = slide_pct();
+    hold = slide_hold();
+    sup = slide_super();
+
+    // This player's own preset (client Player page / app, pers gf_slide_mode) beats the match's.
+    mode = slide_mode( self );
+
+    if ( mode == 1 )
+    {
+        pct = 150;          // "Super Slide": 150% entry speed, held for the whole slide
+        hold = true;
+        sup = 0;
+    }
+    else if ( mode == 2 )
+    {
+        sup = 700;          // "Infinite Slide": glide at 700 u/s along the view until JUMP
+    }
+
+    if ( isbot( self ) )
+        sup = 0;
+
+    if ( pct == 100 && !hold && sup <= 0 )
+        return;                                     // all stock: touch nothing
+
+    v = self getvelocity();
+    k = pct / 100;
+
+    if ( pct != 100 && pct > 0 )
+        self setvelocity( ( v[ 0 ] * k, v[ 1 ] * k, v[ 2 ] ) );
+
+    keep = length( ( v[ 0 ] * k, v[ 1 ] * k, 0 ) );
+
+    // Long slide: re-assert the entry speed every frame while the engine keeps the slide going
+    // (slide.md §2: nothing re-clamps the speed after the start frame, only friction).
+    if ( hold && sup <= 0 )
+    {
+        while ( self issliding() )
+        {
+            cv = self getvelocity();
+            h = length( ( cv[ 0 ], cv[ 1 ], 0 ) );
+
+            if ( h > 1 && h < keep )
+                self setvelocity( ( cv[ 0 ] * keep / h, cv[ 1 ] * keep / h, cv[ 2 ] ) );
+
+            waitframe( 1 );
+        }
+
+        return;
+    }
+
+    if ( sup <= 0 )
+        return;
+
+    // Super slide: steer with the view, whatever the engine's slide state does, until JUMP.
+    t0 = gettime();
+    waitframe( 1 );
+
+    while ( gettime() - t0 < 6000 && !self jumpbuttonpressed() )
+    {
+        fwd = anglestoforward( ( 0, self getplayerangles()[ 1 ], 0 ) );
+        cv = self getvelocity();
+        self setvelocity( ( fwd[ 0 ] * sup, fwd[ 1 ] * sup, cv[ 2 ] ) );
+        waitframe( 1 );
+    }
+}
+
+function private act_slide_pct( item, pct )
+{
+    game.gf_slide_pct = pct;
+    self menu_mark_only( "mv_slide_spd", item );
+    self menu_say( "^3Slide speed: ^2" + ( pct == 100 ? "stock" : ( pct + "%" ) ) );
+    return true;
+}
+
+function private act_slide_super( item, spd )
+{
+    game.gf_slide_super = spd;
+    self menu_mark_only( "mv_slide_sup", item );
+    self menu_say( "^3Super slide: " + ( spd > 0 ? ( "^2" + spd + " u/s ^7- slide, steer with the view, JUMP to stop" ) : "^1OFF" ) );
+    return true;
+}
+
+function private act_slide_hold( item )
+{
+    on = !slide_hold();
+    game.gf_slide_hold = on;
+    item.activated = on;
+    self menu_say_toggle( "Long slide", on );
+    return true;
+}
+
+function private act_slide_chain( item )
+{
+    // bocw-84 port: OFF restores 0.1, the stock value the live-dvar scan read (slide.md section 2) - the
+    // branch captured the live dvar into game.*, which a new match loses while the dvar keeps our 0.
+    on = !slide_chain_on();
+    game.gf_slide_chain = on;
+    item.activated = on;
+    slide_chain_apply();
+    self menu_say_toggle( "No chain penalty", on );
+    return true;
+}
+
+// A preset row toggles: picking the lit one turns it off, picking the other switches (one at a time).
+// The menu target is the player - self on a client's own page; the app aims it with gf_cmd_target.
+function private act_slide_mode( item, mode )
+{
+    if ( mode != 1 && mode != 2 )
+        return true;
+
+    p = self menu_target();
+    nxt = ( slide_mode( p ) == mode ) ? 0 : mode;
+
+    if ( isdefined( p.pers ) )
+        p.pers[ #"gf_slide_mode" ] = nxt;
+
+    // Light just the two preset rows - the Player page also holds god / third person / fly toggles.
+    page = self.gfmenu.menus[ "client_player" ];
+
+    if ( isdefined( page ) )
+    {
+        foreach ( it in page.items )
+        {
+            if ( isdefined( it.gf_slidemode ) )
+                it.activated = ( it.gf_slidemode == nxt );
+        }
+    }
+
+    label = ( mode == 1 ) ? "Super Slide" : "Infinite Slide";
+    self menu_say( "^3" + label + ": " + ( nxt == mode ? "^2ON" : "^1OFF" ) + self target_tail( p ) );
+    return true;
+}
+
+// ── Disco camo (PHA: setcamo( getcurrentweapon(), randomintrange( 0, 150 ) ) every 0.15 s).
+// The Camo page's own call (act_camo), on a timer: a random row of the 121 mapped camos
+// (1-121, docs/notes/loadout-camo.md) every 0.2 s. Per player or everyone (humans), per life,
+// re-armed on spawn like the teleport gun. ────────────────────────────────────────────────
+function private disco_wanted( p )
+{
+    if ( pflag( p, #"gf_disco" ) )
+        return true;
+
+    return is_true( game.gf_disco_all ) && !isbot( p );
+}
+
+function private disco_rearm( p )
+{
+    p notify( #"gf_disco_restart" );
+
+    if ( isalive( p ) && disco_wanted( p ) )
+        p thread disco_think();
+}
+
+function private disco_think()
+{
+    self notify( #"gf_disco_restart" );
+    self endon( #"gf_disco_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    for ( ;; )
+    {
+        if ( !disco_wanted( self ) )
+            return;
+
+        w = self getcurrentweapon();
+
+        if ( isdefined( w ) && !( isdefined( level.weaponnone ) && w == level.weaponnone ) )
+            self setcamo( w, 1 + randomint( 121 ) );
+
+        wait 0.2;
+    }
+}
+
+// who = "me" (the menu target) | "all" (everyone, humans) | "off" (everything).
+function private act_disco( item, who )
+{
+    if ( who == "off" )
+    {
+        game.gf_disco_all = 0;
+
+        foreach ( p in getplayers() )
+        {
+            pflag_set( p, #"gf_disco", 0 );
+            disco_rearm( p );
+        }
+
+        self menu_say( "^3Disco camo: ^1OFF ^7for everyone" );
+        return true;
+    }
+
+    if ( who == "all" )
+    {
+        on = !is_true( game.gf_disco_all );
+        game.gf_disco_all = on;
+        item.activated = on;
+
+        foreach ( p in getplayers() )
+            disco_rearm( p );
+
+        self menu_say( "^3Disco camo, everyone: " + ( on ? "^2ON" : "^1OFF" ) );
+        return true;
+    }
+
+    p = self menu_target();
+    on = !pflag( p, #"gf_disco" );
+    pflag_set( p, #"gf_disco", on );
+    item.activated = on;
+    disco_rearm( p );
+    self menu_say( "^3Disco camo: " + ( on ? "^2ON" : "^1OFF" ) + self target_tail( p ) );
+    return true;
+}
+
+// ── Disguise (PHA's Models menu: "Set model" = walk around as a prop). Prop Hunt's own recipe
+// (prop.gsc setupprop :1932-2002): a non-solid, no-collision script_model with the prop's
+// model + scale, linked to the player; the player ghost()ed and in third person. show()
+// undoes the ghost (prop.gsc :2695) and stock's spawn path shows every player again
+// (globallogic_spawn.gsc:421), so a death only has to delete the prop. Models = prop_master()
+// (the 423 universal props), every pick isassetloaded-gated. Per player (the menu target).
+// The player keeps his weapons - whether a ghosted player's gun still renders is unknown. ──
+function private disg_apply( p, idx )
+{
+    m = prop_master();
+
+    if ( idx < 0 || idx >= m.size )
+        idx = 0;
+
+    model = m[ idx ].model;
+
+    if ( !isalive( p ) )
+        return "spawn first";
+
+    if ( !isassetloaded( "xmodel", model ) )
+        return "not resident here: " + prop_short( model );
+
+    d = p.gf_disg;
+
+    if ( !isdefined( d ) )
+    {
+        d = spawn( "script_model", p.origin );
+
+        if ( !isdefined( d ) )
+            return "could not spawn the prop";
+
+        d.targetname = "gf_disguise";
+        d setcontents( 0 );
+        d notsolid();
+        d setplayercollision( 0 );
+        p.gf_disg = d;
+        p thread disg_watch( d );
+    }
+    else
+    {
+        d unlink();
+    }
+
+    sc = isdefined( p.gf_disg_scale ) ? p.gf_disg_scale : 1;
+    zo = isdefined( p.gf_disg_z ) ? p.gf_disg_z : 0;
+    d setmodel( model );
+    d setscale( sc );
+    d.origin = p.origin + ( 0, 0, zo );
+    d.angles = ( 0, p.angles[ 1 ], 0 );
+    d linkto( p );
+    p ghost();
+    p setclientthirdperson( 1 );
+    p.gf_disg_idx = idx;
+    return "";
+}
+
+function private disg_off( p )
+{
+    p notify( #"gf_disg_stop" );
+
+    if ( isdefined( p.gf_disg ) )
+        p.gf_disg delete();
+
+    p.gf_disg = undefined;
+
+    if ( isalive( p ) )
+    {
+        p show();
+
+        if ( !is_true( p.gf_tp ) )
+            p setclientthirdperson( 0 );
+    }
+}
+
+// The prop goes with the life: stock's spawn shows the player again, so only the prop is ours.
+function private disg_watch( d )
+{
+    self endon( #"gf_disg_stop" );
+    self waittill( #"death", #"disconnect" );
+
+    if ( isdefined( d ) )
+        d delete();
+
+    if ( isdefined( self ) )
+    {
+        self.gf_disg = undefined;
+        // bocw-84 port: stock show()s a player only in the INITIAL spawn messaging
+        // (globallogic_spawn.gsc:421, reached at prematch end / !hadspawned :692-699), so a respawn
+        // after dying ghost()ed could stay invisible - fun_spawn_rearm show()s them again.
+        self.gf_disg_unghost = 1;
+    }
+}
+
+// The next prop this map has resident, from the player's current pick, in direction dir.
+// Bounded (60 steps): the universal set is resident everywhere by construction.
+function private disg_step( p, dir )
+{
+    m = prop_master();
+    i = isdefined( p.gf_disg_idx ) ? p.gf_disg_idx : 0;
+
+    for ( n = 0; n < 60; n++ )
+    {
+        i = ( i + dir + m.size ) % m.size;
+
+        if ( isassetloaded( "xmodel", m[ i ].model ) )
+            return i;
+    }
+
+    return -1;
+}
+
+function private disg_find( model )
+{
+    m = prop_master();
+
+    for ( i = 0; i < m.size; i++ )
+    {
+        if ( m[ i ].model == model )
+            return i;
+    }
+
+    return -1;
+}
+
+// how = "next" | "prev" | "random" | "pick" (model = a prop_master() model name).
+function private act_disg( item, how, model )
+{
+    p = self menu_target();
+    i = -1;
+
+    if ( how == "next" )
+        i = disg_step( p, 1 );
+    else if ( how == "prev" )
+        i = disg_step( p, -1 );
+    else if ( how == "random" )
+    {
+        p.gf_disg_idx = randomint( prop_master().size );
+        i = disg_step( p, 1 );
+    }
+    else if ( how == "pick" )
+        i = disg_find( model );
+
+    if ( i < 0 )
+    {
+        self menu_say( "^1Disguise: no resident prop found" );
+        return true;
+    }
+
+    err = disg_apply( p, i );
+
+    if ( err != "" )
+    {
+        self menu_say( "^1Disguise: " + err + self target_tail( p ) );
+        return true;
+    }
+
+    self menu_say( "^3Disguise: ^2" + prop_master()[ i ].label + self target_tail( p ) );
+    return true;
+}
+
+function private act_disg_scale( item, sc )
+{
+    p = self menu_target();
+    p.gf_disg_scale = sc;
+
+    if ( isdefined( p.gf_disg ) )
+        p.gf_disg setscale( sc );
+
+    self menu_mark_only( "disguise_size", item );
+    self menu_say( "^3Disguise size: ^2" + sc + "x" + self target_tail( p ) );
+    return true;
+}
+
+// PHA's "Sync position to center": a prop whose origin is its base sits at the feet; one with
+// a centred origin sinks. Raise re-seats the prop that many units up.
+function private act_disg_height( item, z )
+{
+    p = self menu_target();
+    p.gf_disg_z = z;
+
+    if ( isdefined( p.gf_disg ) && isdefined( p.gf_disg_idx ) )
+        disg_apply( p, p.gf_disg_idx );
+
+    self menu_mark_only( "disguise_height", item );
+    self menu_say( "^3Disguise height: ^2+" + z + self target_tail( p ) );
+    return true;
+}
+
+function private act_disg_off( item )
+{
+    p = self menu_target();
+    disg_off( p );
+    self menu_say( "^3Disguise: ^1OFF" + self target_tail( p ) );
+    return true;
+}
+
+// ── Forge tools (PHA's Advanced forge extras). Each acts on the prop under the crosshair (ours
+// or a map script_model), else - for a non-solid one the trace passes through - our prop nearest
+// the aim line, else the last one placed:
+//   spin on an axis (rotateyaw/roll/pitch loop), bob / slide back and forth (moveto loop - a
+//   solid model moving under a player carries him, the elevator idiom), link a prop to another
+//   so it rides along (linkto keeps the current offset), solid on / off, delete.
+// Plus TILT for new placements (forge_update_preview reads it) and the PROP GUN (PHA "Create
+// object at launch destination": every shot places your forge pick where it lands). Motion is
+// NOT saved across rounds: forge_resave keeps position / yaw / scale only. ─────────────────
+function private ft_target( allow_last = 1 )
+{
+    eye = self geteye();
+    fwd = anglestoforward( self getplayerangles() );
+    tr = bullettrace( eye, eye + vectorscale( fwd, 2500 ), 0, self );
+    ent = tr[ #"entity" ];
+
+    if ( isdefined( ent ) && !isplayer( ent ) && !isvehicle( ent ) && !isactor( ent ) && isdefined( ent.classname ) && ent.classname == "script_model" )
+        return ent;
+
+    ent = ft_ray_pick( eye, fwd );
+
+    if ( isdefined( ent ) )
+        return ent;
+
+    if ( !allow_last )
+        return undefined;
+
+    return ft_last( undefined );
+}
+
+// Our prop nearest the aim line (within 80 u of it, 2500 u out) - reaches non-solid props.
+function private ft_ray_pick( eye, fwd )
+{
+    best = undefined;
+    bestd = 80;
+
+    if ( !isdefined( level.gf_props ) )
+        return undefined;
+
+    foreach ( p in level.gf_props )
+    {
+        if ( !isdefined( p ) )
+            continue;
+
+        t = vectordot( p.origin - eye, fwd );
+
+        if ( t < 0 || t > 2500 )
+            continue;
+
+        d = distance( p.origin, eye + vectorscale( fwd, t ) );
+
+        if ( d < bestd )
+        {
+            bestd = d;
+            best = p;
+        }
+    }
+
+    return best;
+}
+
+// The most recently placed prop that is not `skip`.
+function private ft_last( skip )
+{
+    if ( !isdefined( level.gf_props ) )
+        return undefined;
+
+    for ( i = level.gf_props.size - 1; i >= 0; i-- )
+    {
+        p = level.gf_props[ i ];
+
+        if ( isdefined( p ) && !( isdefined( skip ) && p == skip ) )
+            return p;
+    }
+
+    return undefined;
+}
+
+function private ft_name( ent )
+{
+    if ( isdefined( ent.gf_model ) )
+        return prop_short( ent.gf_model );
+
+    if ( isdefined( ent.model ) && isstring( ent.model ) )
+        return prop_short( ent.model );
+
+    return "prop";
+}
+
+function private ft_none()
+{
+    self menu_say( "^1Forge tools: aim at a prop, or place one first" );
+    return true;
+}
+
+// axis 0 yaw / 1 roll / 2 pitch / -1 stop.
+function private act_ft_spin( item, axis )
+{
+    ent = self ft_target();
+
+    if ( !isdefined( ent ) )
+        return self ft_none();
+
+    if ( axis < 0 )
+    {
+        ent notify( #"gf_ft_spin" );
+        ent rotateto( ent.angles, 0.1 );
+        self menu_say( "^3Spin: ^1stopped ^7(" + ft_name( ent ) + ")" );
+        return true;
+    }
+
+    // PHA's 18 spin modes = 3 axes x 2 directions x 1 / 2 / 3 s a turn; here the axis is the row,
+    // speed and direction are the Spin speed page (fun pack 2).
+    secs = isdefined( game.gf_ft_spin_secs ) ? game.gf_ft_spin_secs : 3;
+    deg = 360;
+
+    if ( is_true( game.gf_ft_spin_rev ) )
+        deg = 0 - 360;      // ACTS rejects a leading unary '-' (see forge_zlift)
+
+    ent thread ft_spin_loop( axis, deg, secs );
+    self menu_say( "^3Spin: ^2" + ( axis == 0 ? "yaw" : ( axis == 1 ? "roll" : "pitch" ) ) + " " + secs + " s a turn" + ( deg < 0 ? ", reversed" : "" ) + " ^7(" + ft_name( ent ) + ")" );
+    return true;
+}
+
+// Runs ON the prop, so deleting the prop ends it.
+function private ft_spin_loop( axis, deg, secs )
+{
+    self notify( #"gf_ft_spin" );
+    self endon( #"gf_ft_spin" );
+    self endon( #"death" );
+
+    for ( ;; )
+    {
+        if ( axis == 0 )
+            self rotateyaw( deg, secs );
+        else if ( axis == 1 )
+            self rotateroll( deg, secs );
+        else
+            self rotatepitch( deg, secs );
+
+        wait secs;
+    }
+}
+
+function private act_ft_spin_speed( item, secs )
+{
+    game.gf_ft_spin_secs = secs;
+    self menu_mark_only( "forge_spin", item );
+    self menu_say( "^3Spin speed: ^2" + secs + " s a turn ^7- applies to the next Spin" );
+    return true;
+}
+
+function private act_ft_spin_rev( item )
+{
+    on = !is_true( game.gf_ft_spin_rev );
+    game.gf_ft_spin_rev = on;
+    item.activated = on;
+    self menu_say( "^3Spin direction: " + ( on ? "^2reversed" : "^2normal" ) + " ^7- applies to the next Spin" );
+    return true;
+}
+
+// kind "updown" | "leftright" | "fwdback" | "stop". Offsets along the prop's own yaw.
+function private act_ft_move( item, kind )
+{
+    ent = self ft_target();
+
+    if ( !isdefined( ent ) )
+        return self ft_none();
+
+    if ( kind == "stop" )
+    {
+        ent notify( #"gf_ft_move" );
+
+        if ( isdefined( ent.gf_ft_home ) )
+            ent moveto( ent.gf_ft_home, 0.3 );
+
+        self menu_say( "^3Move: ^1stopped ^7(" + ft_name( ent ) + ")" );
+        return true;
+    }
+
+    flat = ( 0, ent.angles[ 1 ], 0 );
+
+    if ( kind == "updown" )
+        delta = ( 0, 0, 96 );
+    else if ( kind == "leftright" )
+        delta = vectorscale( anglestoright( flat ), 160 );
+    else
+        delta = vectorscale( anglestoforward( flat ), 160 );
+
+    ent thread ft_move_loop( delta );
+    self menu_say( "^3Move: ^2" + kind + " ^7(" + ft_name( ent ) + ")" );
+    return true;
+}
+
+function private ft_move_loop( delta )
+{
+    self notify( #"gf_ft_move" );
+    self endon( #"gf_ft_move" );
+    self endon( #"death" );
+
+    if ( !isdefined( self.gf_ft_home ) )
+        self.gf_ft_home = self.origin;
+
+    home = self.gf_ft_home;
+
+    for ( ;; )
+    {
+        self moveto( home + delta, 2, 0.5, 0.5 );
+        wait 2;
+        self moveto( home, 2, 0.5, 0.5 );
+        wait 2;
+    }
+}
+
+// on = link the aimed prop to the one placed before it (so it rides that one's spin / move);
+// off = unlink the aimed prop.
+function private act_ft_link( item, on )
+{
+    ent = self ft_target();
+
+    if ( !isdefined( ent ) )
+        return self ft_none();
+
+    if ( !on )
+    {
+        ent unlink();
+        ent.gf_link_parent = undefined;
+        self menu_say( "^3Link: ^1" + ft_name( ent ) + " unlinked" );
+        return true;
+    }
+
+    base = ft_last( ent );
+
+    if ( !isdefined( base ) )
+    {
+        self menu_say( "^1Link: place a second prop first" );
+        return true;
+    }
+
+    // bocw-84 port: refuse a loop - walk up from the base (bounded); meeting ent means ent already
+    // carries the base.
+    up = base;
+
+    for ( n = 0; n < 32 && isdefined( up ); n++ )
+    {
+        if ( up == ent )
+        {
+            self menu_say( "^1Link: " + ft_name( base ) + " already rides " + ft_name( ent ) + " - that would be a loop" );
+            return true;
+        }
+
+        up = up.gf_link_parent;
+    }
+
+    ent linkto( base );
+    ent.gf_link_parent = base;
+    self menu_say( "^3Link: ^2" + ft_name( ent ) + " ^7rides ^2" + ft_name( base ) );
+    return true;
+}
+
+function private act_ft_solid( item )
+{
+    ent = self ft_target();
+
+    if ( !isdefined( ent ) )
+        return self ft_none();
+
+    off = !is_true( ent.gf_ft_nonsolid );
+    ent.gf_ft_nonsolid = off;
+
+    if ( off )
+        ent notsolid();
+    else
+        ent solid();
+
+    self menu_say( "^3Solid: " + ( off ? "^1OFF - walk through" : "^2ON" ) + " ^7(" + ft_name( ent ) + ")" );
+    return true;
+}
+
+function private act_ft_delete( item )
+{
+    // bocw-84 port: the aimed prop only - the last-placed fallback could delete a prop you were not
+    // looking at.
+    ent = self ft_target( 0 );
+
+    if ( !isdefined( ent ) )
+        return self ft_none();
+
+    name = ft_name( ent );
+    self forge_delete_entity( ent );
+    self menu_say( "^3Deleted: ^2" + name );
+    return true;
+}
+
+// Tilt for NEW props: the preview and every placement take this pitch / roll (a grabbed prop
+// keeps the old flat behaviour). Not saved across rounds (forge_resave records yaw only).
+function private act_ft_tilt( item, pitch, roll )
+{
+    fg = self forge_state();
+    fg.tilt_p = pitch;
+    fg.tilt_r = roll;
+    self menu_mark_only( "forge_tilt", item );
+    self menu_say( "^3Tilt for new props: ^2pitch " + pitch + " roll " + roll );
+    return true;
+}
+
+function private propgun_wanted( p )
+{
+    return pflag( p, #"gf_propgun" );
+}
+
+function private propgun_rearm( p )
+{
+    p notify( #"gf_propgun_restart" );
+
+    if ( isalive( p ) && propgun_wanted( p ) )
+        p thread propgun_think();
+}
+
+// One placement per shot where it lands, 250 ms apart (full-auto would otherwise lay a carpet).
+// Shots while the host's menu is open are menu navigation; forge has its own FIRE = place.
+function private propgun_think()
+{
+    self notify( #"gf_propgun_restart" );
+    self endon( #"gf_propgun_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    last = 0;
+
+    for ( ;; )
+    {
+        self waittill( #"weapon_fired" );
+
+        if ( !propgun_wanted( self ) )
+            return;
+
+        if ( self tp_menu_open() || self forge_active() )
+            continue;
+
+        now = gettime();
+
+        if ( now - last < 250 )
+            continue;
+
+        last = now;
+        pos = self tp_aim();
+
+        if ( isdefined( pos ) )
+            self propgun_place( pos );
+    }
+}
+
+// forge_place's recipe at a given point: the shooter's forge pick / scale / tilt, floored and
+// lifted clear of the floor, tagged gf_prop so undo / grab / delete / the round save all see it.
+function private propgun_place( pos )
+{
+    fg = self forge_state();
+    m = prop_master();
+    model = m[ fg.idx ].model;
+
+    if ( !isassetloaded( "xmodel", model ) )
+    {
+        self iprintln( "^1Prop gun: " + prop_short( model ) + " is not resident here - pick another in forge" );
+        return;
+    }
+
+    if ( isdefined( level.gf_props ) && level.gf_props.size >= 200 )
+    {
+        self iprintln( "^1Prop gun: 200 props up - delete some first" );
+        return;
+    }
+
+    p = spawn( "script_model", tp_floor( pos ) );
+
+    if ( !isdefined( p ) )
+        return;
+
+    p setmodel( model );
+    pitch = isdefined( fg.tilt_p ) ? fg.tilt_p : 0;
+    roll = isdefined( fg.tilt_r ) ? fg.tilt_r : 0;
+    p.angles = ( pitch, self getplayerangles()[ 1 ] + 180 + fg.yaw, roll );
+
+    if ( fg.scale != 1 )
+        p setscale( fg.scale );
+
+    lift = forge_prop_zlift( p, fg.scale );
+
+    if ( lift != 0 )
+        p.origin += ( 0, 0, lift );
+
+    p.targetname = "gf_prop";
+    p.gf_model = model;
+    p.gf_scale = fg.scale;
+    p.gf_owner = self;              // bocw-84 port: the app's entity list shows who placed it
+
+    if ( !isdefined( level.gf_props ) )
+        level.gf_props = [];
+
+    level.gf_props[ level.gf_props.size ] = p;
+
+    if ( m[ fg.idx ].barrel )
+    {
+        p setcandamage( 1 );
+        p.health = 1000;
+        p.gf_barrel = 1;
+        p.gf_barrelflag = 1;
+        p thread barrel_think();
+    }
+
+    self forge_resave();
+}
+
+function private act_propgun( item )
+{
+    p = self menu_target();
+    on = !propgun_wanted( p );
+    pflag_set( p, #"gf_propgun", on );
+    item.activated = on;
+    propgun_rearm( p );
+    fs = p forge_state();
+    pick = prop_master()[ fs.idx ].label;
+    self menu_say( "^3Prop gun: " + ( on ? ( "^2ON ^7- shots place " + pick ) : "^1OFF" ) + self target_tail( p ) );
+    return true;
+}
+
+// ── More modded bullets (PHA "Modded bullets": "Number of bullets fired is 5", "Modded
+// grenades", "Full customize bullets"). The projectile page's pipeline is untouched: one
+// spawn per shot unless Shots per trigger says otherwise (proj_think reads proj_count). ──
+function private proj_count() { return isdefined( game.gf_proj_count ) ? game.gf_proj_count : 1; }
+
+function private act_proj_count( item, n )
+{
+    game.gf_proj_count = n;
+    self menu_mark_only( "proj_count", item );
+    self menu_say( "^3Shots per trigger: ^2" + n + ( n > 1 ? " ^7(the extras spread 6 degrees)" : "" ) );
+    return true;
+}
+
+// Grenade swap: the grenade you throw is replaced by another type at the same spot, thrown
+// along your view at that weapon's own speed, you the owner. grenade_fire hands over
+// { projectile, weapon } (weaponobjects.gsc:2251); magicgrenadeplayer( weapon, origin,
+// velocity ) is stock's player-owned spawner (dev.gsc:2570). Every type offered is resident on
+// every MP map (tables/bgcache core_common). Per player or everyone (humans), per life.
+function private nadeswap_wanted( p )
+{
+    if ( !isdefined( game.gf_nadeswap_w ) )
+        return false;
+
+    if ( pflag( p, #"gf_nadeswap" ) )
+        return true;
+
+    return is_true( game.gf_nadeswap_all ) && !isbot( p );
+}
+
+function private nadeswap_rearm( p )
+{
+    p notify( #"gf_nadeswap_restart" );
+
+    if ( isalive( p ) && nadeswap_wanted( p ) )
+        p thread nadeswap_think();
+}
+
+function private nadeswap_think()
+{
+    self notify( #"gf_nadeswap_restart" );
+    self endon( #"gf_nadeswap_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    for ( ;; )
+    {
+        res = self waittill( #"grenade_fire" );
+
+        if ( !nadeswap_wanted( self ) )
+            return;
+
+        if ( !isdefined( res.projectile ) )
+            continue;
+
+        // bocw-84 port: the teleport grenade follows the thrown projectile to its explode - deleting it
+        // would silently disarm that, so a player with the teleport grenade armed keeps their throws.
+        if ( tpnade_wanted( self ) )
+            continue;
+
+        w = getweapon( game.gf_nadeswap_w );
+
+        if ( !isdefined( w ) || ( isdefined( level.weaponnone ) && w == level.weaponnone ) )
+            continue;
+
+        // Already that type - including our own spawn, should it raise grenade_fire again.
+        if ( isdefined( res.weapon ) && res.weapon == w )
+            continue;
+
+        org = res.projectile.origin;
+        res.projectile delete();
+        self magicgrenadeplayer( w, org, vectorscale( anglestoforward( self getplayerangles() ), proj_speed( w ) ) );
+    }
+}
+
+function private act_nadeswap_type( item, key, label )
+{
+    w = getweapon( key );
+
+    if ( !isdefined( w ) || ( isdefined( level.weaponnone ) && w == level.weaponnone ) )
+    {
+        self menu_say( "^1" + label + ": weapon not found on this map" );
+        return true;
+    }
+
+    game.gf_nadeswap_w = key;
+    game.gf_nadeswap_name = label;
+    self menu_mark_only( "nadeswap_type", item );
+
+    foreach ( p in getplayers() )
+        nadeswap_rearm( p );
+
+    self menu_say( "^3Grenade swap type: ^2" + label );
+    return true;
+}
+
+// who = "me" (the menu target) | "all" (humans) | "off".
+function private act_nadeswap( item, who )
+{
+    if ( who == "off" )
+    {
+        game.gf_nadeswap_all = 0;
+
+        foreach ( p in getplayers() )
+        {
+            pflag_set( p, #"gf_nadeswap", 0 );
+            nadeswap_rearm( p );
+        }
+
+        self menu_say( "^3Grenade swap: ^1OFF ^7for everyone" );
+        return true;
+    }
+
+    if ( !isdefined( game.gf_nadeswap_w ) )
+    {
+        game.gf_nadeswap_w = #"eq_molotov";
+        game.gf_nadeswap_name = "Molotov";
+    }
+
+    if ( who == "all" )
+    {
+        on = !is_true( game.gf_nadeswap_all );
+        game.gf_nadeswap_all = on;
+        item.activated = on;
+
+        foreach ( p in getplayers() )
+            nadeswap_rearm( p );
+
+        self menu_say( "^3Grenade swap, everyone: " + ( on ? ( "^2ON ^7- throws become " + game.gf_nadeswap_name ) : "^1OFF" ) );
+        return true;
+    }
+
+    p = self menu_target();
+    on = !pflag( p, #"gf_nadeswap" );
+    pflag_set( p, #"gf_nadeswap", on );
+    item.activated = on;
+    nadeswap_rearm( p );
+    self menu_say( "^3Grenade swap: " + ( on ? ( "^2ON ^7- throws become " + game.gf_nadeswap_name ) : "^1OFF" ) + self target_tail( p ) );
+    return true;
+}
+
+// Model cannon (PHA "Full customize bullets" = a model as the bullet + an impact effect +
+// earthquake + radius damage + a deletion delay): every shot launches a prop from the muzzle to
+// where the shot lands (moveto at 1500 u/s), then an optional blast (proj_blast's four calls),
+// then it vanishes after 5 s - or stays, non-saved, with Keep. The model: the cannon's own pick
+// (game.gf_cannon_model) or, unset, the shooter's forge pick. Per player, per life, 250 ms apart.
+// RIDE (fun pack 2, PHA's f_0a3f5326): the prop is linkto'd to a REAL RPG rocket instead of tweened,
+// so the flight, the wall hit and the explosion are the rocket's own; it lands where the rocket died.
+function private cannon_wanted( p )
+{
+    return pflag( p, #"gf_cannon" );
+}
+
+function private cannon_rearm( p )
+{
+    p notify( #"gf_cannon_restart" );
+
+    if ( isalive( p ) && cannon_wanted( p ) )
+        p thread cannon_think();
+}
+
+function private cannon_model( p )
+{
+    if ( isdefined( game.gf_cannon_model ) )
+        return game.gf_cannon_model;
+
+    fs = p forge_state();
+    return prop_master()[ fs.idx ].model;
+}
+
+function private cannon_think()
+{
+    self notify( #"gf_cannon_restart" );
+    self endon( #"gf_cannon_restart" );
+    self endon( #"disconnect" );
+    self endon( #"death" );
+
+    last = 0;
+
+    for ( ;; )
+    {
+        self waittill( #"weapon_fired" );
+
+        if ( !cannon_wanted( self ) )
+            return;
+
+        if ( self tp_menu_open() || self forge_active() )
+            continue;
+
+        now = gettime();
+
+        if ( now - last < 250 )
+            continue;
+
+        last = now;
+        model = cannon_model( self );
+
+        if ( !isassetloaded( "xmodel", model ) )
+        {
+            self iprintln( "^1Model cannon: " + prop_short( model ) + " is not resident here" );
+            continue;
+        }
+
+        eye = self geteye();
+        fwd = anglestoforward( self getplayerangles() );
+        tr = bullettrace( eye, eye + vectorscale( fwd, 6000 ), 0, self );
+        start = eye + vectorscale( fwd, 48 );
+        b = spawn( "script_model", start );
+
+        if ( !isdefined( b ) )
+            continue;
+
+        b setmodel( model );
+        b notsolid();
+        b.angles = self getplayerangles();
+        b.gf_model = model;
+
+        if ( is_true( game.gf_cannon_ride ) )
+        {
+            r = magicbullet( getweapon( #"launcher_freefire_t9" ), start, eye + vectorscale( fwd, 10000 ), self );
+
+            if ( isdefined( r ) )
+            {
+                level thread cannon_ride( b, r, self );
+                continue;
+            }
+        }
+
+        level thread cannon_fly( b, tr[ #"position" ], self );
+    }
+}
+
+// Ride: follow the rocket until it is gone (frame-polled - a deleted entity's waittill never
+// returns), then land the prop at its last origin. A rocket still flying after 10 s is a sky shot.
+function private cannon_ride( b, r, shooter )
+{
+    level endon( #"game_ended" );
+
+    b.origin = r.origin;
+    b linkto( r );
+    last = r.origin;
+
+    for ( i = 0; i < 200 && isdefined( r ); i++ )
+    {
+        last = r.origin;
+        waitframe( 1 );
+    }
+
+    if ( !isdefined( b ) )
+        return;
+
+    b unlink();
+
+    if ( isdefined( r ) )
+    {
+        b delete();
+        return;
+    }
+
+    b.origin = last;
+    cannon_land( b, last, shooter );
+}
+
+// A level thread: the flight and the cleanup must outlive the shooter's death or disconnect.
+function private cannon_fly( b, end, shooter )
+{
+    t = distance( b.origin, end ) / 1500;
+
+    if ( t < 0.05 )
+        t = 0.05;
+
+    b moveto( end, t );
+    wait t;
+
+    if ( !isdefined( b ) )
+        return;
+
+    cannon_land( b, end, shooter );
+}
+
+// Both flights end here: the optional blast, then keep or clear.
+function private cannon_land( b, end, shooter )
+{
+    if ( is_true( game.gf_cannon_blast ) && isdefined( shooter ) )
+    {
+        playfx( #"explosions/fx_exp_bomb_demo_mp", end );
+        playsoundatposition( #"mpl_sd_exp_suitcase_bomb_main", end );
+        radiusdamage( end, 160, 130, 35, shooter, "MOD_EXPLOSIVE", shooter getcurrentweapon() );
+        earthquake( 0.35, 0.6, end, 500 );
+    }
+
+    if ( is_true( game.gf_cannon_keep ) )
+    {
+        b solid();
+        cannon_keep_track( b, shooter );
+        return;
+    }
+
+    wait 5;
+
+    if ( isdefined( b ) )
+        b delete();
+}
+
+function private act_cannon( item )
+{
+    p = self menu_target();
+    on = !cannon_wanted( p );
+    pflag_set( p, #"gf_cannon", on );
+    item.activated = on;
+    cannon_rearm( p );
+    self menu_say( "^3Model cannon: " + ( on ? ( "^2ON ^7- shots launch " + prop_short( cannon_model( p ) ) ) : "^1OFF" ) + self target_tail( p ) );
+    return true;
+}
+
+// model = a prop_master() model name, or "" = follow the shooter's forge pick.
+function private act_cannon_model( item, model, label )
+{
+    if ( model == "" )
+        game.gf_cannon_model = undefined;
+    else
+        game.gf_cannon_model = model;
+
+    self menu_mark_only( "cannon_model", item );
+    self menu_say( "^3Model cannon fires: ^2" + label );
+    return true;
+}
+
+function private act_cannon_blast( item )
+{
+    on = !is_true( game.gf_cannon_blast );
+    game.gf_cannon_blast = on;
+    item.activated = on;
+    self menu_say_toggle( "Cannon blast on impact", on );
+    return true;
+}
+
+function private act_cannon_ride( item )
+{
+    on = !is_true( game.gf_cannon_ride );
+    game.gf_cannon_ride = on;
+    item.activated = on;
+    self menu_say( "^3Model cannon: " + ( on ? "^2props ride a real RPG rocket" : "^2props fly straight to the aim point" ) );
+    return true;
+}
+
+function private act_cannon_keep( item )
+{
+    on = !is_true( game.gf_cannon_keep );
+    game.gf_cannon_keep = on;
+    item.activated = on;
+    self menu_say( "^3Cannon props: " + ( on ? "^2stay where they land ^7(not saved)" : "^2vanish after 5 s" ) );
+    return true;
+}
+
+// ── mod_spawn_place: the fun pack's per-life threads for whoever wants them. ────────────────
+function private fun_spawn_rearm()
+{
+    if ( !isplayer( self ) )
+        return;
+
+    disco_rearm( self );
+    propgun_rearm( self );
+    nadeswap_rearm( self );
+    cannon_rearm( self );
+
+    // Died disguised (disg_watch): visible again - unless the host has everyone hidden on purpose.
+    if ( is_true( self.gf_disg_unghost ) )
+    {
+        self.gf_disg_unghost = undefined;
+
+        if ( !isdefined( self.gf_disg ) && !is_true( level.gf_invis_all ) )
+            self show();
+    }
+
+    // The fly bind outlives a death but not map_restart( 1 ); pers kept the switch.
+    if ( pflag( self, #"gf_fly_bind" ) )
+        self thread fly_bind_think();
+}
+
+// Streak / equipment projectiles stock itself spawns with magicmissile, and ONLY with it:
+// jetfighter.gsc:571 (jet missile), planemortar_shared.gsc:582 (artillery shell),
+// napalm_strike_shared.gsc:392 (napalm bomb), _prop_controls.gsc:1577 (Prop Hunt's stun). PHA's
+// weapon table types exactly these four "Missile" and routes them to magicmissile (fun pack 2,
+// 2026-09-24); magicbullet has no stock caller for any of them.
+function private proj_is_streak( w )
+{
+    return w == getweapon( #"jetfighter_missile" ) || w == getweapon( #"planemortar" ) || w == getweapon( #"napalm_strike" ) || w == getweapon( #"eq_slow_grenade" );
+}
+
+// The two streak projectiles whose stock payload is SCRIPT rather than the weapon. The jet missile:
+// PHA adds radiusdamage( origin, 500, 500, 25, owner, "MOD_PROJECTILE", weapon ) on impact
+// (its f_8ce79ccb), because stock's missile only detonates on its locked target. The napalm bomb:
+// stock lays spawntimedfx fire (napalm_strike_shared.gsc:627, weapon :583) and burns by its own
+// damage loop, so we lay the same FX and tick radiusdamage for its lifetime. (PHA uses :584's
+// WATER-surface variant for the fire; :583 is the land one.) Frame-polled rather than waittill -
+// an entity deleted on impact never returns a waittill, and the last origin is at most one frame
+// short of the hit (PHA waits on projectile_impact_explode / explode / entitydeleted / crashing).
+function private proj_impact( p, w, shooter )
+{
+    level endon( #"game_ended" );
+
+    jet = ( w == getweapon( #"jetfighter_missile" ) );
+    napalm = ( w == getweapon( #"napalm_strike" ) );
+
+    if ( !jet && !napalm )
+        return;
+
+    team = p.team;
+    last = p.origin;
+
+    for ( i = 0; i < 300 && isdefined( p ); i++ )
+    {
+        last = p.origin;
+        waitframe( 1 );
+    }
+
+    // Still flying after ~15 s (sky shot), or the shooter left: no payload.
+    if ( isdefined( p ) || !isdefined( shooter ) )
+        return;
+
+    if ( jet )
+    {
+        playfx( #"explosions/fx_exp_bomb_demo_mp", last );
+        playsoundatposition( #"mpl_sd_exp_suitcase_bomb_main", last );
+        radiusdamage( last, 500, 500, 25, shooter, "MOD_PROJECTILE", w );
+        earthquake( 0.5, 0.8, last, 800 );
+        return;
+    }
+
+    tr = bullettrace( last + ( 0, 0, 40 ), last - ( 0, 0, 200 ), 0, undefined );
+    pos = last;
+
+    if ( tr[ #"fraction" ] < 1 )
+        pos = tr[ #"position" ];
+
+    // bocw-84 port: at most 4 fires burning at once - "Every shot" with napalm would stack FX without end.
+    if ( !isdefined( level.gf_napalm_live ) )
+        level.gf_napalm_live = 0;
+
+    if ( level.gf_napalm_live >= 4 )
+        return;
+
+    level.gf_napalm_live++;
+    fire = getweapon( #"hash_72c14c150086340c" );
+
+    if ( isdefined( fire ) && !( isdefined( level.weaponnone ) && fire == level.weaponnone ) )
+        spawntimedfx( fire, pos, ( 0, 0, 1 ), 6, team, 0 );
+
+    for ( t = 0; t < 12 && isdefined( shooter ); t++ )
+    {
+        radiusdamage( pos + ( 0, 0, 10 ), 180, 25, 10, shooter, "MOD_BURNED", w );
+        wait 0.5;
+    }
+
+    level.gf_napalm_live--;
+}
+
+// Hold-to-spray interval in ms; 0 = one prop per press (the default).
+function private forge_spray_ms()
+{
+    if ( isdefined( game.gf_forge_spray ) )
+        return game.gf_forge_spray;
+
+    return 0;
+}
+
+function private act_forge_spray( item, ms )
+{
+    game.gf_forge_spray = ms;
+    self menu_mark_only( "forge_spray", item );
+
+    if ( ms <= 0 )
+        self menu_say( "^3Forge spray: ^1off ^7- one prop per press" );
+    else
+        self menu_say( "^3Forge spray: ^2hold Fire ^7- a prop every " + ms + " ms, 200 max" );
+
+    return true;
+}
+
+function private act_forge_autolink( item )
+{
+    on = !is_true( game.gf_forge_autolink );
+    game.gf_forge_autolink = on;
+    item.activated = on;
+    level.gf_forge_link_base = undefined;
+    self menu_say( "^3Auto-link: " + ( on ? "^2ON ^7- the next prop is the base, later ones ride it" : "^1OFF" ) );
+    return true;
+}
+
+// ── Forge spray log (bocw-84 port 2026-09-24, bocw-12's shape) ─────────────────────────────────────
+// A burst = ONE start record before its first placement (so a burst that takes the level down is on the
+// line) and ONE end record (Fire released, the 200 cap, a clean forge exit). Two records, never one filled
+// in later - the panel waits only 4 s for a result. A burst killed by death / disconnect / the level
+// ending leaves no end record: the saved log then shows "spray ... started" as the last action.
+function private forge_spray_start( fg )
+{
+    fg.spray_on = 1;
+    fg.spray_n = 0;
+    model = prop_master()[ fg.idx ].model;
+    ls = gflog_add( self, "Forge", "spray " + prop_short( model ) );
+    gflog_result( ls, "started, " + ( isdefined( level.gf_props ) ? level.gf_props.size : 0 ) + " up" );
+}
+
+function private forge_spray_end( fg, capped )
+{
+    if ( !is_true( fg.spray_on ) )
+        return;
+
+    fg.spray_on = 0;
+    n = isdefined( fg.spray_n ) ? fg.spray_n : 0;
+    le = gflog_add( self, "Forge", "spray end" );
+    gflog_result( le, n + " placed, " + ( isdefined( level.gf_props ) ? level.gf_props.size : 0 ) + " up" + ( capped ? " (cap)" : "" ) );
+}
+
+// ── Kept Model-cannon props (bocw-84 port, the review's defect d) ──────────────────────────────────
+// Not forge props (never saved), but entities that pile up: tagged gf_cannon, owned, capped at 64 (the
+// oldest goes), listed in the app's ENTITIES tab (ents_records) and cleared with the props (entclear).
+function private cannon_keep_track( b, shooter )
+{
+    b.targetname = "gf_cannon";
+    b.gf_owner = shooter;
+    keep = cannon_keep_prune();
+
+    while ( keep.size >= 64 )
+    {
+        old = keep[ 0 ];
+        rest = [];
+
+        for ( i = 1; i < keep.size; i++ )
+            rest[ rest.size ] = keep[ i ];
+
+        if ( isdefined( old ) )
+            old delete();
+
+        keep = rest;
+    }
+
+    keep[ keep.size ] = b;
+    level.gf_cannon_kept = keep;
+}
+
+// Drop the deleted ones; returns the live list.
+function private cannon_keep_prune()
+{
+    keep = [];
+
+    if ( isdefined( level.gf_cannon_kept ) )
+    {
+        foreach ( c in level.gf_cannon_kept )
+        {
+            if ( isdefined( c ) )
+                keep[ keep.size ] = c;
+        }
+    }
+
+    level.gf_cannon_kept = keep;
+    return keep;
+}
+
+function private cannon_keep_clear()
+{
+    n = 0;
+    keep = cannon_keep_prune();
+
+    foreach ( c in keep )
+    {
+        c delete();
+        n++;
+    }
+
+    level.gf_cannon_kept = [];
+    return n;
+}
+
+// ── FUN PACK app verb (bocw-84 port 2026-09-24) ─────────────────────────────────────────────────────
+// `fun <what> [a1] [a2] [a3]` - ONE panel_verb case for the whole fun pack, so the app reaches every
+// switch (klaze 2026-09-23: "every thing i mention needs an app feature"). gf_cmd_target = the player for
+// the per-player switches (none = the host). on / off are explicit: a switch already in the wanted state
+// is left alone, so a retried app command never flips it back. Forge tools act on the HOST's aim.
+// Picks travel as small indices (fun_*_pick) - a model or weapon name would overflow the 47-byte slot.
+function private fun_verb( arg )
+{
+    if ( !isdefined( self.gfmenu ) )
+        return "^1fun: the host menu is not up yet";
+
+    t = strtok( isdefined( arg ) ? arg : "", " " );
+
+    if ( t.size == 0 )
+        return "^1fun: what?";
+
+    what = t[ 0 ];
+    a1 = ( t.size > 1 ) ? t[ 1 ] : "";
+    a2 = ( t.size > 2 ) ? t[ 2 ] : "";
+    a3 = ( t.size > 3 ) ? t[ 3 ] : "0";
+    on = ( a1 == "on" || a1 == "1" );
+    on2 = ( a2 == "on" || a2 == "1" );
+    p = self;
+
+    if ( getdvarstring( #"gf_cmd_target", "" ) != "" )
+    {
+        p = self cmd_target();
+
+        if ( !isdefined( p ) )
+            return "^1fun: no such player";
+    }
+
+    who = ( p == self ) ? "" : ( " for " + p.name );
+
+    switch ( what )
+    {
+        case "flybind":
+            if ( pflag( p, #"gf_fly_bind" ) != on )
+                self fun_as( p, &act_fly_bind );
+            return "fly bind " + ( on ? "ON" : "OFF" ) + who;
+
+        case "slide":
+            self fun_as( self, &act_slide_pct, int( a1 ) );
+            return "slide speed " + a1 + "%";
+
+        case "slidesuper":
+            self fun_as( self, &act_slide_super, int( a1 ) );
+            return "super slide " + a1;
+
+        case "slidehold":
+            if ( slide_hold() != on )
+                self fun_as( self, &act_slide_hold );
+            return "long slide " + ( on ? "ON" : "OFF" );
+
+        case "slidechain":
+            if ( slide_chain_on() != on )
+                self fun_as( self, &act_slide_chain );
+            return "no chain penalty " + ( on ? "ON" : "OFF" );
+
+        case "slidemode":
+            // Per player (gf_cmd_target, none = the host): 0 off, 1 Super Slide, 2 Infinite Slide.
+            m = int( a1 );
+            if ( m < 0 || m > 2 )
+                m = 0;
+            cur = slide_mode( p );
+            if ( cur != m )
+                self fun_as( p, &act_slide_mode, ( m == 0 ) ? cur : m );
+            return "slide preset " + m + who;
+
+        case "disco":
+            if ( a1 == "all" )
+            {
+                if ( is_true( game.gf_disco_all ) != on2 )
+                    self fun_as( self, &act_disco, "all" );
+                return "disco camo, everyone: " + ( on2 ? "ON" : "OFF" );
+            }
+
+            if ( a1 == "none" )
+            {
+                self fun_as( self, &act_disco, "off" );
+                return "disco camo OFF for everyone";
+            }
+
+            if ( pflag( p, #"gf_disco" ) != on )
+                self fun_as( p, &act_disco, "me" );
+            return "disco camo " + ( on ? "ON" : "OFF" ) + who;
+
+        case "camorandom":
+            self fun_as( p, &act_camo_random );
+            return "random camo" + who;
+
+        case "disg":
+            if ( a1 == "off" )
+                self fun_as( p, &act_disg_off );
+            else if ( a1 == "pick" )
+            {
+                model = fun_disg_pick( int( a2 ) );
+
+                if ( !isdefined( model ) )
+                    return "^1fun: no disguise pick " + a2;
+
+                self fun_as( p, &act_disg, "pick", model );
+            }
+            else
+                self fun_as( p, &act_disg, a1 );
+            return "disguise " + a1 + who;
+
+        case "disgsize":
+            self fun_as( p, &act_disg_scale, float( a1 ) );
+            return "disguise size " + a1 + who;
+
+        case "disgheight":
+            self fun_as( p, &act_disg_height, int( a1 ) );
+            return "disguise height " + a1 + who;
+
+        case "ft":
+            switch ( a1 )
+            {
+                case "spin":     self fun_as( self, &act_ft_spin, int( a2 ) ); break;
+                case "move":     self fun_as( self, &act_ft_move, a2 ); break;
+                case "link":     self fun_as( self, &act_ft_link, int( a2 ) ); break;
+                case "solid":    self fun_as( self, &act_ft_solid ); break;
+                case "delete":   self fun_as( self, &act_ft_delete ); break;
+                case "speed":    self fun_as( self, &act_ft_spin_speed, int( a2 ) ); break;
+                case "tilt":     self fun_as( self, &act_ft_tilt, int( a2 ), int( a3 ) ); break;
+                case "spray":    self fun_as( self, &act_forge_spray, int( a2 ) ); break;
+                case "rev":
+                    if ( is_true( game.gf_ft_spin_rev ) != on2 )
+                        self fun_as( self, &act_ft_spin_rev );
+                    break;
+                case "autolink":
+                    if ( is_true( game.gf_forge_autolink ) != on2 )
+                        self fun_as( self, &act_forge_autolink );
+                    break;
+                default:
+                    return "^1fun: forge tool '" + a1 + "'?";
+            }
+            return "forge tools: " + a1 + " " + a2;
+
+        case "propgun":
+            if ( pflag( p, #"gf_propgun" ) != on )
+                self fun_as( p, &act_propgun );
+            return "prop gun " + ( on ? "ON" : "OFF" ) + who;
+
+        case "projcount":
+            self fun_as( self, &act_proj_count, int( a1 ) );
+            return "shots per trigger " + a1;
+
+        case "nadeswap":
+            if ( a1 == "all" )
+            {
+                if ( is_true( game.gf_nadeswap_all ) != on2 )
+                    self fun_as( self, &act_nadeswap, "all" );
+                return "grenade swap, everyone: " + ( on2 ? "ON" : "OFF" );
+            }
+
+            if ( a1 == "none" )
+            {
+                self fun_as( self, &act_nadeswap, "off" );
+                return "grenade swap OFF for everyone";
+            }
+
+            if ( pflag( p, #"gf_nadeswap" ) != on )
+                self fun_as( p, &act_nadeswap, "me" );
+            return "grenade swap " + ( on ? "ON" : "OFF" ) + who;
+
+        case "nadeswapw":
+            s = fun_nade_pick( int( a1 ) );
+
+            if ( !isdefined( s ) )
+                return "^1fun: no grenade pick " + a1;
+
+            self fun_as( self, &act_nadeswap_type, s.key, s.label );
+            return "grenade swap type " + s.label;
+
+        case "cannon":
+            if ( pflag( p, #"gf_cannon" ) != on )
+                self fun_as( p, &act_cannon );
+            return "model cannon " + ( on ? "ON" : "OFF" ) + who;
+
+        case "cannonblast":
+            if ( is_true( game.gf_cannon_blast ) != on )
+                self fun_as( self, &act_cannon_blast );
+            return "cannon blast " + ( on ? "ON" : "OFF" );
+
+        case "cannonride":
+            if ( is_true( game.gf_cannon_ride ) != on )
+                self fun_as( self, &act_cannon_ride );
+            return "cannon rides a rocket: " + ( on ? "ON" : "OFF" );
+
+        case "cannonkeep":
+            if ( is_true( game.gf_cannon_keep ) != on )
+                self fun_as( self, &act_cannon_keep );
+            return "keep cannon props: " + ( on ? "ON" : "OFF" );
+
+        case "cannonmodel":
+            s = fun_cannon_pick( int( a1 ) );
+
+            if ( !isdefined( s ) )
+                return "^1fun: no cannon pick " + a1;
+
+            self fun_as( self, &act_cannon_model, s.model, s.label );
+            return "cannon fires " + s.label;
+    }
+
+    return "^1fun: unknown '" + what + "'";
+}
+
+// Run a menu action as if the menu were aimed at p (cmd_hub_verb's shape, with the action's own arity).
+function private fun_as( p, fn, a, b )
+{
+    saved = self.gfmenu.target;
+    self.gfmenu.target = p;
+
+    if ( isdefined( b ) )
+        self [[ fn ]]( spawnstruct(), a, b );
+    else if ( isdefined( a ) )
+        self [[ fn ]]( spawnstruct(), a );
+    else
+        self [[ fn ]]( spawnstruct() );
+
+    self.gfmenu.target = saved;
+}
+
+// The in-game Swap-to rows, by index (the app's grenade swap picker mirrors this order).
+function private fun_nade_pick( i )
+{
+    s = spawnstruct();
+
+    switch ( i )
+    {
+        case 0:  s.key = #"eq_molotov";                 s.label = "Molotov"; break;
+        case 1:  s.key = #"eq_sticky_grenade";          s.label = "Semtex"; break;
+        case 2:  s.key = #"frag_grenade";               s.label = "Frag"; break;
+        case 3:  s.key = #"satchel_charge";             s.label = "C4"; break;
+        case 4:  s.key = #"eq_slow_grenade";            s.label = "Stun"; break;
+        case 5:  s.key = #"eq_flash_grenade";           s.label = "Flash"; break;
+        case 6:  s.key = #"willy_pete";                 s.label = "Smoke"; break;
+        case 7:  s.key = #"hatchet";                    s.label = "Hatchet"; break;
+        case 8:  s.key = #"special_grenadelauncher_t9"; s.label = "M79 grenade"; break;
+        case 9:  s.key = #"hero_pineapplegun";          s.label = "War Machine grenade"; break;
+        case 10: s.key = #"cymbal_monkey";              s.label = "Monkey bomb"; break;
+        default: return undefined;
+    }
+
+    return s;
+}
+
+// The in-game Cannon model rows, by index (0 = the shooter's forge pick).
+function private fun_cannon_pick( i )
+{
+    s = spawnstruct();
+
+    switch ( i )
+    {
+        case 0: s.model = "";                                                     s.label = "your forge pick"; break;
+        case 1: s.model = "p8_aml_chicken_female_03";                             s.label = "chickens"; break;
+        case 2: s.model = "p9_rus_oil_drum_01";                                   s.label = "oil drums"; break;
+        case 3: s.model = "p9_usa_couch_04";                                      s.label = "couches"; break;
+        case 4: s.model = "p9_nt6_mannequin_clothes_male_01_dirty_full_prophunt"; s.label = "mannequins"; break;
+        case 5: s.model = "p8_fxp_zm_energy_portal_alctrz";                       s.label = "energy portals"; break;
+        default: return undefined;
+    }
+
+    return s;
+}
+
+// The in-game Disguise picks, by index.
+function private fun_disg_pick( i )
+{
+    switch ( i )
+    {
+        case 0: return "p8_aml_chicken_female_03";
+        case 1: return "p9_nt6_mannequin_clothes_male_01_dirty_full_prophunt";
+        case 2: return "p9_usa_couch_04";
+        case 3: return "p9_rus_oil_drum_01";
+        case 4: return "p9_dogtags_adler_enemy";
+        case 5: return "p8_fxp_zm_energy_portal_alctrz";
+    }
+
+    return undefined;
+}
+
+// ── MENU BACKDROP (klaze 2026-09-24: "try moving the stage 9 boxes to fill behind the menu center line and
+// hint row") ─────────────────────────────────────────────────────────────────────────────────────────────
+// hud_probe stage 9 MEASURED 2026-09-24 that the event-backed LUIelemBar draws in an MP match (klaze saw the
+// bars): openluielem( #"luielembar", idx, 0 ) + lui::function_bb6bcb89 field events - no clientfield, no
+// material (autogenerated/luielems/luielembar.gsc; the probe's bar_set). Two boxes per menu owner while
+// their menu is open: idx 0 behind the CENTRE LINE (the region-2 carousel's iprintlnbold), idx 1 behind the
+// HINT ROW (the menu legend's use prompt). Where those sit on screen is not in the dump, so each box is ONE
+// live-tunable dvar (the app's MENU BACKDROP block): gf_hb0 / gf_hb1 = "x,y,w,h,alpha,r,g,b"; alpha 0 =
+// that box off; empty = the defaults below (guesses: a 1024-px box centred on a 1920-wide screen).
+// The client widget, READ from its Lua (lui-source core_ui_0685 LUIelemBar + core_ui_1446, not measured):
+//   x / y   = 15-px units (setLeftPx / setTopPx( 15 * v ))
+//   width   = 8-px units (setWidth( 8 * v )) - the stock px helper divides by 4, the Lua multiplies by 8
+//   height  = 4-px units
+//   it is a BLACK background image plus a foreground image (uie_wipe_normal, 1 px inset) filled by
+//   bar_percent; red / green / blue (0..15) tint only the FOREGROUND, alpha (0..15) is set on the whole
+//   element AND on both images. bar_percent 127 = full (the Lua divides by 63, so 127 is over-full: fine).
+// lui_shared queues every field event and sends ONE per server frame (function_1c4c4975), and skips a value
+// it already sent (function_bed1b789's per-player cache, self.var_3bc46b87) - so the cache is cleared before
+// every (re)open, or a reopened box would never get its fields; alpha goes LAST so a box appears only once
+// it is placed and coloured. Unknowns: the z-order against the text (the bar sets no priority - if a box
+// covers its text, lower its alpha) and joiners (event-backed, so no clientfield to mismatch - unmeasured).
+function private hudbox_think()
+{
+    self notify( #"gf_hudbox_restart" );
+    self endon( #"gf_hudbox_restart", #"disconnect" );
+
+    shown = 0;
+    sig = "";
+
+    for ( ;; )
+    {
+        wait 0.1;
+
+        want = isdefined( self.gfmenu ) && isdefined( self.gfmenu.current ) && self.gfmenu.current != "" && self hint_has_menu();
+
+        if ( want )
+        {
+            c0 = getdvarstring( #"gf_hb0", "" );
+            c1 = getdvarstring( #"gf_hb1", "" );
+            nsig = c0 + "|" + c1;
+
+            if ( !shown || nsig != sig )
+            {
+                self hudbox_apply( 0, hudbox_parse( c0, "30,18,128,12,8,0,0,0" ) );
+                self hudbox_apply( 1, hudbox_parse( c1, "30,46,128,12,8,0,0,0" ) );
+                shown = 1;
+                sig = nsig;
+            }
+        }
+        else if ( shown )
+        {
+            self hudbox_close( 0 );
+            self hudbox_close( 1 );
+            shown = 0;
+            sig = "";
+        }
+    }
+}
+
+// "x,y,w,h,alpha,r,g,b" -> 8 ints (missing colour = 0 = black); fewer than 5 fields = the default.
+function private hudbox_parse( s, def )
+{
+    t = strtok( ( isdefined( s ) && s != "" ) ? s : def, "," );
+
+    if ( t.size < 5 )
+        t = strtok( def, "," );
+
+    v = [];
+
+    for ( i = 0; i < 8; i++ )
+        v[ i ] = ( i < t.size ) ? int( t[ i ] ) : 0;
+
+    return v;
+}
+
+// Field numbers = luielembar.csc's reset list: 1 x, 2 y, 3 width, 4 height, 6 alpha, 7-9 red / green /
+// blue, 10 bar_percent. Only changed values travel (lui_shared's cache); alpha last.
+function private hudbox_apply( idx, v )
+{
+    e = #"luielembar";
+
+    if ( v[ 4 ] <= 0 )
+    {
+        self hudbox_close( idx );
+        return;
+    }
+
+    if ( !self function_3fc81484( e, idx ) )
+    {
+        self hudbox_forget( idx );
+        self openluielem( e, idx, 0 );
+    }
+
+    self lui::function_bb6bcb89( e, idx, 1, v[ 0 ], 0 );
+    self lui::function_bb6bcb89( e, idx, 2, v[ 1 ], 0 );
+    self lui::function_bb6bcb89( e, idx, 3, v[ 2 ], 0 );
+    self lui::function_bb6bcb89( e, idx, 4, v[ 3 ], 0 );
+    self lui::function_bb6bcb89( e, idx, 7, v[ 5 ], 0 );
+    self lui::function_bb6bcb89( e, idx, 8, v[ 6 ], 0 );
+    self lui::function_bb6bcb89( e, idx, 9, v[ 7 ], 0 );
+    self lui::function_bb6bcb89( e, idx, 10, 127, 0 );
+    self lui::function_bb6bcb89( e, idx, 6, v[ 4 ], 0 );
+}
+
+// The probe's elem_close: drop lui_shared's sent-value record, then close.
+function private hudbox_close( idx )
+{
+    e = #"luielembar";
+
+    if ( !self function_3fc81484( e, idx ) )
+        return;
+
+    self hudbox_forget( idx );
+    self closeluielem( e, idx );
+}
+
+// lui_shared's per-player record of the values it already sent this element (function_bed1b789).
+function private hudbox_forget( idx )
+{
+    e = #"luielembar";
+
+    if ( isdefined( self.var_3bc46b87 ) && isdefined( self.var_3bc46b87[ e ] ) && isdefined( self.var_3bc46b87[ e ][ idx ] ) )
+        self.var_3bc46b87[ e ][ idx ] = undefined;
 }

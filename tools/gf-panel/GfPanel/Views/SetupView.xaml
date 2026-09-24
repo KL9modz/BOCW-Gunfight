@@ -14,7 +14,7 @@
         <StackPanel>
           <Grid>
             <Grid.ColumnDefinitions><ColumnDefinition Width="18" /><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-            <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+            <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
             <Ellipse Width="9" Height="9" Fill="{Binding Inject.GameOk, Converter={StaticResource KeyBrush}}" />
             <TextBlock Grid.Column="1" Text="Game" Style="{StaticResource Dim}" />
             <TextBlock Grid.Column="2" Text="{Binding Inject.GameText}" />
@@ -27,6 +27,9 @@
             <Ellipse Grid.Row="3" Width="9" Height="9" Fill="{Binding Inject.MenuOk, Converter={StaticResource KeyBrush}}" />
             <TextBlock Grid.Row="3" Grid.Column="1" Text="Mod menu" Style="{StaticResource Dim}" />
             <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding Inject.MenuText}" TextWrapping="Wrap" />
+            <Ellipse Grid.Row="4" Width="9" Height="9" Fill="{Binding Inject.LobbyOk, Converter={StaticResource KeyBrush}}" />
+            <TextBlock Grid.Row="4" Grid.Column="1" Text="Lobby slots" Style="{StaticResource Dim}" />
+            <TextBlock Grid.Row="4" Grid.Column="2" Text="{Binding Inject.LobbyText}" TextWrapping="Wrap" ToolTip="The lobby payload's GFLOBBY readback (the pregame lobby only): the lobby's maxplayers / allowspectating and what 'Lobby max players' asked for. The lobby recounts its slots on Custom Game Rules → change a row → YES." />
           </Grid>
           <TextBlock Text="{Binding SweepText}" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,6,0,0" />
           <TextBlock Text="{Binding Inject.Busy}" Foreground="{StaticResource Wn}" FontSize="11" Margin="0,4,0,0" />
@@ -43,6 +46,7 @@
           </StackPanel>
           <WrapPanel Margin="0,0,0,8">
             <Button Content="Inject mod menu" Command="{Binding Inject.InjectMenuCmd}" Margin="0,0,6,0" />
+            <Button Content="Inject lobby payload" Command="{Binding Inject.InjectLobbyCmd}" Margin="0,0,6,0" ToolTip="payloads\gunfight_lobby.gscc on its own pair (load_shared.gsc + containers_shared.gsc) - the lobby's max players (DASHBOARD → Lobby max players). New pair: on the first run check the lobby return." />
             <Button Content="Inject bridge DLL" Command="{Binding Inject.InjectBridge}" Margin="0,0,6,0" />
             <Button Content="Install / reinstall cwpatch" Command="{Binding Inject.InstallCwpatch}" ToolTip="Battle.net writes the stock SDK back over cwpatch on updates / repairs - re-install it (loads at the next launch)" />
           </WrapPanel>
@@ -66,6 +70,10 @@
           <StackPanel Orientation="Horizontal" Margin="0,2">
             <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Prefs.ApplyLiveOnChange}" VerticalAlignment="Center" />
             <TextBlock Text=" apply live on change (one apply pulse after a setting that a live subsystem owns)" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="12" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Margin="0,2">
+            <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Prefs.InjectLobby}" VerticalAlignment="Center" />
+            <TextBlock Text=" Set up all also injects the lobby payload (lobby max players → 6v6 + spectators in the pregame lobby)" VerticalAlignment="Center" Margin="6,0,0,0" FontSize="12" />
           </StackPanel>
           <StackPanel Orientation="Horizontal" Margin="0,2">
             <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Prefs.JoinToast}" VerticalAlignment="Center" />

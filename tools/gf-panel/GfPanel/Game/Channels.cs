@@ -38,6 +38,21 @@ public sealed record GfState
     public int Bans { get; init; }
     public int Staged { get; init; }
     public string Host { get; init; } = "";
+    /// <summary>spn=: the spawn source this level runs (pick / family / guard off) + how the living players were
+    /// placed (e engine start picker, a anchors, s stock) - the spawn atlas build and later.</summary>
+    public string SpawnNote { get; init; } = "";
+    /// <summary>spv=: "&lt;match&gt;.&lt;version&gt;" of the match's spawn events - changes when a spawn lands (the live overlay collects then).</summary>
+    public string SpawnEvVersion { get; init; } = "";
+    /// <summary>mid=: the match id (getrealtime() at the match's first load; survives round restarts). 0 = an older payload.</summary>
+    public long MatchId { get; init; }
+    /// <summary>mo=1: the MATCH is over (the final round's end), not just a round - the log build and later.</summary>
+    public bool MatchOver { get; init; }
+    /// <summary>ents=: every entity in the level, sampled every 5 s. -1 = not published (older payload).</summary>
+    public int Entities { get; init; } = -1;
+    /// <summary>lg=: the newest menu-log (GFLOG) record of the match; the panel collects GFLOG when it moves.</summary>
+    public long LogSeq { get; init; }
+    /// <summary>ev=: the stamp of the spawned-entity list (GFENTS) - changes when a prop / vehicle is added, removed or moves. 0 = none / older payload.</summary>
+    public long EntVersion { get; init; }
     public string Say { get; init; } = "";
     /// <summary>The GSC's state_build() died this many times (a fallback line carries err= / st=);
     /// Stage = the numbered step it died in. 0 = healthy.</summary>
@@ -63,6 +78,7 @@ public sealed record GfState
         }
         if (!kv.ContainsKey("v")) return null;
         int I(string k, int d = 0) => kv.TryGetValue(k, out var s) && int.TryParse(s, out var n) ? n : d;
+        long L(string k) => kv.TryGetValue(k, out var s) && long.TryParse(s, out var n) ? n : 0;
         bool B(string k) => I(k) == 1;
         string S(string k) => kv.TryGetValue(k, out var s) ? s : "";
         return new GfState
@@ -73,8 +89,9 @@ public sealed record GfState
             TimeLimitMs = I("tl"), TimePassedMs = I("tp"), Phase = S("ph"), Overtime = B("ot"), Paused = B("pz"), FrozenAll = B("frz"),
             StagedMap = S("stm"), StagedGametype = S("stg"), MaxClients = I("mc"), TeamSize = I("ts"), TimerSeconds = I("tmr"),
             AckSeq = I("ack"), Drunk = B("drk"), InvisibleAll = B("inv"), GodAll = B("god"), ThirdPersonAll = B("tp3"),
-            PerksAll = I("prk"), Bans = I("ban"), Staged = I("stgd"), Host = S("host"), Say = StripColors(S("say")),
+            PerksAll = I("prk"), Bans = I("ban"), Staged = I("stgd"), Host = S("host"), SpawnNote = S("spn"), SpawnEvVersion = S("spv"), Say = StripColors(S("say")),
             Err = I("err"), Stage = I("st"),
+            MatchId = L("mid"), MatchOver = B("mo"), Entities = I("ents", -1), LogSeq = L("lg"), EntVersion = L("ev"),
         };
     }
 
@@ -92,6 +109,10 @@ public sealed record GfPlayer(int EntNum, string Name, string Team, string Kind,
     public bool ThirdPerson => Flags.Contains('t');
     public bool Frozen => Flags.Contains('z');
     public bool Riding => Flags.Contains('v');
+    /// <summary>m: has a granted client menu (bocw-84 2026-09-23 - the GSC reads the xuid grant store too, so it shows between rounds).</summary>
+    public bool HasMenu => Flags.Contains('m');
+    /// <summary>F: forge mode (grab + edit props).</summary>
+    public bool ForgeMode => Flags.Contains('F');
     /// <summary>Stable identity across ticks: xuid for humans, name for bots.</summary>
     public string Key => string.IsNullOrEmpty(Xuid) ? "n:" + Name : "x:" + Xuid;
 }
@@ -170,6 +191,58 @@ public sealed class GfConfig
             }
         }
         return cfg;
+    }
+}
+
+/// <summary>GFLOBBY|tick|v=1|t=|mp=|as=|want=|spec=|wm=|ws=|h=|n=|gt=  - the lobby payload (src/gunfight_lobby) from the
+/// pregame lobby: the lobby's own maxplayers / allowspectating, what the app asked for, and each write's result
+/// (0 off · 1 wrote, no readback · 2 wrote + matched · 3 wrote, readback differs · 4 already correct · 5 not the host yet).</summary>
+public sealed record GfLobby
+{
+    public long Tick { get; init; }
+    public int Ticks { get; init; }
+    public string MaxPlayers { get; init; } = "-";
+    public string AllowSpec { get; init; } = "-";
+    public int Want { get; init; }
+    public int Spec { get; init; }
+    public int WriteMax { get; init; }
+    public int WriteSpec { get; init; }
+    public bool Host { get; init; }
+    public string Clients { get; init; } = "-";
+    public string Gametype { get; init; } = "";
+
+    /// <summary>The store holds what was asked (or the feature is off): the slot count follows on the next Rules → YES.</summary>
+    public bool Ok => (Want < 2 || MaxPlayers == Want.ToString()) && (Spec != 1 || AllowSpec == "1");
+    public bool Warn => WriteMax == 3 || WriteSpec == 3 || (Want >= 2 && !Host);
+    /// <summary>One line for the SETUP row and the activity log (changes only - Ticks is left out on purpose).</summary>
+    public string Summary => Want < 2
+        ? $"lobby payload live, lobby max players OFF (lobby maxplayers {MaxPlayers})"
+        : $"lobby maxplayers {MaxPlayers} (asked {Want}), spectating {AllowSpec}{(Host ? "" : " - not the host, nothing written")}{(WriteMax == 3 || WriteSpec == 3 ? " - a write did not stick" : "")}, {Clients} in lobby, {(Gametype.Length > 0 ? Gametype : "?")}";
+
+    public static GfLobby? Parse(long tick, string body)
+    {
+        var kv = new Dictionary<string, string>();
+        foreach (var part in body.Split('|'))
+        {
+            var eq = part.IndexOf('=');
+            if (eq > 0) kv[part[..eq]] = part[(eq + 1)..];
+        }
+        if (!kv.ContainsKey("v")) return null;
+        static int I(Dictionary<string, string> d, string k) => d.TryGetValue(k, out var s) && int.TryParse(s, out var v) ? v : 0;
+        return new GfLobby
+        {
+            Tick = tick,
+            Ticks = I(kv, "t"),
+            MaxPlayers = kv.GetValueOrDefault("mp", "-"),
+            AllowSpec = kv.GetValueOrDefault("as", "-"),
+            Want = I(kv, "want"),
+            Spec = I(kv, "spec"),
+            WriteMax = I(kv, "wm"),
+            WriteSpec = I(kv, "ws"),
+            Host = I(kv, "h") == 1,
+            Clients = kv.GetValueOrDefault("n", "-"),
+            Gametype = kv.GetValueOrDefault("gt", ""),
+        };
     }
 }
 
