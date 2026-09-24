@@ -86,6 +86,22 @@ public static class CommandTests
         p.ThrowIfAny("switch");
     }
 
+    /// <summary>A command that restarts / ends / switches the level is sent once and never retried (its ack is lost in
+    /// the reload; a retry restarted again, or - for RACE → END MATCH, missed until 2026-09-24 - ended the NEXT match).</summary>
+    [Test]
+    public static void Level_changing_commands_are_recognised_so_they_are_never_retried()
+    {
+        string? L(IEnumerable<string> payload) => Commands.LevelChange(Commands.Fire(payload, 7));
+        foreach (var v in new[] { "restart", "restartround", "relaunch", "endmatch" }) Check.Equal(v, L(Commands.Action(v)), v);
+        Check.Equal("endround", L(Commands.Action("endround", "allies")), "endround allies");
+        Check.Equal("race endmatch", L(Commands.Action("race", "endmatch")), "RACE → END MATCH (verb race)");
+        Check.Equal("switch", L(Commands.Switch("mp_moscow", "gunfight", stage: true)), "a stage for the lobby");
+        Check.Equal("switch", L(Commands.Switch(null, "gunfight", stage: false)), "Switch NOW");
+        Check.Null(L(Commands.Action("race", "start")), "race start");
+        Check.Null(L(Commands.Action("fillbots")), "fillbots");
+        Check.Null(L(Commands.Say("hi", 0, 0, 0, "all")), "a say");
+    }
+
     [Test]
     public static void Free_text_loses_line_breaks_quotes_and_separators()
     {
