@@ -1,0 +1,180 @@
+<UserControl x:Class="GfPanel.Views.ForgeView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:v="clr-namespace:GfPanel.Views">
+  <!-- FORGE (the 2026-09-24 redesign): everything that builds or removes things in the level - props, place mode, forge
+       mode, the forge tools, FORGE CONTROLS + PLACEMENT & PROMPTS (Schema Tab = "forge") - and, on its own tab, the
+       spawned-entity list (was the ENTITIES tab; read from the game while this page shows). -->
+  <TabControl x:Name="ForgeTabs" Style="{StaticResource SubTabs}">
+    <TabItem Header="BUILD" Tag="forge">
+      <Grid>
+      <Grid.Resources>
+        <v:BindingProxy x:Key="Proxy" Data="{Binding}" />
+      </Grid.Resources>
+      <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,12">
+        <v:ColumnsPanel>
+          <v:ColumnsPanel.ItemsSource>
+            <CompositeCollection>
+          <!-- PROPS (docs/notes/prop-catalog.md) -->
+          <Expander Style="{StaticResource Block}">
+            <Expander.Header>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="PROPS &amp; EXPLOSIVE BARRELS" Style="{StaticResource BlockTitle}" />
+                <TextBlock Text="{Binding Props.LoadNote}" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" />
+              </StackPanel>
+            </Expander.Header>
+            <StackPanel>
+              <WrapPanel Style="{StaticResource Row}">
+                <RadioButton Content="Universal (every map)" IsChecked="{Binding Props.ShowUniversal}" Margin="0,0,12,0" />
+                <RadioButton IsChecked="{Binding Props.ShowMap}" Margin="0,0,12,0">
+                  <TextBlock Text="{Binding Props.MapLabel, StringFormat='This map: {0}'}" FontSize="11" />
+                </RadioButton>
+                <CheckBox Content="barrels only" IsChecked="{Binding Props.BarrelsOnly}" Margin="0,0,12,0" />
+                <TextBox Text="{Binding Props.Search, UpdateSourceTrigger=PropertyChanged}" Width="200" ToolTip="filter by model / label" />
+                <TextBlock Text="{Binding Props.CountText}" Style="{StaticResource Dim}" FontSize="10.5" VerticalAlignment="Center" Margin="8,0,0,0" />
+              </WrapPanel>
+              <ListBox ItemsSource="{Binding Props.Results}" SelectedItem="{Binding Props.Selected}" Height="220" VirtualizingPanel.IsVirtualizing="True" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                       Background="{StaticResource Bg}" BorderBrush="{StaticResource Bd}" BorderThickness="1">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <StackPanel Orientation="Horizontal" ToolTip="{Binding Model}">
+                      <TextBlock Text="{Binding Display}" FontSize="11.5" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <WrapPanel Style="{StaticResource Row}">
+                <Button Content="Place as prop" Style="{StaticResource SmallAccent}" Command="{Binding Props.SpawnProp}" Margin="0,2,4,2" ToolTip="where the host looks (propidx / propname)" />
+                <Button Content="🛢 Place as EXPLOSIVE barrel" Style="{StaticResource WnBtn}" Command="{Binding Props.SpawnBarrel}" Margin="0,2,12,2" ToolTip="barrelidx / barrelname - shoot it to blow it up (radius ~260, damage 25-200)" />
+                <TextBlock Text="scale %" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0" ToolTip="per-map (by-name) spawns only" />
+                <TextBox Text="{Binding Props.Scale, UpdateSourceTrigger=PropertyChanged}" Width="46" Margin="0,0,12,0" />
+                <Button Content="☆ favourite" Style="{StaticResource SmallBtn}" Command="{Binding Props.ToggleFav}" Margin="0,2,12,2" ToolTip="a universal prop the in-game menu's Props page shows" />
+                <Button Content="Remove last" Style="{StaticResource SmallBtn}" Command="{Binding Props.Undo}" Margin="0,2,4,2" />
+                <Button Content="Delete all props" Style="{StaticResource NgBtn}" Command="{Binding Forge.Clear}" Margin="0,2,4,2" ToolTip="forge clear - every placed prop AND the saved forge layout for this map (propclear alone only deletes the live entities and the saved ones come back next round)" />
+              </WrapPanel>
+              <TextBlock Text="{Binding Props.FavText}" Style="{StaticResource SubTitle}" />
+              <ItemsControl ItemsSource="{Binding Props.Favorites}">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border Background="{StaticResource Bg}" BorderBrush="{StaticResource Bd}" BorderThickness="1" CornerRadius="4" Padding="6,2" Margin="0,2,4,2">
+                      <StackPanel Orientation="Horizontal">
+                        <Button Content="{Binding Display}" Style="{StaticResource Star}" Width="Auto" Foreground="{StaticResource Tx}" Command="{Binding DataContext.Props.SpawnFav, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" ToolTip="{Binding Model}" />
+                        <Button Content="✕" Style="{StaticResource Star}" Command="{Binding DataContext.Props.RemoveFav, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Button Content="Push favourites to the in-game menu" Style="{StaticResource SmallAccent}" Command="{Binding Props.PushFavs}" HorizontalAlignment="Left" Margin="0,6,0,0" ToolTip="set gf_prop_favs / gf_prop_favs2 (CSV of universal indices) + propfavs - the menu's Props → Favourites page" />
+            </StackPanel>
+          </Expander>
+
+          <!-- FORGE: place mode + forge mode (was FORGE & HINT BAR; the hint lines are on DIAGNOSTICS, client menus on MATCH / PLAYERS) -->
+          <Expander Style="{StaticResource Block}">
+            <Expander.Header>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="FORGE" Style="{StaticResource BlockTitle}" />
+                <TextBlock Text="the in-game prop placer (the host's body) and grab + edit mode" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="480" />
+              </StackPanel>
+            </Expander.Header>
+            <StackPanel>
+              <TextBlock Text="PLACE MODE" Style="{StaticResource SubTitle}" />
+              <WrapPanel>
+                <Button Content="▶ Enter forge" Style="{StaticResource Accent}" Command="{Binding Forge.Enter}" Margin="0,0,6,4" ToolTip="forge enter - a ghost of the current model rides your crosshair onto surfaces while you walk normally (WASD / stick). D-pad or Action Slots 1-4: distance up/down, rotate left/right · ADS + up/down: scale · weapon switch: cycle model · FIRE: place · FRAG: exit - same on controller and keyboard. Weapons off while active." />
+                <Button Content="■ Exit" Command="{Binding Forge.Exit}" Margin="0,0,6,4" ToolTip="forge exit - drop the preview, weapons back" />
+                <Button Content="Place" Command="{Binding Forge.Place}" Margin="0,0,6,4" ToolTip="forge place - drop the preview where it is (same as FIRE in place mode)" />
+                <Button Content="◀ Prev" Command="{Binding Forge.Prev}" Margin="0,0,6,4" ToolTip="forge prev - previous model in the universal list" />
+                <Button Content="Next ▶" Command="{Binding Forge.Next}" Margin="0,0,6,4" ToolTip="forge next - next model" />
+                <Button Content="Clear layout" Style="{StaticResource NgBtn}" Command="{Binding Forge.Clear}" Margin="0,0,6,4" ToolTip="forge clear - every placed prop AND the saved layout for this map (game.gf_forge). Placed props otherwise re-appear every round." />
+              </WrapPanel>
+              <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,2,0,8">Placed props join the props list (PROPS → Remove last / Delete all props) and persist across rounds on this map. FORGE MODE below grabs, moves, turns, scales and deletes them; layout save / load is not built.</TextBlock>
+
+              <TextBlock Text="FORGE MODE — GRAB + EDIT PROPS" Style="{StaticResource SubTitle}" />
+              <WrapPanel Style="{StaticResource Row}">
+                <TextBlock Text="Me (host)" Style="{StaticResource RowLabel}" />
+                <Button Content="On" Style="{StaticResource SmallAccent}" Command="{Binding Forge.ModeHostOn}" Margin="0,0,4,0" ToolTip="forgemode on - tap-to-grab prompts on props (ours + map props within Grab reach) and move / turn / scale / delete; nobody else sees the prompts" />
+                <Button Content="Off" Style="{StaticResource SmallBtn}" Command="{Binding Forge.ModeHostOff}" Margin="0,0,12,0" />
+                <TextBlock Text="Everyone" Style="{StaticResource RowLabel}" />
+                <Button Content="On" Style="{StaticResource SmallAccent}" Command="{Binding Forge.ModeAllOn}" Margin="0,0,4,0" ToolTip="forgemode all on" />
+                <Button Content="Off" Style="{StaticResource SmallBtn}" Command="{Binding Forge.ModeAllOff}" ToolTip="forgemode all off" />
+              </WrapPanel>
+              <WrapPanel Style="{StaticResource Row}">
+                <TextBlock Text="A player" Style="{StaticResource RowLabel}" />
+                <ComboBox ItemsSource="{Binding Forge.Humans}" DisplayMemberPath="Name" SelectedItem="{Binding Forge.ModeTarget}" Width="200" Margin="0,0,6,0" ToolTip="humans in the match (not you)" />
+                <Button Content="On" Style="{StaticResource SmallAccent}" Command="{Binding Forge.ModeTargetOn}" Margin="0,0,4,0" />
+                <Button Content="Off" Style="{StaticResource SmallBtn}" Command="{Binding Forge.ModeTargetOff}" />
+                <TextBlock Text="also: PLAYERS → Menus, or right-click a player" Style="{StaticResource Dim}" FontSize="10.5" VerticalAlignment="Center" Margin="8,0,0,0" />
+              </WrapPanel>
+            </StackPanel>
+          </Expander>
+
+          <!-- FORGE TOOLS: the fun pack's spin / move / link / tilt / spray / prop gun (the `fun ft` verbs) -->
+          <Expander Style="{StaticResource Block}">
+            <Expander.Header>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="FORGE TOOLS" Style="{StaticResource BlockTitle}" />
+                <TextBlock Text="the fun pack - act on the prop the HOST aims at · never run" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="480" />
+              </StackPanel>
+            </Expander.Header>
+            <StackPanel>
+              <WrapPanel Style="{StaticResource Row}">
+                <TextBlock Text="Spin" Style="{StaticResource RowLabel}" />
+                <Button Content="Yaw" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spin 0" Margin="0,2,4,2" ToolTip="fun ft spin - the aimed prop (else ours nearest the aim line, else the last placed) turns forever; motion is not saved across rounds" />
+                <Button Content="Roll" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spin 1" Margin="0,2,4,2" ToolTip="rotateroll - stock calls it only in Zombies; the one to watch" />
+                <Button Content="Pitch" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spin 2" Margin="0,2,4,2" />
+                <Button Content="Stop" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spin -1" Margin="0,2,4,2" />
+                <TextBlock Text="s a turn" Style="{StaticResource Dim}" VerticalAlignment="Center" Margin="12,0,6,0" />
+                <Button Content="1" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft speed 1" Margin="0,2,4,2" />
+                <Button Content="2" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft speed 2" Margin="0,2,4,2" />
+                <Button Content="3" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft speed 3" Margin="0,2,4,2" />
+                <Button Content="Reverse on" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft rev on" Margin="6,2,4,2" />
+                <Button Content="Reverse off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft rev off" Margin="0,2,4,2" />
+              </WrapPanel>
+              <WrapPanel Style="{StaticResource Row}">
+                <TextBlock Text="Move" Style="{StaticResource RowLabel}" />
+                <Button Content="Bob up/down" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft move updown" Margin="0,2,4,2" ToolTip="fun ft move - a moving platform (a solid moving model carries a player standing on it - the elevator idiom, untested)" />
+                <Button Content="Left/right" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft move leftright" Margin="0,2,4,2" />
+                <Button Content="Fwd/back" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft move fwdback" Margin="0,2,4,2" />
+                <Button Content="Stop" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft move stop" Margin="0,2,4,2" />
+                <Button Content="Link to previous" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft link 1" Margin="12,2,4,2" ToolTip="the aimed prop rides the one placed before it (loops refused)" />
+                <Button Content="Unlink" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft link 0" Margin="0,2,4,2" />
+                <Button Content="Solid toggle" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft solid" Margin="0,2,4,2" />
+                <Button Content="Delete aimed prop" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft delete" Margin="0,2,4,2" ToolTip="the prop under the host's crosshair only" />
+              </WrapPanel>
+              <WrapPanel Style="{StaticResource Row}">
+                <TextBlock Text="Tilt new props" Style="{StaticResource RowLabel}" />
+                <Button Content="Flat" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft tilt 0 0" Margin="0,2,4,2" />
+                <Button Content="45" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft tilt 45 0" Margin="0,2,4,2" />
+                <Button Content="On its side" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft tilt 0 90" Margin="0,2,4,2" />
+                <Button Content="Upside down" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft tilt 0 180" Margin="0,2,4,2" />
+                <Button Content="Nose up" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft tilt -90 0" Margin="0,2,4,2" />
+              </WrapPanel>
+              <WrapPanel Style="{StaticResource Row}">
+                <TextBlock Text="Spray (hold Fire)" Style="{StaticResource RowLabel}" />
+                <Button Content="Off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spray 0" Margin="0,2,4,2" />
+                <Button Content="0.5 s" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spray 500" Margin="0,2,4,2" ToolTip="fun ft spray - in the prop placer, holding Fire places a prop every interval, 200 props max; each burst is logged (start + end)" />
+                <Button Content="0.25 s" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spray 250" Margin="0,2,4,2" />
+                <Button Content="0.1 s" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft spray 100" Margin="0,2,4,2" />
+                <TextBlock Text="Auto-link" Style="{StaticResource Dim}" VerticalAlignment="Center" Margin="12,0,6,0" />
+                <Button Content="On" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft autolink on" Margin="0,2,4,2" ToolTip="the next placed prop is the base, later ones ride it (spin / move the base, the build follows); not saved" />
+                <Button Content="Off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ft autolink off" Margin="0,2,4,2" />
+                <TextBlock Text="Prop gun" Style="{StaticResource Dim}" VerticalAlignment="Center" Margin="12,0,6,0" />
+                <Button Content="On" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="propgun on" Margin="0,2,4,2" ToolTip="fun propgun - every shot places your forge pick where it lands (250 ms apart, 200 props max)" />
+                <Button Content="Off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="propgun off" Margin="0,2,4,2" />
+              </WrapPanel>
+            </StackPanel>
+          </Expander>
+
+              <CollectionContainer Collection="{Binding Data.ForgeSections, Source={StaticResource Proxy}}" />
+            </CompositeCollection>
+          </v:ColumnsPanel.ItemsSource>
+        </v:ColumnsPanel>
+      </ScrollViewer>
+      </Grid>
+    </TabItem>
+    <TabItem Header="SPAWNED ENTITIES" Tag="entities">
+      <v:EntitiesView />
+    </TabItem>
+  </TabControl>
+</UserControl>

@@ -49,7 +49,7 @@ public sealed class PlayerRowVM : ObservableObject
     {
         P = p;
         foreach (var n in new[] { nameof(Name), nameof(Team), nameof(TeamLabel), nameof(Kind), nameof(Alive), nameof(Score), nameof(Kd), nameof(Tag), nameof(Flags), nameof(God), nameof(Frozen), nameof(Fly), nameof(ThirdPerson), nameof(StageCode), nameof(IsBanned),
-                                    nameof(HasMenu), nameof(ForgeMode), nameof(CanHaveMenu), nameof(ShowGiveMenu), nameof(ShowTakeMenu) })
+                                    nameof(HasMenu), nameof(ForgeMode), nameof(CanHaveMenu), nameof(ShowGiveMenu), nameof(ShowTakeMenu), nameof(MenuGlyph), nameof(MenuTip) })
             OnPropertyChanged(n);
     }
     /// <summary>The roster changed: the To-player list is rebuilt when the menu next opens.</summary>
@@ -98,6 +98,12 @@ public sealed class PlayerRowVM : ObservableObject
             $"set gf_cmd_arg \"{Commands.Clean(dest, Commands.MaxTargetChars)}\"",
         });
     });
+    /// <summary>★ on the roster row (klaze 2026-09-24: giving menu access is one of the most-used jobs): one click gives /
+    /// takes the client menu. The host has the full menu already and bots cannot hold one.</summary>
+    public string MenuGlyph => P.HasMenu ? "★" : "☆";
+    public string MenuTip => P.HasMenu ? $"{Name} has a client mod menu - click to take it back" : $"Give {Name} their own client mod menu (hold ADS + Melee in game)";
+    /// <summary>Open this player on the PLAYERS page (every action as a button).</summary>
+    public RelayCommand Inspect => new(() => { _main.Players.Selected = this; _main.SelectTab("players"); });
     /// <summary>Right-click → Show their menu log: the ACTIVITY list filtered to this player's menu actions.</summary>
     public RelayCommand ShowMenuLog => new(() => _main.FilterActivityToPlayer(Name));
     public RelayCommand Kick => new(() => { if (_main.Confirm($"Kick {Name}?")) Do("Kick", "kickone"); });
@@ -138,6 +144,10 @@ public sealed class PlayersVM : ObservableObject
     public string Summary { get => _summary; set => Set(ref _summary, value); }
     public bool Rich { get; private set; }
     public bool Any => Rows.Count > 0;
+    private PlayerRowVM? _selected;
+    /// <summary>The PLAYERS page's inspector target (the list's selection, or a roster row's "Open on PLAYERS").</summary>
+    public PlayerRowVM? Selected { get => _selected; set { if (Set(ref _selected, value)) OnPropertyChanged(nameof(HasSelection)); } }
+    public bool HasSelection => _selected != null;
 
     public PlayersVM(MainViewModel main) { _main = main; }
 
@@ -152,7 +162,7 @@ public sealed class PlayersVM : ObservableObject
             if (byKey.TryGetValue(p.Key, out var row)) row.Update(p);
             else Rows.Add(new PlayerRowVM(_main, p));
         }
-        foreach (var r in Rows.Where(r => !keep.Contains(r.P.Key)).ToList()) Rows.Remove(r);
+        foreach (var r in Rows.Where(r => !keep.Contains(r.P.Key)).ToList()) { if (ReferenceEquals(r, _selected)) Selected = null; Rows.Remove(r); }
         Regroup();
         foreach (var r in Rows) r.NotifyRoster();
         var humans = list.Count(p => !p.IsBot);

@@ -1,0 +1,280 @@
+<UserControl x:Class="GfPanel.Views.PlayersView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:v="clr-namespace:GfPanel.Views">
+  <!-- PLAYERS (the 2026-09-24 redesign): one player's every action as a visible button (was the roster's right-click menu
+       only - it stays, as a shortcut), everyone's god / ammo / view / perks, the host's own tools, and the ban list with an
+       Unban per player. Loadout pickers are shared with SANDBOX (one weapon / perk / streak / cosmetics pick). -->
+  <UserControl.Resources>
+    <Style x:Key="Act" TargetType="{x:Type Button}" BasedOn="{StaticResource Chip}">
+      <Setter Property="Margin" Value="0,2,4,2" />
+    </Style>
+  </UserControl.Resources>
+  <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,12">
+    <v:ColumnsPanel>
+
+      <!-- PLAYER: pick one, then act -->
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="PLAYER" Style="{StaticResource BlockTitle}" />
+            <TextBlock Text="{Binding Players.Summary}" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="380" />
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel>
+          <ListBox ItemsSource="{Binding Players.Rows}" SelectedItem="{Binding Players.Selected}" Height="200" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                   Background="{StaticResource Bg}" BorderBrush="{StaticResource Bd}" BorderThickness="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" />
+          <TextBlock Style="{StaticResource ActionNote}" Visibility="{Binding Players.HasSelection, Converter={StaticResource VisInv}}">Pick a player above (or right-click one in the sidebar → Open on the PLAYERS page). Every action below goes to that player alone.</TextBlock>
+
+          <Border Visibility="{Binding Players.HasSelection, Converter={StaticResource Vis}}" Margin="0,8,0,0">
+            <StackPanel DataContext="{Binding Players.Selected}">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
+                <Border Style="{StaticResource Pill}" BorderBrush="{StaticResource Bd}" Visibility="{Binding Tag, Converter={StaticResource NullVis}}" Margin="8,0,0,0">
+                  <TextBlock Style="{StaticResource PillText}" Text="{Binding Tag}" Foreground="{StaticResource Dm}" />
+                </Border>
+                <Border Style="{StaticResource Pill}" BorderBrush="{StaticResource MenuC}" Background="{StaticResource MenuDim}" Visibility="{Binding HasMenu, Converter={StaticResource Vis}}">
+                  <TextBlock Style="{StaticResource PillText}" Text="★ MENU" Foreground="{StaticResource MenuC}" />
+                </Border>
+                <Border Style="{StaticResource Pill}" BorderBrush="{StaticResource Ng}" Visibility="{Binding IsBanned, Converter={StaticResource Vis}}">
+                  <TextBlock Style="{StaticResource PillText}" Text="BANNED" Foreground="{StaticResource Ng}" />
+                </Border>
+              </StackPanel>
+              <TextBlock Style="{StaticResource Dim}" FontSize="11" Margin="0,2,0,0">
+                <Run Text="{Binding Team, Mode=OneWay}" /><Run Text="  ·  score " /><Run Text="{Binding Score, Mode=OneWay}" /><Run Text="  ·  K/D " /><Run Text="{Binding Kd, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding Flags, Mode=OneWay}" />
+              </TextBlock>
+
+              <TextBlock Text="Menus" Style="{StaticResource SubTitle}" />
+              <WrapPanel>
+                <Button Command="{Binding ToggleMenu}" Style="{StaticResource Act}" Visibility="{Binding ShowGiveMenu, Converter={StaticResource Vis}}" ToolTip="forgegrant on - their own mod menu (hold ADS + Melee; controller: D-pad up)">
+                  <TextBlock Text="★ Give client menu" Foreground="{StaticResource MenuC}" FontWeight="Bold" />
+                </Button>
+                <Button Content="✖ Take back client menu" Command="{Binding ToggleMenu}" Style="{StaticResource Act}" Visibility="{Binding ShowTakeMenu, Converter={StaticResource Vis}}" ToolTip="forgegrant off" />
+                <Button Content="⚒ Forge mode on" Command="{Binding ForgeModeOn}" Style="{StaticResource Act}" Visibility="{Binding IsHuman, Converter={StaticResource Vis}}" ToolTip="forgemode on - tap-to-grab prompts on props" />
+                <Button Content="off" Command="{Binding ForgeModeOff}" Style="{StaticResource Act}" Visibility="{Binding IsHuman, Converter={StaticResource Vis}}" />
+                <Button Content="✉ Message…" Command="{Binding Message}" Style="{StaticResource Act}" ToolTip="aim the MATCH → MESSAGES composer at this player" />
+                <Button Content="📜 Their menu log" Command="{Binding ShowMenuLog}" Style="{StaticResource Act}" Visibility="{Binding IsHuman, Converter={StaticResource Vis}}" ToolTip="ACTIVITY shows only this player's menu actions ('All' clears it)" />
+              </WrapPanel>
+
+              <TextBlock Text="Powers" Style="{StaticResource SubTitle}" />
+              <WrapPanel>
+                <Button Content="God mode" Command="{Binding GodMode}" Style="{StaticResource Act}" ToolTip="godone (toggle)" />
+                <Button Content="Max ammo" Command="{Binding MaxAmmo}" Style="{StaticResource Act}" />
+                <Button Content="Third person" Command="{Binding ThirdPersonCmd}" Style="{StaticResource Act}" ToolTip="thirdone (toggle)" />
+                <Button Content="Fly" Command="{Binding FlyCmd}" Style="{StaticResource Act}" ToolTip="flyone (toggle)" />
+                <Button Content="Freeze / unfreeze" Command="{Binding Freeze}" Style="{StaticResource Act}" />
+                <TextBlock Text="speed" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="6,0,4,0" />
+                <Button Content="50%" Command="{Binding Speed50}" Style="{StaticResource Act}" />
+                <Button Content="150%" Command="{Binding Speed150}" Style="{StaticResource Act}" />
+                <Button Content="200%" Command="{Binding Speed200}" Style="{StaticResource Act}" />
+                <Button Content="global" Command="{Binding Speed0}" Style="{StaticResource Act}" ToolTip="back to the match's move speed" />
+                <Button Content="Kill" Command="{Binding Kill}" Style="{StaticResource NgBtn}" Margin="6,2,4,2" />
+              </WrapPanel>
+
+              <TextBlock Text="Loadout (the pickers are shared with SANDBOX)" Style="{StaticResource SubTitle}" />
+              <WrapPanel Style="{StaticResource Row}">
+                <TextBlock Text="Weapon" Style="{StaticResource RowLabel}" MinWidth="70" />
+                <ComboBox ItemsSource="{Binding DataContext.Tools.WeaponList, RelativeSource={RelativeSource AncestorType=Window}}" DisplayMemberPath="Label"
+                          SelectedItem="{Binding DataContext.Tools.SelectedWeapon, RelativeSource={RelativeSource AncestorType=Window}}" Width="230" />
+                <Button Content="Give" Command="{Binding GiveWeapon}" Style="{StaticResource SmallAccent}" Margin="6,0,0,0" />
+              </WrapPanel>
+              <WrapPanel Style="{StaticResource Row}">
+                <TextBlock Text="Perk" Style="{StaticResource RowLabel}" MinWidth="70" />
+                <ComboBox ItemsSource="{Binding DataContext.Tools.Perks, RelativeSource={RelativeSource AncestorType=Window}}" DisplayMemberPath="Label" SelectedValuePath="Def"
+                          SelectedValue="{Binding DataContext.Tools.SelectedPerk, RelativeSource={RelativeSource AncestorType=Window}}" Width="230" />
+                <Button Content="Give" Command="{Binding GivePerks}" Style="{StaticResource SmallAccent}" Margin="6,0,0,0" ToolTip="perkone" />
+              </WrapPanel>
+              <WrapPanel Style="{StaticResource Row}">
+                <TextBlock Text="Streak" Style="{StaticResource RowLabel}" MinWidth="70" />
+                <ComboBox ItemsSource="{Binding DataContext.Tools.StreakList, RelativeSource={RelativeSource AncestorType=Window}}" DisplayMemberPath="Label"
+                          SelectedItem="{Binding DataContext.Tools.SelectedStreak, RelativeSource={RelativeSource AncestorType=Window}}" Width="230" />
+                <Button Content="Give" Command="{Binding StreakPicked}" Style="{StaticResource SmallAccent}" Margin="6,0,6,0" ToolTip="streak - killstreaks::give (never run)" />
+                <Button Content="RC-XD" Command="{Binding StreakRcxd}" Style="{StaticResource Act}" />
+                <Button Content="Bow" Command="{Binding StreakBow}" Style="{StaticResource Act}" />
+                <Button Content="Nuke" Command="{Binding StreakNuke}" Style="{StaticResource Act}" />
+              </WrapPanel>
+              <WrapPanel Style="{StaticResource Row}">
+                <TextBlock Text="Cosmetics" Style="{StaticResource RowLabel}" MinWidth="70" />
+                <TextBlock Text="camo" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0" />
+                <TextBox Text="{Binding DataContext.Tools.CamoId, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}" Width="44" />
+                <Button Content="Set" Command="{Binding Camo}" Style="{StaticResource SmallBtn}" Margin="4,0,10,0" />
+                <TextBlock Text="operator" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0" />
+                <TextBox Text="{Binding DataContext.Tools.OperatorId, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}" Width="44" />
+                <Button Content="Set" Command="{Binding Operator}" Style="{StaticResource SmallBtn}" Margin="4,0,10,0" />
+                <TextBlock Text="outfit" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0" />
+                <TextBox Text="{Binding DataContext.Tools.OutfitId, RelativeSource={RelativeSource AncestorType=Window}, UpdateSourceTrigger=PropertyChanged}" Width="44" />
+                <Button Content="Set" Command="{Binding Outfit}" Style="{StaticResource SmallBtn}" Margin="4,0,0,0" />
+              </WrapPanel>
+              <WrapPanel>
+                <Button Content="Take current weapon" Command="{Binding TakeWeapon}" Style="{StaticResource Act}" />
+                <Button Content="Strip all weapons" Command="{Binding Strip}" Style="{StaticResource Act}" />
+              </WrapPanel>
+
+              <TextBlock Text="Teleport" Style="{StaticResource SubTitle}" />
+              <WrapPanel>
+                <Button Content="Bring them to me" Command="{Binding TpToMe}" Style="{StaticResource Act}" />
+                <Button Content="Me to them" Command="{Binding TpMeToThem}" Style="{StaticResource Act}" />
+                <Button Content="Swap places" Command="{Binding TpSwap}" Style="{StaticResource Act}" />
+                <TextBlock Text="them to" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="6,0,4,0" />
+                <ComboBox x:Name="TpDest" ItemsSource="{Binding OtherPlayers}" DisplayMemberPath="Name" Width="150" />
+                <Button Content="Go" Command="{Binding SelectedItem.Go, ElementName=TpDest}" Style="{StaticResource SmallAccent}" Margin="4,0,0,0" ToolTip="tpto - move this player in front of the one picked, facing them" />
+              </WrapPanel>
+
+              <TextBlock Text="Team" Style="{StaticResource SubTitle}" />
+              <WrapPanel>
+                <Button Content="→ Allies" Command="{Binding MoveAllies}" Style="{StaticResource Act}" />
+                <Button Content="→ Axis" Command="{Binding MoveAxis}" Style="{StaticResource Act}" />
+                <Button Content="→ Spectator" Command="{Binding Spectate}" Style="{StaticResource Act}" />
+                <TextBlock Text="next match" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="6,0,4,0" />
+                <Button Content="Stage A" Command="{Binding StageA}" Style="{StaticResource Act}" />
+                <Button Content="Stage X" Command="{Binding StageX}" Style="{StaticResource Act}" />
+                <Button Content="Stage spectator" Command="{Binding StageS}" Style="{StaticResource Act}" />
+                <Button Content="Unstage" Command="{Binding StageClear}" Style="{StaticResource Act}" />
+              </WrapPanel>
+
+              <StackPanel Visibility="{Binding IsHuman, Converter={StaticResource Vis}}">
+                <TextBlock Text="Fun pack (aimed at this player · never run)" Style="{StaticResource SubTitle}" />
+                <WrapPanel>
+                  <TextBlock Text="fly bind" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0" />
+                  <Button Content="on" Command="{Binding Fun}" CommandParameter="flybind on" Style="{StaticResource Act}" />
+                  <Button Content="off" Command="{Binding Fun}" CommandParameter="flybind off" Style="{StaticResource Act}" />
+                  <TextBlock Text="slide" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="6,0,4,0" />
+                  <Button Content="Super" Command="{Binding Fun}" CommandParameter="slidemode 1" Style="{StaticResource Act}" ToolTip="150% + long slide (their own, survives rounds)" />
+                  <Button Content="Infinite" Command="{Binding Fun}" CommandParameter="slidemode 2" Style="{StaticResource Act}" ToolTip="glide 700 until JUMP" />
+                  <Button Content="off" Command="{Binding Fun}" CommandParameter="slidemode 0" Style="{StaticResource Act}" />
+                </WrapPanel>
+                <WrapPanel>
+                  <TextBlock Text="camo" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0" />
+                  <Button Content="random once" Command="{Binding Fun}" CommandParameter="camorandom" Style="{StaticResource Act}" />
+                  <Button Content="disco on" Command="{Binding Fun}" CommandParameter="disco on" Style="{StaticResource Act}" />
+                  <Button Content="disco off" Command="{Binding Fun}" CommandParameter="disco off" Style="{StaticResource Act}" />
+                  <TextBlock Text="disguise" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="6,0,4,0" />
+                  <Button Content="random" Command="{Binding Fun}" CommandParameter="disg random" Style="{StaticResource Act}" />
+                  <Button Content="next" Command="{Binding Fun}" CommandParameter="disg next" Style="{StaticResource Act}" />
+                  <Button Content="prev" Command="{Binding Fun}" CommandParameter="disg prev" Style="{StaticResource Act}" />
+                  <Button Content="off" Command="{Binding Fun}" CommandParameter="disg off" Style="{StaticResource Act}" />
+                </WrapPanel>
+                <WrapPanel>
+                  <TextBlock Text="prop gun" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0" />
+                  <Button Content="on" Command="{Binding Fun}" CommandParameter="propgun on" Style="{StaticResource Act}" />
+                  <Button Content="off" Command="{Binding Fun}" CommandParameter="propgun off" Style="{StaticResource Act}" />
+                  <TextBlock Text="grenade swap" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="6,0,4,0" />
+                  <Button Content="on" Command="{Binding Fun}" CommandParameter="nadeswap on" Style="{StaticResource Act}" />
+                  <Button Content="off" Command="{Binding Fun}" CommandParameter="nadeswap off" Style="{StaticResource Act}" />
+                  <TextBlock Text="model cannon" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="6,0,4,0" />
+                  <Button Content="on" Command="{Binding Fun}" CommandParameter="cannon on" Style="{StaticResource Act}" />
+                  <Button Content="off" Command="{Binding Fun}" CommandParameter="cannon off" Style="{StaticResource Act}" />
+                </WrapPanel>
+              </StackPanel>
+
+              <TextBlock Text="Moderation" Style="{StaticResource SubTitle}" />
+              <WrapPanel>
+                <Button Content="Kick" Command="{Binding Kick}" Style="{StaticResource WnBtn}" Margin="0,2,4,2" Visibility="{Binding IsHuman, Converter={StaticResource Vis}}" ToolTip="kickone (asks first)" />
+                <Button Content="Ban" Command="{Binding Ban}" Style="{StaticResource NgBtn}" Margin="0,2,4,2" Visibility="{Binding IsHuman, Converter={StaticResource Vis}}" ToolTip="kick + refuse this XUID this session (asks first)" />
+                <Button Content="Unban" Command="{Binding Unban}" Style="{StaticResource Act}" Visibility="{Binding IsBanned, Converter={StaticResource Vis}}" />
+                <Button Content="Copy name" Command="{Binding CopyName}" Style="{StaticResource Act}" />
+                <Button Content="Copy XUID" Command="{Binding CopyXuid}" Style="{StaticResource Act}" />
+              </WrapPanel>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </Expander>
+
+      <!-- EVERYONE & YOU: were TOOLS → PLAYER STATE — EVERYONE (+ its host tools) -->
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="EVERYONE &amp; YOU" Style="{StaticResource BlockTitle}" />
+            <TextBlock Text="every player at once, or the host alone" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" />
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="God mode" Style="{StaticResource RowLabel}" />
+            <Button Content="ALL on" Style="{StaticResource OkBtn}" Command="{Binding Tools.GodAllOn}" Margin="0,0,4,0" />
+            <Button Content="ALL off" Command="{Binding Tools.GodAllOff}" Margin="0,0,12,0" />
+            <Button Content="host toggle" Style="{StaticResource Chip}" Command="{Binding Tools.GodMode}" ToolTip="godmode - the host's own toggle" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Max ammo" Style="{StaticResource RowLabel}" />
+            <Button Content="ALL now" Command="{Binding Tools.AmmoAll}" Margin="0,0,12,0" ToolTip="every carried weapon incl. offhands, everyone alive" />
+            <Button Content="host" Style="{StaticResource Chip}" Command="{Binding Tools.MaxAmmo}" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Third person" Style="{StaticResource RowLabel}" />
+            <Button Content="ALL on" Command="{Binding Tools.ThirdAllOn}" Margin="0,0,4,0" />
+            <Button Content="ALL off" Command="{Binding Tools.ThirdAllOff}" Margin="0,0,12,0" />
+            <Button Content="host toggle" Style="{StaticResource Chip}" Command="{Binding Tools.ThirdPerson}" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Invisible" Style="{StaticResource RowLabel}" />
+            <Button Content="hide everyone" Command="{Binding Tools.InvisOn}" Margin="0,0,4,0" ToolTip="hide() on every player model - players invisible to each other (untested)" />
+            <Button Content="show" Command="{Binding Tools.InvisOff}" />
+          </WrapPanel>
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="Client menus" Style="{StaticResource RowLabel}" />
+            <Button Command="{Binding MenuAllOn}" Style="{StaticResource SmallBtn}" Margin="0,0,4,0" ToolTip="menuall on - every human in the match (not you, not bots)">
+              <TextBlock Text="★ Give everyone" Foreground="{StaticResource MenuC}" FontWeight="Bold" />
+            </Button>
+            <Button Content="✖ Take all back" Style="{StaticResource SmallBtn}" Command="{Binding MenuAllOff}" ToolTip="menuall off (asks first)" />
+          </WrapPanel>
+          <TextBlock Text="You (the host)" Style="{StaticResource SubTitle}" />
+          <WrapPanel Style="{StaticResource Row}">
+            <Button Content="Fly" Style="{StaticResource Chip}" Command="{Binding Tools.Fly}" Margin="0,2,4,2" ToolTip="fly (toggle) - speeds: RULES → MOVEMENT → Fly mode" />
+            <Button Content="Drop weapon" Style="{StaticResource Chip}" Command="{Binding Tools.DropWeapon}" Margin="0,2,4,2" />
+            <Button Content="Unlock all" Style="{StaticResource Chip}" Command="{Binding Tools.UnlockAll}" Margin="0,2,4,2" ToolTip="best-effort" />
+          </WrapPanel>
+          <TextBlock Style="{StaticResource ActionNote}" Margin="2,6,2,0">Freeze everyone: MATCH → EVERYONE. Teleport everyone: SANDBOX → TELEPORT.</TextBlock>
+        </StackPanel>
+      </Expander>
+
+      <!-- PERKS -->
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="PERKS — EVERYONE" Style="{StaticResource BlockTitle}" />
+            <TextBlock Text="a checked perk is given now and re-given every spawn; effect per perk unmeasured" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" />
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel>
+          <ItemsControl ItemsSource="{Binding Tools.Perks}">
+            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+          </ItemsControl>
+          <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+            <Button Content="Select all perks" Style="{StaticResource SmallAccent}" Command="{Binding Tools.PerksAll}" Margin="0,0,6,0" ToolTip="perkall all - every perk in the grid, given now and re-given every spawn (needs the 03:40+ GSC build; an older one answers 'unknown perk all')" />
+            <Button Content="Clear all perks" Style="{StaticResource SmallBtn}" Command="{Binding Tools.PerksClear}" Margin="0,0,10,0" />
+            <TextBlock Text="one player's perk" Style="{StaticResource Dim}" FontSize="10.5" VerticalAlignment="Center" Margin="0,0,6,0" />
+            <ComboBox ItemsSource="{Binding Tools.Perks}" DisplayMemberPath="Label" SelectedValuePath="Def" SelectedValue="{Binding Tools.SelectedPerk}" Width="170"
+                      ToolTip="The perk PLAYER → Loadout → Give and a player's right-click → Loadout → Give the picked perk hand out (one shared pick)" />
+          </StackPanel>
+        </StackPanel>
+      </Expander>
+
+      <!-- BANS: was the sidebar's NEXT MATCH tab; now with an Unban per player -->
+      <Expander Style="{StaticResource Block}">
+        <Expander.Header>
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="BANS" Style="{StaticResource BlockTitle}" />
+            <TextBlock Text="this session; re-sent at every match start" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" />
+          </StackPanel>
+        </Expander.Header>
+        <StackPanel>
+          <TextBlock Text="nobody is banned" Style="{StaticResource Dim}" FontSize="11" Visibility="{Binding HasBans, Converter={StaticResource VisInv}}" />
+          <ItemsControl ItemsSource="{Binding BanRows}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Grid Margin="0,1">
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                  <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Xuid}" />
+                  <Button Grid.Column="1" Content="Unban" Style="{StaticResource SmallBtn}" Command="{Binding Unban}" ToolTip="unbanx - this XUID may join again" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Button Content="Clear all bans" Style="{StaticResource SmallBtn}" Command="{Binding ClearBans}" HorizontalAlignment="Left" Margin="0,6,0,0" Visibility="{Binding HasBans, Converter={StaticResource Vis}}" ToolTip="banclear (asks first)" />
+        </StackPanel>
+      </Expander>
+
+    </v:ColumnsPanel>
+  </ScrollViewer>
+</UserControl>

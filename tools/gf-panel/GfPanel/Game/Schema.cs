@@ -35,7 +35,7 @@ public sealed class SettingDef
 public sealed class SectionDef
 {
     public required string Title { get; init; }
-    public required string Tab { get; init; }        // "dashboard" | "advanced" | "tools" | "spawns" (the SPAWNS tab's side panel)
+    public required string Tab { get; init; }        // the page: "rules" | "maps" | "spawns" (SPAWN ATLAS side panel) | "sandbox" | "forge" | "diagnostics"
     public string Note { get; init; } = "";
     public required SettingDef[] Rows { get; init; }
 }
@@ -53,11 +53,11 @@ public static class Schema
     {
         new()
         {
-            Title = "GUNFIGHT MATCH", Tab = "dashboard",
-            Note = "The match rules. Team size and the limits reload the match (RESTART); the rest lands next round.",
+            Title = "GUNFIGHT MATCH", Tab = "rules",
+            Note = "The match rules. Each row's pill says when a change lands: LIVE now, NEXT round, or RESTART (the match reloads).",
             Rows = new SettingDef[]
             {
-                new() { Dvar = "gf_team_size", Label = "Team size", Kind = SettingKind.Choice, Default = 6, RestartRequired = true, Eff = Eff.Restart,
+                new() { Dvar = "gf_team_size", Label = "Team size", Kind = SettingKind.Choice, Default = 6, RestartRequired = true, Eff = Eff.Restart, Group = "Teams & lobby",
                         Choices = C(("2v2", 2), ("3v3", 3), ("4v4", 4), ("5v5", 5), ("6v6", 6)),
                         Tip = "gf_team_size (default 6v6, klaze 2026-09-24)\nPer side. Written to the in-match maxplayers setting (team size x 2 + spectator slots, capped at the session's com_maxclients). The mod reads it clamped to com_maxclients / 2, so an 8-slot Gunfight lobby plays 4v4 until the lobby itself is bigger - that is 'Lobby max players' below (the lobby payload)." },
                 new() { Dvar = "gf_spec_slots", Label = "Spectator slots", Kind = SettingKind.Choice, Default = 2, RestartRequired = true, Eff = Eff.Restart,
@@ -68,28 +68,28 @@ public static class Schema
                         Tip = "gf_lobby_maxp - the LOBBY's slot count (needs the lobby payload, injected by Set up all / Inject lobby payload; SETUP shows its GFLOBBY readback).\nThe pregame lobby holds maxPlayers + 4 caster slots and the match launches with that many clients (lobby UI code + engine, read 2026-09-24). Gunfight's preset is 4 -> 8 clients; 12 -> 16 = 6v6 + spectators.\n⚠ The lobby recounts its slots only on a UI settings event: in the lobby open Custom Game Rules, change any row, back out and answer YES on 'Leave Custom Game Rules'. The player count then reads N/16. Picking a mode resets it (the payload rewrites maxplayers within 2 s; redo the Rules step).\nAbove 12 the lobby greys out Add Bot and removes bots on a mode change. Untested in game." },
                 new() { Dvar = "gf_lobby_spec", Label = "Lobby spectator slots", Kind = SettingKind.Toggle, Default = 1, Eff = Eff.Live,
                         Tip = "gf_lobby_spec - keeps the lobby's Allow Spectating on, which is what adds the +4 CoD Caster slots to the lobby count (the lobby shows 2 caster seats). Off = the payload leaves that rules row alone." },
-                new() { Dvar = "gf_latejoin", Label = "Late joiners", Kind = SettingKind.Choice, Default = 1,
+                new() { Dvar = "gf_latejoin", Label = "Late joiners", Kind = SettingKind.Choice, Default = 1, Group = "Joining",
                         Choices = C(("Always place them (fewer humans > losing side > auto)", 1), ("Stock (spectator)", 0)),
                         Tip = "gf_latejoin\nklaze 2026-09-23 'always auto-place': a human who joins mid-match with no lobby side gets the side with fewer humans, then the losing side, and on a full tie fewer players overall / opposite the host - nobody is benched any more. Free-for-all joiners get the emptiest team. A safety net places anyone who never had a team and still spectates 8 s after connecting (two tries; someone who played and then chose to spectate is left alone). One bot leaves the joined side if it became the bigger one. Host feed / ACTIVITY line per join: JOIN <name> lobby=<side> ... -> <pick> (<reason>)." },
                 new() { Dvar = "gf_teamchange", Label = "Pause-menu CHANGE TEAM", Kind = SettingKind.Choice, Default = 1,
                         Choices = C(("On for everyone", 1), ("Off", 0)),
                         Tip = "gf_teamchange\n1 = writes the hidden allowingameteamchange gametype setting + level.allow_teamchange so the pause menu's CHANGE TEAM works for everyone; 0 = writes it off (the stock default - the lobby UI never exposes this setting). Read at each connect / round. Late joiners no longer depend on it (they are always placed)." },
-                new() { Dvar = "gf_timer_seconds", Label = "Round timer (s)", Kind = SettingKind.Choice, Default = 60, Scope = "timer", Eff = Eff.Live,
+                new() { Dvar = "gf_timer_seconds", Label = "Round timer (s)", Kind = SettingKind.Choice, Default = 60, Scope = "timer", Eff = Eff.Live, Group = "Rounds & match length",
                         Choices = C(("20 s", 20), ("30 s", 30), ("40 s", 40), ("60 s", 60), ("90 s", 90), ("120 s", 120), ("180 s", 180), ("300 s", 300), ("Unlimited", 0)),
-                        Tip = "gf_timer_seconds\nRound length. 0 = no timer: rounds end by elimination only. Apply now = this round (the mod caches the limit per round so a lower value never ends the running round early); Next round = from the next round." },
+                        Tip = "gf_timer_seconds\nRound length. 0 = no timer: rounds end by elimination only. LIVE (the mod caches the limit per round, so a lower value never ends the running round early)." },
                 new() { Dvar = "gf_roundwinlimit", Label = "First to N rounds", Kind = SettingKind.Choice, Default = -1, RestartRequired = true, Eff = Eff.Restart,
                         Choices = C(("Lobby's value", -1), ("2", 2), ("3", 3), ("4", 4), ("5", 5), ("6", 6), ("8", 8), ("10", 10), ("15", 15)),
                         Tip = "gf_roundwinlimit\nRound wins needed to win the match (the roundwinlimit gametype setting). -1 leaves the lobby's value. Changing it below the rounds already won ends the match - hence RESTART." },
                 new() { Dvar = "gf_roundlimit", Label = "Round cap", Kind = SettingKind.Choice, Default = -1, RestartRequired = true, Eff = Eff.Restart,
                         Choices = C(("Lobby's value", -1), ("4", 4), ("6", 6), ("8", 8), ("10", 10), ("12", 12), ("20", 20)),
                         Tip = "gf_roundlimit\nHard cap on rounds played regardless of score. -1 leaves the lobby's value." },
-                new() { Dvar = "gf_friendlyfire", Label = "Friendly fire", Kind = SettingKind.Choice, Default = -1, Scope = "ff", Eff = Eff.Live,
+                new() { Dvar = "gf_friendlyfire", Label = "Friendly fire", Kind = SettingKind.Choice, Default = -1, Scope = "ff", Eff = Eff.Live, Group = "Damage & lives",
                         Choices = C(("Lobby's value", -1), ("Off", 0), ("On", 1), ("Reflect", 2), ("Shared", 3)),
                         Tip = "gf_friendlyfire\nThe rules menu's Friendly Fire row (the friendlyfiretype gametype setting). LIVE: the engine's serversettings loop re-reads it every 5 s, so a change lands within 5 s; re-asserted every round start. Lobby's value = don't touch. Untested in-game." },
                 new() { Dvar = "gf_respawns", Label = "Respawns", Kind = SettingKind.Choice, Default = 0,
                         Choices = C(("Lobby's value", 0), ("On - unlimited lives", 1), ("Off - one life (stock Gunfight)", 2)),
                         Tip = "gf_respawns\nThe rules menu's player-lives row (the playernumlives gametype setting): On = 0 lives = unlimited respawns, so no 'team dead' event fires and the round runs to the timer (overtime zone / HP tiebreak); Off = one life per round. Lands next round. A written value persists in the session, so after On use Off (not Lobby's value) to get one life back. Untested in-game." },
-                new() { Dvar = "gf_rounds_loadout", Label = "Loadout rotates every", Kind = SettingKind.Choice, Default = -1,
+                new() { Dvar = "gf_rounds_loadout", Label = "Loadout rotates every", Kind = SettingKind.Choice, Default = -1, Group = "Loadout rotation & sides",
                         Choices = C(("Lobby's value (2)", -1), ("Never", 0), ("1 round", 1), ("2 rounds", 2), ("3 rounds", 3), ("4 rounds", 4)),
                         Tip = "gf_rounds_loadout\nRounds before the shared loadout rotates (the gunfightroundsperloadout setting). In stock this ONE setting also flips the sides; with Side switch = Mod-owned the mod runs the round end itself and the sides follow 'Sides switch every' instead. Never = 0. Lands at the next round end." },
                 new() { Dvar = "gf_rounds_sides", Label = "Sides switch every", Kind = SettingKind.Choice, Default = -1,
@@ -108,7 +108,7 @@ public static class Schema
         },
         new()
         {
-            Title = "LOADOUT & CAMO", Tab = "dashboard",
+            Title = "LOADOUT & CAMO", Tab = "rules",
             Note = "The shared loadout, the custom-classes gate, and the camo painted on every pool weapon at every spawn.",
             Rows = new SettingDef[]
             {
@@ -123,14 +123,14 @@ public static class Schema
                         Tip = "gf_profile\nWhen a Gunfight level runs on ANOTHER mode's settings blob (only an in-match Switch NOW from TDM does that), assert the real Gunfight blob: 1 life per round, no kill limit, fixed loadouts, no streaks. 0 = watch the raw hybrid on purpose." },
                 new() { Dvar = "gf_spyplane", Label = "Gunfight spy plane (Gunfight rule)", Kind = SettingKind.Choice, Default = 0,
                         Choices = C(("Off", 0), ("On", 1), ("Shared - hidden value", 3)),
-                        Tip = "gf_spyplane\nGunfight's own gunfightspyplane rule (gunfight.gsc:112: a team spy plane at round start) - GUNFIGHT MATCHES ONLY, applied at the next match load. It does nothing in other modes. For a spy plane in any mode, live: TOOLS → RADAR & MARKERS. 3 = the value the rules menu hides (shared minimap)." },
+                        Tip = "gf_spyplane\nGunfight's own gunfightspyplane rule (gunfight.gsc:112: a team spy plane at round start) - GUNFIGHT MATCHES ONLY, applied at the next match load. It does nothing in other modes. For a spy plane in any mode, live: SANDBOX → RADAR & MARKERS. 3 = the value the rules menu hides (shared minimap)." },
                 new() { Dvar = "gf_camo", Label = "Pool camo", Kind = SettingKind.Choice, Default = -2, Group = "Camo",
                         Choices = C(("Random each round", -2), ("Random per player", -3), ("Stock - pool's own look", -1),
                                     ("Gold", 61), ("Diamond", 62), ("DM Ultra", 63), ("Golden Viper (ZM)", 64), ("Plague Diamond (ZM)", 65), ("Dark Aether (ZM)", 66),
                                     ("Pack-a-Punch 1", 67), ("Pack-a-Punch 2", 68), ("Pack-a-Punch 3", 69),
                                     ("PaP Mauer der Toten 1", 116), ("PaP Mauer der Toten 2", 117), ("PaP Mauer der Toten 3", 118),
                                     ("PaP Forsaken 1", 119), ("PaP Forsaken 2", 120), ("PaP Forsaken 3", 121)),
-                        Tip = "gf_camo\nsetcamo on every pool weapon, every player, every spawn. -2 one roll per weapon per round shared by everyone (default), -3 a roll per player-spawn, -1 the pool's own look. A pick repaints everyone NOW as well. Any id 1-121 via the Camo by ID box in Tools." },
+                        Tip = "gf_camo\nsetcamo on every pool weapon, every player, every spawn. -2 one roll per weapon per round shared by everyone (default), -3 a roll per player-spawn, -1 the pool's own look. A pick repaints everyone NOW as well. Any id 1-121: SANDBOX → WEAPONS & COSMETICS → Camo id." },
                 new() { Dvar = "gf_camo_pool", Label = "Random camo pool", Kind = SettingKind.Choice, Default = 0,
                         Choices = C(("Mastery + Pack-a-Punch", 0), ("All 1-121", 1)),
                         Tip = "gf_camo_pool\nWhat the random modes draw from." },
@@ -141,7 +141,7 @@ public static class Schema
         },
         new()
         {
-            Title = "OVERTIME ZONE", Tab = "dashboard",
+            Title = "OVERTIME ZONE", Tab = "rules",
             Note = "The capture-zone overtime private matches never get (synthesized on Domination's B flag / a Hardpoint trigger). ON by default.",
             Rows = new SettingDef[]
             {
@@ -158,7 +158,7 @@ public static class Schema
         },
         new()
         {
-            Title = "BOTS", Tab = "dashboard",
+            Title = "BOTS", Tab = "rules",
             Note = "Difficulty is the stock bot_difficulty_<team> gametype setting; CUSTOM swaps in the mod's own struct built from the tuning below.",
             Rows = new SettingDef[]
             {
@@ -174,7 +174,7 @@ public static class Schema
         },
         new()
         {
-            Title = "CUSTOM BOT TUNING", Tab = "dashboard",
+            Title = "CUSTOM BOT TUNING", Tab = "rules",
             Note = "Used when a side's difficulty is CUSTOM. Packed into gf_bot / gf_bot2. Hover a label for the stock recruit / regular / hardened / veteran values.",
             Rows = new SettingDef[]
             {
@@ -197,7 +197,7 @@ public static class Schema
         },
         new()
         {
-            Title = "MOVEMENT", Tab = "dashboard",
+            Title = "MOVEMENT", Tab = "rules",
             Note = "Everyone. Applies live (mod_movement) and again every round / spawn.",
             Rows = new SettingDef[]
             {
@@ -213,7 +213,7 @@ public static class Schema
                 new() { Dvar = "gf_speed", Label = "Move speed %", Kind = SettingKind.Choice, Default = 100, Scope = "move", Eff = Eff.Live,
                         Choices = C(("50%", 50), ("75%", 75), ("100% - stock", 100), ("125%", 125), ("150%", 150), ("200%", 200), ("300%", 300)),
                         Tip = "gf_speed\nsetmovespeedscale, the per-player scaler stock uses (Prop Hunt props, the Scream slasher, loadout modifiers) - re-applied after every loadout." },
-                new() { Dvar = "gf_falldamage", Label = "Fall damage", Kind = SettingKind.Choice, Default = 0, Scope = "move", Eff = Eff.Live,
+                new() { Dvar = "gf_falldamage", Label = "Fall damage", Kind = SettingKind.Choice, Default = 0, Scope = "move", Eff = Eff.Live, Group = "Damage & bounds",
                         Choices = C(("Off", 0), ("Stock", 1)),
                         Tip = "gf_falldamage\n0 = off, three layers: specialty_fallheight on every spawn (engine-native, joiner-safe), an onplayerdamage gate for MOD_FALLING, and the bg_falldamage* dvars pushed out of reach. MEASURED working." },
                 new() { Dvar = "gf_oob", Label = "Out of bounds", Kind = SettingKind.Choice, Default = 1, Scope = "move", Eff = Eff.Live,
@@ -227,7 +227,7 @@ public static class Schema
                         Tip = "gf_parachute\nThe Fireteam free-fall + parachute on every map (klaze 2026-09-23): fall from height - a jump boost, a heli, flying - and deploy it. A Fireteam mode's hidden setting makes the spawn call two player builtins (globallogic_spawn.gsc:674); the mod calls that pair itself per player per spawn, so no match reload. Lands on everyone alive within a second. The height a free-fall starts at is the engine's - unmeasured." },
                 new() { Dvar = "gf_fly_speed", Label = "Fly speed", Kind = SettingKind.Choice, Default = 20, Scope = "move", Eff = Eff.Live, Group = "Fly mode",
                         Choices = C(("10", 10), ("20", 20), ("40", 40), ("80", 80)),
-                        Tip = "gf_fly_speed\nFly mode: units per server frame (Tools -> Fly). The Atian default is 20." },
+                        Tip = "gf_fly_speed\nFly mode: units per server frame (PLAYERS → EVERYONE & YOU → Fly). The Atian default is 20." },
                 new() { Dvar = "gf_fly_fast", Label = "Fly sprint speed", Kind = SettingKind.Choice, Default = 60, Scope = "move", Eff = Eff.Live,
                         Choices = C(("30", 30), ("60", 60), ("120", 120), ("240", 240)),
                         Tip = "gf_fly_fast\nFly mode speed while sprint is held." },
@@ -262,7 +262,7 @@ public static class Schema
         },
         new()
         {
-            Title = "PLACEMENT & PROMPTS", Tab = "advanced",
+            Title = "PLACEMENT & PROMPTS", Tab = "forge",
             Note = "Crosshair placement of props / vehicles and the map-prop grab (bocw-1c 2026-09-22). Plain dvars, read live.",
             Rows = new SettingDef[]
             {
@@ -276,13 +276,13 @@ public static class Schema
         },
         new()
         {
-            Title = "VEHICLE MODE", Tab = "advanced",
+            Title = "VEHICLE MODE", Tab = "sandbox",
             Note = "Everyone spawns already riding this map's ride of the class. A class this map lacks = everyone on foot (the host feed says so).",
             Rows = new SettingDef[]
             {
                 new() { Dvar = "gf_vehmode", Label = "Everyone spawns riding", Kind = SettingKind.Choice, Default = 0, Scope = "veh", Eff = Eff.Live,
                         Choices = C(("Off", 0), ("Motorcycles", 1), ("Attack helicopters (Hind)", 2), ("Helicopters any map (care package heli)", 3), ("Snowmobiles", 4), ("Quads + buggies", 5), ("Tanks + APCs", 6), ("Cars + trucks", 7), ("Streak gunship heli (seat untested)", 8), ("AUTO - lightest ride, else care heli", 9)),
-                        Tip = "gf_vehmode\nMotorcycles: Diesel / Cartel / Collateral / Fireteam maps. Hind: Collateral + Fireteam. Care package heli: every map (flies, unarmed). Snowmobiles: Crossroads / Alpine. Quads: Collateral / Fireteam. Tanks: Crossroads (APC on Diesel / Checkmate). Cars: Cartel / Fireteam. Apply now = everyone alive dismounts and remounts." },
+                        Tip = "gf_vehmode\nMotorcycles: Diesel / Cartel / Collateral / Fireteam maps. Hind: Collateral + Fireteam. Care package heli: every map (flies, unarmed). Snowmobiles: Crossroads / Alpine. Quads: Collateral / Fireteam. Tanks: Crossroads (APC on Diesel / Checkmate). Cars: Cartel / Fireteam. A change applies live: everyone alive dismounts and remounts." },
                 new() { Dvar = "gf_veh_lock", Label = "Locked in (cannot get off)", Kind = SettingKind.Toggle, Default = 1, Scope = "veh", Eff = Eff.Live,
                         Tip = "gf_veh_lock\nRiders cannot leave the seat (stock's disable_usability layer + a re-seat watcher)." },
                 new() { Dvar = "gf_veh_hp", Label = "Vehicle HP %", Kind = SettingKind.Choice, Default = 100, Scope = "veh", Eff = Eff.Live, Choices = C(("25%", 25), ("50%", 50), ("100% - stock", 100), ("200%", 200), ("400%", 400)),
@@ -293,8 +293,8 @@ public static class Schema
         },
         new()
         {
-            Title = "RACE SETTINGS", Tab = "advanced",
-            Note = "Read when a race STARTS (Tools -> Race). Gates are placed where the host is, across his direction of travel.",
+            Title = "RACE SETTINGS", Tab = "sandbox",
+            Note = "Read when a race STARTS (SANDBOX → RACE). Gates are placed where the host is, across his direction of travel.",
             Rows = new SettingDef[]
             {
                 new() { Dvar = "gf_race_laps", Label = "Laps", Kind = SettingKind.Choice, Default = 1, Choices = Nums(1, 2, 3, 5), Eff = Eff.Live, Tip = "gf_race_laps\nLaps through the start/finish gate (gate 0)." },
@@ -316,7 +316,7 @@ public static class Schema
         },
         new()
         {
-            Title = "SESSION / MAP", Tab = "advanced",
+            Title = "SESSION / MAP", Tab = "maps",
             Note = "How a map switch travels.",
             Rows = new SettingDef[]
             {
@@ -330,7 +330,7 @@ public static class Schema
         },
         new()
         {
-            Title = "IN-GAME MENU DISPLAY", Tab = "advanced",
+            Title = "IN-GAME MENU DISPLAY", Tab = "diagnostics",
             Note = "The host's in-game panel (the compact menu stays available with the app up).",
             Rows = new SettingDef[]
             {
@@ -342,9 +342,9 @@ public static class Schema
                 new() { Dvar = "gf_feed_lines", Label = "Feed lines", Kind = SettingKind.Int, Default = 14, Min = 1, Max = 24, Tip = "gf_feed_lines\ncom_gameMsgWindow1LineCount the menu primes (latched at HUD build; ~4-5 visible)." },
                 new() { Dvar = "gf_hint_lines", Label = "Hint rows (region 4)", Kind = SettingKind.Int, Default = 8, Min = 1, Max = 15, Tip = "gf_hint_lines\nRegion-4 rows per page (the HINT panel is one non-wrapping line on retail - kept for completeness)." },
                 new() { Dvar = "gf_menu_repaint", Label = "Menu repaint (ms)", Kind = SettingKind.Int, Default = 3000, Min = 500, Max = 15000, Step = 250, Eff = Eff.Live,
-                        Tip = "gf_menu_repaint\nHow often the open menu re-prints its feed lines and centre line while nothing changed. Every repaint re-scrolls the feed and re-fades the centre text (the flicker), so set it as high as the engine's hold time allows: run Tools -> Fade probe, time the two lines until they vanish, and set this just under the shorter one. Was a fixed 2000." },
+                        Tip = "gf_menu_repaint\nHow often the open menu re-prints its feed lines and centre line while nothing changed. Every repaint re-scrolls the feed and re-fades the centre text (the flicker), so set it as high as the engine's hold time allows: run DIAGNOSTICS → FEED READOUTS & PROBES → Fade probe, time the two lines until they vanish, and set this just under the shorter one. Was a fixed 2000." },
                 new() { Dvar = "gf_hint_others_on", Label = "Others-facing hint line", Kind = SettingKind.Toggle, Default = 1,
-                        Tip = "gf_hint_others_on\nThe welcome / discord line other players see when they approach the host (a per-player hint trigger, host excluded); shown always (no automatic build warning - the line is yours to set). Created per host spawn - a change lands at the next spawn. Text: TOOLS -> FORGE & HINT BAR." },
+                        Tip = "gf_hint_others_on\nThe welcome / discord line other players see when they approach the host (a per-player hint trigger, host excluded); shown always (no automatic build warning - the line is yours to set). Created per host spawn - a change lands at the next spawn. Text: DIAGNOSTICS → HINT BAR LINES." },
                 new() { Dvar = "gf_hint_self_on", Label = "Host's own hint bar", Kind = SettingKind.Toggle, Default = 1,
                         Tip = "gf_hint_self_on\nThe host's always-on hint bar: the menu controls while the menu is open, the forge controls while building, 'hold ADS + Melee to open' when idle. 0 = off." },
                 new() { Dvar = "gf_hint_glyphs", Label = "Bind glyphs in hints", Kind = SettingKind.Toggle, Default = 1,
@@ -354,7 +354,7 @@ public static class Schema
         },
         new()
         {
-            Title = "DEBUG FEED", Tab = "advanced",
+            Title = "DEBUG FEED", Tab = "diagnostics",
             Note = "Each tool prints ONE complete feed line every 3 s while on (klaze's convention). Persist across matches.",
             Rows = new SettingDef[]
             {
@@ -373,7 +373,7 @@ public static class Schema
         },
         new()
         {
-            Title = "FORGE CONTROLS", Tab = "tools",
+            Title = "FORGE CONTROLS", Tab = "forge",
             Note = "Place-mode feel (forge session, 2026-09-20). Read live every tick of the forge loop - a change applies while you build. Default = free-walk: you move normally (WASD / stick) and the prop rides your crosshair onto surfaces; D-pad / Action Slots 1-4 = distance up/down + rotate left/right, ADS + up/down = scale, weapon switch = cycle model, fire = place, frag = exit - the same on controller and keyboard.",
             Rows = new SettingDef[]
             {

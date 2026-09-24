@@ -47,15 +47,40 @@ public static class SchemaTests
     [Test]
     public static void Sections_sit_on_tabs_the_panel_renders()
     {
-        var known = new[] { "dashboard", "advanced", "tools", "spawns" };
+        // the pages that render schema sections (2026-09-24 redesign): RULES, MAPS & SPAWNS (MAPS + the SPAWN ATLAS side
+        // panel), SANDBOX, FORGE, DIAGNOSTICS
+        var known = new[] { "rules", "maps", "spawns", "sandbox", "forge", "diagnostics" };
         var p = new Problems();
         foreach (var s in Schema.Sections.Where(s => !known.Contains(s.Tab))) p.Add($"section \"{s.Title}\" is on tab \"{s.Tab}\"");
-        // and the panel really asks for each of those tabs somewhere
+        // and each tab's sections are really shown: a property filters them (Tab == "x") and a view binds that property
         var src = string.Join("\n", Repo.PanelFiles("*.cs").Where(f => !f.EndsWith("Schema.cs", StringComparison.Ordinal)).Select(File.ReadAllText));
+        var xaml = string.Join("\n", Repo.PanelFiles("*.xaml").Select(File.ReadAllText));
         foreach (var tab in Schema.Sections.Select(s => s.Tab).Distinct())
-            if (!Regex.IsMatch(src, @"Tab\s*==\s*""" + tab + @"""|""" + tab + @"""\s*==\s*\w+\.Tab|Sections\w*\(\s*""" + tab + @""""))
-                p.Add($"no code selects the \"{tab}\" sections (Tab == \"{tab}\") - they would never show");
+        {
+            var props = Regex.Matches(src, @"public\s+[\w<>]+\s+(\w+)\s*=>[^;]*\bTab\s*==\s*""" + tab + @"""").Select(m => m.Groups[1].Value).ToList();
+            if (props.Count == 0) { p.Add($"no property selects the \"{tab}\" sections (… => Sections.Where(s => s.Tab == \"{tab}\")) - they would never show"); continue; }
+            if (!props.Any(n => Regex.IsMatch(xaml, @"\{Binding\s+(Path=)?(Data\.)?" + n + @"\b")))
+                p.Add($"no view binds {string.Join(" / ", props)} - the \"{tab}\" sections would never show");
+        }
         p.ThrowIfAny("section tabs");
+    }
+
+    /// <summary>Prefs.MatchPins and the default pin list name schema rows (or section keys): a typo pins nothing and MATCH
+    /// silently loses the settings klaze asked for there.</summary>
+    [Test]
+    public static void Pinned_settings_name_real_rows()
+    {
+        var prefs = File.ReadAllText(Path.Combine(Repo.PanelDir, "Services", "Prefs.cs"));
+        var p = new Problems();
+        foreach (var (name, pattern) in new[] { ("MatchPins", @"MatchPins\s*=\s*\{([^}]*)\}"), ("Favorites default", @"List<string>\s+Favorites\s*\{[^}]*\}\s*=\s*new\(\)\s*\{([^}]*)\}") })
+        {
+            var m = Regex.Match(prefs, pattern);
+            if (!m.Success) { p.Add($"Prefs.cs: {name} not found"); continue; }
+            var dvars = Regex.Matches(m.Groups[1].Value, @"""([^""]+)""").Select(x => x.Groups[1].Value).ToList();
+            if (dvars.Count == 0) p.Add($"Prefs.cs: {name} is empty");
+            foreach (var d in dvars.Where(d => !Schema.ByDvar.ContainsKey(d))) p.Add($"Prefs.cs {name}: \"{d}\" is not a schema row");
+        }
+        p.ThrowIfAny("pins");
     }
 
     /// <summary>A setting no GSC reads is a control that does nothing.</summary>

@@ -33,7 +33,7 @@ public sealed class MessageVM : ObservableObject
     public string Audience { get => _audience; set => Set(ref _audience, value); }
     public string[] AudienceChoices => new[] { "all", "allies", "axis" }.Concat(_m.Players.Rows.Where(r => !r.IsBot).Select(r => r.Name)).Distinct().ToArray();
     public void RefreshAudiences() => OnPropertyChanged(nameof(AudienceChoices));
-    public void TargetPlayer(string name) { Audience = name; _m.SelectTab("dashboard"); _m.Toasts.Show("Composer targeted at " + name, LogLevel.Ok); }
+    public void TargetPlayer(string name) { Audience = name; _m.SelectTab("match"); _m.Toasts.Show("Composer targeted at " + name, LogLevel.Ok); }
 
     public ObservableCollection<MessagePreset> Presets { get; } = new();
     private MessagePreset? _preset;

@@ -1,0 +1,79 @@
+<UserControl x:Class="GfPanel.Views.RulesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:v="clr-namespace:GfPanel.Views">
+  <!-- RULES (the 2026-09-24 redesign; was DASHBOARD): every match setting - the data-driven sections (Schema.cs, Tab =
+       "rules": GUNFIGHT MATCH, LOADOUT & CAMO, OVERTIME ZONE, BOTS, CUSTOM BOT TUNING, MOVEMENT), the bot presets and
+       profiles, and the config presets that snapshot them. Live match actions moved to MATCH. -->
+  <UserControl.Resources>
+    <v:BindingProxy x:Key="Proxy" Data="{Binding}" />
+  </UserControl.Resources>
+  <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,12">
+    <StackPanel>
+      <!-- ONE column flow: the data-driven settings blocks followed by the fixed blocks, so the fixed ones fill the
+           shortest columns instead of starting a second row under the tallest column -->
+      <v:ColumnsPanel>
+        <v:ColumnsPanel.ItemsSource>
+          <CompositeCollection>
+            <CollectionContainer Collection="{Binding Data.RulesSections, Source={StaticResource Proxy}}" />
+
+        <!-- BOTS: the custom presets + named profiles (fill / remove / add / difficulty chips: MATCH → BOTS) -->
+        <Expander Style="{StaticResource Block}">
+          <Expander.Header>
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="BOTS — PRESETS &amp; PROFILES" Style="{StaticResource BlockTitle}" />
+              <TextBlock Text="{Binding Bots.LiveDifficulty, StringFormat='live difficulty: {0}'}" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+          </Expander.Header>
+          <StackPanel>
+            <TextBlock Text="Custom presets (the GSC's four) — sets CUSTOM on both sides" Style="{StaticResource SubTitle}" Margin="0,0,0,3" />
+            <WrapPanel>
+              <Button Content="Veteran+" Style="{StaticResource Chip}" Command="{Binding Bots.ApplyPreset}" CommandParameter="Veteran+ (custom default)" Margin="0,2,4,2" />
+              <Button Content="Godlike" Style="{StaticResource Chip}" Command="{Binding Bots.ApplyPreset}" CommandParameter="Godlike" Margin="0,2,4,2" />
+              <Button Content="Stock Veteran copy" Style="{StaticResource Chip}" Command="{Binding Bots.ApplyPreset}" CommandParameter="Stock Veteran copy" Margin="0,2,4,2" />
+              <Button Content="Potato" Style="{StaticResource Chip}" Command="{Binding Bots.ApplyPreset}" CommandParameter="Potato" Margin="0,2,4,2" />
+            </WrapPanel>
+            <TextBlock Text="Named profiles (the 15 CUSTOM BOT TUNING knobs, saved by the panel)" Style="{StaticResource SubTitle}" />
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <ComboBox ItemsSource="{Binding Bots.Profiles}" DisplayMemberPath="Name" SelectedItem="{Binding Bots.SelectedProfile}" />
+              <Button Grid.Column="1" Content="Apply" Style="{StaticResource SmallAccent}" Command="{Binding Bots.ApplyProfile}" Margin="4,0,0,0" />
+              <Button Grid.Column="2" Content="Save as" Style="{StaticResource SmallBtn}" Command="{Binding Bots.SaveProfile}" Margin="4,0,0,0" ToolTip="Save the current CUSTOM BOT TUNING values under a name" />
+              <Button Grid.Column="3" Content="Del" Style="{StaticResource SmallBtn}" Command="{Binding Bots.DeleteProfile}" Margin="4,0,0,0" />
+            </Grid>
+            <TextBlock Text="{Binding Bots.ProfileNote}" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,3,0,0" />
+            <TextBlock Style="{StaticResource ActionNote}" Margin="2,6,2,0">Fill, remove, add one and the both-sides difficulty chips: MATCH → BOTS.</TextBlock>
+          </StackPanel>
+        </Expander>
+
+        <!-- CONFIG PRESETS -->
+        <Expander Style="{StaticResource Block}">
+          <Expander.Header>
+            <TextBlock Text="CONFIG PRESETS" Style="{StaticResource BlockTitle}" />
+          </Expander.Header>
+          <StackPanel>
+            <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,0,0,6">A snapshot of every setting (every page's rows) under a name - the rcon tool's "Save to cfg". Applying sends only the fields that differ from the live values.</TextBlock>
+            <Button Content="💾 Save current settings as preset…" Command="{Binding SavePreset}" HorizontalAlignment="Left" Margin="0,0,0,6" />
+            <ItemsControl ItemsSource="{Binding ConfigPresets}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Grid Margin="0,2">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <StackPanel>
+                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12" />
+                      <TextBlock Text="{Binding Note}" Style="{StaticResource Dim}" FontSize="10" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="Apply" Style="{StaticResource SmallAccent}" Command="{Binding DataContext.ApplyPresetCmd, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                    <Button Grid.Column="2" Content="✕" Style="{StaticResource SmallBtn}" Command="{Binding DataContext.DeletePresetCmd, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" Margin="4,0,0,0" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Expander>
+          </CompositeCollection>
+        </v:ColumnsPanel.ItemsSource>
+      </v:ColumnsPanel>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>
