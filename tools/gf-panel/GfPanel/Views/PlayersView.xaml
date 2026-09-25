@@ -46,7 +46,7 @@
 
               <TextBlock Text="Menus" Style="{StaticResource SubTitle}" />
               <WrapPanel>
-                <Button Command="{Binding ToggleMenu}" Style="{StaticResource Act}" Visibility="{Binding ShowGiveMenu, Converter={StaticResource Vis}}" ToolTip="forgegrant on - their own mod menu (hold ADS + Melee; controller: D-pad up)">
+                <Button Command="{Binding ToggleMenu}" Style="{StaticResource Act}" Visibility="{Binding ShowGiveMenu, Converter={StaticResource Vis}}" ToolTip="forgegrant on - their own mod menu (F + E; controller: D-pad Up)">
                   <TextBlock Text="★ Give client menu" Foreground="{StaticResource MenuC}" FontWeight="Bold" />
                 </Button>
                 <Button Content="✖ Take back client menu" Command="{Binding ToggleMenu}" Style="{StaticResource Act}" Visibility="{Binding ShowTakeMenu, Converter={StaticResource Vis}}" ToolTip="forgegrant off" />
@@ -164,6 +164,17 @@
                   <TextBlock Text="model cannon" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="6,0,4,0" />
                   <Button Content="on" Command="{Binding Fun}" CommandParameter="cannon on" Style="{StaticResource Act}" />
                   <Button Content="off" Command="{Binding Fun}" CommandParameter="cannon off" Style="{StaticResource Act}" />
+                </WrapPanel>
+                <!-- klaze 2026-09-24: the client "Ammo Type" page, aimed at this player (fun ammo, pers - survives rounds) -->
+                <WrapPanel>
+                  <TextBlock Text="ammo type" Style="{StaticResource Dim}" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0" ToolTip="what their shots fire - their own pick, the same rows as a granted client's Ammo Type page; it beats Projectiles host / everyone and Model cannon for them" />
+                  <Button Content="Rockets" Command="{Binding Fun}" CommandParameter="ammo 1" Style="{StaticResource Act}" ToolTip="Cigma missiles" />
+                  <Button Content="Missiles" Command="{Binding Fun}" CommandParameter="ammo 2" Style="{StaticResource Act}" ToolTip="jet fighter missiles" />
+                  <Button Content="Grenades" Command="{Binding Fun}" CommandParameter="ammo 3" Style="{StaticResource Act}" ToolTip="M79 grenades" />
+                  <Button Content="Orbs" Command="{Binding Fun}" CommandParameter="ammo 4" Style="{StaticResource Act}" ToolTip="energy portals" />
+                  <Button Content="Chickens" Command="{Binding Fun}" CommandParameter="ammo 5" Style="{StaticResource Act}" />
+                  <Button Content="Last used prop" Command="{Binding Fun}" CommandParameter="ammo 6" Style="{StaticResource Act}" ToolTip="the last prop they picked or placed in Props" />
+                  <Button Content="normal" Command="{Binding Fun}" CommandParameter="ammo 0" Style="{StaticResource Act}" ToolTip="back to normal bullets" />
                 </WrapPanel>
               </StackPanel>
 

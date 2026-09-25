@@ -102,6 +102,46 @@ verbatim); the rescue call on a client already parked on spectator (stock's `men
 runs for a fresh connect — the rescue passes `squad` undefined); and whether any of it fires before the
 joiner's first spawn wave.
 
+## 2b. 2026-09-24 — the caster test was the bug; the class pick after a Move (bocw-57)
+
+klaze 2026-09-24: *"it still doesnt let people choose a team when they join a match in progress or auto
+assign them. i always have to manually put them on a team from a panel then restart the match."*
+
+**Measured (the saved panel log, `%LOCALAPPDATA%\GfPanel\logs`):** every `lobby=none` join ever logged
+went to stock. That was 4 of 4: KL9 at three dm starts (09-23 23:38, 09-24 01:05, 01:23), and `[AB]JID`
+mid-match in tdm on Diesel (09-24 20:41:47). `[AB]JID` then sat until klaze's Move → axis (20:42:45)
+and restart (20:43:11). The rescue check never printed for him in those ~58 s. The joiners the lobby
+gave a side (`lobby=allies/axis -> stock`) all played.
+
+**Cause:** inferred from those lines, not read out of the engine. `latejoin_applies` and the rescue
+shared one exclusion that could say no there, `iscodcaster()`. Stock never calls it. A connecting client
+sits on `sessionteam "spectator"` when the hook runs (`player_connect.gsc:272`) and while benched, so it
+evidently answers yes for any client on the spectator side. Every `lobby=none` joiner was treated as a
+caster.
+
+**Changes (`LATE JOIN` block):**
+- `latejoin_applies` → `latejoin_skip`, which returns the reason (`lobby side`, `caster seat`,
+  `host or bot`, …). The `-> stock` line now prints it, plus `cc=<iscodcaster>`, so the next join
+  confirms or kills the inference.
+- Casters are told apart by the **lobby seat**. The lobby seats casters on `TEAM_SPECTATOR`
+  (`lui-source core_common_0031` `AutoAssignPlayersDefault`), which arrives as `lobby=spectator`: stock
+  keeps them, and the rescue never touches them. `pers["gf_lj_lobby"]` records what the lobby gave each
+  human on first connect. The rescue only acts on a joiner the hook saw, whose seat was not `spectator`.
+- **`latejoin_spawn_nudge`:** `menuautoassign` only *asks* the player's UI to pick a class
+  (`beginclasschoice` → a `luinotifyevent`). A restart's connect makes stock's own server-side pick
+  instead (`init_character_index` → `[[ level.curclass ]]( "custom" + loadoutindex )`,
+  `player_connect.gsc:807`), which is why klaze's Move + restart worked. The nudge makes that pick a
+  frame after a placement **outside** the connect: the rescue, and the Move row / `move` verb
+  (`act_move` now calls stock's pointer directly, so a Move writes no JOIN line). Connect-time
+  placements get no nudge, because the connect makes the pick itself.
+- Every placement (connect, rescue, Move) prints one more host line 5 s later:
+  `JOIN <name> placed|rescued|moved -> <side>: <sessionstate> (cc=N)`. `playing` means it took; `dead`
+  in a round mode means seated for the next round.
+
+⚠ Unmeasured (build AF1B8963): all of it. Test: have someone join a tdm match in progress. Expect
+`JOIN <name> lobby=none … -> allies|axis (…, cc=1)` and, 5 s later, `… placed -> <side>: playing`.
+Then Move a spectator from the panel **without** a restart. Expect `… moved -> <side>: playing`.
+
 ## 3. The picker — `gf_teamchange` and the hidden "Team Change In-Game" setting
 
 The pause menu's CHANGE TEAM button is shown by the client only when
@@ -139,7 +179,8 @@ Start a private match with two or more humans, let round 1 begin, then have some
 | 4b | FFA (dm) late join | `JOIN <name> lobby=none  -> <teamN> (free-for-all)`, the joiner spawns in the match | the FFA seat |
 | 4c | a joiner still spectating 8 s after connecting (any mode) | `JOIN <name> was still spectating -> <side> (<reason>, rescue 1)` | the rescue check; a `rescue 2` line means the first seat did not take |
 | 5 | match start | no reload after the countdown | `allowingameteamchange` is not a restart key |
-| 6 | `JOIN ... -> stock` line for a joiner who still benches | `lobby=spectator` | the session put him in a caster slot on purpose — `iscodcaster()` pass-through; report it |
+| 6 | `JOIN ... -> stock (<reason>, cc=N)` line for a joiner who still benches | `lobby=spectator` (reason `caster seat`) | the session put him in a caster slot on purpose; any other reason on a `lobby=none` joiner is a bug — report it |
+| 7 | 5 s after any placement (2026-09-24) | `JOIN <name> placed/rescued/moved -> <side>: playing` | the seat took; `spectator` means the class pick did not spawn him |
 
 Rows 1-3 are the bug fix; rows 4-4c are the 2026-09-23 always-placed rules; rows 5-6 are the unknowns
 this build carries.

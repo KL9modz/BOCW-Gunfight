@@ -120,7 +120,7 @@
           <MenuItem Header="{Binding Name}" Style="{StaticResource CtxHead}" />
           <MenuItem Header="🔎  Open on the PLAYERS page" Command="{Binding Inspect}" ToolTip="every action for this player as a button" />
           <MenuItem Command="{Binding ToggleMenu}" Visibility="{Binding ShowGiveMenu, Converter={StaticResource Vis}}" Foreground="{StaticResource MenuC}" FontWeight="Bold"
-                    ToolTip="forgegrant on - their own mod menu (hold ADS + Melee, controller: D-pad up): Props / Vehicles, Player (god, ammo, 3rd person, fly, speed, operator, outfit), Teleport (to the host, to any player, crosshair, gun, save / load), Weapons, Camo. No admin. Survives rounds and a rejoin.">
+                    ToolTip="forgegrant on - their own mod menu (F + E, controller: D-pad Up): Props / Vehicles, Player (god, ammo, 3rd person, fly, speed, operator, outfit), Teleport (to the host, to any player, crosshair, gun, save / load), Weapons, Camo. No admin. Survives rounds and a rejoin.">
             <MenuItem.Header>
               <TextBlock Foreground="{StaticResource MenuC}"><Run Text="★" FontSize="13" /><Run Text="  Give client mod menu" /></TextBlock>
             </MenuItem.Header>
@@ -134,6 +134,8 @@
             <MenuItem Header="On" Command="{Binding ForgeModeOn}" ToolTip="forgemode on - tap-to-grab prompts on props (ours + map props within the grab reach); move / turn / scale / delete them" />
             <MenuItem Header="Off" Command="{Binding ForgeModeOff}" ToolTip="forgemode off" />
           </MenuItem>
+          <MenuItem Header="👑  Label VIP (toggle)" Command="{Binding Fun}" CommandParameter="vip"
+                    ToolTip="fun vip - the stock VIP marker over this player's head, for everyone else (they don't see their own). Toggles; survives rounds (klaze 2026-09-24). Whether the VIP icon draws outside VIP mode is not yet measured." />
           <MenuItem Header="✉  Message…" Command="{Binding Message}" />
           <Separator />
           <MenuItem Header="♥  Player">
@@ -197,7 +199,7 @@
             </MenuItem>
           </MenuItem>
           <MenuItem Header="🎉  Fun pack" Visibility="{Binding IsHuman, Converter={StaticResource Vis}}" ToolTip="the cloud branch's fun pack, aimed at this player (the GSC fun verb + gf_cmd_target); never run">
-            <MenuItem Header="Fly bind (Tac + Melee)">
+            <MenuItem Header="Fly bind (ADS+Sprint / Tac+Melee)" ToolTip="controller: hold ADS and click Sprint, or press both together (works with the menu open) · keyboard / mouse: Tactical + Melee">
               <MenuItem Header="On" Command="{Binding Fun}" CommandParameter="flybind on" />
               <MenuItem Header="Off" Command="{Binding Fun}" CommandParameter="flybind off" />
             </MenuItem>
@@ -228,6 +230,16 @@
             <MenuItem Header="Model cannon">
               <MenuItem Header="On" Command="{Binding Fun}" CommandParameter="cannon on" />
               <MenuItem Header="Off" Command="{Binding Fun}" CommandParameter="cannon off" />
+            </MenuItem>
+            <MenuItem Header="Ammo type" ToolTip="fun ammo - what this player's shots fire (pers, survives rounds); the same rows are on a granted client's Ammo Type page">
+              <MenuItem Header="Rockets (Cigma missiles)" Command="{Binding Fun}" CommandParameter="ammo 1" />
+              <MenuItem Header="Missiles (jet fighter missiles)" Command="{Binding Fun}" CommandParameter="ammo 2" />
+              <MenuItem Header="Grenades (M79 grenades)" Command="{Binding Fun}" CommandParameter="ammo 3" />
+              <MenuItem Header="Orbs (energy portals)" Command="{Binding Fun}" CommandParameter="ammo 4" />
+              <MenuItem Header="Chickens" Command="{Binding Fun}" CommandParameter="ammo 5" />
+              <MenuItem Header="Last used prop (their Props pick)" Command="{Binding Fun}" CommandParameter="ammo 6" />
+              <Separator />
+              <MenuItem Header="Normal bullets" Command="{Binding Fun}" CommandParameter="ammo 0" />
             </MenuItem>
           </MenuItem>
           <Separator />
@@ -262,7 +274,7 @@
             </TextBlock.Style>
           </TextBlock>
           <Border Style="{StaticResource Pill}" BorderBrush="{StaticResource MenuC}" Background="{StaticResource MenuDim}" Visibility="{Binding HasMenu, Converter={StaticResource Vis}}"
-                  ToolTip="Has a client mod menu (ADS + Melee in game; controller D-pad up). Right-click → Take back client mod menu.">
+                  ToolTip="Has a client mod menu (F + E in game; controller D-pad Up). Right-click → Take back client mod menu.">
             <TextBlock Style="{StaticResource PillText}" Text="★ MENU" Foreground="{StaticResource MenuC}" />
           </Border>
           <Border Style="{StaticResource Pill}" BorderBrush="{StaticResource ForgeC}" Background="{StaticResource ForgeDim}" Visibility="{Binding ForgeMode, Converter={StaticResource Vis}}"

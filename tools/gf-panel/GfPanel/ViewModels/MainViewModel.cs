@@ -59,6 +59,8 @@ public sealed class MainViewModel : ObservableObject
     public SettingRowVM? Setting(string dvar) => _rows.GetValueOrDefault(dvar);
     /// <summary>DIAGNOSTICS → MENU BACKDROP: the two LUIelemBar boxes behind the centre line (gf_hb0) and the hint row (gf_hb1).</summary>
     public HudBoxVM[] HudBoxes { get; }
+    /// <summary>The UNLOCKS page: the GSC `unlock` verb (account unlocks; other players must accept in game) - bocw-84 2026-09-24.</summary>
+    public UnlocksVM Unlocks { get; }
     /// <summary>The ACTIVITY list through the filter chips (all / menu log / no sent lines / one player's menu log).</summary>
     public ICollectionView ActivityView { get; }
     public ToastsVM Toasts { get; } = new();
@@ -109,11 +111,14 @@ public sealed class MainViewModel : ObservableObject
         Radar = new RadarVM(this);
         Fun = new FunVM(this);
         Race = new RaceVM(this);
-        // defaults = the GSC's hudbox_think fallbacks (guesses to tune live)
+        Unlocks = new UnlocksVM(this);
+        // defaults = the GSC's hudbox_think fallbacks, measured on klaze's screen 2026-09-24: the centre line draws its
+        // own backdrop, so box 0 is off; box 1 moved down onto the hint row - where "it replaced the hint bar. disable
+        // boxes for now" (klaze), so box 1 is off too (opacity 0); raise Opacity to try one again
         HudBoxes = new[]
         {
-            new HudBoxVM(this, "Behind the centre line", "gf_hb0", 30, 18, 128, 12, 8),
-            new HudBoxVM(this, "Behind the hint row", "gf_hb1", 30, 46, 128, 12, 8),
+            new HudBoxVM(this, "Behind the centre line", "gf_hb0", 30, 18, 128, 12, 0),
+            new HudBoxVM(this, "Behind the hint row", "gf_hb1", 30, 52, 128, 14, 0),
         };
         ActivityView = CollectionViewSource.GetDefaultView(Link.Activity);
         ActivityView.Filter = o => o is LogEntry e && ActivityPass(e);
@@ -454,6 +459,19 @@ public sealed class MainViewModel : ObservableObject
         ApplySettings(diff, "preset " + pr.Name);
     });
     public RelayCommand DeletePresetCmd => new(p => { if (p is ConfigPreset pr && Confirm($"Delete preset \"{pr.Name}\"?")) { Prefs.ConfigPresets.Remove(pr); Prefs.Save(); OnPropertyChanged(nameof(ConfigPresets)); } });
+
+    /// <summary>klaze 2026-09-25: "add one 'Reset all mods' button that puts every setting back to its default and clears
+    /// all of those live toggles and spawned objects" - the switch between a fun lobby and a serious match. The live mods go
+    /// with the GSC `resetmods` verb (RESET ALL MODS block); the settings with ApplySettings on ONLY the rows whose live value
+    /// differs from the default (Writer.Compose: packed rows one line per chunk, the rest paced, each scope's apply pulse -
+    /// never a raw set per row, the dvar-pool crash).</summary>
+    public RelayCommand ResetAllMods => new(() =>
+    {
+        var diff = _rows.Where(kv => RowValue(kv.Key) != kv.Value.Def.Default).ToDictionary(kv => kv.Key, kv => kv.Value.Def.Default);
+        if (!Confirm($"Reset ALL mods?\n\n{diff.Count} setting(s) go back to their defaults, and every live mod is cleared in the game: god, fly, third person, speed, freeze, ammo types, disco, slide presets, prop gun / cannon, teleport gun, VIP labels, the everyone-perks set, drunk / slow-mo / vision, all placed props + the saved Forge layouts, all menu-spawned vehicles.\n\nClient menu grants are kept.")) return;
+        Link.Send("Reset all mods", Commands.Action("resetmods"));
+        if (diff.Count > 0) ApplySettings(diff, "reset all mods");
+    });
 
     // ─────────────────────────────────────────────────────────────────────────
     // favorites / search / tabs / helpers

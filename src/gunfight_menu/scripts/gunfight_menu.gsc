@@ -64,6 +64,9 @@
 //                       (allowingameteamchange) + level.allow_teamchange, so the pause menu's
 //                       CHANGE TEAM button exists for everyone. 0 = off (the stock default).
 //     gf_timer_seconds  default 60. 0 = NO round timer: rounds end by elimination only
+//     gf_match_minutes  -1 (default) = the lobby's Time Limit row. The MATCH clock of every mode but
+//                       Gunfight (TDM / FFA ...; per round in S&D), in minutes, 0 = none. See the
+//                       MATCH TIME LIMIT block (klaze 2026-09-24).
 //     gf_prematch       pre-MATCH countdown in seconds - "match starting in", before round 1.
 //                       Default 15 (the custom-games row offers 5/10/15/30/45/60). -1 = the
 //                       lobby's own value.
@@ -246,6 +249,19 @@
 //                       round) and live from Apply-now (scope move). 1 and 3 restore on "stock";
 //                       2 restores at the next round. Plain dvar, not in the packed store. 2 and 3
 //                       stay as fallbacks, unmeasured.
+//     gf_invwall        INVISIBLE WALLS (klaze 2026-09-24: "a toggle ... to disable invisible barriers" - the
+//                       ceiling in the sky, the walls around the map). 1 (DEFAULT since klaze's "just make
+//                       invisible-walls ON by default", same day) = every living player walks and jumps
+//                       through the map's player clip: each holds engine perk 0xa2, which the movement-mask
+//                       builder reads to swap playerClip out of the player's collision (INVISIBLE WALLS
+//                       block). MEASURED on Diesel: the ceiling passes, some edge walls still block (clip that
+//                       also carries utility clip). 0 = stock. Solid walls, floors, glass and vehicles still
+//                       block. Plain dvar, not packed.
+//     gf_melee          1 (DEFAULT) = stock; 0 = no melee for anyone (stock's allow_melee value, re-set each
+//                       spawn and every second). Separately, a player's own melee is off while their menu is
+//                       open (menu_melee_lock_sync) - klaze 2026-09-24. MELEE & PINGS block.
+//     gf_ping           0 (DEFAULT, klaze 2026-09-24 "just make pings off by default") = no pings for anyone;
+//                       1 = stock. One game-wide engine switch, read off the exe. MELEE & PINGS block.
 //     gf_dbg_barrier    1 = the BARRIER debug feed line (one line, every 3 s): the trigger_hurt census
 //                       (n / enabled / held off / deleted / sunk / named / dmg tallies), the host's own
 //                       state (inside how many hurt volumes, alive, god, z) and the LAST DEATH of any
@@ -349,12 +365,11 @@
 // cfg_* reader uses getdvarint(name, default) and every menu write uses setdvar (registers on
 // demand). Cosmetic only: a setting's '*' current-value marker appears after its first change.
 //
-// ── KEYS (identical to the shipped Atian Menu) ───────────────────────────────
-//     open    ADS + melee     (RMB + V)
-//     back    melee           (V)
-//     up      ADS             (RMB)
-//     down    attack          (LMB)
-//     select  reload          (R)
+// ── KEYS (keyboard & mouse since 2026-09-24 - klaze; the KEYBOARD & MOUSE block after key_down) ──
+//     open    F + E (use + melee)          controller: D-pad Up
+//     one-line menu (default):  A / D previous / next, W or F select, S or E back, wheel scrolls
+//     list layouts:             W / S previous / next, D or F select, A or E back, wheel scrolls
+//     controller: keys_nav_refresh (D-pad only since 2026-09-25); CoD Caster: keys_init's caster keyset
 //
 // ── WHAT IS PROVEN AND WHAT IS NOT ───────────────────────────────────────────
 //     zones_guard / timelimit_fix / presentation / timer_override   ✅ in-game
@@ -467,6 +482,7 @@
 #using scripts\core_common\music_shared;
 #using scripts\core_common\exploder_shared;
 #using scripts\core_common\lui_shared;          // lui::function_bb6bcb89 - the menu backdrop's LUIelemBar fields (2026-09-24)
+#using scripts\core_common\player\player_stats; // stats:: - the ACCOUNT UNLOCKS block's stock stat setters (2026-09-24)
 #using scripts\core_common\bots\bot;
 // bot_difficulty: assign() is the stock "re-read bot_difficulty_<team> and install the bundle"
 // entry point (bot_difficulty.gsc:34). bot.gsc #uses it, so it links wherever bot does.
@@ -479,6 +495,9 @@
 // pausetimer / resumetimer for the match pause; #used by globallogic itself, so it is in
 // every MP link set the line above is.
 #using scripts\mp_common\gametypes\globallogic_utils;
+// globallogic_defaults (mp_common): default_gettimelimit, the stock clock reader the MATCH TIME LIMIT block
+// hooks over. #used by globallogic itself (globallogic.gsc:69), so it is in every MP link set too.
+#using scripts\mp_common\gametypes\globallogic_defaults;
 // gametype (mp_common): on_round_switch for the side-switch cadence (mod_onendround). #used by
 // globallogic itself, so it is in every MP link set too. ⚠ RULE, measured 2026-09-21: a
 // namespaced call into a script that is NOT in this #using list compiles and passes check-gsc,
@@ -806,6 +825,8 @@ function private cfg_rounds_sides()   { return cfg_geti( #"gf_rounds_sides", -1 
 // LIVE within 5 s (like the timer). Plain dvar.
 function private cfg_friendlyfire()   { return cfg_geti( #"gf_friendlyfire", -1 ); }
 function private cfg_roundlimit()     { return cfg_geti( #"gf_roundlimit", -1 ); }
+// The match clock of every mode but Gunfight, in minutes: -1 the lobby's row, 0 none (MATCH TIME LIMIT block).
+function private cfg_match_minutes()  { return cfg_geti( #"gf_match_minutes", -1 ); }
 function private cfg_rounds_loadout() { return cfg_geti( #"gf_rounds_loadout", -1 ); }
 function private cfg_switch_sides()   { return cfg_geti( #"gf_switch_sides", 1 ); }
 
@@ -819,6 +840,11 @@ function private cfg_falldamage() { return cfg_geti( #"gf_falldamage", 0 ); }
 function private cfg_oob()        { return cfg_geti( #"gf_oob", 1 ); }          // 1 = OOB disabled (default)
 function private cfg_deathbarrier() { return cfg_geti( #"gf_deathbarrier", 1 ); }  // 0 stock / 1 disabled (DEFAULT, measured working 2026-09-21) / 2 deleted / 3 sunk
 function private cfg_dbg_barrier()  { return cfg_geti( #"gf_dbg_barrier", 0 ); }
+function private cfg_dbg_buttons()  { return cfg_geti( #"gf_dbg_buttons", 0 ); }  // 1 = the host's BTN probe line (BUTTON PROBE block)
+function private cfg_invwall()      { return cfg_geti( #"gf_invwall", 1 ); }       // 1 walk through player clip (DEFAULT, klaze 2026-09-24) / 0 stock
+function private cfg_melee()        { return cfg_geti( #"gf_melee", 1 ); }         // 1 stock (default) / 0 no melee for anyone
+function private cfg_ping()         { return cfg_geti( #"gf_ping", 0 ); }          // 0 no pings for anyone (DEFAULT, klaze 2026-09-24) / 1 stock
+function private cfg_wraith_mode()  { return cfg_geti( #"gf_wraith_mode", 0 ); }   // WRAITH PILOT: 0 autopilot, direct if it stalls / 1 autopilot only / 2 direct only
 function private cfg_speed()      { return cfg_geti( #"gf_speed", 100 ); }
 function private cfg_fly_speed()  { return cfg_geti( #"gf_fly_speed", 20 ); }
 function private cfg_fly_fast()   { return cfg_geti( #"gf_fly_fast", 60 ); }
@@ -1103,6 +1129,10 @@ function private mod_apply()
     // entity list (GFENTS) - one thread each per level.
     level thread radar_think();
     level thread sandbox_watch();
+    level thread ping_think();         // gf_ping, default off (MELEE & PINGS)
+    level thread vip_think();          // the VIP label markers (VIP LABEL block)
+    level thread btn_probe_think();    // gf_dbg_buttons: which button bits the host's device sends (BUTTON PROBE)
+    level thread round_end_centre_clear();   // blank the centre line at the round's end (klaze 2026-09-25)
     level thread ents_publish();
     level thread race_publish();       // GAME->APP race track (GFTRACK) + live positions (GFRACE) - the RACING page
 
@@ -1124,6 +1154,8 @@ function private mod_apply()
 
     if ( !mod_is_gunfight() )
     {
+        // The match clock (gf_match_minutes, MATCH TIME LIMIT block): hooked over the stock reader only.
+        mtl_install();
         mod_menu_restart_all();
         return;
     }
@@ -1347,6 +1379,8 @@ function private mod_movement()
     mod_falldamage_apply();
     mod_oob_apply_all();
     mod_deathbarrier_apply();
+    mod_invwall_apply_all();
+    melee_apply_all();
 }
 
 // ── Out of bounds (gf_oob, default OFF = disabled) ───────────────────────────
@@ -1505,6 +1539,191 @@ function private act_deathbarrier( item, value )
     return true;
 }
 
+// ── Invisible walls (gf_invwall, default 1 = walk through player clip) ───────
+// klaze 2026-09-24: "create a toggle off by default to disable invisible barriers. most maps have
+// one in the sky as a ceiling and vertical ones around the map". MEASURED the same evening (klaze,
+// Diesel TDM, perk held): the ceiling passes, some vertical walls at the edge still block - klaze's
+// read: clip that carries utility clip too, which the perk cannot drop. His call: "if we cant do
+// anything easily then just make invisible-walls ON by default" -> default 1. READ off the live exe
+// with tools/dvar-live (read-only):
+//   - The material table at exe+0xd66b340 names the contents bits: playerClip 0x10000, utilityClip
+//     0x100000, vehicleClip 0x200, aiClip 0x20000, bulletClip 0x2000, sky 0x800.
+//   - A living player's movement mask is set at exe+0x6bca4cb (again at +0x8e6d097): 0x00a18011 =
+//     solid, glass, playerClip and bits no material sets (entities); a default-on dvar drops 0x800000.
+//     The sky bit is not in it, so the ceiling a jump hits is player clip, like the walls at the edge.
+//   - The same code swaps playerClip for utilityClip when the player holds perk 0x50
+//     (specialty_playeriszombie - 15 more engine checks, so side effects) or perk 0xa2 (unnamed,
+//     #"hash_3a09b1d7eaa88087": perk table exe+0xeb26500, Atian's CW perk list line 163), whose ONLY
+//     two engine checks are those mask lines. So the switch is perk 0xa2 on every living player.
+// Stock clears perks when it gives a loadout (gunfight.gsc:343, before on_spawned), so the perk is
+// re-granted on every spawn and every second by sandbox_watch (a mid-life class change re-gives the
+// loadout). "Stock" strips only the perk this set (the gf_invwall mark). Solid geometry, glass, other
+// players and vehicles still block, a vehicle's own clip is untouched, and utility clip (the zombie
+// clip) now blocks - where a map carries it alone (the Zombies Onslaught maps are the candidates,
+// zonslaught.gsc), that is a wall stock players never meet: unmeasured.
+function private invwall_perk()
+{
+    return #"hash_3a09b1d7eaa88087";
+}
+
+function private mod_invwall_apply()
+{
+    if ( !isplayer( self ) || !isalive( self ) )
+        return;
+
+    if ( cfg_invwall() )
+    {
+        if ( !self hasperk( invwall_perk() ) )
+            self setperk( invwall_perk() );
+
+        self.gf_invwall = 1;
+    }
+    else if ( is_true( self.gf_invwall ) )
+    {
+        if ( self hasperk( invwall_perk() ) )
+            self unsetperk( invwall_perk() );
+
+        self.gf_invwall = 0;
+    }
+}
+
+function private mod_invwall_apply_all()
+{
+    foreach ( player in getplayers() )
+        player mod_invwall_apply();
+}
+
+// "held/alive": living players holding the perk right now (the menu reply and the BARRIER line).
+function private invwall_count()
+{
+    held = 0;
+    alive = 0;
+
+    foreach ( player in getplayers() )
+    {
+        if ( !isalive( player ) )
+            continue;
+
+        alive++;
+
+        if ( player hasperk( invwall_perk() ) )
+            held++;
+    }
+
+    return "" + held + "/" + alive;
+}
+
+function private act_invwall( item, value )
+{
+    cfg_seti( #"gf_invwall", value );
+    mod_invwall_apply_all();
+
+    if ( value )
+        self menu_say( "^3Invisible walls: ^2OFF ^8(walk through them, perk " + invwall_count() + ")" );
+    else
+        self menu_say( "^3Invisible walls: ^7stock ^8(perk " + invwall_count() + ")" );
+
+    return true;
+}
+
+// ── Melee & pings (gf_melee / gf_ping, default 1 = stock) ───────────────────────
+// klaze 2026-09-24: "could we disable pinging while the menu is open? on controller, left dpad pings a
+// marker while nav the menu" / "can we also disable melee while menu open? add global melee and ping
+// toggles in app".
+// MELEE: stock's layered value allow_melee (the Prop Hunt props' switch, prop.gsc): the knife stops, the
+// button still reads (the menu's Back keeps working - Prop Hunt reads +melee the same way, unmeasured here).
+// gf_melee 0 = off for every living player, re-set each spawn and every second (sandbox_watch).
+// menu_melee_lock_sync = off for ONE player while their menu is open, on any device (bocw-12's K&M lock
+// covers the keyboard too); each layer has its own id, so they stack and melee returns only when all reset.
+// PINGS: read off the live exe 2026-09-24 (tools/dvar-live, read-only), unmeasured in a match. The engine
+// handles a ping only while two BOOL dvars are on (exe+0xaa52deb / +0xaa52e09; the second reader,
+// exe+0x5361f45, checks the latter before a ping goes out): 0x449fa75f87a4b5b4 (default 1) and
+// #"hash_1d7aa0dce875f0eb" (default 0 - ping.gsc's postinit turns it on every level load). Its dvar flag
+// 0x8000 looks like "sent to clients"; that the write reaches remote players is UNMEASURED. It is ONE
+// game-wide switch. klaze 2026-09-24 (after the first build): "just make pings off by default and dont
+// have special code to disable ping when menu is open" -> gf_ping default 0, no menu-open rule.
+// ping_think writes it only on a change and only undoes its own write (a mode that turns pings off itself
+// is left alone).
+function private melee_apply()
+{
+    if ( !isplayer( self ) )
+        return;
+
+    if ( !cfg_melee() )
+        self val::set( #"gf_melee_off", "allow_melee", 0 );
+    else
+        self val::reset( #"gf_melee_off", "allow_melee" );
+}
+
+function private melee_apply_all()
+{
+    foreach ( player in getplayers() )
+        player melee_apply();
+}
+
+// One player's own menu melee lock: on while their menu is open, they are alive and not in Forge.
+// Synced every menu_think frame beside menu_kb_lock_sync; released on close, death, Forge, revoke and
+// (the guard) the round's end.
+function private menu_melee_lock_sync( want )
+{
+    on = is_true( self.gf_mmlock );
+
+    if ( want && on )
+        return;
+
+    if ( !want && !on )
+        return;
+
+    if ( want )
+    {
+        self.gf_mmlock = 1;
+        self val::set( #"gf_menu_melee", "allow_melee", 0 );
+        self thread menu_melee_lock_guard();
+        return;
+    }
+
+    // Release: restore FIRST, then the notify that ends the guard (the guard may be the caller).
+    self.gf_mmlock = 0;
+    self val::reset( #"gf_menu_melee", "allow_melee" );
+    self notify( #"gf_mmlock_off" );
+}
+
+function private menu_melee_lock_guard()
+{
+    self endon( #"disconnect", #"gf_mmlock_off" );
+    level waittill( #"game_ended" );
+    self menu_melee_lock_sync( 0 );
+}
+
+// The engine ping gate (see above), one level thread: re-asserted every half second because ping.gsc's
+// postinit turns it back on at every level load; the dvar is written only when it has to change.
+function private ping_think()
+{
+    if ( is_true( level.gf_ping_think ) )
+        return;
+
+    level.gf_ping_think = 1;
+    level endon( #"game_ended" );
+
+    for ( ;; )
+    {
+        if ( !cfg_ping() )
+        {
+            if ( getdvarint( #"hash_1d7aa0dce875f0eb", 0 ) != 0 )
+                setdvar( #"hash_1d7aa0dce875f0eb", 0 );
+
+            level.gf_ping_off = 1;
+        }
+        else if ( is_true( level.gf_ping_off ) )
+        {
+            setdvar( #"hash_1d7aa0dce875f0eb", 1 );
+            level.gf_ping_off = 0;
+        }
+
+        wait 0.5;
+    }
+}
+
 // Every death, any player: one short record for the BARRIER line - who, the MOD, what the
 // attacker entity was (a death barrier reports classname trigger_hurt), whether the victim
 // was invulnerable at the time, and how far down he was. smeansofdeath is a string on the
@@ -1591,10 +1810,12 @@ function private barrier_line()
         + " off:" + ( isdefined( level.gf_kb_off ) ? level.gf_kb_off : 0 )
         + " del:" + ( isdefined( level.gf_kb_del ) ? level.gf_kb_del : 0 )
         + " sunk:" + ( isdefined( level.gf_kb_sunk ) ? level.gf_kb_sunk : 0 )
-        + " tn:" + tn + " nw:" + nw + " dmg:" + dl;
+        + " tn:" + tn + " nw:" + nw + " dmg:" + dl
+        + " walls:" + cfg_invwall() + " iw:" + invwall_count();   // invisible walls: held/alive (INVISIBLE WALLS block)
 
     if ( isdefined( host ) )
-        s += " ^5host ^7in:" + inn + " alive:" + ( isalive( host ) ? 1 : 0 ) + " god:" + ( host getinvulnerability() ? 1 : 0 ) + " z:" + int( host.origin[ 2 ] );
+        s += " ^5host ^7in:" + inn + " alive:" + ( isalive( host ) ? 1 : 0 ) + " god:" + ( host getinvulnerability() ? 1 : 0 ) + " z:" + int( host.origin[ 2 ] )
+            + " iw:" + ( host hasperk( invwall_perk() ) ? 1 : 0 );
 
     s += " ^3last:^7" + ( isdefined( level.gf_kb_last ) ? level.gf_kb_last : "-" );
     return s;
@@ -3641,6 +3862,8 @@ function private mod_spawn_movement()
     // callback (:758) - so the flag is re-set here, every life, for every player.
     self mod_oob_apply();
     perks_apply( self, 1 );   // the everyone-perks set (tools/gf-panel), re-given each life
+    self mod_invwall_apply(); // invisible walls: perk 0xa2, cleared by the loadout give like the rest
+    self melee_apply();       // gf_melee 0 = no melee for anyone (MELEE & PINGS)
 }
 
 // gf_speed percent -> setmovespeedscale, on top of the loadout's own modifier exactly the
@@ -3720,7 +3943,8 @@ function private fly_think()
         mv = self getnormalizedmovement();
         delta = ( 0, 0, 0 );
 
-        if ( isdefined( mv ) )
+        // A keyboard player's open menu reads W / A / S / D (menu_kb_lock_sync) - do not fly with them too.
+        if ( isdefined( mv ) && !is_true( self.gf_kblock ) )
             delta = fwd * mv[ 0 ] + ( right[ 0 ], right[ 1 ], 0 ) * mv[ 1 ];
 
         if ( self jumpbuttonpressed() )
@@ -7623,6 +7847,98 @@ function private mod_friendlyfire()
         gts_set( #"friendlyfiretype", cfg_friendlyfire() );
 }
 
+// ── MATCH TIME LIMIT (every mode but Gunfight) ───────────────────────────────────
+// klaze 2026-09-24: "do we have a match timer control? its different from round timer" -> the app's
+// "Match time limit (other modes)" row (gf_match_minutes: -1 = the lobby's row, 0 = no clock, N minutes).
+// The game has ONE time-limit setting (timelimit, the lobby's Time Limit row) and its meaning is per mode:
+// Gunfight reads it as the ROUND clock in seconds (gunfight.gsc:1139 - the mod owns that one, gf_timer_seconds
+// / mod_gettimelimit) and has no match clock at all; every mode on the stock reader reads it as MINUTES
+// (globallogic_defaults.gsc:296) - the whole match in TDM / FFA / Kill Confirmed / Hardpoint, one round in a
+// round-based mode (Search & Destroy).
+// NOT a setgametypesetting write: the engine fast-restarts the match on some setting changes (maxplayers and
+// the round limits, measured 2026-09-15) and an in-match timelimit write has never been measured. The mod takes
+// over the clock instead - the round timer's lever, which lands live: updategametypedvars() (globallogic.gsc:3439)
+// calls [[ level.gettimelimit ]]() every 0.25 s and checktimelimit() moves the HUD clock (setgameendtime).
+// Hooked only over the STOCK reader: control / dem / infect / spy install their own in main() (overtime, extra
+// time, infection extensions) and keep the lobby's row - the app's apply of this row says so in the host's feed.
+// The race swaps in its own clock while racing and hands this one back after (race_teardown restores it).
+// The limit is CACHED - re-read at match (round) start and on an app apply that changed it, never per tick -
+// and a new limit at or under the time already played becomes one more minute from now: a dropdown scrolled
+// through low values must not end the match (the app's End match is the instant end). Untested in-game.
+function private mtl_install()
+{
+    if ( !isdefined( level.gettimelimit ) || level.gettimelimit != &globallogic_defaults::default_gettimelimit )
+        return;
+
+    level.gf_mtl_prev = level.gettimelimit;
+    level.gettimelimit = &mtl_gettimelimit;
+    level.gf_mtl_on = 1;
+    mtl_refresh( 0 );
+}
+
+// Installed as level.gettimelimit: the cached limit, or the stock reader (the lobby's row) when none is cached.
+function private mtl_gettimelimit()
+{
+    if ( isdefined( level.gf_mtl_cache ) )
+        return level.gf_mtl_cache;
+
+    return [[ level.gf_mtl_prev ]]();
+}
+
+// Re-cache the limit from gf_match_minutes if it changed since this level last applied it. Returns the host's
+// feed line, or undefined when there is nothing to say (loud = the app applied THIS row: always answer).
+function private mtl_refresh( loud )
+{
+    if ( !is_true( level.gf_mtl_on ) )
+    {
+        if ( !loud )
+            return undefined;
+
+        if ( mod_is_gunfight() )
+            return "^3match time limit: not used in Gunfight - Round timer + First to N rounds set its length";
+
+        return "^3match time limit: " + getdvarstring( #"g_gametype", "" ) + " runs its own clock - set Time Limit in the lobby";
+    }
+
+    m = cfg_match_minutes();
+
+    if ( m > 1440 )
+        m = 1440;       // globallogic's own ceiling (util::registertimelimit( 0, 1440 ))
+
+    if ( isdefined( level.gf_mtl_applied ) && level.gf_mtl_applied == m )
+    {
+        if ( !loud )
+            return undefined;
+
+        return "^2match time limit: " + mtl_what( m ) + " (unchanged)";
+    }
+
+    level.gf_mtl_applied = m;
+    want = ( m >= 0 ) ? m : [[ level.gf_mtl_prev ]]();
+    level.gf_mtl_cache = ( m >= 0 ) ? want : undefined;
+    played = globallogic_utils::gettimepassed();   // ms, pauses excluded; 0 before the clock starts
+
+    if ( want > 0 && isdefined( level.starttime ) && want * 60000 <= played + 60000 )
+    {
+        level.gf_mtl_cache = float( played + 60000 ) / 60000;
+        return "^3match time limit: " + mtl_what( m ) + " is under the " + race_clock( played ) + " already played - the match ends in 1:00";
+    }
+
+    return "^2match time limit: " + mtl_what( m );
+}
+
+function private mtl_what( m )
+{
+    if ( m > 0 )
+        return m + " min";
+
+    if ( m == 0 )
+        return "no clock";
+
+    lobby = [[ level.gf_mtl_prev ]]();
+    return "the lobby's " + ( lobby > 0 ? ( lobby + " min" ) : "no clock" );
+}
+
 function private cmd_apply_live( scope )
 {
     if ( !isdefined( scope ) || scope == "" )
@@ -7652,6 +7968,16 @@ function private cmd_apply_live( scope )
 
     if ( all || scope_has( scope, "ff" ) )
         mod_friendlyfire();
+
+    // Match time limit (every mode but Gunfight): re-cache the clock hook's minutes. The app's apply of that
+    // row always gets a feed answer; an "all" speaks only when the value actually changed.
+    if ( all || scope_has( scope, "mtime" ) )
+    {
+        msg = mtl_refresh( scope_has( scope, "mtime" ) );
+
+        if ( isdefined( msg ) )
+            self menu_say( msg );
+    }
 
     // ⚠ Apply-now applies ONLY mid-match-safe subsystems: movement, bots, periods, timer.
     // It never setgametypesetting's maxplayers / customcac / profile / loadout / spyplane / round
@@ -8226,10 +8552,23 @@ function private menu_think()
     }
 
     ts = 0;
+    was_veh = 0;
 
     for ( ;; )
     {
         m = self.gfmenu;
+        kbm = self kb_active();
+
+        // Keyboard: W / A / S / D, F, E and the wheel drive an open menu, so walking, knife, pickup and
+        // weapon swap pause while it is open (menu_kb_lock_sync) - released on close, death, Forge or a
+        // switch to the controller.
+        self menu_kb_lock_sync( kbm && m.current !== "" && isalive( self ) && !self forge_active() );
+        // A pad's melee closes the menu ON PRESS (klaze 2026-09-25, "close on press not release"); melee stays
+        // blocked until that button is let go, so the press that closed the menu cannot knife when the lock lifts.
+        if ( is_true( self.gf_close_hold ) && !self meleebuttonpressed() )
+            self.gf_close_hold = 0;
+
+        self menu_melee_lock_sync( ( m.current !== "" || is_true( self.gf_close_hold ) ) && isalive( self ) && !self forge_active() );   // any device (MELEE & PINGS)
 
         if ( self forge_active() )
         {
@@ -8244,11 +8583,40 @@ function private menu_think()
             m.current = "";
         }
 
+        // klaze 2026-09-24: "sometimes the menu doesnt work well when in a vehicle. can it auto close if u
+        // enter a vehicle?" - closed on the step INTO a seat, host and granted clients alike. An edge, not a
+        // state: reopening it while seated still works (Vehicles -> Leave vehicle is in there). The paint is
+        // Back-from-the-root's: an empty page clears the centre line and the hint row, and hudbox_think drops
+        // the backdrop once current is "".
+        in_veh = self isinvehicle() || is_true( self.gf_wraith_on );     // a Wraith pilot rides a linked camera, not a seat (bocw-57)
+
+        if ( in_veh && !was_veh && m.current !== "" )
+        {
+            m.current = "";
+            self menu_render( lines );
+        }
+
+        was_veh = in_veh;
         render = 0;
+        act = "";
+
+        // One action per frame from the device in hand: the keyboard scheme (menu_kb_action) or the
+        // controller / caster bindings (menu_key_action). Same order as ever: back, last, next, select.
+        if ( m.current !== "" )
+            act = kbm ? self menu_kb_action() : self menu_key_action();
 
         if ( m.current == "" )
         {
-            open_now = self key_pressed( #"open_menu", 1 );
+            // Keyboard / mouse opens on F + E (klaze 2026-09-24) - ADS + Melee no longer, so aiming and
+            // knifing never opens it. A CoD caster keeps its keyset (use + jump) on either device. A pad opens
+            // the menu with D-pad Up alone - what its idle hint already said (its fly bind is ADS + Sprint since
+            // 2026-09-25, fly_bind_think).
+            open_now = 0;
+
+            if ( kbm )
+                open_now = self kb_open_pressed();
+            else if ( isplayer( self ) && self iscodcaster() )
+                open_now = self key_pressed( #"open_menu", 1 );
 
             // On a controller, D-pad Up alone opens the menu (ADS+Melee is an awkward L2+R3 on a pad -
             // klaze 2026-09-21). Device-gated so a keyboard's Action Slot 1 key never opens it. Waits
@@ -8269,6 +8637,10 @@ function private menu_think()
                 // Match the D-pad nav axis to the current layout in case it was changed from the
                 // app (dvar) while the menu was closed - carousel = Left/Right, list = Up/Down.
                 self keys_nav_refresh();
+
+                // Keyboard: a key already down (W while walking) must be let go before it counts.
+                if ( kbm )
+                    self menu_kb_action( 1 );
                 // The key legend is a transient centre toast in the non-split layouts only;
                 // in SPLIT it would land in the left details pane (menu_say folds to the
                 // status there) and klaze wants that pane to stay pure state, no controls.
@@ -8285,7 +8657,13 @@ function private menu_think()
                 continue;
             }
         }
-        else if ( self key_pressed( #"parent_page", 1 ) )
+        else if ( act == "close" )
+        {
+            m.current = "";                   // a pad's melee: the whole menu, not one page (menu_key_action)
+            self.gf_close_hold = 1;           // melee stays blocked until that press is let go (above)
+            render = 1;
+        }
+        else if ( act == "back" )
         {
             menu = self menu_current();
             m.current = isdefined( menu ) ? menu.parent_id : "";
@@ -8295,7 +8673,7 @@ function private menu_think()
 
             render = 1;
         }
-        else if ( self key_pressed( #"last_item", 1 ) )
+        else if ( act == "prev" )
         {
             menu = self menu_current();
 
@@ -8313,7 +8691,7 @@ function private menu_think()
                 render = 1;
             }
         }
-        else if ( self key_pressed( #"next_item", 1 ) )
+        else if ( act == "next" )
         {
             menu = self menu_current();
 
@@ -8331,7 +8709,7 @@ function private menu_think()
                 render = 1;
             }
         }
-        else if ( self key_pressed( #"select_item", 1 ) )
+        else if ( act == "select" )
         {
             menu = self menu_current();
 
@@ -8379,6 +8757,12 @@ function private menu_think()
                 continue;
             }
         }
+
+        // Any action that closed the menu with melee still down (a pad's melee close, keyboard E backing out of
+        // the root): hold the melee lock AND the fly bind until that button is let go - fly_bind_think only
+        // skips while the menu is open, so ADS / Tactical held + this melee would otherwise toggle fly (bocw-12).
+        if ( m.current == "" && act != "" && self meleebuttonpressed() )
+            self.gf_close_hold = 1;
 
         if ( render )
         {
@@ -8523,8 +8907,10 @@ function private menu_render_split( lines, list_center )
             // the hint line; no "Controls:" prefix - the widget's own use-button at the front of the
             // line reads as the select glyph). The hint widget does not fade, so it is only re-set
             // when its text changes (re-setting the same string re-runs the widget's transition).
+            // Colours (klaze 2026-09-24: "swap the colors of the control text and the menu title text so
+            // controls are yellow", host and client menu alike): control words ^3 (menu_nav_hint), title ^5.
             n = menu.items.size;
-            txt = menu_nav_hint() + "   ^8|   ^3" + self menu_page_title( menu )
+            txt = menu_nav_hint() + "   ^8|   ^5" + self menu_page_title( menu )
                 + " ^7" + ( ( n == 0 ) ? "-/-" : ( "" + ( menu.cursor + 1 ) + "/" + n ) );
 
             self menu_hint_set( txt );
@@ -8762,7 +9148,7 @@ function private menu_render_hint()
             rows[ rows.size ] = self menu_item_line( menu, i );
     }
 
-    foot = "^2" + pos + "  R Select | LMB Next | RMB Last | V Back";
+    foot = "^2" + pos + "  " + self menu_nav_plain();
     if ( isdefined( self.gfmenu.lastmsg ) && self.gfmenu.lastmsg != "" )
         foot += "  | " + self.gfmenu.lastmsg;
     rows[ rows.size ] = foot;
@@ -8939,7 +9325,7 @@ function private match_info()
 
     gd = cfg_spawn_guard();
     self iprintln( "^7spawn ^3" + ( gd == 2 ? "AUTO" : ( gd == 1 ? "FORCE" : "off" ) ) + "  ^7zone ^3" + ( cfg_zone() ? ( "on ot" + cfg_zone_overtime() + " cap" + cfg_zone_capture() ) : "off" ) );
-    self iprintln( "^7gravity ^3" + cfg_gravity() + "  ^7jump ^3" + ( cfg_jump() >= 0 ? ( "" + cfg_jump() ) : "stock" ) + "  ^7boost ^3" + cfg_jump_boost() + "  ^7speed ^3" + cfg_speed() + "%  ^7fall ^3" + ( cfg_falldamage() ? "stock" : "off" ) + "  ^7oob ^3" + ( cfg_oob() ? "off" : "stock" ) + "  ^7barrier ^3" + ( cfg_deathbarrier() ? ( "off" + cfg_deathbarrier() ) : "stock" ) );
+    self iprintln( "^7gravity ^3" + cfg_gravity() + "  ^7jump ^3" + ( cfg_jump() >= 0 ? ( "" + cfg_jump() ) : "stock" ) + "  ^7boost ^3" + cfg_jump_boost() + "  ^7speed ^3" + cfg_speed() + "%  ^7fall ^3" + ( cfg_falldamage() ? "stock" : "off" ) + "  ^7oob ^3" + ( cfg_oob() ? "off" : "stock" ) + "  ^7barrier ^3" + ( cfg_deathbarrier() ? ( "off" + cfg_deathbarrier() ) : "stock" ) + "  ^7walls ^3" + ( cfg_invwall() ? "off" : "stock" ) );
 }
 
 // Everything switched on beyond its default, one short line. Empty when nothing is on
@@ -8990,6 +9376,8 @@ function private menu_enabled_flags( col = "^7" )
         s = menu_join( s, "speed" + cfg_speed() , col );
     if ( !cfg_falldamage() )
         s = menu_join( s, "nofall" , col );
+    if ( cfg_invwall() )
+        s = menu_join( s, "nowalls" , col );
     if ( isdefined( level.gf_paused ) && level.gf_paused )
         s = menu_join( s, "^1PAUSED^7" , col );
     else if ( isdefined( level.gf_frozen_all ) && level.gf_frozen_all )
@@ -9146,10 +9534,12 @@ function private keys_init()
 
 // The menu nav D-pad axis follows the LAYOUT (klaze 2026-09-21): a single-line HORIZONTAL carousel
 // (gf_menu_region 2) navigates Left/Right for last/next, with select on Down and back on Up; every
-// other (vertical) layout keeps Up/Down = last/next, Right = select, Left = back. The weapon-button
-// binding (ADS/attack/reload/melee) is ALWAYS accepted alongside the D-pad, so keyboard + mouse is
-// unchanged and a controller can use either. Re-run whenever the layout changes so the axis matches
-// what is on screen.
+// other (vertical) layout keeps Up/Down = last/next, Right = select, Left = back. A controller navigates
+// with the D-PAD ONLY since 2026-09-25 (klaze: "yes make the controller menu dpad only" - the weapon
+// buttons ADS / attack / reload / melee were alternates, so R2 scrolled the menu and a shot with the menu
+// open could not fire the Ammo Type pick); keyboard & mouse has its own scheme since 2026-09-24
+// (menu_kb_action - the D-pad slots never reach the script from a keyboard).
+// Re-run whenever the layout changes so the axis matches what is on screen.
 // ⚠ D-pad direction is assumed as1=Up as2=Down as3=Left as4=Right (Treyarch default action-slot
 // order). If Left/Right come out swapped in-game, exchange as3 <-> as4 in BOTH branches below.
 function private keys_nav_refresh()
@@ -9158,19 +9548,22 @@ function private keys_nav_refresh()
     {
         // carousel: Left = last, Right = next, Up = select, Down = back (klaze 2026-09-21: Up=select
         // puts a visible D-pad glyph on select in the hint, replacing the dropped use-prompt Square)
-        self.gfkeys[ #"last_item" ]   = key_alts( key_single( #"ads" ),    key_single( #"as3" ) );
-        self.gfkeys[ #"next_item" ]   = key_alts( key_single( #"attack" ), key_single( #"as4" ) );
-        self.gfkeys[ #"select_item" ] = key_alts( key_single( #"reload" ), key_single( #"as1" ) );
-        self.gfkeys[ #"parent_page" ] = key_alts( key_single( #"melee" ),  key_single( #"as2" ) );
+        self.gfkeys[ #"last_item" ]   = key_alts( key_single( #"as3" ) );
+        self.gfkeys[ #"next_item" ]   = key_alts( key_single( #"as4" ) );
+        self.gfkeys[ #"select_item" ] = key_alts( key_single( #"as1" ) );
+        self.gfkeys[ #"parent_page" ] = key_alts( key_single( #"as2" ) );
     }
     else
     {
         // vertical list: Up = last, Down = next, Right = select, Left = back
-        self.gfkeys[ #"last_item" ]   = key_alts( key_single( #"ads" ),    key_single( #"as1" ) );
-        self.gfkeys[ #"next_item" ]   = key_alts( key_single( #"attack" ), key_single( #"as2" ) );
-        self.gfkeys[ #"select_item" ] = key_alts( key_single( #"reload" ), key_single( #"as4" ) );
-        self.gfkeys[ #"parent_page" ] = key_alts( key_single( #"melee" ),  key_single( #"as3" ) );
+        self.gfkeys[ #"last_item" ]   = key_alts( key_single( #"as1" ) );
+        self.gfkeys[ #"next_item" ]   = key_alts( key_single( #"as2" ) );
+        self.gfkeys[ #"select_item" ] = key_alts( key_single( #"as4" ) );
+        self.gfkeys[ #"parent_page" ] = key_alts( key_single( #"as3" ) );
     }
+
+    // Melee = close the menu (menu_key_action; klaze 2026-09-25). Melee itself is blocked while the menu is open.
+    self.gfkeys[ #"close_menu" ] = key_alts( key_single( #"melee" ) );
 }
 
 function private key_single( key )
@@ -9300,6 +9693,228 @@ function private key_down( key )
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// KEYBOARD & MOUSE (klaze 2026-09-24: "we need to refactor all menu controls for mouse and keyboard")
+// ═════════════════════════════════════════════════════════════════════════════
+// The script never sees keys - only each player's per-frame input: the movement vector and the named
+// BUTTON_BIT_* flags a BOUND game action sets. From a keyboard the D-pad action slots do not arrive
+// (klaze: the 3 / 4 keys never cycled Forge; on PC they are scorestreak binds, and the arrow keys are
+// only the UI's "Navigate" binds), so the keyboard scheme reads what every keyboard delivers:
+//   W A S D  getnormalizedmovement() - movement is always bound
+//   F        BUTTON_BIT_ACTIVATE - usebuttonpressed() is the pad's use/reload and reads R on PC
+//            (MEASURED 2026-09-08); stock spy.gsc reads ACTIVATE for its keyboard players
+//   wheel    BUTTON_BIT_WEAPPREV (up) / BUTTON_BIT_WEAPNEXT (down) - stock _prop_controls.gsc reads
+//            WEAPNEXT for the keyboard's change-prop; both names are in the exe's BUTTON_BIT table
+//   E, R, the mouse buttons, tactical / lethal - the ordinary button reads.
+// A controller keeps its D-pad scheme (keys_nav_refresh); a CoD Caster its keyset (keys_init).
+// ⚠ UNMEASURED 2026-09-24: the wheel bits and their direction (flip WEAPPREV / WEAPNEXT in kb_wprev /
+// kb_wnext if up and down come out swapped), F with usability off, W / A / S / D with the move speed at
+// 0, and the sign of getnormalizedmovement()[ 1 ] (A / D - swap the two tests if they come out swapped).
+function private kb_active()
+{
+    return isplayer( self ) && !self gamepadusedlast() && !self iscodcaster();
+}
+
+function private kb_use()
+{
+    return self buttonbitstate( "BUTTON_BIT_ACTIVATE" );     // F
+}
+
+function private kb_wnext()
+{
+    return self buttonbitstate( "BUTTON_BIT_WEAPNEXT" );     // mouse wheel down (Next Weapon)
+}
+
+function private kb_wprev()
+{
+    return self buttonbitstate( "BUTTON_BIT_WEAPPREV" );     // mouse wheel up (Previous Weapon)
+}
+
+// Keyboard open: F + E together (klaze 2026-09-24), then wait until both are up so the opening press
+// is not read as select / back by the open menu.
+function private kb_open_pressed()
+{
+    if ( !( self kb_use() && self meleebuttonpressed() ) )
+        return false;
+
+    while ( self kb_use() || self meleebuttonpressed() )
+        waitframe( 1 );
+
+    return true;
+}
+
+// The controller / caster path: the key_pressed bindings (keys_nav_refresh / keys_init), in the order
+// menu_think always used - back, last, next, select. Each waits for its button to come up.
+function private menu_key_action()
+{
+    // Melee closes the whole menu, on PRESS (klaze 2026-09-25: "on controller can we make melee (which is
+    // disabled) close the menu?" + "close on press not release"). Not for a caster: key_pressed would fall
+    // back to this pad map, and the free-cam repurposes the weapon buttons.
+    if ( !( isplayer( self ) && self iscodcaster() ) && self key_pressed( #"close_menu" ) )
+        return "close";
+
+    if ( self key_pressed( #"parent_page", 1 ) )
+        return "back";
+
+    if ( self key_pressed( #"last_item", 1 ) )
+        return "prev";
+
+    if ( self key_pressed( #"next_item", 1 ) )
+        return "next";
+
+    if ( self key_pressed( #"select_item", 1 ) )
+        return "select";
+
+    return "";
+}
+
+// One keyboard menu action per frame: "prev" | "next" | "select" | "back" | "". Layout-aware like the
+// pad's keys_nav_refresh (klaze 2026-09-24: "since the menu is horizontal, make A/D back/next and W/S
+// select/back"): the one-line carousel (gf_menu_region 2, the default) walks on A / D and selects /
+// backs out on W / S; the vertical lists walk on W / S and select / back out on D / A. Everywhere: wheel
+// up / down = previous / next, F = select, E = back. Edge-triggered; a held walk key repeats after
+// 0.35 s, then every 0.1 s. seed = 1 only records what is held now (the menu just opened).
+function private menu_kb_action( seed = 0 )
+{
+    if ( !isdefined( self.gfkb ) )
+        self.gfkb = { #prv: 0, #nxt: 0, #sel: 0, #bck: 0, #rep: 0 };
+
+    kb = self.gfkb;
+    mv = self getnormalizedmovement();
+    fwd = 0;
+    rgt = 0;
+
+    if ( isdefined( mv ) )
+    {
+        fwd = mv[ 0 ];
+        rgt = mv[ 1 ];
+    }
+
+    if ( cfg_menu_region() == 2 )
+    {
+        prv = rgt < -0.5;       // A
+        nxt = rgt > 0.5;        // D
+        sel = fwd > 0.5;        // W
+        bck = fwd < -0.5;       // S
+    }
+    else
+    {
+        prv = fwd > 0.5;        // W
+        nxt = fwd < -0.5;       // S
+        sel = rgt > 0.5;        // D
+        bck = rgt < -0.5;       // A
+    }
+
+    prv = prv || self kb_wprev();
+    nxt = nxt || self kb_wnext();
+    sel = sel || self kb_use();
+    bck = bck || self meleebuttonpressed();
+    act = "";
+    now = gettime();
+
+    if ( !seed )
+    {
+        if ( bck && !kb.bck )
+            act = "back";
+        else if ( sel && !kb.sel )
+            act = "select";
+        else if ( prv && ( !kb.prv || now >= kb.rep ) )
+            act = "prev";
+        else if ( nxt && ( !kb.nxt || now >= kb.rep ) )
+            act = "next";
+    }
+
+    if ( act == "prev" )
+        kb.rep = now + ( kb.prv ? 100 : 350 );
+    else if ( act == "next" )
+        kb.rep = now + ( kb.nxt ? 100 : 350 );
+
+    kb.prv = prv;
+    kb.nxt = nxt;
+    kb.sel = sel;
+    kb.bck = bck;
+    return act;
+}
+
+// While a keyboard player has the menu open, W / A / S / D, F, E and the wheel drive it - so walking stops
+// (move speed 0: the input still arrives; stock's ice slide stops a player the same way), E does not
+// knife, F does not use or pick up, and the wheel does not swap weapons. Look, aim, fire and reload stay
+// live. Synced every menu_think frame (on = keyboard + menu open + alive + not forging), so a close,
+// death, device switch or Forge releases it, and a guard releases it at the round's end (menu_think
+// endon's game_ended). Speed comes back through speed_apply (the gf_speed %); the rest are the stock
+// layered values under our own id, so another system's lock on the same value (the vehicle code's
+// disable_usability) is kept. The speed is re-asserted every second while on (a respawn resets it).
+// E still reads with melee off: Prop Hunt reads +melee with allowmelee( 0 ) (prop.gsc, _prop_controls.gsc).
+function private menu_kb_lock_sync( want )
+{
+    on = is_true( self.gf_kblock );
+
+    if ( want && on )
+    {
+        if ( !isdefined( self.gf_kblock_t ) || gettime() >= self.gf_kblock_t )
+        {
+            self setmovespeedscale( 0 );
+            self.gf_kblock_t = gettime() + 1000;
+        }
+
+        return;
+    }
+
+    if ( !want && !on )
+        return;
+
+    if ( want )
+    {
+        self.gf_kblock = 1;
+        self setmovespeedscale( 0 );
+        self val::set( #"gf_menu", "allow_melee", 0 );
+        self val::set( #"gf_menu", "disable_usability", 1 );
+        self val::set( #"gf_menu", "disable_weapon_cycling", 1 );
+        self.gf_kblock_t = gettime() + 1000;
+        self thread menu_kb_lock_guard();
+        return;
+    }
+
+    // Release: restore everything FIRST, then the notify that ends the guard (the guard itself may be
+    // the caller - a notify kills its own endon'ing thread at that line, CLAUDE.md's GSC rules).
+    self.gf_kblock = 0;
+    self val::reset( #"gf_menu", "allow_melee" );
+    self val::reset( #"gf_menu", "disable_usability" );
+    self val::reset( #"gf_menu", "disable_weapon_cycling" );
+
+    if ( isalive( self ) )
+        self speed_apply();
+
+    self notify( #"gf_kblock_off" );
+}
+
+function private menu_kb_lock_guard()
+{
+    self endon( #"disconnect", #"gf_kblock_off" );
+    level waittill( #"game_ended" );
+    self menu_kb_lock_sync( 0 );
+}
+
+// The keyboard / controller legend as plain text (gf_hint_glyphs 0, and the HINT layout's footer).
+function private menu_nav_plain()
+{
+    sep = "  ^8|  ^7";
+    pad = isdefined( self ) && isplayer( self ) && self gamepadusedlast();
+
+    if ( cfg_menu_region() == 2 )
+    {
+        if ( pad )
+            return "^7D-up ^3Select" + sep + "D-R ^3Next" + sep + "D-L ^3Last" + sep + "D-dn ^3Back" + sep + "Melee ^3Close";
+
+        return "^7W F ^3Select" + sep + "D ^3Next" + sep + "A ^3Last" + sep + "S E ^3Back" + sep + "Wheel ^3Scroll";
+    }
+
+    if ( pad )
+        return "^7D-R ^3Select" + sep + "D-dn ^3Next" + sep + "D-up ^3Last" + sep + "D-L ^3Back" + sep + "Melee ^3Close";
+
+    return "^7D F ^3Select" + sep + "S ^3Next" + sep + "W ^3Last" + sep + "A E ^3Back" + sep + "Wheel ^3Scroll";
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // THE TREE
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -9396,8 +10011,9 @@ function private build_tree()
     // (setmovespeedscale, stock's scaler), fall damage, and the host's fly mode. ─────────
     self menu_add( "movement", "Movement", "start_menu", 0 );
     self menu_item( "movement", "Fly mode - host", &act_fly );
-    // Fun pack: PHA's noclip bind - Tactical + Melee toggles fly with the menu closed.
-    it = self menu_item( "movement", "Fly bind: Tac + Melee", &act_fly_bind );
+    // Fun pack: PHA's noclip bind - toggles fly: hold ADS + click Sprint on a controller (menu open
+    // too, klaze 2026-09-25), Tactical + Melee on keyboard / mouse with the menu closed (fly_bind_think).
+    it = self menu_item( "movement", "Fly bind: ADS+Sprint / Tac+Melee", &act_fly_bind );
     it.activated = pflag( self, #"gf_fly_bind" );
     it.detail = "toggle fly with the menu closed";
     self menu_add( "mv_gravity", "Gravity", "movement", 1 );
@@ -9445,6 +10061,13 @@ function private build_tree()
     it = self menu_item( "mv_barrier", "Barriers OFF: sink", &act_deathbarrier, 3, undefined, #"gf_deathbarrier", 3 );
     it.detail = "hurt volumes sunk 40000 u";
     // (the BARRIER debug line toggle: app-only since 2026-09-23)
+    // Invisible walls = the map's player clip (the ceiling in the sky, the walls at the edge) - NOT
+    // the two above. OFF is the default (klaze 2026-09-24, after the Diesel test); stock puts them back.
+    self menu_add( "mv_walls", "Invisible walls", "movement", 1 );
+    it = self menu_item( "mv_walls", "Invisible walls OFF", &act_invwall, 1, undefined, #"gf_invwall", 1 );
+    it.detail = "walk and jump through player clip";
+    it = self menu_item( "mv_walls", "Invisible walls: stock", &act_invwall, 0, undefined, #"gf_invwall", 0 );
+    it.detail = "player clip blocks everyone";
     self menu_add( "mv_fly", "Fly speed", "movement", 1 );
     self menu_item( "mv_fly", "Fly 10 / sprint 30", &act_fly_speed, 10, 30, #"gf_fly_speed", 10 );
     self menu_item( "mv_fly", "Fly 20 / sprint 60", &act_fly_speed, 20, 60, #"gf_fly_speed", 20 );
@@ -9472,7 +10095,7 @@ function private build_tree()
     it.activated = slide_chain_on();
     self menu_add( "mv_para", "Parachutes", "movement", 1 );
     it = self menu_item( "mv_para", "Parachutes: everyone", &act_parachute, 1, undefined, #"gf_parachute", 1 );
-    it.detail = "free-fall + parachute from height";
+    it.detail = "free-fall + parachute from height (default)";
     self menu_item( "mv_para", "Parachutes: host only", &act_parachute, 2, undefined, #"gf_parachute", 2 );
     self menu_item( "mv_para", "Parachutes: OFF", &act_parachute, 0, undefined, #"gf_parachute", 0 );
 
@@ -9722,13 +10345,27 @@ function private build_tree()
     self menu_item( "wp_pistol", "Diamatti akimbo", &act_giveweapon, #"pistol_burst_t9_dw", "Diamatti akimbo" );
     self menu_item( "wp_pistol", "AMP63 akimbo", &act_giveweapon, #"pistol_fullauto_t9_dw", "AMP63 akimbo" );
     self menu_item( "wp_pistol", "Marshal akimbo", &act_giveweapon, #"pistol_shotgun_t9_dw", "Marshal akimbo" );
-    self menu_add( "wp_special", "Launchers + special", "weapons", 1 );
+    // "Special" (klaze 2026-09-24: 'rename "Launchers + specials" to just "Special" and move the remaining
+    // scorestreak weapons into special' + "remove turret gun from client scorestreaks weapon menu"): the
+    // launchers / specials, then the streak guns that were the Scorestreaks page; the turret gun host-only.
+    self menu_add( "wp_special", "Special", "weapons", 1 );
     self menu_item( "wp_special", "Cigma 2", &act_giveweapon, #"launcher_standard_t9", "Cigma 2" );
     self menu_item( "wp_special", "RPG-7", &act_giveweapon, #"launcher_freefire_t9", "RPG-7" );
     self menu_item( "wp_special", "M79", &act_giveweapon, #"special_grenadelauncher_t9", "M79" );
     self menu_item( "wp_special", "R1 Shadowhunter", &act_giveweapon, #"special_crossbow_t9", "R1 Shadowhunter" );
     self menu_item( "wp_special", "Nail Gun", &act_giveweapon, #"special_nailgun_t9", "Nail Gun" );
     self menu_item( "wp_special", "Ballistic Knife", &act_giveweapon, #"special_ballisticknife_t9_dw", "Ballistic Knife" );
+    // The streak guns (klaze 2026-09-21 had named their page "Scorestreaks": the hero weapons ARE streak
+    // bundles, given as weapons; the Ray Gun is out - killstreaks::give refused it, giveweapon never found it).
+    self menu_item( "wp_special", "Flamethrower", &act_giveweapon, #"hero_flamethrower", "Flamethrower" );
+    self menu_item( "wp_special", "Hand Cannon", &act_giveweapon, #"hero_annihilator", "Hand Cannon" );
+    self menu_item( "wp_special", "War Machine", &act_giveweapon, #"hero_pineapplegun", "War Machine" );
+    self menu_item( "wp_special", "Death Machine", &act_giveweapon, #"sig_lmg", "Death Machine" );
+    self menu_item( "wp_special", "Sparrow bow", &act_giveweapon, #"sig_bow_flame", "Sparrow" );
+
+    if ( !is_true( self.gf_client_menu ) )      // host only (client_menu_grant sets the flag before build_tree)
+        self menu_item( "wp_special", "Turret gun", &act_giveweapon, #"ultimate_turret", "Turret gun" );
+
     self menu_add( "wp_melee", "Melee", "weapons", 1 );
     self menu_item( "wp_melee", "Knife", &act_giveweapon, #"knife_loadout", "Knife" );
     self menu_item( "wp_melee", "Sledgehammer", &act_giveweapon, #"melee_sledgehammer_t9", "Sledgehammer" );
@@ -9745,18 +10382,7 @@ function private build_tree()
     // (melee_bowie / melee_bowie_bloody removed 2026-09-23: in NO zone's asset table, so never givable.)
     self menu_item( "wp_melee", "Knife (Scream)", &act_giveweapon, #"hash_28fdaa999c8aa3af", "Knife (Scream)" );
     self menu_item( "wp_melee", "Knife (Infected)", &act_giveweapon, #"hash_3f47e8be065a0dc0", "Knife (Infected)" );
-    // BO4 hero/streak guns still in the T9 data and listed for MP by the Atian menu.
-    // Loadable there; whether each one FIRES here is untested.
-    // ── Scorestreaks (klaze 2026-09-21: "rename the bo4 section to Scorestreaks since that's what
-    // they are" - the hero weapons ARE streak bundles; given as weapons, the way they worked; the
-    // Ray Gun is out - killstreaks::give refused it and giveweapon never found it). Plain names.
-    self menu_add( "wp_fun", "Scorestreaks", "weapons", 1 );
-    self menu_item( "wp_fun", "Flamethrower", &act_giveweapon, #"hero_flamethrower", "Flamethrower" );
-    self menu_item( "wp_fun", "Hand Cannon", &act_giveweapon, #"hero_annihilator", "Hand Cannon" );
-    self menu_item( "wp_fun", "War Machine", &act_giveweapon, #"hero_pineapplegun", "War Machine" );
-    self menu_item( "wp_fun", "Death Machine", &act_giveweapon, #"sig_lmg", "Death Machine" );
-    self menu_item( "wp_fun", "Sparrow bow", &act_giveweapon, #"sig_bow_flame", "Sparrow" );
-    self menu_item( "wp_fun", "Turret gun", &act_giveweapon, #"ultimate_turret", "Turret gun" );
+    // (The Scorestreaks page - the BO4 hero / streak guns - merged into Special, klaze 2026-09-24.)
 
     // ── Camo — applied to the current weapon, ownership ignored ───────────────
     self menu_add( "camo", "Camo", "start_menu", 0 );
@@ -9791,6 +10417,16 @@ function private build_tree()
     // ── Operator (skin) ───────────────────────────────────────────────────────
     // (id 0 "Invisible" removed - klaze 2026-09-23; the ids below keep their numbers)
     self menu_add( "operator", "Operator", "start_menu", 0 );
+
+    // A granted client reaches the outfits from inside Operator (klaze 2026-09-25: 'move "Outfit / skin" into
+    // the operator menu and call it "Outfit varient"'). Each player builds their own tree and client_menu_grant
+    // sets gf_client_menu before build_tree, so the host's Operator page (and its separate Outfit rows) is unchanged.
+    if ( is_true( self.gf_client_menu ) )
+    {
+        it = self menu_item( "operator", "Outfit variant", &act_outfit_variant, "outfit" );
+        it.detail = "the outfits for your operator";
+    }
+
     self menu_item( "operator", "Adler", &act_skin, 1 );
     self menu_item( "operator", "Portnova", &act_skin, 2 );
     self menu_item( "operator", "Garcia", &act_skin, 3 );
@@ -9845,6 +10481,7 @@ function private build_tree()
     self menu_add( "start_client", "Client Menu", "", 0, &client_start_enter );
     self menu_add( "client_player", "Player", "start_client", 0, &client_player_enter );
     self menu_add( "client_tp", "Teleport", "start_client", 0, &client_tp_enter );
+    self menu_add( "client_ammo", "Ammo Type", "start_client", 0, &client_ammo_enter );
     for ( oi = 0; oi < 24; oi++ )
         self menu_item( "outfit", "Outfit " + oi, &act_outfit, oi );
 
@@ -10306,6 +10943,21 @@ function private humans_on( team )
 // fast-restarts the match the way maxplayers does - it is written once per match (a value
 // already there is skipped; bool-safe: is_true on the readback, not gts_set's !==).
 // gf_latejoin 0 = stock (the hook is not installed; an installed hook passes through).
+//
+// 2026-09-24 (bocw-57), klaze: "it still doesnt let people choose a team when they join a match in progress or
+// auto assign them. i always have to manually put them on a team from a panel then restart the match."
+// MEASURED in the saved log: every lobby=none join ever logged went to stock - [AB]JID mid-match in tdm on
+// Diesel (20:41:47, then klaze's Move + restart), and KL9 at three dm starts - and the rescue net never fired
+// for [AB]JID in the ~58 s before the Move. The one exclusion both paths share that could say no there was
+// `iscodcaster()`: stock never calls it, and a connecting client sits on sessionteam "spectator" when the
+// hook runs (player_connect.gsc:272) and while benched - it evidently answers yes then (INFERRED, not read
+// out; the JOIN line now prints it as cc=). So a caster is told apart by what the LOBBY gave him instead:
+// the lobby seats casters on TEAM_SPECTATOR (lui core_common_0031 AutoAssignPlayersDefault), which arrives as
+// lobby=spectator - those go to stock and are never rescued. And the Move + restart: menuautoassign only
+// ASKS the player's UI to pick a class (beginclasschoice -> luinotifyevent) and a stuck joiner never answers;
+// a restart's connect makes stock's own server-side pick (init_character_index ->
+// [[ level.curclass ]]( "custom" + loadoutindex ), player_connect.gsc:807). latejoin_spawn_nudge makes that
+// same pick right after a placement that happens outside the connect (the rescue net, the Move row / verb).
 // Both plain dvars. Every decision is ONE host feed line:
 //     JOIN <name> lobby=<side> humans A/X score A-X -> <pick> (<reason>)
 // so the lobby's own assignment for a late joiner - the one thing this could not read from
@@ -10343,11 +10995,21 @@ function private gf_autoassign( comingfrommenu, teamname, squad )
     if ( !isdefined( fn ) )
         return;
 
-    if ( !latejoin_applies( comingfrommenu, teamname ) )
+    human = !is_true( comingfrommenu ) && isplayer( self ) && !isbot( self ) && !( self ishost() );
+
+    // What the lobby handed him, kept for the match (pers survives the round boundary): the rescue net
+    // leaves a lobby caster seat ("spectator") alone and only rescues a joiner this hook saw. First connect
+    // only - pers keeps his team afterwards, so later rounds never come back through here.
+    if ( human && isdefined( self.pers ) && !isdefined( self.pers[ #"gf_lj_lobby" ] ) )
+        self.pers[ #"gf_lj_lobby" ] = latejoin_side_str( teamname );
+
+    skip = self latejoin_skip( comingfrommenu, teamname );
+
+    if ( skip != "" )
     {
-        // A human's connect-time call still logs what the lobby handed him.
-        if ( !is_true( comingfrommenu ) && isplayer( self ) && !isbot( self ) && !( self ishost() ) )
-            latejoin_say( "^3JOIN ^7" + self.name + " lobby=" + latejoin_side_str( teamname ) + " -> stock" );
+        // A human's connect-time call still logs what the lobby handed him, and why it went to stock.
+        if ( human )
+            latejoin_say( "^3JOIN ^7" + self.name + " lobby=" + latejoin_side_str( teamname ) + " -> stock (" + skip + ", cc=" + ( self iscodcaster() ? 1 : 0 ) + ")" );
 
         self [[ fn ]]( comingfrommenu, teamname, squad );
         return;
@@ -10359,7 +11021,7 @@ function private gf_autoassign( comingfrommenu, teamname, squad )
     // it sat on the bench for the whole match.
     pick = self latejoin_pick_side();
 
-    latejoin_say( "^3JOIN ^7" + self.name + " lobby=" + latejoin_side_str( teamname ) + " " + level.gf_lj_note + " -> ^2" + latejoin_team_str( pick ) + " ^7(" + level.gf_lj_reason + ")" );
+    latejoin_say( "^3JOIN ^7" + self.name + " lobby=" + latejoin_side_str( teamname ) + " " + level.gf_lj_note + " -> ^2" + latejoin_team_str( pick ) + " ^7(" + level.gf_lj_reason + ", cc=" + ( self iscodcaster() ? 1 : 0 ) + ")" );
 
     // (gf_had_team is set by latejoin_rescue_think once it SEES the team - so a seat that did not
     //  take is still caught by the rescue net.)
@@ -10367,6 +11029,10 @@ function private gf_autoassign( comingfrommenu, teamname, squad )
 
     if ( is_true( level.teambased ) )
         level thread latejoin_bot_drop( pick );
+
+    // No class pick from here: the connect this call is part of makes stock's own right after it
+    // (init_character_index). Only the one-line result, 5 s on.
+    self thread latejoin_spawn_nudge( "placed", 0 );
 }
 
 // The side a late human gets. Team modes: fewer HUMANS, then the LOSING side, then (a full tie) fewer
@@ -10463,7 +11129,16 @@ function private latejoin_rescue_think()
 
         foreach ( p in getplayers() )
         {
-            if ( !isdefined( p ) || !isplayer( p ) || isbot( p ) || p ishost() || p iscodcaster() || !isdefined( p.pers ) )
+            if ( !isdefined( p ) || !isplayer( p ) || isbot( p ) || p ishost() || !isdefined( p.pers ) )
+                continue;
+
+            // Casters by their LOBBY seat, not iscodcaster() (2026-09-24: it evidently answers yes for any
+            // client still on the spectator side, so it kept every benched joiner out of this net). A joiner
+            // the hook never saw (lobby side unknown - e.g. connected before the menu was injected) is left
+            // alone too: nothing says he is not a caster.
+            lobby = p.pers[ #"gf_lj_lobby" ];
+
+            if ( !isdefined( lobby ) || lobby == "spectator" )
                 continue;
 
             t = p.pers[ #"team" ];
@@ -10492,36 +11167,80 @@ function private latejoin_rescue_think()
             if ( !isdefined( pick ) )
                 continue;
 
-            latejoin_say( "^3JOIN ^7" + p.name + " was still spectating -> ^2" + latejoin_team_str( pick ) + " ^7(" + level.gf_lj_reason + ", rescue " + ( tries + 1 ) + ")" );
+            latejoin_say( "^3JOIN ^7" + p.name + " was still spectating -> ^2" + latejoin_team_str( pick ) + " ^7(" + level.gf_lj_reason + ", rescue " + ( tries + 1 ) + ", cc=" + ( p iscodcaster() ? 1 : 0 ) + ")" );
             p [[ fn ]]( 0, pick, undefined );
 
             if ( is_true( level.teambased ) )
                 level thread latejoin_bot_drop( pick );
+
+            // Outside his connect nothing picks a class for him - the restart klaze had to do, done here.
+            p thread latejoin_spawn_nudge( "rescued", 1 );
         }
     }
 }
 
-function private latejoin_applies( comingfrommenu, teamname )
+// self = a player just put on a team. nudge 1 (a placement OUTSIDE his connect - the rescue net above, the
+// host's Move): make stock's own server-side class pick, the one a restart's connect makes
+// (player_connect.gsc init_character_index :790-808, same dvar gate, MP branch = pers loadoutindex). menuclass
+// (globallogic_ui.gsc:424) then spawns him when he is not in play - or, with no lives left this round (Gunfight),
+// shows the spawn message and seats him for the next one - and does nothing if his own UI already picked
+// (same class -> returns; spawnclient's waitingtospawn guard). nudge 0 = the connect makes the pick itself.
+// Either way ONE host line 5 s later says where it landed: sessionstate playing / dead / spectator, plus cc=.
+// ⚠ UNMEASURED (2026-09-24) - that line is the measurement.
+function private latejoin_spawn_nudge( why, nudge )
 {
-    if ( !cfg_latejoin() || is_true( comingfrommenu ) )
-        return false;
+    self endon( #"disconnect" );
+    level endon( #"game_ended" );
+    waitframe( 1 );
 
-    if ( !isplayer( self ) || isbot( self ) || self ishost() || self iscodcaster() )
-        return false;
+    if ( !isdefined( self.pers ) || !isdefined( level.teams ) || !isdefined( self.pers[ #"team" ] ) || !isdefined( level.teams[ self.pers[ #"team" ] ] ) )
+        return;
+
+    if ( nudge && self.sessionstate !== "playing" && isdefined( level.curclass ) && !getdvarint( #"hash_1f80dbba75375e3d", 0 ) )
+    {
+        idx = self.pers[ #"loadoutindex" ];
+        self [[ level.curclass ]]( "custom" + ( isdefined( idx ) ? idx : 0 ) );
+    }
+
+    wait 5;
+
+    if ( !isdefined( self.pers ) )
+        return;
+
+    latejoin_say( "^3JOIN ^7" + self.name + " " + why + " -> " + latejoin_team_str( self.pers[ #"team" ] ) + ": " + ( isdefined( self.sessionstate ) ? self.sessionstate : "?" ) + " (cc=" + ( self iscodcaster() ? 1 : 0 ) + ")" );
+}
+
+// "" = this join is ours to place; anything else = stock's, and the reason goes on the JOIN line.
+function private latejoin_skip( comingfrommenu, teamname )
+{
+    if ( !cfg_latejoin() )
+        return "late join off";
+
+    if ( is_true( comingfrommenu ) )
+        return "from a menu";
+
+    if ( !isplayer( self ) || isbot( self ) || self ishost() )
+        return "host or bot";
 
     if ( !isdefined( level.teams ) )
-        return false;
+        return "no teams";
 
     // Team modes need both sides; FFA (klaze 2026-09-23) is handled too - latejoin_pick_side.
     if ( is_true( level.teambased ) && ( !isdefined( level.teams[ #"allies" ] ) || !isdefined( level.teams[ #"axis" ] ) ) )
-        return false;
+        return "not two teams";
 
     // The lobby gave him a real side: stock's :419 branch, the join that already works. The
     // same test stock applies to the value (team_assignment.gsc:427).
     if ( isdefined( teamname ) && isdefined( level.teams[ teamname ] ) )
-        return false;
+        return "lobby side";
 
-    return true;
+    // The lobby seated him as a caster / spectator (TEAM_SPECTATOR): stock keeps him there. This replaces
+    // the old iscodcaster() test (2026-09-24, the LATE JOIN note above): that one said no to every lobby=none
+    // joiner too, so none of them was ever placed.
+    if ( latejoin_side_str( teamname ) == "spectator" )
+        return "caster seat";
+
+    return "";
 }
 
 // Full tie with nobody able to pick: fewer players overall, then the side opposite the host
@@ -11213,7 +11932,7 @@ function private config_publish()
             + "," + cfg_race_markers() + "," + cfg_race_end() + "," + cfg_race_corridor() + "," + cfg_race_posts()
             + "," + cfg_race_grid() + "," + cfg_race_vehicle() + "," + cfg_race_grid_gap() + "," + cfg_race_score()
             + "," + cfg_race_oobhud() + "," + cfg_race_reset() + "," + cfg_race_sprint();
-        s += "|dbg=" + cfg_dbg_race() + "," + cfg_dbg_veh() + "," + cfg_dbg_barrier() + "," + cfg_mapscan();
+        s += "|dbg=" + cfg_dbg_race() + "," + cfg_dbg_veh() + "," + cfg_dbg_barrier() + "," + cfg_mapscan() + "," + cfg_dbg_buttons();
         s += "|misc=" + cfg_spawn_antistack() + "," + cfg_hint_lines() + "," + cfg_respawns()
             + "," + cfg_geti( #"gf_hint_others_on", 1 ) + "," + cfg_geti( #"gf_hint_glyphs", 1 )   // append-only list
             + "," + cfg_geti( #"gf_forge_pin", 0 ) + "," + cfg_geti( #"gf_forge_movestep", 6 ) + "," + cfg_geti( #"gf_forge_rotstep", 3 )
@@ -11222,7 +11941,11 @@ function private config_publish()
             + "," + cfg_geti( #"gf_rounds_sides", -1 ) + "," + cfg_geti( #"gf_friendlyfire", -1 )
             + "," + cfg_geti( #"gf_latejoin", 1 ) + "," + cfg_geti( #"gf_teamchange", 1 )
             + "," + cfg_geti( #"gf_place_dist", 500 ) + "," + cfg_geti( #"gf_grab_dist", 200 ) + "," + cfg_geti( #"gf_ahint", 1 )
-            + "," + cfg_radar() + "," + cfg_parachute();      // bocw-84 2026-09-23 (append-only list)
+            + "," + cfg_radar() + "," + cfg_parachute()       // bocw-84 2026-09-23 (append-only list)
+            + "," + cfg_invwall()                             // bocw-84 2026-09-24
+            + "," + cfg_match_minutes()                       // bocw-e0 2026-09-24 (the match clock, other modes)
+            + "," + cfg_melee() + "," + cfg_ping()             // bocw-84 2026-09-24 (MELEE & PINGS)
+            + "," + cfg_wraith_mode();                        // bocw-84 2026-09-25 (WRAITH PILOT)
         s += "|" + "END";
         level.gf_cfgpub = s;
         wait 2;
@@ -11294,7 +12017,15 @@ function private act_move( item, player, team )
         return true;
     }
 
-    player [[ level.autoassign ]]( 0, team, undefined );
+    // Stock's own pointer when the LATE JOIN hook is installed: a Move is not a join (no JOIN line, no lobby
+    // record). Then the class pick a restart used to be needed for (klaze 2026-09-24: "i always have to
+    // manually put them on a team from a panel then restart the match") - latejoin_spawn_nudge.
+    fn = isdefined( level.gf_autoassign_stock ) ? level.gf_autoassign_stock : level.autoassign;
+    player [[ fn ]]( 0, team, undefined );
+
+    if ( isplayer( player ) && !isbot( player ) )
+        player thread latejoin_spawn_nudge( "moved", 1 );
+
     self menu_say( "^2" + player.name + " -> " + name );
     return true;
 }
@@ -11531,7 +12262,7 @@ function private act_c_speed_set( item, player, pct )
         player speed_apply();
 
     item.name = "Speed: " + client_speed_label( player );
-    self menu_say( "^2" + player.name + " speed " + client_speed_label( player ) );
+    self menu_say( "^3Speed: ^2" + client_speed_label( player ) + self target_tail( player ) );
     return true;
 }
 
@@ -12033,6 +12764,7 @@ function private act_dbg_all_off( item )
     cfg_seti( #"gf_dbg_veh", 0 );
     cfg_seti( #"gf_dbg_barrier", 0 );
     cfg_seti( #"gf_dbg_race", 0 );
+    cfg_seti( #"gf_dbg_buttons", 0 );
     self menu_say( "^2debug feed: everything off" );
     return true;
 }
@@ -12567,19 +13299,65 @@ function private act_banner_clear( item, msg )
 // page, streaks / the map's intro-cinematic vehicle / turrets on a sub-page. Hashed keys
 // are names the dump could not resolve; spawnvehicle( #"hash_..." ) is stock syntax
 // (vip.gsc:125), so they are offered by hash, labelled by the scene that uses them.
-function private veh_def( m, key, label, kind, text )
+function private veh_def( m, key, label, kind, text, alts )
 {
     e = spawnstruct();
     e.key = key;
     e.label = label;
     e.kind = kind;                         // 0 drivable, 1 other (streak / intro / turret)
     e.text = isdefined( text ) ? text : key;
+    e.alts = isdefined( alts ) ? alts : [];    // fallback copies of the same vehicle for maps that lack `key`
     m[ m.size ] = e;
     return m;
 }
 
+// klaze 2026-09-25: "make sure for any duplicated ... that we have 1 for each map" - one row per vehicle, and
+// on each map it spawns the copy that map ships: `key` when it is loaded, else the first loaded fallback
+// (e.g. the Cartel UAZ behind "Light truck", the grey raft Miami / Garrison carry behind "Tactical raft").
+// undefined = no copy on this map.
+function private veh_row_key( e )
+{
+    if ( isassetloaded( "vehicle", e.key ) )
+        return e.key;
+
+    foreach ( k in e.alts )
+    {
+        if ( isassetloaded( "vehicle", k ) )
+            return k;
+    }
+
+    return undefined;
+}
+
+// The row a spawned key belongs to (its own key or one of its fallbacks).
+function private veh_row_of( type )
+{
+    foreach ( e in veh_master() )
+    {
+        if ( e.key === type )
+            return e;
+
+        foreach ( k in e.alts )
+        {
+            if ( k === type )
+                return e;
+        }
+    }
+
+    return undefined;
+}
+
 function private veh_master()
 {
+    // 2026-09-25 cleanup (klaze): the duplicate base copies went (each _alt loads on the same maps or more -
+    // docs/data/vehicle-assets.json), so did 5 campaign-only assets that never load in MP; labels use the
+    // game's own names (docs/notes/vehicle-names.md). tools/gf-panel Catalog.cs mirrors this order.
+    // 2nd pass the same day (klaze, after the live VehicleDef read - docs/notes/vehicle-names.md): one sedan (the two
+    // share every model / sound / effect; the MP copy _alt stays), the objective cargo truck, the reinsertion drone
+    // (= the camera drone), the intro escort VTOL and the outro heli went; the Zombies exfil heli is "Little Bird Exfil".
+    // ⚠ A row's label is part of the air test (veh_key_text = plain name + label): a hashed key whose plain name is
+    // unknown flies only if its LABEL says heli / chopper / plane ... - renaming one away from those words made the
+    // Little Bird rows ground vehicles (fixed 2026-09-25 by giving both their cracked plain names).
     if ( isdefined( level.gf_veh_master ) )
         return level.gf_veh_master;
 
@@ -12590,41 +13368,23 @@ function private veh_master()
     // vehicle_t8_mil_tank_wz_base_mg, ..._hind_wz, vehicle_t9_plane_flyable_prototype - the
     // isassetloaded filter hid them, but a tempting name that can never resolve is noise) and the
     // two resident names the master lacked were added (snowmobile single seat, BO4 air transport).
-    m = veh_def( m, "vehicle_t9_mil_fav_light", "Light buggy (FAV)", 0 );
-    m = veh_def( m, "vehicle_t9_mil_fav_light_alt", "Light buggy (FAV) alt", 0 );
-    m = veh_def( m, "veh_mil_ru_fav_heavy", "Heavy buggy (FAV)", 0 );
-    m = veh_def( m, "vehicle_motorcycle_mil_us_offroad", "Motorcycle", 0 );
-    m = veh_def( m, "vehicle_motorcycle_mil_us_offroad_alt", "Motorcycle alt", 0 );
-    m = veh_def( m, #"hash_4b89aa566bff8383", "Motorcycle (slow)", 0, "vehicle_motorcycle_mil_us_offroad_slow" );
+    m = veh_def( m, "vehicle_t9_mil_fav_light_alt", "Light Buggy (FAV)", 0 );
+    m = veh_def( m, "vehicle_motorcycle_mil_us_offroad_alt", "Dirt Bike", 0 );
+    m = veh_def( m, #"hash_4b89aa566bff8383", "Dirt Bike (Slow)", 0, "vehicle_motorcycle_mil_us_offroad_slow" );
     m = veh_def( m, "veh_quad_player_wz_pc", "Quad / ATV", 0 );
-    m = veh_def( m, "vehicle_t9_mil_snowmobile", "Snowmobile", 0 );
-    m = veh_def( m, "vehicle_t9_mil_snowmobile_alt", "Snowmobile alt", 0 );
-    m = veh_def( m, "vehicle_t9_mil_snowmobile_alt_single_seat", "Snowmobile (single seat)", 0 );
-    m = veh_def( m, "vehicle_t9_civ_ru_sedan_80s_player", "Sedan", 0 );
-    m = veh_def( m, "vehicle_t9_civ_ru_sedan_80s_player_alt", "Sedan alt", 0 );
-    m = veh_def( m, #"hash_985b7e40ee02aa2", "Sedan (BO4 midsize)", 0, "vehicle_t8_soviet_civ_sedan_midsize" );
-    m = veh_def( m, "vehicle_t9_mil_ru_truck_light_player", "Light truck", 0 );
-    m = veh_def( m, "vehicle_t9_mil_ru_truck_light_player_alt", "Light truck alt", 0 );
-    m = veh_def( m, #"hash_1bdb534f1e8e23f5", "Light truck (base)", 0, "vehicle_t9_mil_ru_truck_light" );
-    m = veh_def( m, "vehicle_t9_mil_ru_truck_transport_player", "Transport truck", 0 );
-    m = veh_def( m, "vehicle_t9_mil_ru_truck_transport_player_alt", "Transport truck alt", 0 );
-    m = veh_def( m, "vehicle_t9_mil_ru_truck_transport_player_obj_sr", "Transport truck (objective)", 0 );
-    m = veh_def( m, "vehicle_t9_mil_ru_tank_t72_sr", "Tank T-72", 0 );
-    m = veh_def( m, "vehicle_t9_mil_ru_tank_t72_alt", "Tank T-72 alt", 0 );
-    m = veh_def( m, #"hash_28d512b739c9d9c1", "Tank T-72 (base)", 0, "vehicle_t9_mil_ru_tank_t72" );
-    m = veh_def( m, #"hash_1a60a087a340574b", "APC (heavy)", 0, "vehicle_t9_mil_ru_apc_heavy" );
-    m = veh_def( m, #"hash_7c54a264a26cb1eb", "APC (heavy, open turret)", 0, "vehicle_t9_mil_ru_apc_heavy_open_turret" );
-    m = veh_def( m, #"hash_6595f5efe62a4ec", "Hind gunship", 0, "vehicle_t9_mil_ru_heli_gunship_hind" );
-    m = veh_def( m, "vehicle_t9_mil_us_helicopter_large_cp_armada_player", "Armada heli (campaign)", 0 );
-    m = veh_def( m, "vehicle_t9_mil_boat_jetski", "Jetski", 0 );
-    m = veh_def( m, "vehicle_t9_mil_boat_jetski_alt", "Jetski alt", 0 );
-    m = veh_def( m, "vehicle_t9_mil_boat_tactical_raft", "Tactical raft", 0 );
-    m = veh_def( m, "vehicle_t9_mil_boat_tactical_raft_alt", "Tactical raft alt", 0 );
-    m = veh_def( m, "vehicle_boct_mil_boat_tactical_raft_gry_pc", "Tactical raft (grey)", 0 );
+    m = veh_def( m, "vehicle_t9_mil_snowmobile_alt", "Snowmobile", 0 );
+    m = veh_def( m, "vehicle_t9_civ_ru_sedan_80s_player_alt", "Sedan", 0 );
+    m = veh_def( m, "vehicle_t9_mil_ru_truck_light_player_alt", "Light Truck", 0, undefined, array( #"hash_1bdb534f1e8e23f5" ) );   // + the Cartel UAZ (vehicle_t9_mil_ru_truck_light)
+    m = veh_def( m, "vehicle_t9_mil_ru_truck_transport_player_alt", "Cargo Truck", 0 );
+    m = veh_def( m, "vehicle_t9_mil_ru_tank_t72_alt", "T-72 Tank", 0 );
+    m = veh_def( m, #"hash_1a60a087a340574b", "APC (Heavy)", 0, "vehicle_t9_mil_ru_apc_heavy" );
+    m = veh_def( m, #"hash_7c54a264a26cb1eb", "APC (Heavy, Open Turret)", 0, "vehicle_t9_mil_ru_apc_heavy_open_turret" );
+    m = veh_def( m, #"hash_6595f5efe62a4ec", "Mi-24 Hind", 0, "vehicle_t9_mil_ru_heli_gunship_hind" );
+    m = veh_def( m, "vehicle_t9_mil_boat_jetski_alt", "Wakerunner", 0 );
+    m = veh_def( m, "vehicle_t9_mil_boat_tactical_raft_alt", "Tactical Raft", 0, undefined, array( "vehicle_boct_mil_boat_tactical_raft_gry_pc" ) );   // + the grey raft (Miami, Garrison)
     // (hash_51c4f4dc2591b475 = vehicle_boct_mil_boat_tactical_raft_gry, the second grey raft, is out -
     //  klaze 2026-09-22: "we just need one grey raft")
-    m = veh_def( m, "vehicle_t9_mil_us_boat_pgb_double_gun", "PBR gunboat", 0 );
-    m = veh_def( m, "vehicle_t9_mil_us_boat_pgb_double_gun_alt", "PBR gunboat alt", 0 );
+    m = veh_def( m, "vehicle_t9_mil_us_boat_pgb_double_gun_alt", "PBR Gunboat", 0 );
     // other resident vehicles: streaks, turrets, the map's intro cinematic. Untested; may not be enterable.
     m = veh_def( m, "veh_t9_mil_us_helicopter_large_chopper_gunner", "Chopper Gunner", 1 );
     // ⭐ MEASURED FLYABLE ON EVERY MAP (klaze, 2026-09-16). It is in core_common, so it is resident
@@ -12632,58 +13392,49 @@ function private veh_master()
     // ("untested, may not be enterable") until it was flown. See vehicles.md §7: the settings-bundle
     // signal is one-directional, and absence is not evidence against drivability. The other universal
     // streak vehicles below are untested candidates for the same promotion.
-    m = veh_def( m, "vehicle_t9_mil_helicopter_care_package", "Care package heli", 0 );
-    m = veh_def( m, #"hash_4209c5ff3b969c7a", "Vehicle-drop heli", 1, "vehicle_t9_mil_ru_heli_transport_vehicle_drop" );
+    m = veh_def( m, "vehicle_t9_mil_helicopter_care_package", "CH-47 Chinook", 0 );
+    // klaze 2026-09-25: "the pines and yamantau version of the transport heli is the best version" - those intro copies
+    // (vehicle_t9_mil_ru_heli_transport_mp_mall_intro / _mp_cliffhanger_intro) load only on their own maps, so they are
+    // used there and the vehicle-drop copy (every map) everywhere else.
+    m = veh_def( m, #"hash_13c60e71eef46ebb", "Transport Helicopter", 1, "vehicle_t9_mil_ru_heli_transport_mp_mall_intro", array( #"hash_c07fec522db452c", #"hash_4209c5ff3b969c7a" ) );
     m = veh_def( m, "vehicle_t9_rcxd_racing", "RC-XD", 1 );
     // klaze 2026-09-24: "rcxd and rcxd alt look the same. but rcxd pha's name look different. so maybe use
     // that one as the alt?" - so the alt is PHA V1.00's RC-XD (the fun pack's "RC-XD streak - PHA's name",
     // every map); vehicle_t9_rcxd_racing_alt, the look-alike, is out. (Its old row 71 is gone: 72-75 -> 71-74.)
-    m = veh_def( m, #"hash_7dd2944ddf7cc7e9", "RC-XD alt", 1, "hash_7dd2944ddf7cc7e9" );
+    m = veh_def( m, #"hash_7dd2944ddf7cc7e9", "RC-XD ALT", 1, "hash_7dd2944ddf7cc7e9" );
     // (the VIP-escort exfil chopper hash_58cc8ce25d32031f is out - klaze 2026-09-22 "remove the exfil
     //  heli", then "leave the fireteam one")
-    m = veh_def( m, #"hash_437293ae239af1ab", "Exfil helicopter (Fireteam)", 1, "hash_437293ae239af1ab" );     // zm_silver_main_quest.gsc:3031
-    m = veh_def( m, "veh_t8_ac130_gunship_mp", "AC-130 gunship", 1 );
-    m = veh_def( m, "veh_t8_helicopter_gunship_mp", "Attack helicopter", 1 );
-    m = veh_def( m, "veh_t8_helicopter_gunship_mp_guard", "Attack helicopter guard", 1 );
-    m = veh_def( m, "vehicle_t9_mil_ru_air_vtol_forger", "VTOL Forger", 1 );
-    m = veh_def( m, "vehicle_straferun_mp", "Strafe run plane", 1 );
-    m = veh_def( m, "vehicle_t9_mil_air_transport_hpc_intro", "Air transport (intro)", 1 );
-    m = veh_def( m, "vehicle_t8_mil_air_transport_infiltration", "Air transport (infiltration, BO4)", 1 );
-    m = veh_def( m, #"hash_536eec4bf6424551", "Mounted MG tripod", 1, "veh_boct_turret_manned_tripod_mp" );
-    m = veh_def( m, #"hash_5477254cf96259f4", "Express train", 1, "veh_boct_train" );
+    m = veh_def( m, #"hash_437293ae239af1ab", "Little Bird Exfil", 1, "vehicle_t9_mil_us_helicopter_light_sv_intro" );     // zm_silver_main_quest.gsc:3031
+    m = veh_def( m, "veh_t8_ac130_gunship_mp", "AC-130 Gunship", 1 );
+    m = veh_def( m, "veh_t8_helicopter_gunship_mp", "Attack Helicopter", 1 );
+    m = veh_def( m, "veh_t8_helicopter_gunship_mp_guard", "Heavy Attack Chopper", 1 );
+    m = veh_def( m, "vehicle_t9_mil_ru_air_vtol_forger", "VTOL Escort", 1 );
+    m = veh_def( m, "vehicle_straferun_mp", "Strafe Run", 1 );
+    m = veh_def( m, "vehicle_t9_mil_air_transport_hpc_intro", "Cargo Plane", 1 );
+    m = veh_def( m, #"hash_536eec4bf6424551", "Mounted MG Tripod", 1, "veh_boct_turret_manned_tripod_mp" );
+    m = veh_def( m, #"hash_5477254cf96259f4", "Express Train", 1, "veh_boct_train" );
     // the pre-match intro cinematic vehicle of a 6v6 map (scriptbundle/scene/cin_mp_<map>_intro_*)
-    m = veh_def( m, #"hash_60868aaa45d05ffe", "Intro cinematic vehicle (Checkmate / Satellite)", 1, "hash_60868aaa45d05ffe" );
-    m = veh_def( m, #"hash_550d303ee2de9a65", "Intro cinematic tank (Garrison / Amerika)", 1, "hash_550d303ee2de9a65" );
-    m = veh_def( m, #"hash_4dfaa11717f3881", "Intro cinematic vehicle (Garrison)", 1, "hash_4dfaa11717f3881" );
-    m = veh_def( m, #"hash_1e00d92ee0b1bf4c", "Intro cinematic vehicle (Miami)", 1, "hash_1e00d92ee0b1bf4c" );
-    m = veh_def( m, #"hash_4c21aec4081d030d", "Intro cinematic vehicle (Moscow cia)", 1, "hash_4c21aec4081d030d" );
-    m = veh_def( m, #"hash_62d385495a2ba813", "Intro cinematic vehicle (Moscow kgb)", 1, "hash_62d385495a2ba813" );
-    m = veh_def( m, #"hash_13c60e71eef46ebb", "Intro cinematic helicopter (The Pines)", 1, "hash_13c60e71eef46ebb" );
-    m = veh_def( m, #"hash_5405b8cdc93df2b4", "Intro cinematic APC (The Pines)", 1, "hash_5405b8cdc93df2b4" );
-    m = veh_def( m, #"hash_15e59336c36ee995", "Intro cinematic APC (Amerika)", 1, "hash_15e59336c36ee995" );
-    m = veh_def( m, #"hash_7c74af55b6caaaf5", "Intro cinematic vehicle (Echelon)", 1, "hash_7c74af55b6caaaf5" );
-    m = veh_def( m, #"hash_c07fec522db452c", "Intro cinematic vehicle (Yamantau)", 1, "hash_c07fec522db452c" );
-    m = veh_def( m, #"hash_1c5963188cf189df", "Intro cinematic vehicle (Apocalypse)", 1, "hash_1c5963188cf189df" );
-    m = veh_def( m, #"hash_20966d639ebe6604", "Intro cinematic vehicle (Cartel)", 1, "hash_20966d639ebe6604" );
-    m = veh_def( m, #"hash_4bfd80fe09072db3", "Intro cinematic vehicle (Collateral cia)", 1, "hash_4bfd80fe09072db3" );
-    m = veh_def( m, #"hash_3efa223f4a0bffcd", "Intro cinematic vehicle (Collateral kgb)", 1, "hash_3efa223f4a0bffcd" );
-    m = veh_def( m, #"hash_1f5c1aa7b1348d33", "Intro cinematic vehicle (Crossroads kgb)", 1, "hash_1f5c1aa7b1348d33" );
-    m = veh_def( m, #"hash_3463002d802c1a98", "Intro cinematic vehicle (Crossroads)", 1, "hash_3463002d802c1a98" );
-    m = veh_def( m, #"hash_581bb1b0fa4a3139", "Intro cinematic vehicle (Crossroads kgb 2)", 1, "hash_581bb1b0fa4a3139" );
-    m = veh_def( m, #"hash_61b8f8f61f4b9ce7", "Intro cinematic vehicle (Crossroads cia)", 1, "hash_61b8f8f61f4b9ce7" );
+    m = veh_def( m, #"hash_60868aaa45d05ffe", "Buggy", 1, "hash_60868aaa45d05ffe" );
+    m = veh_def( m, #"hash_550d303ee2de9a65", "M1A1 Abrams", 1, "vehicle_t9_mil_us_tank_m1a1" );
+    m = veh_def( m, #"hash_1e00d92ee0b1bf4c", "Van", 1, "vehicle_t9_civ_us_van_miami_intro", array( #"hash_4c21aec4081d030d" ) );   // Miami intro van; + the Moscow intro van
+    m = veh_def( m, #"hash_5405b8cdc93df2b4", "APC", 1, "hash_5405b8cdc93df2b4", array( #"hash_15e59336c36ee995" ) );   // The Pines intro APC (body veh_t9_mil_us_apc_arv_mp_mall_intro); + the Amerika intro APC
+    m = veh_def( m, #"hash_20966d639ebe6604", "Gunship Helicopter", 1, "vehicle_t9_mil_us_helicopter_large_mp_cartel_gunship" );
+    m = veh_def( m, #"hash_4bfd80fe09072db3", "8x8 Truck", 1, "hash_4bfd80fe09072db3" );   // Collateral intro (klaze 2026-09-25, seen in game)
+    m = veh_def( m, #"hash_3efa223f4a0bffcd", "ATVs", 1, "hash_3efa223f4a0bffcd" );
+    m = veh_def( m, #"hash_1f5c1aa7b1348d33", "ICBM Launcher", 1, "vehicle_t9_mil_truck_mobile_icbm" );
+    m = veh_def( m, #"hash_3463002d802c1a98", "Convoy Vehicle", 1, "hash_3463002d802c1a98" );
+    m = veh_def( m, #"hash_581bb1b0fa4a3139", "Light Truck, Snow", 1, "vehicle_t9_mil_ru_truck_light_mp_tundra_intro_snow" );
+    m = veh_def( m, #"hash_61b8f8f61f4b9ce7", "ICBM Launcher, Snow", 1, "vehicle_t9_mil_truck_mobile_icbm_snow" );
     // ── Fun pack 2026-09-23: resident on MP maps, missing here - PHA V1.00's vehicle page carries them
     //    (vehicles.md §7 had already named the first three as resident-but-absent). APPENDED at the end so
     //    the app's master indices do not move (Catalog.cs mirrors this order). kind 1 = untested, like
     //    every other row in this group; PHA's own labels are kept where the asset name is unresolved.
-    m = veh_def( m, "heli_ai_mp", "AI helicopter", 1 );                                                    // every map
+    m = veh_def( m, "heli_ai_mp", "Wraith", 1 );     // every map; BO3's Wraith (klaze 2026-09-25), a leftover streak asset CW never spawns - air via "heli" in the key
     // (the two turrets, veh_missile_turret "Anti-air missile turret" + veh_ultimate_turret "Sentry turret", are
     //  out - klaze 2026-09-24: "remove the 2 turrets from vehicles menu")
-    m = veh_def( m, #"hash_444804d03bdda785", "Drone squad - PHA's name", 1, "hash_444804d03bdda785" );    // every map
+    m = veh_def( m, #"hash_444804d03bdda785", "Camera Drone", 1, "hash_444804d03bdda785" );    // every map
     // (the RC-XD streak, hash_7dd2944ddf7cc7e9, moved up to be the "RC-XD alt" row - klaze 2026-09-24)
-    m = veh_def( m, #"hash_17e868e0ebf3c1d6", "Helicopter (Sanatorium)", 1, "hash_17e868e0ebf3c1d6" );     // wz_sanatorium
-    m = veh_def( m, #"hash_3effd1dd89ee3d36", "Fireteam reinsertion vehicle", 1, "hash_3effd1dd89ee3d36" ); // wz_*
-    m = veh_def( m, #"hash_3d2bbfdb89093d91", "Napalm strike plane, hpc intro", 1, "hash_3d2bbfdb89093d91" );  // wz_*
-    m = veh_def( m, #"hash_631691623ad368bd", "Outro helicopter (hpc/sl)", 1, "hash_631691623ad368bd" );   // wz_*
+    m = veh_def( m, #"hash_17e868e0ebf3c1d6", "Little Bird", 1, "vehicle_t9_mil_us_helicopter_light", array( #"hash_62d385495a2ba813", #"hash_1c5963188cf189df" ) );   // Sanatorium; + the Moscow (vehicle_t9_mil_us_helicopter_light_mp_moscow) and Apocalypse intro copies
     level.gf_veh_master = m;
     return m;
 }
@@ -12698,15 +13449,10 @@ function private veh_master()
 function private veh_key_text( key )
 {
     text = undefined;
+    e = veh_row_of( key );
 
-    foreach ( e in veh_master() )
-    {
-        if ( e.key === key )
-        {
-            text = e.text + " " + e.label;
-            break;
-        }
-    }
+    if ( isdefined( e ) )
+        text = e.text + " " + e.label;
 
     if ( !isdefined( text ) )
         text = isstring( key ) ? key : "";
@@ -12719,7 +13465,8 @@ function private veh_is_air_key( key )
     text = veh_key_text( key );
     return veh_text_has( text, "heli" ) || veh_text_has( text, "chopper" ) || veh_text_has( text, "gunship" )
         || veh_text_has( text, "vtol" ) || veh_text_has( text, "plane" ) || veh_text_has( text, "air_transport" )
-        || veh_text_has( text, "ac130" ) || veh_text_has( text, "straferun" );
+        || veh_text_has( text, "ac130" ) || veh_text_has( text, "straferun" )
+        || veh_text_has( text, "little bird" );     // the Apocalypse intro copy's plain name is unknown (2026-09-25)
 }
 
 // How much room an aircraft needs around its centre (units ~ inches): the wide ones (AC-130,
@@ -12851,7 +13598,7 @@ function private veh_resident_list( kind )
 
     foreach ( e in veh_master() )
     {
-        if ( ( kind >= 0 && e.kind != kind ) || !isassetloaded( "vehicle", e.key ) )
+        if ( ( kind >= 0 && e.kind != kind ) || !isdefined( veh_row_key( e ) ) )
             continue;
 
         out += ( out == "" ? "" : "," ) + e.text;
@@ -13441,7 +14188,7 @@ function private veh_spawn( item, type )
 {
     if ( !isassetloaded( "vehicle", type ) )
     {
-        self menu_say( "^1no vehicle assets on this map - try a 12v12-layout map" );
+        self menu_say( "^3Vehicle: ^1none on this map ^8(try a 12v12 map)" );
         return true;
     }
 
@@ -13456,7 +14203,7 @@ function private veh_spawn( item, type )
 
     if ( !isdefined( veh ) )
     {
-        self menu_say( "^1spawn failed" );
+        self menu_say( "^3Vehicle: ^1spawn failed" );
         return true;
     }
 
@@ -13482,14 +14229,14 @@ function private veh_spawn( item, type )
 
         if ( !isdefined( veh ) )
         {
-            self menu_say( "^1spawn failed" );
+            self menu_say( "^3Vehicle: ^1spawn failed" );
             return true;
         }
 
         veh setrotorspeed( 1.0 );
     }
 
-    self menu_say( "^2vehicle spawned ahead - walk into it and hold Use" );
+    self menu_say( "^3Vehicle: ^2spawned ahead ^8(walk up, hold Use)" );
     return true;
 }
 
@@ -13518,15 +14265,30 @@ function private veh_enter( item )
         return true;
     }
 
+    if ( wraith_is( veh ) )          // no seat for a player (measured): flown through its autopilot (WRAITH PILOT)
+    {
+        self wraith_pilot_start( veh );
+        return true;
+    }
+
     seat = veh_free_seat( veh );
 
     if ( seat < 0 )
     {
+        if ( pilot_is( veh ) && !isdefined( veh getseatoccupant( 0 ) ) )
+        {
+            self wraith_pilot_start( veh );          // an empty aircraft with no seat to give: the pilot
+            return true;
+        }
+
         self menu_say( "^3Enter vehicle: ^1it is full" );
         return true;
     }
 
     veh usevehicle( self, seat );
+
+    if ( pilot_is( veh ) )
+        self thread pilot_if_not_seated( veh );      // an AI-only seat: usevehicle does nothing -> the pilot
     self menu_say( "^3Enter vehicle: ^2" + ( ( seat == 0 ) ? "driving" : ( "seat " + seat ) ) );
     return true;
 }
@@ -13605,13 +14367,13 @@ function private veh_spawn_list()
 
     foreach ( e in veh_master() )
     {
-        if ( e.kind == 0 && isassetloaded( "vehicle", e.key ) )
+        if ( e.kind == 0 && isdefined( veh_row_key( e ) ) )
             out[ out.size ] = e;
     }
 
     foreach ( e in veh_master() )
     {
-        if ( e.kind != 0 && isassetloaded( "vehicle", e.key ) )
+        if ( e.kind != 0 && isdefined( veh_row_key( e ) ) )
             out[ out.size ] = e;
     }
 
@@ -13631,7 +14393,7 @@ function private veh_spawner_enter( menu )
     }
 
     foreach ( e in list )
-        self menu_item( menu.id, e.label, &act_vehspawn_row, e.key );      // plain names (klaze 2026-09-22)
+        self menu_item( menu.id, e.label, &act_vehspawn_row, veh_row_key( e ) );      // plain names (klaze 2026-09-22); the copy this map ships
 }
 
 function private act_vehspawn_row( item, key )
@@ -14092,10 +14854,11 @@ function private ahint_text( ent )
 {
     label = isdefined( ent.gf_model ) ? prop_short( ent.gf_model ) : "Prop";
 
+    // name ^5, the control ^3 yellow (klaze 2026-09-24, the hint-bar colour swap)
     if ( is_true( ent.gf_barrel ) )
-        return "^3" + label + "   ^1shoot to blow   ^5grab";
+        return "^5" + label + "   ^1shoot to blow   ^3grab";
 
-    return "^3" + label + "   ^5grab";
+    return "^5" + label + "   ^3grab";
 }
 
 // The stock world-interaction trigger: tap to use, only while looking at it.
@@ -14195,8 +14958,20 @@ function private ahint_grab_on_release( ent )
     self notify( #"gf_ahint_grab" );
     self endon( #"gf_ahint_grab" );
 
-    while ( self usebuttonpressed() )
+    // The keyboard's F is BUTTON_BIT_ACTIVATE, not usebuttonpressed (that reads R there). F + E together
+    // is the keyboard's menu key, so a tap that saw E held is the menu opening, not a grab.
+    combo = 0;
+
+    while ( self usebuttonpressed() || self kb_use() )
+    {
+        if ( self meleebuttonpressed() )
+            combo = 1;
+
         waitframe( 1 );
+    }
+
+    if ( combo || self meleebuttonpressed() )
+        return;
 
     if ( !isdefined( ent ) )
         return;
@@ -14356,7 +15131,7 @@ function private ahint_aim( cur )
         cur.gf_ent = ent;
         cur.gf_pad = pad;
         cur.origin = ent.origin;
-        cur sethintstring( forge_key( "use" ) + " ^3Map prop   ^5grab" );     // the interact icon (klaze 2026-09-23)
+        cur sethintstring( forge_key( "use" ) + " ^5Map prop   ^3grab" );     // the interact icon (klaze 2026-09-23); control ^3 (09-24)
         cur triggerenable( 1 );
     }
 }
@@ -15153,26 +15928,18 @@ function private act_dbg_veh( item ) { return self act_dbg( item, #"gf_dbg_veh",
 // a rider of a kind-1 page vehicle gets the disable_usability layer (the vehicle mode's own
 // "cannot get off" lock; leaving is a hold-Use action, vehicle_shared.gsc:90) for as long as
 // he sits in it, and leaves through "Leave vehicle" = unlink() + a tp_place beside the ride.
+// ⚠ klaze 2026-09-24: most kind-1 rides still let you hold Use to leave, so the layer does NOT block
+// that exit there - only the VTOL rider is warned now (veh_noexit_rider).
 function private veh_kind_of( type )
 {
-    foreach ( e in veh_master() )
-    {
-        if ( e.key == type )
-            return e.kind;
-    }
-
-    return 0;
+    e = veh_row_of( type );
+    return isdefined( e ) ? e.kind : 0;
 }
 
 function private veh_label_of( type )
 {
-    foreach ( e in veh_master() )
-    {
-        if ( e.key == type )
-            return e.label;
-    }
-
-    return "Vehicle";
+    e = veh_row_of( type );
+    return isdefined( e ) ? e.label : "Vehicle";
 }
 
 function private veh_noexit_think()
@@ -15205,13 +15972,20 @@ function private veh_noexit_think()
 // leave, a death, the vehicle gone) - never left dangling on a player.
 function private veh_noexit_rider( veh )
 {
-    self endon( #"death", #"disconnect" );
+    // NOT endon( death ): dying in the ride must still reach the reset below - klaze 2026-09-25 "after i respawned
+    // i dont have a hint or interact bar" (the layer outlived the death and hid every use prompt + the hint bar).
+    self endon( #"disconnect" );
     self notify( #"gf_noexit_restart" );
     self endon( #"gf_noexit_restart" );
     self val::set( #"gf_noexit", "disable_usability", 1 );
-    self iprintlnbold( "^3no exit on this ride ^7- Vehicles -> Leave vehicle" );
 
-    while ( isdefined( veh ) && self isinvehicle() && self getvehicleoccupied() == veh )
+    // klaze 2026-09-24: "we incorrectly say no exit on this ride when most still let u hold interact to leave"
+    // - the layer does not stop the hold-Use exit on most kind-1 rides, so no claim about the exit here. The
+    // one ride whose hold-Use exit is MEASURED to crash the game (the VTOL Forger, 2026-09-20) keeps a warning.
+    if ( veh.gf_key === "vehicle_t9_mil_ru_air_vtol_forger" )
+        self iprintlnbold( "^1VTOL: ^7leave with Vehicles > Leave vehicle" );
+
+    while ( isdefined( veh ) && isalive( self ) && self isinvehicle() && self getvehicleoccupied() == veh )
         wait 0.25;
 
     self val::reset( #"gf_noexit", "disable_usability" );
@@ -15223,11 +15997,18 @@ function private veh_noexit_rider( veh )
 // deleted once empty (it is the crash class); a drivable stays.
 function private act_vehleave( item )
 {
+    if ( is_true( self.gf_wraith_on ) )          // flying a Wraith (WRAITH PILOT): its cleanup puts you on the floor
+    {
+        self notify( #"gf_wraith_stop" );
+        self menu_say( "^3Leave vehicle: ^2done" );
+        return true;
+    }
+
     v = self getvehicleoccupied();
 
     if ( !isdefined( v ) )
     {
-        self menu_say( "^1you are not in a vehicle" );
+        self menu_say( "^3Leave vehicle: ^1you are not in one" );
         return true;
     }
 
@@ -15243,7 +16024,7 @@ function private act_vehleave( item )
 
     if ( self isinvehicle() )
     {
-        self menu_say( "^1still seated after unlink - not forcing the engine exit (that is the crash)" );
+        self menu_say( "^3Leave vehicle: ^1could not get you out safely" );
         return true;
     }
 
@@ -15252,11 +16033,11 @@ function private act_vehleave( item )
     if ( isdefined( v ) && is_true( v.gf_spawned ) && v.gf_kind === 1 && !isdefined( v getseatoccupant( 0 ) ) )
     {
         v delete();
-        self menu_say( "^2out - the streak asset is removed" );
+        self menu_say( "^3Leave vehicle: ^2done ^8(streak vehicle removed)" );
     }
     else
     {
-        self menu_say( "^2out" );
+        self menu_say( "^3Leave vehicle: ^2done" );
     }
 
     return true;
@@ -15280,7 +16061,8 @@ function private cmd_vehspawn( arg )
         return;
     }
 
-    self veh_spawn( spawnstruct(), m[ i ].key );
+    key = veh_row_key( m[ i ] );        // the copy this map ships (undefined: veh_spawn says "none on this map")
+    self veh_spawn( spawnstruct(), isdefined( key ) ? key : m[ i ].key );
     self menu_say( "^2app: " + m[ i ].label );
 }
 
@@ -15465,7 +16247,7 @@ function private act_giveweapon( item, whash, label )
 
     if ( p != self && !isalive( p ) )
     {
-        self menu_say( "^1" + p.name + " is not alive" );
+        self menu_say( "^3Weapon: ^1" + ( ( p == self ) ? "spawn first" : ( p.name + " is not alive" ) ) );
         return true;
     }
 
@@ -15473,7 +16255,7 @@ function private act_giveweapon( item, whash, label )
 
     if ( !isdefined( w ) || w == level.weaponnone )
     {
-        self menu_say( "^3Weapon: ^1not in this build - " + label );
+        self menu_say( "^3Weapon: ^1" + label + " is not available" );
         return true;
     }
 
@@ -15485,7 +16267,7 @@ function private act_giveweapon( item, whash, label )
 
     if ( !r.ok )
     {
-        self menu_say( "^3Weapon: ^1not given - " + label + " ^8(" + r.held + " held)" );
+        self menu_say( "^3Weapon: ^1no room for " + label + " ^8(" + r.held + " held)" );
         return true;
     }
 
@@ -15697,7 +16479,7 @@ function private act_camo( item, id )
     w = p getcurrentweapon();
     if ( isdefined( w ) )
         p setcamo( w, id );
-    self menu_say( "^2camo " + id + " on current weapon" + self target_tail( p ) );
+    self menu_say( "^3Camo: ^2" + camo_label( id ) + self target_tail( p ) );
     return true;
 }
 
@@ -15751,7 +16533,7 @@ function private act_outfit( item, id )
     p setcharacteroutfit( id );
     p setcharacterwarpaintoutfit( 0 );
     p cos_clear();
-    self menu_say( "^2outfit " + id + self target_tail( p ) );
+    self menu_say( "^3Outfit: ^2" + id + self target_tail( p ) );
     return true;
 }
 
@@ -16110,7 +16892,7 @@ function private tp_dest( where )
 
         if ( !isdefined( pos ) )
         {
-            self menu_say( "^1aim at something first (that was the sky)" );
+            self menu_say( "^3Teleport: ^1aim at the ground or a wall" );
             return undefined;
         }
 
@@ -16134,7 +16916,7 @@ function private tp_dest( where )
     {
         if ( !isdefined( level.mapcenter ) )
         {
-            self menu_say( "^1no map centre on this map" );
+            self menu_say( "^3Teleport: ^1this map has no centre point" );
             return undefined;
         }
 
@@ -16149,13 +16931,13 @@ function private act_tp_save( item )
 {
     if ( !isalive( self ) )
     {
-        self menu_say( "^1spawn first" );
+        self menu_say( "^3Teleport: ^1spawn first" );
         return true;
     }
 
     ang = self getplayerangles();
     self tp_point_set( { #origin: self.origin, #angles: ang } );
-    self menu_say( "^3Save point: ^2" + tp_fmt( self.origin ) );
+    self menu_say( "^3Save point: ^2saved" );
     return true;
 }
 
@@ -16182,7 +16964,7 @@ function private act_tp_me( item, where )
 {
     if ( !isalive( self ) )
     {
-        self menu_say( "^1spawn first" );
+        self menu_say( "^3Teleport: ^1spawn first" );
         return true;
     }
 
@@ -16192,9 +16974,9 @@ function private act_tp_me( item, where )
         return true;
 
     if ( tp_place( self, dest.origin, dest.angles ) )
-        self menu_say( "^2teleported to " + dest.label );
+        self menu_say( "^3Teleport: ^2" + dest.label );
     else
-        self menu_say( "^1get out of the vehicle first" );
+        self menu_say( "^3Teleport: ^1leave the vehicle first" );
 
     return true;
 }
@@ -16204,7 +16986,7 @@ function private act_tp_all( item, where, who )
 {
     if ( !isalive( self ) )
     {
-        self menu_say( "^1spawn first" );
+        self menu_say( "^3Teleport: ^1spawn first" );
         return true;
     }
 
@@ -16245,7 +17027,7 @@ function private act_tp_player( item, player, verb )
 
     if ( !isalive( self ) || !isalive( player ) )
     {
-        self menu_say( "^1both must be alive" );
+        self menu_say( "^3Teleport: ^1you both must be alive" );
         return true;
     }
 
@@ -16261,7 +17043,7 @@ function private act_tp_player( item, player, verb )
         case "metothem":
             ang = player getplayerangles();
             ok = tp_place( self, tp_front( player.origin, ang[ 1 ] ), ( 0, ang[ 1 ] + 180, 0 ) );
-            self menu_say( ok ? ( "^2teleported to " + player.name ) : "^1get out of the vehicle first" );
+            self menu_say( ok ? ( "^3Teleport: ^2to " + player.name ) : "^3Teleport: ^1leave the vehicle first" );
             break;
         case "swap":
             if ( isdefined( self getvehicleoccupied() ) || isdefined( player getvehicleoccupied() ) )
@@ -16332,17 +17114,19 @@ function private tp_spawn_rearm()
     tpnade_rearm( self );
 }
 
-// The host's menu is open: its next-item key is ATTACK (keys_init), so a shot fired while
-// navigating the menu is a menu press, not a teleport. Joiners have no gfmenu.
+// This player's mod menu is open (the fly bind ignores its keys then). Since 2026-09-25 no menu uses the
+// fire button (controller = D-pad only, keyboard = W A S D / wheel / F / E), so the shot pipelines no
+// longer skip shots fired with a menu open. Joiners have no gfmenu.
 function private tp_menu_open()
 {
     return isdefined( self.gfmenu ) && isdefined( self.gfmenu.current ) && self.gfmenu.current != "";
 }
 
+
 // One shot = one move, to where the shot lands: the engine raises weapon_fired on the
 // player for every shot (weapons.gsc:1034 event_handler -> the notify placeables.gsc:215
 // waits on), so full-auto is a move per bullet - the classic feel. The view is kept.
-// Shots while the host's menu is open are menu navigation and ignored.
+// Shots fired with a menu open count too (no menu uses the fire button since 2026-09-25).
 function private tpgun_think()
 {
     self notify( #"gf_tpgun_restart" );
@@ -16357,8 +17141,6 @@ function private tpgun_think()
         if ( !tpgun_wanted( self ) )
             return;
 
-        if ( self tp_menu_open() )
-            continue;
 
         pos = self tp_aim();
 
@@ -17770,7 +18552,9 @@ function private exp_rows_wz_zoo()
 //
 // State is per MATCH (game. / player / level fields, like the teleport gun) - not dvars, so the
 // packed store, the dvar pool and the app's key list stay untouched: game.gf_proj_all (everyone,
-// humans), player.gf_proj (one player), game.gf_proj_wkey (weapon name), game.gf_proj_ms (min
+// humans), pers gf_proj (one player; pflag since 2026-09-24 - as the entity field player.gf_proj it
+// lasted one round), pers gf_ammo (a player's own Ammo Type pick, the AMMO TYPE block),
+// game.gf_proj_wkey (weapon name), game.gf_proj_ms (min
 // gap), game.gf_proj_method (0-6), game.gf_proj_homing, game.gf_proj_trail, level.gf_pj (the
 // counters), level.gf_dbg_proj (the line). Shots while the host's menu is open are menu
 // navigation (ATTACK = next item) and ignored, as the teleport gun does.
@@ -17848,7 +18632,14 @@ function private proj_stats()
 
 function private proj_wanted( player )
 {
-    if ( isdefined( player.gf_proj ) && player.gf_proj )
+    // A player's own Ammo Type decides for them (AMMO TYPE block): a weapon pick fires here, a prop pick
+    // does not (the model cannon launches it instead).
+    if ( ammo_type( player ) > 0 )
+        return isdefined( ammo_weapon( player ) );
+
+    // The host switch lives in PERS (2026-09-24): as the entity field player.gf_proj, map_restart( 1 ) - the
+    // Gunfight round boundary - freed it after one round (the fun pack's pflag note).
+    if ( pflag( player, #"gf_proj" ) )
         return true;
 
     return isdefined( game.gf_proj_all ) && game.gf_proj_all && !isbot( player );
@@ -17880,7 +18671,9 @@ function private proj_think()
 
     s = proj_stats();
     s.thr++;
-    w = getweapon( proj_wkey() );
+    // This player's own Ammo Type weapon first (AMMO TYPE block), else the match-wide Projectile.
+    k = ammo_weapon( self );
+    w = getweapon( isdefined( k ) ? k : proj_wkey() );
 
     if ( !isdefined( w ) )
         s.wstate = "undef";
@@ -17905,11 +18698,6 @@ function private proj_think()
         if ( !proj_wanted( self ) )
             return;
 
-        if ( self tp_menu_open() )
-        {
-            s.menu++;
-            continue;
-        }
 
         // our own launcher / the projectile weapon itself: never chain
         if ( isdefined( res.weapon ) && res.weapon == w )
@@ -17941,7 +18729,8 @@ function private proj_think()
 function private proj_fire( w, spread = 0 )
 {
     s = proj_stats();
-    m = proj_method();
+    // An Ammo Type pick always goes AUTO: each of its weapons works only through its own class's spawner.
+    m = isdefined( ammo_weapon( self ) ) ? 0 : proj_method();
     use = m;
 
     if ( m == 0 )
@@ -18015,7 +18804,7 @@ function private proj_fire( w, spread = 0 )
         p = magicbullet( w, start, end, self );
 
     s.ret++;
-    s.lastcall = "m" + use + ( m == 0 ? "(auto)" : "" ) + " " + proj_wname() + " -> " + ( isdefined( p ) ? "ent" : "none" ) + ( wall ? " wall" : "" );
+    s.lastcall = "m" + use + ( m == 0 ? "(auto)" : "" ) + " " + proj_wname_for( self ) + " -> " + ( isdefined( p ) ? "ent" : "none" ) + ( wall ? " wall" : "" );
 
     if ( !isdefined( p ) )
     {
@@ -18168,10 +18957,20 @@ function private proj_line()
 
     if ( isdefined( game.gf_proj_all ) && game.gf_proj_all )
         mode = "all";
-    else if ( isdefined( host ) && isdefined( host.gf_proj ) && host.gf_proj )
+    else if ( isdefined( host ) && pflag( host, #"gf_proj" ) )
         mode = "host";
 
-    line = "^3PROJ ^7mode:" + mode + " m:" + proj_method() + " w:" + ws + "(" + proj_wname() + ")";
+    // ammo: players with their own Ammo Type pick (AMMO TYPE block). A weapon pick's shots ignore mode / m / w
+    // below and name their own weapon in lastcall; a prop pick fires through the model cannon, not counted here.
+    na = 0;
+
+    foreach ( pl in getplayers() )
+    {
+        if ( ammo_type( pl ) > 0 )
+            na++;
+    }
+
+    line = "^3PROJ ^7mode:" + mode + " ammo:" + na + " m:" + proj_method() + " w:" + ws + "(" + proj_wname() + ")";
 
     if ( ws == "ok" )
     {
@@ -18202,7 +19001,8 @@ function private act_dbg_proj( item )
     return true;
 }
 
-// who = "host" (self.gf_proj) | "all" (game.gf_proj_all, humans only) | "off" (everything).
+// who = "host" (pers gf_proj) | "all" (game.gf_proj_all, humans only) | "off" (everything but the players'
+// own Ammo Type picks - `fun ammo none` resets those).
 // Turning a fire mode ON also turns the PROJ line on (this build measures); OFF clears both.
 function private act_proj( item, who )
 {
@@ -18212,7 +19012,7 @@ function private act_proj( item, who )
 
         foreach ( player in getplayers() )
         {
-            player.gf_proj = 0;
+            pflag_set( player, #"gf_proj", 0 );
             proj_rearm( player );
         }
 
@@ -18245,8 +19045,8 @@ function private act_proj( item, who )
         return true;
     }
 
-    on = !( isdefined( self.gf_proj ) && self.gf_proj );
-    self.gf_proj = on;
+    on = !pflag( self, #"gf_proj" );
+    pflag_set( self, #"gf_proj", on );
     item.activated = on;
     proj_rearm( self );
 
@@ -18425,7 +19225,8 @@ function private forge_enter( item )
     fg.scale = forge_default_scale( prop_master()[ fg.idx ].model );   // per-model starting scale (klaze 2026-09-21)
     self thread forge_loop();
     self thread forge_cleanup();               // restore on death/disconnect even if the exit is missed
-    self menu_say( "^2FORGE on - walk to aim the prop; D-pad turn + cycle, bumpers scale, FIRE place, MELEE exit" );
+    // No feed line on entry or exit (klaze 2026-09-24: "maybe we shouldnt even be printing that when just
+    // using the prop viewer") - the hint bar shows the controls, the centre line the prop.
 
     if ( isdefined( self.gfmenu ) )
         self.gfmenu.current = "";              // close the menu; menu_think yields while forge_active
@@ -18447,7 +19248,6 @@ function private forge_exit( item )
     // restore FIRST, then notify a DIFFERENT event (the loop does not endon #gf_forge_done).
     self forge_restore();
     self notify( #"gf_forge_done" );
-    self menu_say( "^2FORGE off" );
     return true;
 }
 
@@ -18567,6 +19367,9 @@ function private forge_loop()
     p2 = self actionslottwobuttonpressed();
     p3 = self actionslotthreebuttonpressed();
     p4 = self actionslotfourbuttonpressed();
+    pfk = self kb_use();            // keyboard F (grab / drop)
+    pwn = self kb_wnext();          // keyboard wheel down
+    pwp = self kb_wprev();          // keyboard wheel up
     cts = 0;
     fragsince = 0;      // when RB/LB scale was pressed - drives hold-to-repeat (klaze 2026-09-21)
     lbsince = 0;
@@ -18613,7 +19416,7 @@ function private forge_loop()
         //   slot1 (D-pad UP)    = rotate left      | slot2 (D-pad DOWN)  = rotate right
         //   RB / lethal (frag)  = scale BIGGER     | LB / tactical (secondaryoffhand) = scale SMALLER
         //   Fire = place, Melee = exit, hold sprint = faster rotate. Grab / undo / cycle are DEVICE-SPECIFIC
-        //   (grabk / undok / cyck, set just below). All work while you walk with WASD / the stick; weapons
+        //   (grabk / undok / wdir, set just below). All work while you walk with WASD / the stick; weapons
         //   are disabled in forge so the grenade buttons only read as input. ⚠ LB assumed = the tactical
         //   button (secondaryoffhand) on the Default pad; if LB doesn't shrink, swap it in-game.
         s1 = self actionslotonebuttonpressed();
@@ -18627,16 +19430,25 @@ function private forge_loop()
         mel = self meleebuttonpressed();
         rl = self reloadbuttonpressed();               // KB: undo / delete. PAD: folds into grab (grabk below)
         use = self usebuttonpressed();                 // drops a grabbed prop; GRABBING is Forge mode's, not the placer
+        fk = self kb_use();                            // KB: F (usebuttonpressed reads R on a keyboard)
+        wn = self kb_wnext();                          // KB: wheel down
+        wp = self kb_wprev();                          // KB: wheel up
         turn = fast ? 45 : rotstep * 5;
 
         // Pad vs keyboard (klaze 2026-09-22: on the pad Square "just undoes" - the engine reports a
         // Square tap as RELOAD first and USE only once held, so undo always won over grab). On a pad:
         // Square (tap or hold, either report) = grab / drop, Triangle (weapon switch) = undo / delete,
-        // cycle = D-pad only. Keyboard: F grab / drop, R undo / delete, scroll cycle - as before.
+        // cycle = D-pad only. Keyboard (klaze 2026-09-24): F grab / drop, R undo / delete, the WHEEL
+        // cycles and ADS + wheel turns - the D-pad slots never arrive from a keyboard (the 3 / 4 keys).
         pad = self gamepadusedlast();
-        grabk = pad ? ( ( use || rl ) && !( puse || prl ) ) : ( use && !puse );
+        grabk = pad ? ( ( use || rl ) && !( puse || prl ) ) : ( fk && !pfk );
         undok = pad ? ( ws && !pws ) : ( rl && !prl );
-        cyck = pad ? 0 : ( ws && !pws );
+        wdir = 0;                                      // KB wheel notch: -1 up, +1 down (always 0 on a pad)
+
+        if ( !pad )
+            wdir = ( wn && !pwn ) ? 1 : ( ( wp && !pwp ) ? -1 : 0 );
+
+        kturn = wdir != 0 && ads;                      // KB: ADS (right mouse) + wheel turns; the wheel alone cycles
 
         // Scale (bumpers) + turn (D-pad up/down) apply to the grabbed prop OR the ghost, in both states.
         // klaze 2026-09-21: HOLD the bumper to keep scaling instead of tapping. A tap = one precise step
@@ -18662,6 +19474,9 @@ function private forge_loop()
         if ( s2 && !p2 )
             fg.yaw += turn;                 // D-pad down = rotate right
 
+        if ( kturn )
+            fg.yaw += wdir * turn;          // KB: ADS + wheel up = rotate left, down = rotate right
+
         if ( isdefined( fg.grabbed ) )
         {
             // Editing a grabbed prop: grabk (Square / F / fire) drops it, undok (Triangle / R) deletes it,
@@ -18681,8 +19496,8 @@ function private forge_loop()
             if ( s4 && !p4 )
                 self forge_cycle( 1 );      // D-pad right = next prop
 
-            if ( cyck )
-                self forge_cycle( ads ? -1 : 1 );   // weapon-switch (keyboard scroll) = cycle
+            if ( wdir != 0 && !kturn )
+                self forge_cycle( wdir );   // KB: wheel up = previous prop, down = next
 
             if ( a && !pa )
             {
@@ -18700,7 +19515,7 @@ function private forge_loop()
                 {
                     if ( !is_true( fg.spray_capped ) )
                     {
-                        self menu_say( "^1Spray: 200 props up - delete some first" );
+                        self menu_say( "^3Props: ^1200 up - delete some first" );
                         self forge_spray_end( fg, 1 );
                     }
 
@@ -18757,6 +19572,9 @@ function private forge_loop()
         prl = rl;
         puse = use;
         pmel = mel;
+        pfk = fk;
+        pwn = wn;
+        pwp = wp;
 
         self forge_update_preview();
         self forge_hint_paint();
@@ -18864,11 +19682,24 @@ function private forge_cycle( dir )
     fg = self forge_state();
     m = prop_master();
     fg.idx = ( fg.idx + dir + m.size ) % m.size;
+    self ammo_note_prop( m[ fg.idx ].model );      // Ammo Type -> Last used prop (pers; this pick resets each round)
 
+    // A FRESH preview per pick (klaze 2026-09-25: "when viewing a raised prop like the energy portal and
+    // clicking next it makes the next prop elevated too"). The base lift (forge_prop_zlift) reads the
+    // entity's own getmins(), and the old setmodel-in-place kept the first model's bounds by the look of
+    // it - every pick after the portal (Forge opens on it) rode the portal's lift. A new entity carries its
+    // own model's bounds; forge_loop re-places and re-scales it the next frame.
     if ( isdefined( fg.preview ) )
     {
-        fg.preview setmodel( m[ fg.idx ].model );
-        fg.preview.gf_model = m[ fg.idx ].model;
+        old = fg.preview;
+        fg.preview = self forge_spawn_preview( fg.idx );
+        fg.preview.origin = old.origin;
+        fg.preview.angles = old.angles;
+
+        if ( isdefined( fg.grabbed ) )
+            fg.preview hide();           // the ghost stays hidden while an existing prop is being edited
+
+        old delete();
     }
 
     fg.scale = forge_default_scale( m[ fg.idx ].model );   // each pick starts at its own default (klaze 2026-09-21)
@@ -18884,7 +19715,7 @@ function private forge_centre_paint()
 
     if ( isdefined( fg.grabbed ) )
     {
-        self iprintlnbold( "^3EDIT  " + ( fg.grab_ours ? "^2your prop" : "^5map prop" ) + "  ^8- move / turn / scale, USE drop, RELOAD delete, MELEE cancel" );
+        self iprintlnbold( "^3Editing: " + ( fg.grab_ours ? "^2your prop" : "^5map prop" ) );
         return;
     }
 
@@ -18904,9 +19735,11 @@ function private forge_place( quiet = 0 )
 
     if ( !isassetloaded( "xmodel", model ) )
     {
-        self menu_say( "^1not resident here: " + prop_short( model ) );
+        self menu_say( "^3Prop: ^1" + prop_short( model ) + " is not on this map" );
         return;
     }
+
+    self ammo_note_prop( model );      // Ammo Type -> Last used prop: a placed prop counts as used
 
     // Place exactly where the ghost is - forge_update_preview already positioned it mode-aware
     // (pinned = carried ahead of the view, free-walk = on the aimed surface). The old geteye+dist
@@ -18975,7 +19808,7 @@ function private forge_place( quiet = 0 )
 
     if ( !quiet )
     {
-        self menu_say( "^2placed " + prop_short( model ) + " (" + level.gf_props.size + " up)" );
+        self menu_say( "^3Placed: ^7" + prop_short( model ) + " ^8(" + level.gf_props.size + " up)" );
         gflog_result( lseq, level.gf_props.size + " up" );
     }
 }
@@ -19223,7 +20056,7 @@ function private forge_delete_grabbed()
     if ( isdefined( fg.preview ) )
         fg.preview show();
 
-    self menu_say( ours ? "^1Prop deleted" : "^1Map prop deleted ^8(back next round)" );
+    self menu_say( ours ? "^3Prop: ^1deleted" : "^3Map prop: ^1deleted ^8(back next round)" );
     self forge_centre_paint();
 }
 
@@ -19316,17 +20149,31 @@ function private forge_controls_hint( fg )
     // Layout (klaze 2026-09-22): "line separators between controls and the scale value with its
     // controls, like r2 place | arrow cycle | l1 scale: 100". sep = the ^8| between groups.
     pad = isdefined( self ) && isplayer( self ) && self gamepadusedlast();
+    // Colours (klaze 2026-09-24 "forge hint yellow too", after the menu legend's swap): control words ^3
+    // yellow, the one value on the line (the scale %) ^5, keys ^7.
     sep = "  ^8|  ^7";
-    scl = forge_key( "smoke" ) + " " + forge_key( "frag" ) + " ^5scale: ^3" + int( fg.scale * 100 );
-    turn = forge_key( "up" ) + " " + forge_key( "down" ) + " ^5turn";
-    cyc = forge_key( "left" ) + " " + forge_key( "right" ) + " ^5cycle";
-    plc = forge_key( "place" ) + " ^5place";
+    scl = forge_key( "smoke" ) + " " + forge_key( "frag" ) + " ^3scale: ^5" + int( fg.scale * 100 );
+    turn = forge_key( "up" ) + " " + forge_key( "down" ) + " ^3turn";
+    cyc = forge_key( "left" ) + " " + forge_key( "right" ) + " ^3cycle";
+    plc = forge_key( "place" ) + " ^3place";
     undo = ( pad ? forge_key( "swap" ) : forge_key( "reload" ) );        // Triangle on a pad, R on keys
 
-    if ( isdefined( fg.grabbed ) )
-        return forge_key( "use" ) + " ^5drop" + sep + turn + sep + scl + sep + undo + " ^5delete" + sep + forge_key( "melee" ) + " ^5cancel";
+    // Keyboard & mouse (klaze 2026-09-24): the wheel cycles, ADS + wheel turns (forge_loop) - the wheel
+    // has no key glyph on a keyboard, so it is the word. F leads a grabbed line (the widget hoists it).
+    if ( !pad )
+    {
+        kturn = forge_key( "ads" ) + " ^7+ Wheel ^3turn";
 
-    return plc + sep + cyc + sep + turn + sep + scl + sep + undo + " ^5undo" + sep + forge_key( "melee" ) + " ^5exit";
+        if ( isdefined( fg.grabbed ) )
+            return forge_key( "use" ) + " ^3drop" + sep + kturn + sep + scl + sep + undo + " ^3delete" + sep + forge_key( "melee" ) + " ^3cancel";
+
+        return plc + sep + "^7Wheel ^3cycle" + sep + kturn + sep + scl + sep + undo + " ^3undo" + sep + forge_key( "melee" ) + " ^3exit";
+    }
+
+    if ( isdefined( fg.grabbed ) )
+        return forge_key( "use" ) + " ^3drop" + sep + turn + sep + scl + sep + undo + " ^3delete" + sep + forge_key( "melee" ) + " ^3cancel";
+
+    return plc + sep + cyc + sep + turn + sep + scl + sep + undo + " ^3undo" + sep + forge_key( "melee" ) + " ^3exit";
 }
 
 // A control key as a device GLYPH (default) or plain text, per gf_hint_glyphs (default 1 = glyphs).
@@ -19364,6 +20211,11 @@ function private forge_txt( name )
         case "down":   return "^7[D-dn]";
         case "left":   return "^7[D-L]";
         case "right":  return "^7[D-R]";
+        case "use":    return "^7[F]";
+        case "fwd":    return "^7[W]";
+        case "bwd":    return "^7[S]";
+        case "mleft":  return "^7[A]";
+        case "mright": return "^7[D]";
         default:       return "^7[" + name + "]";
     }
 }
@@ -19391,6 +20243,10 @@ function private forge_bind( name )
         case "down":    return "+actionslot 2";      // D-pad down
         case "left":    return "+actionslot 3";      // D-pad left
         case "right":   return "+actionslot 4";      // D-pad right
+        case "fwd":     return "+forward";           // W - the keyboard menu (menu_nav_hint)
+        case "bwd":     return "+back";              // S
+        case "mleft":   return "+moveleft";          // A
+        case "mright":  return "+moveright";         // D
         default:        return "+" + name;
     }
 }
@@ -19524,8 +20380,8 @@ function private forge_on_spawned()
 // The menu navigation legend, editable via gf_hint_nav - shown on the hint bar while the menu is
 // open (menu_render_split) and as the open toast (menu_think). "edit hint line for the default
 // menu layout". docs/notes/forge.md.
-// The menu navigation controls with real glyphs (keys_init maps: up=ADS, down=attack, select=reload,
-// back=melee, open=ADS+melee). gf_hint_glyphs 0 falls back to the editable gf_hint_nav text line.
+// The menu navigation controls with real glyphs (keys_nav_refresh: a controller is D-pad only since
+// 2026-09-25; keyboard = menu_kb_action). gf_hint_glyphs 0 falls back to the editable gf_hint_nav text line.
 function private menu_nav_hint()
 {
     // "select" leads: on a controller the widget draws its hold-ring use-button (Square) at the
@@ -19540,6 +20396,8 @@ function private menu_nav_hint()
     // klaze 2026-09-23: "edit the menu controls, add spacers between controls and capitalize them.
     // use this order: Open | Next | Last | Back" - then (same day) "the menu control for select should say
     // Select not Open": Select | Next | Last | Back, the forge legend's ^8| spacer.
+    // Keys ^7, control words ^3 yellow - klaze 2026-09-24 swapped them with the page title's colour
+    // (the title after the legend is ^5 now, menu_render_split). menu_nav_plain matches.
     sep = "  ^8|  ^7";
 
     if ( cfg_geti( #"gf_hint_glyphs", 1 ) )
@@ -19547,17 +20405,23 @@ function private menu_nav_hint()
         if ( isdefined( self ) && isplayer( self ) && self gamepadusedlast() )
         {
             if ( cfg_menu_region() == 2 )
-                return "^7" + forge_key( "up" ) + " ^5Select" + sep + forge_key( "right" ) + " ^5Next" + sep + forge_key( "left" ) + " ^5Last" + sep + forge_key( "down" ) + " ^5Back";
+                return "^7" + forge_key( "up" ) + " ^3Select" + sep + forge_key( "right" ) + " ^3Next" + sep + forge_key( "left" ) + " ^3Last" + sep + forge_key( "down" ) + " ^3Back" + sep + forge_key( "melee" ) + " ^3Close";
 
             // vertical lists: select = D-right (keys_nav_refresh as4), shown with its own glyph too
-            return "^7" + forge_key( "right" ) + " ^5Select" + sep + forge_key( "down" ) + " ^5Next" + sep + forge_key( "up" ) + " ^5Last" + sep + forge_key( "left" ) + " ^5Back";
+            return "^7" + forge_key( "right" ) + " ^3Select" + sep + forge_key( "down" ) + " ^3Next" + sep + forge_key( "up" ) + " ^3Last" + sep + forge_key( "left" ) + " ^3Back" + sep + forge_key( "melee" ) + " ^3Close";
         }
 
-        return "^7" + forge_key( "reload" ) + " ^5Select" + sep + forge_key( "place" ) + " ^5Next" + sep +
-               forge_key( "ads" ) + " ^5Last" + sep + forge_key( "melee" ) + " ^5Back";
+        // Keyboard & mouse (klaze 2026-09-24, menu_kb_action): the movement keys walk / select / back per
+        // layout, F selects, E backs out, the wheel scrolls. F leads (the widget hoists [{+activate}]).
+        if ( cfg_menu_region() == 2 )
+            return "^7" + forge_key( "use" ) + " " + forge_key( "fwd" ) + " ^3Select" + sep + forge_key( "mright" ) + " ^3Next" + sep +
+                   forge_key( "mleft" ) + " ^3Last" + sep + forge_key( "bwd" ) + " " + forge_key( "melee" ) + " ^3Back" + sep + "Wheel ^3Scroll";
+
+        return "^7" + forge_key( "use" ) + " " + forge_key( "mright" ) + " ^3Select" + sep + forge_key( "bwd" ) + " ^3Next" + sep +
+               forge_key( "fwd" ) + " ^3Last" + sep + forge_key( "mleft" ) + " " + forge_key( "melee" ) + " ^3Back" + sep + "Wheel ^3Scroll";
     }
 
-    return getdvarstring( #"gf_hint_nav", "^7R ^5Select  ^8|  ^7LMB ^5Next  ^8|  ^7RMB ^5Last  ^8|  ^7V ^5Back" );
+    return getdvarstring( #"gf_hint_nav", self menu_nav_plain() );
 }
 
 // Always-on host hint while idle (menu closed, not forging): how to open the menu, with glyphs.
@@ -19570,19 +20434,22 @@ function private menu_idle_hint()
     if ( isdefined( self.gf_ahint_txt ) && isdefined( self.gf_ahint_until ) && gettime() < self.gf_ahint_until )
         txt = self.gf_ahint_txt;
     else if ( is_true( self.gf_forgemode ) )
-        txt = forge_key( "use" ) + " ^3FORGE MODE  ^7aim at a prop, tap to grab";      // the interact icon (klaze 2026-09-23)
-    // Else: controller opens on D-pad Up, keyboard/mouse on ADS+Melee (menu_think) - device-aware (klaze).
+        txt = forge_key( "use" ) + " ^5FORGE MODE  ^3aim at a prop, tap to grab";      // the interact icon (klaze 2026-09-23); control ^3 (09-24)
+    // Else: controller opens on D-pad Up ONLY (the pad's fly bind is ADS + Sprint since 2026-09-25), keyboard/mouse
+    // on F + E (menu_think, 2026-09-24) - device-aware (klaze). The keyboard line LEADS with the F: the
+    // widget hoists [{+activate}] to the front of the line wherever it sits (measured 2026-09-22).
     else if ( isplayer( self ) && self gamepadusedlast() )
         txt = "^3Open menu: ^7" + forge_key( "up" );
     else
-        txt = "^3Open menu: ^7" + forge_key( "ads" ) + " ^7+ " + forge_key( "melee" );   // spaces round the + (klaze)
+        txt = forge_key( "use" ) + " ^7+ " + forge_key( "melee" ) + " ^3Open menu";   // spaces round the + (klaze)
 
     self menu_hint_set( txt, 1 );       // low priority: a world prompt you stand at wins over this line
 }
 
 // ============================================================================================
 // GRANTED CLIENT MENU — the host grants a player their own mini mod-menu (self-features only, no
-// admin). They open/close it with the mod-menu key (ADS+Melee) on their own screen. The menu system
+// admin). They open it with the mod-menu key (F + E on keyboard since 2026-09-24, D-pad Up on a pad - the
+// pad's fly bind is ADS + Sprint since 2026-09-25) on their own screen. The menu system
 // (menu_init/keys_init/build_tree/menu_think) runs for a non-host player exactly as for the host -
 // their inputs read server-side, their hint/menu render on their screen. Their tree is rooted at
 // start_client (a curated page reusing the host's self-verbs); a back-nav gate in menu_think keeps
@@ -19742,8 +20609,14 @@ function private client_menu_grant( silent = 0 )      // runs ON the granted (no
 
     self notify( #"gfmenu_restart" );      // drop any prior menu_think so a re-grant does not stack threads
     self thread menu_think();
-    self thread hudbox_think();
+    self thread hudbox_think();            // idles for a client: the backdrop boxes are host-only for now (hudbox_think)
     self others_hint_show();
+
+    // klaze 2026-09-24: "make fly bind always on for people with client menu access" - the fly bind (pad
+    // ADS + Sprint since 2026-09-25, keyboard Tactical + Melee; fly_bind_think) runs for as long as they hold the menu. This
+    // grant re-runs on every spawn (forge_on_spawned), so the bind is back each life and each round without
+    // the pers switch; fly_bind_think's own restart notify keeps it to one thread.
+    self thread fly_bind_think();
 
     if ( !silent )                          // announce only the first grant, not the per-round re-establish
         self iprintlnbold( "^3Mod Menu: ^2Access Granted" );      // (klaze 2026-09-21: exactly this)
@@ -19760,8 +20633,20 @@ function private client_menu_revoke()
     if ( isdefined( self.gfmenu ) )
         self.gfmenu.current = "";
 
+    // The always-on fly bind goes with the menu - unless the host switched it on for this player himself
+    // (the Fly bind row / `fun flybind on` = the pers switch fun_spawn_rearm honours).
+    if ( !pflag( self, #"gf_fly_bind" ) )
+        self notify( #"gf_flybind_stop" );
+
     self notify( #"gfmenu_restart" );          // stops their menu_think loop
-    self iprintlnbold( "^1Your client menu was removed" );
+    // menu_think is gone, so undo the two things it held (klaze 2026-09-24: "a client with their menu
+    // revoked still sees the open menu hint"): the hint trigger kept its last line ("Open menu") with
+    // nothing left to repaint or delete it, and a keyboard player revoked with the menu open kept the
+    // K&M lock (speed 0, no knife / use / weapon swap) until the round ended. Both helpers are idempotent.
+    self menu_kb_lock_sync( 0 );
+    self menu_melee_lock_sync( 0 );
+    self menu_hint_hide();
+    self iprintlnbold( "^3Mod Menu: ^1Access Removed" );
 }
 
 // The granted player's root page: self-features only, reusing the host verbs/pages. A back-out from
@@ -19786,6 +20671,10 @@ function private client_start_enter( menu )
     self menu_item( "start_client", "Teleport", &menu_switch, "client_tp" );
     self menu_item( "start_client", "Weapons", &menu_switch, "weapons" );
     self menu_item( "start_client", "Camo", &menu_switch, "camo" );
+    // klaze 2026-09-24: "give clients a new "Ammo Type" page" - what THIS player's shots fire (AMMO TYPE block).
+    self menu_item( "start_client", "Ammo Type", &menu_switch, "client_ammo" );
+    // (The Account sub-page is gone - klaze 2026-09-24: "for the clients menu, remove the account menu and move
+    //  achievements to the player menu" - its one surviving row is Player -> Unlock achievements.)
     // (Operator / Outfit live on the Player sub-page - klaze 2026-09-21)
     // No Display page for granted clients (klaze 2026-09-21): the layout / region is a global
     // (gf_menu_region via cfg_seti), so a client must not drive it. Host keeps Display.
@@ -19805,6 +20694,7 @@ function private client_player_enter( menu )
     it.activated = is_true( self.gf_tp );
     it = self menu_item( "client_player", "Fly mode", &act_fly );
     it.activated = is_true( self.gf_fly );
+    it.detail = "pad: hold ADS, click Sprint (menu open too), keyboard Tactical + Melee";     // the always-on fly bind (client_menu_grant)
     // Move speed is per player (gf_speed_pct, read by speed_apply each spawn), so a client can set
     // their own: the same cycle the host's per-client row uses, aimed at self (klaze 2026-09-22).
     self menu_item( "client_player", "Speed: " + client_speed_label( self ), &act_c_speed, self );
@@ -19818,8 +20708,14 @@ function private client_player_enter( menu )
     it.gf_slidemode = 2;
     it.activated = ( slide_mode( self ) == 2 );
     // (no Unlock all here - klaze 2026-09-22)
+    // The outfits are INSIDE Operator now (klaze 2026-09-25: 'move "Outfit / skin" into the operator menu
+    // and call it "Outfit varient"') - build_tree's client-only "Outfit variant" row, act_outfit_variant.
     self menu_item( "client_player", "Operator", &act_client_hub, "operator" );
-    self menu_item( "client_player", "Outfit / skin", &act_client_hub, "outfit" );
+    // klaze 2026-09-24: "remove the account menu and move achievements to the player menu and call it
+    // "Unlock achievments"" - the old Account page's All achievements row: this player's OWN account, queued
+    // like every unlock press (act_account -> unlock_start). Capital A: klaze 2026-09-25.
+    it = self menu_item( "client_player", "Unlock Achievements", &act_account, "ach" );
+    it.detail = "all 44, one per second";
 }
 
 // A shared hub opened from the client's Player page comes BACK to it: the hubs' parent is the
@@ -19829,6 +20725,14 @@ function private client_player_enter( menu )
 function private act_client_hub( item, page )
 {
     self.gfmenu.menus[ page ].parent_id = "client_player";
+    return self menu_switch( undefined, page );
+}
+
+// Operator -> Outfit variant (client menu, klaze 2026-09-25): the shared Outfit hub opened from INSIDE
+// Operator comes back to Operator. A client sets no target, so menu_target_clear never resets this parent.
+function private act_outfit_variant( item, page )
+{
+    self.gfmenu.menus[ page ].parent_id = "operator";
     return self menu_switch( undefined, page );
 }
 
@@ -19856,7 +20760,7 @@ function private act_ctp_host( item )
 {
     if ( !isalive( self ) )
     {
-        self menu_say( "^1spawn first" );
+        self menu_say( "^3Teleport: ^1spawn first" );
         return true;
     }
 
@@ -19864,12 +20768,12 @@ function private act_ctp_host( item )
 
     if ( !isdefined( h ) || h == self )
     {
-        self menu_say( "^1no host to go to" );
+        self menu_say( "^3Teleport: ^1no host" );
         return true;
     }
 
     if ( tp_place( self, h.origin, h.angles ) )
-        self menu_say( "^2teleported to host" );
+        self menu_say( "^3Teleport: ^2to the host" );
 
     return true;
 }
@@ -20061,7 +20965,7 @@ function private prop_def( m, model, label )
 
 // This map's Prop Hunt table as rows (model, size text, scale), or an empty array.
 // [props-gen BEGIN]
-// GENERATED by tools/props-gen.py from the T9 dump - DO NOT EDIT BY HAND. 423 universal props.
+// GENERATED by tools/props-gen.py from the T9 dump - DO NOT EDIT BY HAND. 365 universal props.
 // prop_master()[i] == docs/data/map-props.json universal[i] == the app's cmd_propidx arg.
 function private prop_master()
 {
@@ -20074,7 +20978,6 @@ function private prop_master()
     m = pm( m, "p7_box_cardboard_d_closed", "Box cardboard d closed", 0 );
     m = pm( m, "p7_crate_wood_01", "Crate wood 01", 0 );
     m = pm( m, "p7_crate_wood_01_short", "Crate wood 01 short", 0 );
-    m = pm( m, "p7_emergency_flare", "Emergency flare", 0 );
     m = pm( m, "p7_fir_steps_wood_sml", "Fir steps wood sml", 0 );
     m = pm( m, "p7_fir_targetdummy_stand_back", "Fir targetdummy stand back", 0 );
     m = pm( m, "p7_fir_tire_single_02", "Fir tire single 02", 0 );
@@ -20083,18 +20986,15 @@ function private prop_master()
     m = pm( m, "p7_fxp_sphere_belt_trophy_system", "Fxp sphere belt trophy system", 0 );
     m = pm( m, "p7_jun_altar_ruins", "Jun altar ruins", 0 );
     m = pm( m, "p7_jun_barrel_wood_full", "Jun barrel wood full", 1 );
-    m = pm( m, "p7_jun_barrel_wood_lid", "Jun barrel wood lid", 0 );
     m = pm( m, "p7_jun_basket_fisherman_01", "Jun basket fisherman 01", 0 );
     m = pm( m, "p7_jun_bench_wood", "Jun bench wood", 0 );
     m = pm( m, "p7_laundry_cart_01", "Laundry cart 01", 0 );
-    m = pm( m, "p7_meat_chicken_wing", "Meat chicken wing", 0 );
     m = pm( m, "p7_medical_stretcher_set", "Medical stretcher set", 0 );
     m = pm( m, "p7_mou_barrel_metal_02_dmg_wet_tan", "Mou barrel metal 02 dmg wet tan", 1 );
     m = pm( m, "p7_mou_cabinet_filing_02", "Mou cabinet filing 02", 0 );
     m = pm( m, "p7_mou_chair_computer", "Mou chair computer", 0 );
     m = pm( m, "p7_mp_suitcase_bomb", "Mp suitcase bomb", 0 );
     m = pm( m, "p7_ntx_tool_wrench_sml", "Ntx tool wrench sml", 0 );
-    m = pm( m, "p7_ris_welding_arc_cart_wheel", "Ris welding arc cart wheel", 0 );
     m = pm( m, "p7_rus_beam_stack_snow_cap", "Beam stack snow cap", 0 );
     m = pm( m, "p7_rus_crate_wood_02_snow", "Crate wood 02 snow", 0 );
     m = pm( m, "p7_shelf_industrial_vintage_96", "Shelf industrial vintage 96", 0 );
@@ -20107,28 +21007,16 @@ function private prop_master()
     m = pm( m, "p7_zm_sha_foliage_tree_trunk_fallen", "Zm sha foliage tree trunk fallen", 0 );
     m = pm( m, "p8_aml_chicken_female_03", "Aml chicken female 03", 0 );
     m = pm( m, "p8_backpack_military", "Backpack military", 0 );
-    m = pm( m, "p8_bench_garden_divider", "Bench garden divider", 0 );
-    m = pm( m, "p8_bench_garden_endcap_lt", "Bench garden endcap lt", 0 );
-    m = pm( m, "p8_bench_garden_endcap_rt", "Bench garden endcap rt", 0 );
     m = pm( m, "p8_bench_garden_wood_full", "Bench garden wood full", 0 );
-    m = pm( m, "p8_big_cylinder", "Big cylinder", 0 );
     m = pm( m, "p8_big_sphere", "Big sphere", 0 );
     m = pm( m, "p8_box_cardboard_d_closed", "Box cardboard d closed", 0 );
     m = pm( m, "p8_cai_pole_utility_box", "Cai pole utility box", 0 );
     m = pm( m, "p8_col_barrel_metal_02_tan_dmg", "Col barrel metal 02 tan dmg", 1 );
     m = pm( m, "p8_col_nitrogen_tank_worn_01_no_labels", "Col nitrogen tank worn 01 no labels", 0 );
-    m = pm( m, "p8_col_nitrogen_tank_worn_welded_01_decals", "Col nitrogen tank worn welded 01 decals", 0 );
     m = pm( m, "p8_cos_chair_console_old", "Cos chair console old", 0 );
     m = pm( m, "p8_cos_tool_chest_rolling_lrg_full", "Cos tool chest rolling lrg full", 0 );
-    m = pm( m, "p8_cos_tool_chest_rolling_lrg_sml", "Cos tool chest rolling lrg sml", 0 );
-    m = pm( m, "p8_cos_tool_chest_rolling_lrg_wheel", "Cos tool chest rolling lrg wheel", 0 );
     m = pm( m, "p8_crate_plastic_locking", "Crate plastic locking", 0 );
     m = pm( m, "p8_fxanim_test_concertina_wire_mod", "Test concertina wire mod", 0 );
-    m = pm( m, "p8_fxanim_test_concertina_wire_mod_spawn_1", "Test concertina wire mod spawn 1", 0 );
-    m = pm( m, "p8_fxanim_test_concertina_wire_mod_spawn_2", "Test concertina wire mod spawn 2", 0 );
-    m = pm( m, "p8_fxanim_test_concertina_wire_mod_spawn_3", "Test concertina wire mod spawn 3", 0 );
-    m = pm( m, "p8_fxanim_test_concertina_wire_mod_spawn_4", "Test concertina wire mod spawn 4", 0 );
-    m = pm( m, "p8_fxanim_test_concertina_wire_mod_spawn_5", "Test concertina wire mod spawn 5", 0 );
     m = pm( m, "p8_fxanim_wz_death_stash_mod", "Death stash mod", 0 );
     m = pm( m, "p8_fxanim_wz_parachute_supplydrop_mod", "Parachute supplydrop mod", 0 );
     m = pm( m, "p8_fxanim_wz_supply_stash_04_mod", "Supply stash 04 mod", 0 );
@@ -20167,12 +21055,10 @@ function private prop_master()
     m = pm( m, "p8_spa_pottery_terracotta_a", "Spa pottery terracotta a", 0 );
     m = pm( m, "p8_spa_pottery_terracotta_c", "Spa pottery terracotta c", 0 );
     m = pm( m, "p8_spa_trashcan_covered", "Spa trashcan covered", 0 );
-    m = pm( m, "p8_spa_trashcan_lid", "Spa trashcan lid", 0 );
     m = pm( m, "p8_sta_trash_shredded_paper_bag_02", "Sta trash shredded paper bag 02", 0 );
     m = pm( m, "p8_tire_old_dirty_01_dusty", "Tire old dirty 01 dusty", 0 );
     m = pm( m, "p8_usa_lounge_ottoman_01_white", "Lounge ottoman 01 white", 0 );
     m = pm( m, "p8_usa_wheelbarrow_full", "Wheelbarrow full", 0 );
-    m = pm( m, "p8_usa_wheelbarrow_tire", "Wheelbarrow tire", 0 );
     m = pm( m, "p8_water_container_plastic_small", "Water container plastic small", 0 );
     m = pm( m, "p8_wmd_box_cardboard_03", "Wmd box cardboard 03", 0 );
     m = pm( m, "p8_wmd_generator", "Wmd generator", 0 );
@@ -20186,19 +21072,13 @@ function private prop_master()
     m = pm( m, "p8_wz_ammo_pickup_rockets", "Ammo pickup rockets", 0 );
     m = pm( m, "p8_wz_ammo_pickup_shotgun", "Ammo pickup shotgun", 0 );
     m = pm( m, "p8_wz_foliage_cactus_cardon_lrg_optimized", "Cactus cardon lrg optimized", 0 );
-    m = pm( m, "p8_wz_perk_pickups_deadsilence", "Perk pickups deadsilence", 0 );
-    m = pm( m, "p8_wz_perk_pickups_engineer", "Perk pickups engineer", 0 );
-    m = pm( m, "p8_wz_perk_pickups_gungho", "Perk pickups gungho", 0 );
     m = pm( m, "p8_wz_perk_pickups_medic", "Perk pickups medic", 0 );
     m = pm( m, "p8_wz_skt_speaker_standing", "Skt speaker standing", 0 );
     m = pm( m, "p8_wz_skt_trash_can_03", "Skt trash can 03", 0 );
     m = pm( m, "p8_wz_snowball_pile_mound", "Snowball pile mound", 0 );
     m = pm( m, "p8_wz_supply_stash_health_lvl3", "Supply stash health lvl3", 0 );
     m = pm( m, "p8_zm_esc_piano", "Zm esc piano", 0 );
-    m = pm( m, "p8_zm_esc_piano_sheets", "Zm esc piano sheets", 0 );
     m = pm( m, "p8_zm_esc_rope_spool", "Zm esc rope spool", 0 );
-    m = pm( m, "p8_zm_red_coin_gold", "Zm red coin gold", 0 );
-    m = pm( m, "p8_zm_zod_coffee_table_rectangle_door", "Zm zod coffee table rectangle door", 0 );
     m = pm( m, "p8_zm_zod_coffee_table_rectangle_open", "Zm zod coffee table rectangle open", 0 );
     m = pm( m, "p9_ame_telephone_booth_01_closed", "Ame telephone booth 01 closed", 0 );
     m = pm( m, "p9_amk_heater_box_sml_on", "Heater box sml on", 0 );
@@ -20225,13 +21105,11 @@ function private prop_master()
     m = pm( m, "p9_crate_wood_shipping_01_large_squ_01_closed", "Crate wood shipping 01 large squ 01 closed", 0 );
     m = pm( m, "p9_dogtags_adler_enemy", "Dog tags (enemy)", 0 );
     m = pm( m, "p9_dogtags_adler_friendly", "Dog tags (friendly)", 0 );
-    m = pm( m, "p9_dun_drying_rack_01_only", "Dun drying rack 01 only", 0 );
     m = pm( m, "p9_dun_stone_table_01", "Dun stone table 01", 0 );
     m = pm( m, "p9_dun_wood_village_furniture_chair_01", "Dun wood village furniture chair 01", 0 );
     m = pm( m, "p9_dun_wood_village_furniture_table_01", "Dun wood village furniture table 01", 0 );
     m = pm( m, "p9_ech_ac_unit_wet", "Ech ac unit wet", 0 );
     m = pm( m, "p9_ech_cardboard_box_open_01_wet", "Ech cardboard box open 01 wet", 0 );
-    m = pm( m, "p9_ech_duct_metal_square_elbow_right_90_dark_clean_wet", "Ech duct metal square elbow right 90 dark clean wet", 0 );
     m = pm( m, "p9_ech_hvac_unit_lrg_01_wet", "Ech hvac unit lrg 01 wet", 0 );
     m = pm( m, "p9_ech_roof_skylight_01_wet", "Ech roof skylight 01 wet", 0 );
     m = pm( m, "p9_ech_shredded_paper_bin_01", "Ech shredded paper bin 01", 0 );
@@ -20251,8 +21129,6 @@ function private prop_master()
     m = pm( m, "p9_ger_kgb_mout_barrier_concrete_48_d", "Mout barrier concrete 48 d", 0 );
     m = pm( m, "p9_ger_tank_ac_unit_01", "Tank ac unit 01", 0 );
     m = pm( m, "p9_ger_tank_barrel_metal_01", "Metal barrel", 1 );
-    m = pm( m, "p9_ger_tank_barrel_metal_01_btm", "Tank barrel metal 01 btm", 0 );
-    m = pm( m, "p9_ger_tank_barrel_metal_01_lid", "Tank barrel metal 01 lid", 0 );
     m = pm( m, "p9_ger_tank_cabinet_metal_standing_01", "Tank cabinet metal standing 01", 0 );
     m = pm( m, "p9_ger_tank_computer_server_diagnostic_01_silver_prophunt", "Server rack (PH)", 0 );
     m = pm( m, "p9_ger_tank_gas_pump_01", "Gas pump", 0 );
@@ -20264,17 +21140,11 @@ function private prop_master()
     m = pm( m, "p9_lat_ammo_crate_01_grime", "Ammo crate 01 grime", 0 );
     m = pm( m, "p9_lat_ammo_crate_32x48_grime", "Ammo crate 32x48 grime", 0 );
     m = pm( m, "p9_lat_barrel_barrel_drum_metal_01_grime", "Barrel barrel drum metal 01 grime", 1 );
-    m = pm( m, "p9_lat_barrel_barrel_drum_metal_snow_cap", "Barrel barrel drum metal snow cap", 0 );
     m = pm( m, "p9_lat_equipment_bag_first_aid_lrg", "Equipment bag first aid lrg", 0 );
     m = pm( m, "p9_lat_hedgehog_metal_snow", "Czech hedgehog", 0 );
     m = pm( m, "p9_lat_sandbag_cover_02_grime", "Sandbag cover", 0 );
     m = pm( m, "p9_lat_sandbag_cover_scatter_01_grime", "Sandbag cover scatter 01 grime", 0 );
     m = pm( m, "p9_lat_storage_tool_cart_clean_full", "Storage tool cart clean full", 0 );
-    m = pm( m, "p9_lat_storage_tool_cart_drawer_lrg", "Storage tool cart drawer lrg", 0 );
-    m = pm( m, "p9_lat_storage_tool_cart_drawer_lrg_clean", "Storage tool cart drawer lrg clean", 0 );
-    m = pm( m, "p9_lat_storage_tool_cart_drawer_sml_clean", "Storage tool cart drawer sml clean", 0 );
-    m = pm( m, "p9_lat_storage_tool_cart_wheel_lrg_clean", "Storage tool cart wheel lrg clean", 0 );
-    m = pm( m, "p9_lat_storage_tool_cart_wheel_sml_clean", "Storage tool cart wheel sml clean", 0 );
     m = pm( m, "p9_m114_155mm_artillery_gun_01_pickup", "155mm artillery gun", 0 );
     m = pm( m, "p9_mal_arcade_cabinet_08", "Arcade cabinet", 0 );
     m = pm( m, "p9_mal_arcade_cabinet_09", "Arcade cabinet 09", 0 );
@@ -20293,13 +21163,11 @@ function private prop_master()
     m = pm( m, "p9_mal_trashcan_exterior_01", "Trashcan exterior 01", 0 );
     m = pm( m, "p9_mal_vending_machine_soda_01", "Vending machine soda 01", 0 );
     m = pm( m, "p9_mal_vending_machine_soda_02", "Vending machine soda 02", 0 );
-    m = pm( m, "p9_mal_vending_machine_soda_02_exp", "Vending machine soda 02 exp", 0 );
     m = pm( m, "p9_mal_water_fountain_wall_01", "Water fountain wall 01", 0 );
     m = pm( m, "p9_mkg_bamboo_baskets_stackable_01", "Mkg bamboo baskets stackable 01", 0 );
     m = pm( m, "p9_mkg_wood_chopped_03", "Mkg wood chopped 03", 0 );
     m = pm( m, "p9_nam_fr_col_bldg_wood_deco_cabinet_02", "Nam fr col bldg wood deco cabinet 02", 0 );
     m = pm( m, "p9_nic_bale_cocaine_leaves_01", "Bale cocaine leaves 01", 0 );
-    m = pm( m, "p9_nic_bale_cocaine_leaves_01_top", "Bale cocaine leaves 01 top", 0 );
     m = pm( m, "p9_nic_can_gas_metal_lrg", "Can gas metal lrg", 1 );
     m = pm( m, "p9_nic_container_plastic_barrel", "Container plastic barrel", 1 );
     m = pm( m, "p9_nic_jerrycan_fuel_sml", "Jerrycan fuel sml", 1 );
@@ -20314,11 +21182,7 @@ function private prop_master()
     m = pm( m, "p9_nt6_mannequin_clothes_female_03_dirty_full_prophunt", "Mannequin F3 (PH)", 0 );
     m = pm( m, "p9_nt6_mannequin_clothes_male_01_dirty_full_prophunt", "Mannequin M1 (PH)", 0 );
     m = pm( m, "p9_nt6_mannequin_clothes_male_02_dmg_full", "Mannequin clothes male 02 dmg full", 0 );
-    m = pm( m, "p9_nt6_mannequin_clothes_male_02_head_dirty", "Mannequin clothes male 02 head dirty", 0 );
-    m = pm( m, "p9_nt6_mannequin_clothes_male_02_torso_dmg", "Mannequin clothes male 02 torso dmg", 0 );
     m = pm( m, "p9_nt6_refrigerator_vintage_closed_02", "Vintage fridge", 0 );
-    m = pm( m, "p9_nt6_refrigerator_vintage_door_01", "Refrigerator vintage door 01", 0 );
-    m = pm( m, "p9_nt6_refrigerator_vintage_door_02", "Refrigerator vintage door 02", 0 );
     m = pm( m, "p9_nt6_sofa_dmg_chair", "Sofa dmg chair", 0 );
     m = pm( m, "p9_nt6_sofa_dmg_couch_full", "Sofa dmg couch full", 0 );
     m = pm( m, "p9_nt6_sofa_dmg_couch_pillow", "Sofa dmg couch pillow", 0 );
@@ -20336,7 +21200,6 @@ function private prop_master()
     m = pm( m, "p9_pot_of_gold_pristine", "Pot of gold", 0 );
     m = pm( m, "p9_rm_dwn_bench_landing", "Dwn bench landing", 0 );
     m = pm( m, "p9_rm_dwn_chair_office_cushion_base_full", "Dwn chair office cushion base full", 0 );
-    m = pm( m, "p9_rm_dwn_chair_office_cushion_seat", "Dwn chair office cushion seat", 0 );
     m = pm( m, "p9_rm_dwn_couch_01", "Dwn couch 01", 0 );
     m = pm( m, "p9_rm_dwn_end_table_chalet_01", "Dwn end table chalet 01", 0 );
     m = pm( m, "p9_rm_exp_bullet_train_food_cart", "Exp bullet train food cart", 0 );
@@ -20346,7 +21209,6 @@ function private prop_master()
     m = pm( m, "p9_rm_exp_ticket_kiosk_03", "Exp ticket kiosk 03", 0 );
     m = pm( m, "p9_rm_exp_trash_can_03", "Exp trash can 03", 0 );
     m = pm( m, "p9_rm_exp_turnstile_01_full", "Exp turnstile 01 full", 0 );
-    m = pm( m, "p9_rm_exp_turnstile_turn", "Exp turnstile turn", 0 );
     m = pm( m, "p9_rm_hjk_barrel_boat", "Barrel boat", 0 );
     m = pm( m, "p9_rm_hjk_pillow_boat_long_01", "Pillow boat long 01", 0 );
     m = pm( m, "p9_rm_pai_barrel_plastic", "Barrel plastic", 1 );
@@ -20376,11 +21238,7 @@ function private prop_master()
     m = pm( m, "p9_rm_rai_sport_ball_basketball_01_new", "Sport ball basketball 01 new", 0 );
     m = pm( m, "p9_rm_rai_trashbin_plastic", "Trashbin plastic", 0 );
     m = pm( m, "p9_rm_rai_vase_china", "Vase china", 0 );
-    m = pm( m, "p9_rm_rai_water_cooler_metal_cup", "Water cooler metal cup", 0 );
-    m = pm( m, "p9_rm_rai_water_cooler_metal_cup_holder", "Water cooler metal cup holder", 0 );
     m = pm( m, "p9_rm_rai_water_cooler_metal_full", "Water cooler", 0 );
-    m = pm( m, "p9_rm_rai_water_cooler_metal_line", "Water cooler metal line", 0 );
-    m = pm( m, "p9_rm_rai_water_cooler_metal_water_jug", "Water cooler metal water jug", 0 );
     m = pm( m, "p9_rm_rwd_door_wood_rustic_01_bare", "Rwd door wood rustic 01 bare", 0 );
     m = pm( m, "p9_rm_stm_bench_office", "Stm bench office", 0 );
     m = pm( m, "p9_rm_stm_display_rack_postcard", "Stm display rack postcard", 0 );
@@ -20408,16 +21266,12 @@ function private prop_master()
     m = pm( m, "p9_rus_ammo_crate_01", "Ammo crate 01", 0 );
     m = pm( m, "p9_rus_ammo_crate_03", "Ammo crate 03", 0 );
     m = pm( m, "p9_rus_appliance_refrigeration_retail_freezer", "Appliance refrigeration retail freezer", 0 );
-    m = pm( m, "p9_rus_appliance_refrigeration_retail_freezer_door_left", "Appliance refrigeration retail freezer door left", 0 );
-    m = pm( m, "p9_rus_appliance_refrigeration_retail_freezer_door_right", "Appliance refrigeration retail freezer door right", 0 );
-    m = pm( m, "p9_rus_appliance_refrigeration_retail_freezer_tray", "Appliance refrigeration retail freezer tray", 0 );
     m = pm( m, "p9_rus_bench_park_long", "Long park bench", 0 );
     m = pm( m, "p9_rus_cabinet_wood_01", "Cabinet wood 01", 0 );
     m = pm( m, "p9_rus_cart_utility_01", "Cart utility 01", 0 );
     m = pm( m, "p9_rus_chair_office_swivel_01", "Chair office swivel 01", 0 );
     m = pm( m, "p9_rus_computer_02b", "Computer 02b", 0 );
     m = pm( m, "p9_rus_computer_server_02", "Computer server", 0 );
-    m = pm( m, "p9_rus_concrete_bench_01_decal", "Concrete bench 01 decal", 0 );
     m = pm( m, "p9_rus_concrete_bench_01_wet", "Concrete bench 01 wet", 0 );
     m = pm( m, "p9_rus_crate_wood_sml_grime", "Crate wood sml grime", 0 );
     m = pm( m, "p9_rus_fire_extinguisher_police", "Fire extinguisher police", 0 );
@@ -20425,11 +21279,8 @@ function private prop_master()
     m = pm( m, "p9_rus_oil_drum_01", "Oil drum", 1 );
     m = pm( m, "p9_rus_painting_wooden_frame_2x3_06", "Painting wooden frame 2x3 06", 0 );
     m = pm( m, "p9_rus_shell_cover_soviet", "Shell cover soviet", 0 );
-    m = pm( m, "p9_rus_tank_welding_guage", "Tank welding guage", 0 );
     m = pm( m, "p9_rus_tank_welding_med_full", "Tank welding med full", 0 );
-    m = pm( m, "p9_rus_tank_welding_valve", "Tank welding valve", 0 );
     m = pm( m, "p9_rus_trashcan_full", "Trashcan full", 0 );
-    m = pm( m, "p9_rus_trashcan_lid", "Trashcan lid", 0 );
     m = pm( m, "p9_rus_welding_arc_cart_set", "Welding arc cart set", 0 );
     m = pm( m, "p9_ship_barrel_drum_metal_steel_01", "Barrel drum metal steel 01", 1 );
     m = pm( m, "p9_ship_barrel_drum_metal_steel_btm_01", "Barrel drum metal steel btm 01", 0 );
@@ -20437,7 +21288,6 @@ function private prop_master()
     m = pm( m, "p9_ship_chair_metal_folding_open", "Chair metal folding open", 0 );
     m = pm( m, "p9_ship_console_chair", "Console chair", 0 );
     m = pm( m, "p9_ship_zipline_post_a", "Zipline post a", 0 );
-    m = pm( m, "p9_ship_zipline_post_a_light", "Zipline post a light", 0 );
     m = pm( m, "p9_sm_gas_foliage_cactus_barrel_red_med_half_02", "Gas foliage cactus barrel red med half 02", 0 );
     m = pm( m, "p9_snow_pile_01_plowed_02", "Snow pile 01 plowed 02", 0 );
     m = pm( m, "p9_spy_ashtray_tall", "Spy ashtray tall", 0 );
@@ -20445,7 +21295,6 @@ function private prop_master()
     m = pm( m, "p9_stk_kitchen_fridge_old_01", "Stk kitchen fridge old 01", 0 );
     m = pm( m, "p9_stk_trashbin_plastic", "Stk trashbin plastic", 0 );
     m = pm( m, "p9_sur_ammo_box_01", "Sur ammo box 01", 0 );
-    m = pm( m, "p9_territory_cylinder", "Territory cylinder", 0 );
     m = pm( m, "p9_tool_box_small_01", "Tool box small 01", 0 );
     m = pm( m, "p9_tool_drill_press_01", "Tool drill press 01", 0 );
     m = pm( m, "p9_tur_airf_military_hard_crate_01", "Tur airf military hard crate 01", 0 );
@@ -20455,8 +21304,6 @@ function private prop_master()
     m = pm( m, "p9_usa_chair_rolled_01", "Chair rolled 01", 0 );
     m = pm( m, "p9_usa_couch_04", "Couch", 0 );
     m = pm( m, "p9_usa_dumpster_01_full", "Dumpster", 0 );
-    m = pm( m, "p9_usa_dumpster_01_lid_lt", "Dumpster 01 lid lt", 0 );
-    m = pm( m, "p9_usa_dumpster_01_lid_rt", "Dumpster 01 lid rt", 0 );
     m = pm( m, "p9_usa_electrical_box_d03", "Electrical box d03", 0 );
     m = pm( m, "p9_usa_fuselage_cabinet_drawer_short", "Fuselage cabinet drawer short", 0 );
     m = pm( m, "p9_usa_generator_mep_25a_01", "Generator mep 25a 01", 0 );
@@ -20477,7 +21324,6 @@ function private prop_master()
     m = pm( m, "p9_usa_street_trash_can_01_full", "Street trash can 01 full", 0 );
     m = pm( m, "p9_usa_street_trash_can_bag", "Street trash can bag", 0 );
     m = pm( m, "p9_usa_streetlamp_tall_01_mod", "Streetlamp tall 01 mod", 0 );
-    m = pm( m, "p9_usa_streetlamp_tall_cap_01", "Streetlamp tall cap 01", 0 );
     m = pm( m, "p9_usa_surf_longboard_01", "Surfboard", 0 );
     m = pm( m, "p9_usa_ticonderoga_stacked_crate_48", "Ticonderoga stacked crate 48", 0 );
     m = pm( m, "p9_usa_vending_coffee", "Vending coffee", 0 );
@@ -20650,7 +21496,7 @@ function private act_barrel_spawn( item, model, scale )
 
     if ( !isdefined( b ) )
     {
-        self menu_say( "^1spawn failed" );
+        self menu_say( "^3Barrel: ^1spawn failed" );
         return true;
     }
 
@@ -20671,7 +21517,7 @@ function private act_barrel_spawn( item, model, scale )
 
     level.gf_props[ level.gf_props.size ] = b;
     b thread barrel_think();
-    self menu_say( "^2placed explosive " + prop_short( model ) + " (" + level.gf_props.size + " this round)" );
+    self menu_say( "^3Placed: ^7explosive " + prop_short( model ) + " ^8(" + level.gf_props.size + " this round)" );
     return true;
 }
 
@@ -20829,7 +21675,7 @@ function private act_prop_spawn( item, model, scale )
 
     if ( !isdefined( prop ) )
     {
-        self menu_say( "^1spawn failed" );
+        self menu_say( "^3Prop: ^1spawn failed" );
         return true;
     }
 
@@ -20846,7 +21692,7 @@ function private act_prop_spawn( item, model, scale )
         level.gf_props = [];
 
     level.gf_props[ level.gf_props.size ] = prop;
-    self menu_say( "^2placed " + prop_short( model ) + " (" + level.gf_props.size + " this round)" );
+    self menu_say( "^3Placed: ^7" + prop_short( model ) + " ^8(" + level.gf_props.size + " this round)" );
     return true;
 }
 
@@ -20854,7 +21700,7 @@ function private act_prop_delete( item, all )
 {
     if ( !isdefined( level.gf_props ) || level.gf_props.size == 0 )
     {
-        self menu_say( "^1no props placed this round" );
+        self menu_say( "^3Undo: ^1nothing placed this round" );
         return true;
     }
 
@@ -20872,7 +21718,7 @@ function private act_prop_delete( item, all )
         }
 
         level.gf_props = [];
-        self menu_say( "^2removed " + n + " props" );
+        self menu_say( "^3Props: ^2" + n + " removed" );
         return true;
     }
 
@@ -20887,7 +21733,7 @@ function private act_prop_delete( item, all )
     if ( isdefined( last ) )
         last delete();
 
-    self menu_say( "^2removed the last prop (" + kept.size + " left)" );
+    self menu_say( "^3Undo: ^2last prop removed ^8(" + kept.size + " left)" );
     return true;
 }
 
@@ -22536,6 +23382,7 @@ function private panel_verb( action, arg )
         case "tpto":         return self cmd_tpto( arg );
         case "entdel":       return self cmd_entdel( arg );
         case "entclear":     return self cmd_entclear( tolower( arg ) );
+        case "resetmods":    return self mods_reset_all();      // RESET ALL MODS block (klaze 2026-09-25)
         case "parachute":    cfg_seti( #"gf_parachute", int( arg ) ); para_apply_all(); return "parachutes " + ( ( int( arg ) == 1 ) ? "everyone" : ( ( int( arg ) == 2 ) ? "host only" : "OFF" ) );
         case "radar":        cfg_seti( #"gf_radar", int( arg ) ); return "radar " + arg;
         // the in-game rows these replace are app-only since the 2026-09-23 menu trim
@@ -22544,6 +23391,7 @@ function private panel_verb( action, arg )
         case "matchinfo":    self act_match_info( spawnstruct() );   return "match info printed to the feed";
         case "nltest":       return self nltest_run( tolower( arg ) );
         case "fun":          return self fun_verb( tolower( arg ) );
+        case "unlock":       return self unlock_verb( tolower( arg ) );
         case "perkone":
             p = cmd_target();
             if ( !isdefined( p ) )
@@ -22574,6 +23422,7 @@ function private sandbox_on_spawned()
     level.gf_glow_bump = 1;             // an enemy's glow is reset on his client when he spawns: re-send
     self para_apply();
     self thread vprompt_think();
+    self val::reset( #"gf_noexit", "disable_usability" );    // a new life rides nothing: never carry the kind-1 ride lock over
 }
 
 // ── RADAR & MARKERS ──────────────────────────────────────────────────────────────────────────────
@@ -22972,9 +23821,10 @@ function private act_radar_off( item )
 // function_8b8a321a( 1 ) - which arm the free-fall + parachute (player_free_fall.gsc:100
 // allow_player_basejumping uses the same pair; vip.gsc:1793 turns them off for the VIP). The mod calls
 // that pair itself, per player, per spawn: no gametype-setting write, so no match reload.
-// gf_parachute 0 off (stock) / 1 everyone / 2 host only. Only a player WE armed is ever disarmed, so a
-// real Fireteam match keeps its own. ⚠ UNMEASURED: the height the engine starts a free-fall at.
-function private cfg_parachute() { return cfg_geti( #"gf_parachute", 0 ); }
+// gf_parachute 0 off (stock) / 1 everyone (the DEFAULT since klaze 2026-09-24: "Make parashoots on by
+// default") / 2 host only. Only a player WE armed is ever disarmed, so a real Fireteam match keeps its own.
+// ⚠ UNMEASURED: the height the engine starts a free-fall at.
+function private cfg_parachute() { return cfg_geti( #"gf_parachute", 1 ); }
 
 function private para_apply()
 {
@@ -23015,7 +23865,9 @@ function private act_parachute( item, v )
     return true;
 }
 
-// An app dvar write (gf_parachute) lands on the living players within a second, no verb needed.
+// An app dvar write (gf_parachute, gf_invwall) lands on the living players within a second, no verb
+// needed. Invisible walls re-grant every second while on (a mid-life loadout re-give clears perks)
+// and strip once when they go back to stock.
 function private sandbox_watch()
 {
     if ( isdefined( level.gf_sandbox_watch ) )
@@ -23024,6 +23876,8 @@ function private sandbox_watch()
     level.gf_sandbox_watch = 1;
     level endon( #"game_ended" );
     last = cfg_parachute();
+    lastw = cfg_invwall();
+    lastm = cfg_melee();
 
     for ( ;; )
     {
@@ -23035,6 +23889,21 @@ function private sandbox_watch()
             last = m;
             para_apply_all();
         }
+
+        w = cfg_invwall();
+
+        if ( w || w != lastw )
+            mod_invwall_apply_all();
+
+        lastw = w;
+
+        // gf_melee (MELEE & PINGS): re-set every second while off (a respawn / loadout re-give), once on a change
+        mm = cfg_melee();
+
+        if ( !mm || mm != lastm )
+            melee_apply_all();
+
+        lastm = mm;
     }
 }
 
@@ -23282,6 +24151,28 @@ function private vprompt_think()
             v = self vprompt_find();
 
         self vprompt_show( v );
+
+        // A Wraith has no seat, so the engine's hold-to-enter does nothing on it: our own hold (3 x 0.2 s)
+        // starts the pilot. Found even with the prompts switched off (gf_ahint 0). WRAITH PILOT.
+        w = v;
+
+        if ( !isdefined( w ) && !( self isinvehicle() ) )
+            w = self vprompt_find();
+
+        // The Wraith (no player seat, measured) starts after 0.6 s. Any other aircraft first gets the engine's own
+        // hold-to-enter; still on foot after 1.2 s = it had no seat for you -> the pilot (klaze 2026-09-25).
+        if ( pilot_is( w ) && !is_true( self.gf_wraith_on ) && !( self isinvehicle() ) && self wraith_use_held() )
+        {
+            self.gf_wraith_hold = ( isdefined( self.gf_wraith_hold ) ? self.gf_wraith_hold : 0 ) + 1;
+
+            if ( self.gf_wraith_hold >= ( wraith_is( w ) ? 3 : 6 ) )
+            {
+                self.gf_wraith_hold = 0;
+                self wraith_pilot_start( w );
+            }
+        }
+        else
+            self.gf_wraith_hold = 0;
     }
 }
 
@@ -23327,6 +24218,20 @@ function private vprompt_find()
 
         best = v;
         bestd = dsq;
+    }
+
+    // An aircraft hovers in clear air above where it was spawned, or is simply big: its centre sits beyond 220 u even
+    // when you are at a wing - klaze 2026-09-25: "works but i had to enter with the menu not with the interaction".
+    // The one you AIM at within 600 u counts too. Aim-only on purpose: F is also the pickup / door / gunner-seat key
+    // ("keep in mind using F normally on the stock aircraft and also using F to get into the passenger seats"), so a
+    // nearby aircraft you are not looking at never takes an F hold. Kind 1 only (a drivable has the engine's prompt).
+    if ( !isdefined( best ) )
+    {
+        tr = bullettrace( eye, eye + vectorscale( fwd, 600 ), 1, self );
+        a = tr[ #"entity" ];
+
+        if ( isdefined( a ) && isvehicle( a ) && a.gf_kind === 1 && pilot_is( a ) && !isdefined( a getseatoccupant( 0 ) ) )
+            best = a;
     }
 
     return best;
@@ -23381,7 +24286,8 @@ function private vprompt_show( v )
         self.gf_vp_trig = t;
     }
 
-    t.origin = v.origin;
+    // an aircraft hovering out of the trigger's reach (radius 240, height 200) gets the trigger at the player instead
+    t.origin = ( distancesquared( v.origin, self.origin ) > 200 * 200 ) ? self.origin : v.origin;
 
     if ( t.gf_txt !== txt )
     {
@@ -23600,7 +24506,14 @@ function private pflag_set( p, key, on )
 // ── Fly bind (PHA "Bind noclip to Tactical + Melee"). fly_think already flies on every axis -
 // forward follows the view pitch - so the only gap was the bind: TACTICAL + MELEE toggles fly
 // with the menu closed. Per player (the menu target), kept across lives. Ignored while the
-// menu is open, while forging and in a vehicle, so it never fights those bindings. ──────────
+// menu is open, while forging and in a vehicle, so it never fights those bindings.
+// On a CONTROLLER the combo is ADS + SPRINT since 2026-09-25 (was ADS + Melee from klaze's 09-24 "can it be ads+melee?") - free there
+// because a pad opens the menu with D-pad Up (menu_think no longer takes ADS+Melee from a pad).
+// Keyboard / mouse keeps Tactical + Melee (its menu key is F + E since 2026-09-24). Decided per
+// press from the device used last (gamepadusedlast), the same test the menu open uses.
+// ALWAYS ON for a client-menu holder (klaze 2026-09-24): client_menu_grant starts it every grant /
+// spawn, client_menu_revoke stops it (unless the pers switch below is on), and switching it off here
+// while he holds the menu leaves it running. ──────────
 function private act_fly_bind( item )
 {
     p = self menu_target();
@@ -23610,10 +24523,16 @@ function private act_fly_bind( item )
 
     if ( on )
         p thread fly_bind_think();
+    else if ( client_has_grant( p ) )
+    {
+        // Always on while he holds the client menu (klaze 2026-09-24) - only taking the menu back stops it.
+        self menu_say( "^3Fly bind: ^2stays on ^7- always on with the client menu" + self target_tail( p ) );
+        return true;
+    }
     else
         p notify( #"gf_flybind_stop" );
 
-    self menu_say( "^3Fly bind, Tactical + Melee: " + ( on ? "^2ON" : "^1OFF" ) + self target_tail( p ) );
+    self menu_say( "^3Fly bind (pad: hold ADS, click Sprint; keyboard Tactical + Melee): " + ( on ? "^2ON" : "^1OFF" ) + self target_tail( p ) );
     return true;
 }
 
@@ -23623,15 +24542,55 @@ function private fly_bind_think()
     self endon( #"gf_flybind_stop" );
     self endon( #"disconnect" );
 
+    t_ads = 0;
+    t_spr = 0;
+    was_ads = self adsbuttonpressed();      // seeded from the live buttons (bocw-57): a thread (re)started with them
+    was_spr = self sprintbuttonpressed();   // already down - every spawn for a grant holder - is not a fresh press
+
     for ( ;; )
     {
         waitframe( 1 );
 
-        if ( !isalive( self ) || self tp_menu_open() || self forge_active() || self isinvehicle() )
+        // pad: ADS + SPRINT (L2 + L3) - klaze 2026-09-25: "i want to be able to toggle fly with menu open so can we
+        // make it ads+l3 (sprint)?". Neither is a menu key on a pad (D-pad + melee-close), so it works WITH the menu
+        // open. It toggles on a SPRINT CLICK WHILE ADS IS HELD (klaze 2026-09-25: "if im holding ads i can click
+        // sprint to toggle fly mode"), or when both are pressed within 200 ms in either order (bocw-57). A HELD
+        // sprint plus an ADS click never counts - fast fly (fly_think) and sprint-to-fire stay safe. Accepted
+        // overlap: ADS held + L3 is also a sniper's hold breath. The edge trackers run every frame, before any
+        // skip, so a pair held through a vehicle ride is not a fresh press.
+        // Keyboard / mouse: Tactical + Melee, still off while the menu is open (E is the menu's Back there) and
+        // until a melee that closed it is let go (gf_close_hold).
+        pad = isplayer( self ) && self gamepadusedlast();
+        ads = self adsbuttonpressed();
+        spr = self sprintbuttonpressed();
+        now = gettime();
+        spr_click = spr && !was_spr;
+
+        if ( ads && !was_ads )
+            t_ads = now;
+
+        if ( spr_click )
+            t_spr = now;
+
+        was_ads = ads;
+        was_spr = spr;
+
+        if ( !isalive( self ) || self forge_active() || self isinvehicle() || is_true( self.gf_wraith_on ) )   // + a Wraith pilot (bocw-57)
             continue;
 
-        if ( !self secondaryoffhandbuttonpressed() || !self meleebuttonpressed() )
-            continue;
+        if ( pad )
+        {
+            if ( !ads || !spr || ( !spr_click && abs( t_ads - t_spr ) > 200 ) )
+                continue;
+        }
+        else
+        {
+            if ( self tp_menu_open() || is_true( self.gf_close_hold ) )
+                continue;
+
+            if ( !self secondaryoffhandbuttonpressed() || !self meleebuttonpressed() )
+                continue;
+        }
 
         if ( is_true( self.gf_fly ) )
         {
@@ -23644,9 +24603,21 @@ function private fly_bind_think()
             self iprintln( "^3Fly mode: ^2ON" );
         }
 
-        // One press = one toggle: wait until both buttons are up again.
-        while ( self secondaryoffhandbuttonpressed() || self meleebuttonpressed() )
-            waitframe( 1 );
+        // One press = one toggle. Pad: wait for Sprint alone to come up, so ADS can stay held for the next click;
+        // keyboard: both keys up. Then re-seed the trackers so a click right after the wait still reads as a click.
+        if ( pad )
+        {
+            while ( self sprintbuttonpressed() )
+                waitframe( 1 );
+        }
+        else
+        {
+            while ( self secondaryoffhandbuttonpressed() || self meleebuttonpressed() )
+                waitframe( 1 );
+        }
+
+        was_ads = self adsbuttonpressed();
+        was_spr = self sprintbuttonpressed();
     }
 }
 
@@ -24443,7 +25414,7 @@ function private propgun_rearm( p )
 }
 
 // One placement per shot where it lands, 250 ms apart (full-auto would otherwise lay a carpet).
-// Shots while the host's menu is open are menu navigation; forge has its own FIRE = place.
+// Forge has its own FIRE = place, so shots are skipped while forging (a menu open no longer matters).
 function private propgun_think()
 {
     self notify( #"gf_propgun_restart" );
@@ -24460,7 +25431,7 @@ function private propgun_think()
         if ( !propgun_wanted( self ) )
             return;
 
-        if ( self tp_menu_open() || self forge_active() )
+        if ( self forge_active() )
             continue;
 
         now = gettime();
@@ -24698,6 +25669,11 @@ function private act_nadeswap( item, who )
 // so the flight, the wall hit and the explosion are the rocket's own; it lands where the rocket died.
 function private cannon_wanted( p )
 {
+    // A player's own Ammo Type decides for them (AMMO TYPE block): a prop pick launches here, a weapon pick
+    // does not (the projectile pipeline fires it instead).
+    if ( ammo_type( p ) > 0 )
+        return isdefined( ammo_model( p ) );
+
     return pflag( p, #"gf_cannon" );
 }
 
@@ -24711,6 +25687,12 @@ function private cannon_rearm( p )
 
 function private cannon_model( p )
 {
+    // A player's own Ammo Type prop first (AMMO TYPE block), then the cannon's pick, then their forge pick.
+    am = ammo_model( p );
+
+    if ( isdefined( am ) )
+        return am;
+
     if ( isdefined( game.gf_cannon_model ) )
         return game.gf_cannon_model;
 
@@ -24734,7 +25716,7 @@ function private cannon_think()
         if ( !cannon_wanted( self ) )
             return;
 
-        if ( self tp_menu_open() || self forge_active() )
+        if ( self forge_active() )
             continue;
 
         now = gettime();
@@ -24747,7 +25729,7 @@ function private cannon_think()
 
         if ( !isassetloaded( "xmodel", model ) )
         {
-            self iprintln( "^1Model cannon: " + prop_short( model ) + " is not resident here" );
+            self iprintln( "^3Model cannon: ^1" + prop_short( model ) + " is not on this map" );
             continue;
         }
 
@@ -24855,11 +25837,12 @@ function private cannon_land( b, end, shooter )
 function private act_cannon( item )
 {
     p = self menu_target();
-    on = !cannon_wanted( p );
+    // Its OWN switch (not cannon_wanted, which an Ammo Type pick also answers - AMMO TYPE block).
+    on = !pflag( p, #"gf_cannon" );
     pflag_set( p, #"gf_cannon", on );
     item.activated = on;
     cannon_rearm( p );
-    self menu_say( "^3Model cannon: " + ( on ? ( "^2ON ^7- shots launch " + prop_short( cannon_model( p ) ) ) : "^1OFF" ) + self target_tail( p ) );
+    self menu_say( "^3Model cannon: " + ( on ? ( "^2ON ^7- shots launch " + prop_short( cannon_model( p ) ) ) : "^1OFF" ) + ( ammo_type( p ) > 0 ? " ^7(their Ammo Type pick wins)" : "" ) + self target_tail( p ) );
     return true;
 }
 
@@ -25162,6 +26145,8 @@ function private fun_verb( arg )
         case "flybind":
             if ( pflag( p, #"gf_fly_bind" ) != on )
                 self fun_as( p, &act_fly_bind );
+            if ( !on && client_has_grant( p ) )
+                return "fly bind stays on - always on with the client menu" + who;   // klaze 2026-09-24
             return "fly bind " + ( on ? "ON" : "OFF" ) + who;
 
         case "slide":
@@ -25326,6 +26311,35 @@ function private fun_verb( arg )
 
             self fun_as( self, &act_cannon_model, s.model, s.label );
             return "cannon fires " + s.label;
+
+        case "vip":
+            // VIP label (VIP LABEL block): the stock VIP marker over this player for everyone else. No arg =
+            // toggle (the app's right-click item), on / off to set.
+            nv = ( a1 == "" ) ? !vip_is( p ) : on;
+            vip_set( p, nv );
+            return "VIP label " + ( nv ? "ON" : "OFF" ) + " for " + p.name;
+
+        case "ammo":
+            // Ammo Type (AMMO TYPE block), per player (gf_cmd_target, none = the host): 0 = normal bullets,
+            // 1-6 = the client page's rows; "none" = everyone back to normal bullets.
+            if ( a1 == "none" )
+                return "ammo: normal bullets for everyone (" + ammo_reset_all() + " reset)";
+
+            n = int( a1 );
+            d = ammo_def( n );
+
+            if ( n != 0 && !isdefined( d ) )
+                return "^1fun: ammo 0-6 or none";
+
+            cur = ammo_type( p );
+
+            if ( cur != n )
+                self fun_as( p, &act_ammo_type, n );      // 0 = the page's Normal bullets row
+
+            if ( ammo_type( p ) != n )
+                return "^1ammo " + d.label + ": not on this map" + who;
+
+            return "ammo " + ( ( n == 0 ) ? "normal bullets" : d.label ) + who;
     }
 
     return "^1fun: unknown '" + what + "'";
@@ -25414,7 +26428,8 @@ function private fun_disg_pick( i )
 // their menu is open: idx 0 behind the CENTRE LINE (the region-2 carousel's iprintlnbold), idx 1 behind the
 // HINT ROW (the menu legend's use prompt). Where those sit on screen is not in the dump, so each box is ONE
 // live-tunable dvar (the app's MENU BACKDROP block): gf_hb0 / gf_hb1 = "x,y,w,h,alpha,r,g,b"; alpha 0 =
-// that box off; empty = the defaults below (guesses: a 1024-px box centred on a 1920-wide screen).
+// that box off; empty = the defaults in hudbox_think (a 1024-px box centred on a 1920-wide screen - the
+// centring MEASURED right on klaze's screen 2026-09-24; the heights are measured there too, see below).
 // The client widget, READ from its Lua (lui-source core_ui_0685 LUIelemBar + core_ui_1446, not measured):
 //   x / y   = 15-px units (setLeftPx / setTopPx( 15 * v ))
 //   width   = 8-px units (setWidth( 8 * v )) - the stock px helper divides by 4, the Lua multiplies by 8
@@ -25439,7 +26454,9 @@ function private hudbox_think()
     {
         wait 0.1;
 
-        want = isdefined( self.gfmenu ) && isdefined( self.gfmenu.current ) && self.gfmenu.current != "" && self hint_has_menu();
+        // Host menu only, for now (klaze 2026-09-24: "for now on the client menu, turn off the background boxes
+        // we made"): a granted client's menu (gf_client_menu) never opens them. Drop this term to bring them back.
+        want = !is_true( self.gf_client_menu ) && isdefined( self.gfmenu ) && isdefined( self.gfmenu.current ) && self.gfmenu.current != "" && self hint_has_menu();
 
         if ( want )
         {
@@ -25449,8 +26466,15 @@ function private hudbox_think()
 
             if ( !shown || nsig != sig )
             {
-                self hudbox_apply( 0, hudbox_parse( c0, "30,18,128,12,8,0,0,0" ) );
-                self hudbox_apply( 1, hudbox_parse( c1, "30,46,128,12,8,0,0,0" ) );
+                // Defaults MEASURED off klaze's screenshot 2026-09-24 ("the menu boxes dont align. but the top
+                // row already has its own anyway"): the first guesses drew box 0 ~5 y-units below the centre
+                // line and box 1 ~6 above the hint row. The centre line's print draws its own backdrop, so box 0
+                // is off (alpha 0); box 1 sits on the hint row (text at ~793-822 px of 1080 -> 780-836).
+                // Then, on screen at that spot (klaze, same night): "it replaced the hint bar. disable boxes for
+                // now" -> box 1 is off by default too (alpha 0). Both boxes stay reachable from the app's MENU
+                // BACKDROP sliders (a gf_hb0 / gf_hb1 with alpha > 0 still opens one).
+                self hudbox_apply( 0, hudbox_parse( c0, "30,18,128,12,0,0,0,0" ) );
+                self hudbox_apply( 1, hudbox_parse( c1, "30,52,128,14,0,0,0,0" ) );
                 shown = 1;
                 sig = nsig;
             }
@@ -25529,4 +26553,1592 @@ function private hudbox_forget( idx )
 
     if ( isdefined( self.var_3bc46b87 ) && isdefined( self.var_3bc46b87[ e ] ) && isdefined( self.var_3bc46b87[ e ][ idx ] ) )
         self.var_3bc46b87[ e ][ idx ] = undefined;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ACCOUNT UNLOCKS — klaze 2026-09-24: "proceed incorperating the full entire unlock system and all
+// features into the app". App-only: the `unlock` verb, gf-panel UNLOCKS tab; docs/notes/unlocks.md.
+// NEVER RUN.
+// ═════════════════════════════════════════════════════════════════════════════
+// Written from the game's OWN scripts and tables. The ecosystem survey's MuzzMan menu was surveyed, not
+// ported, and its crystals / Dark Aether parts are Zombies-only anyway. Every write goes through stock's own
+// stats:: setters (core_common/player/player_stats.gsc), so it lands where the game's own code writes:
+//   challenges    gamedata/stats/mp/statsmilestones1-6.csv - col 2 target, col 3 group, col 4 stat. Each stat
+//                 is RAISED to its row's target (read, then add the difference - a rerun changes nothing):
+//                   #global   playerstatslist     stats::get_stat_global / function_dad108fa (increment)
+//                   #common   the common buffer   stats::function_927be59d / function_42277145 (increment)
+//                   #weapon_<class>  each weapon of that class (util::getweaponclass): stats::function_b2c11cc
+//                             / function_e24eec31 = addweaponstat, the call stock's own kill tracking makes
+//                   #group    every weapon (the engine folds weapon stats into item groups - read, not run)
+//                   #attachment (10 reticle rows) - skipped: stock has no setter for attachment stats
+//   weapons       gamedata/weapons/mp/mp_gunlevels.csv - each weapon's ranked_item_stats xp set to its top
+//                 level's XP (col 1): stock's own developer route, zm_devgui.gsc:4343
+//   level         rankxp = the least XP the engine's getrankforxp() maps to its top rank (probed, no constant)
+//   achievements  giveachievement() for the 44 ids of ddl/pc_achievements.ddl (mp 5, zm 9, cp 25, doa 5)
+//   save          uploadstats( player ) after each part, as stock does at match end (globallogic.gsc:1906)
+// ⚠ Custom games give NO XP (globallogic.gsc:188 level.rankedmatch = gamemodeisusingxp(); :190
+// level.custommatch): whether the engine KEEPS a stat written in a custom match is UNMEASURED. `unlock probe`
+// writes two stats' own current values back (no change) and reports whether each write was accepted.
+// stats:: skips bots and level.disablestattracking (player_stats.gsc:55): a run lifts that flag and puts it
+// back when it ends or is stopped. Targets: the host, one player (gf_cmd_target) or every other human ("all").
+// ⚠ CONSENT: nothing is written to anyone but the host until THAT player accepts on their own screen (hold
+// Use 1 s within 20 s, unlock_ask); no answer = skipped. Stop halts the next step; what was already written
+// stays (stock uploads at match end). Permanent account writes - the "manipulation of game data" Activision
+// bans for.
+function private unlock_verb( arg )
+{
+    t = strtok( isdefined( arg ) ? arg : "", " " );
+
+    if ( t.size == 0 )
+        return "^1unlock: what?";
+
+    what = t[ 0 ];
+    scope = ( t.size > 1 ) ? t[ 1 ] : "";
+
+    if ( what == "stop" )
+    {
+        // the host's Stop: the running part AND everything queued (busy read first - the notify wakes the guard)
+        n = isdefined( level.gf_unlock_queue ) ? level.gf_unlock_queue.size : 0;
+        level.gf_unlock_queue = [];
+        busy = is_true( level.gf_unlock_busy );
+        level notify( #"gf_unlock_stop" );
+        return ( busy ? "^3Unlock: ^1stopping ^8(what was written stays)" : "^3Unlock: ^7nothing running" ) + ( n > 0 ? " ^8(" + n + " queued dropped)" : "" );
+    }
+
+    if ( what == "local" )
+    {
+        setdvar( #"loot_fakeall", 1 );
+        return "local unlock ON (loot_fakeall 1 - this PC only, nothing saved)";
+    }
+
+    if ( unlock_label( what ) == "" )
+        return "^1unlock: unknown '" + what + "'";
+
+    if ( is_true( level.gf_unlock_busy ) )
+        return "^1unlock: one is already running - stop it first";
+
+    targets = [];
+
+    if ( scope == "all" )
+    {
+        foreach ( p in getplayers() )
+        {
+            if ( isplayer( p ) && !isbot( p ) && p != self )
+                targets[ targets.size ] = p;
+        }
+
+        if ( targets.size == 0 )
+            return "^1unlock: no other humans here (bots have no account)";
+    }
+    else if ( getdvarstring( #"gf_cmd_target", "" ) != "" )
+    {
+        p = self cmd_target();
+
+        if ( !isdefined( p ) )
+            return "^1unlock: no such player";
+
+        if ( isbot( p ) )
+            return "^1unlock: " + p.name + " is a bot (bots have no account)";
+
+        targets[ 0 ] = p;
+    }
+    else
+    {
+        targets[ 0 ] = self;
+    }
+
+    return unlock_start( self, what, targets );
+}
+
+// One run at a time for the whole match (the stat-tracking flag a run lifts is level-wide). req = whoever asked:
+// the host from the app, or a granted client from Player -> Unlock achievements (act_account). A press while
+// a run is going QUEUES (klaze 2026-09-24: "if u click everything in a row quickly, they will auto queue?") -
+// runs in press order when the current one ends (unlock_guard -> unlock_next); the same part twice from the
+// same asker is queued once; at most 12 wait.
+function private unlock_start( req, what, targets )
+{
+    if ( is_true( level.gf_unlock_busy ) )
+    {
+        if ( !isdefined( level.gf_unlock_queue ) )
+            level.gf_unlock_queue = [];
+
+        foreach ( q in level.gf_unlock_queue )
+        {
+            if ( isdefined( q.req ) && q.req == req && q.what == what )
+                return "^3Unlock: ^7" + unlock_label( what ) + " already queued";
+        }
+
+        if ( level.gf_unlock_queue.size >= 12 )
+            return "^3Unlock: ^1queue full - try again in a minute";
+
+        q = spawnstruct();
+        q.req = req;
+        q.what = what;
+        q.targets = targets;
+        level.gf_unlock_queue[ level.gf_unlock_queue.size ] = q;
+        return "^3Unlock: ^7" + unlock_label( what ) + " queued ^8(" + level.gf_unlock_queue.size + " waiting)";
+    }
+
+    level.gf_unlock_busy = 1;
+    level.gf_unlock_owner = req;
+    level thread unlock_run( req, what, targets );
+    return "^3Unlock: ^2" + unlock_label( what ) + " started ^8(" + unlock_names( targets ) + ")";
+}
+
+function private unlock_label( what )
+{
+    switch ( what )
+    {
+        case "probe":      return "write check";
+        case "weapons":    return "max weapon levels";
+        case "challenges": return "all challenges";
+        case "level":      return "max player level";
+        case "ach":        return "all 44 achievements";
+        case "achmp":      return "MP achievements";
+        case "achzm":      return "Zombies achievements";
+        case "achcp":      return "Campaign achievements";
+        case "achdoa":     return "Dead Ops achievements";
+        case "everything": return "everything";
+        case "save":       return "save (upload)";
+    }
+
+    return "";
+}
+
+// Names for the ack line, cut by length (the 1024-char rule).
+function private unlock_names( targets )
+{
+    s = "";
+
+    foreach ( p in targets )
+    {
+        if ( !isdefined( p ) || !isdefined( p.name ) )
+            continue;
+
+        if ( s.size + p.name.size > 120 )
+            return s + " +more";
+
+        s = ( s == "" ) ? p.name : ( s + ", " + p.name );
+    }
+
+    return s;
+}
+
+// host = whoever asked (unlock_start's req). Anyone else in targets must accept first.
+function private unlock_run( host, what, targets )
+{
+    level endon( #"gf_unlock_stop" );
+    // One frame first, so the caller's "started" reply lands before the first result. The write check finishes
+    // at once, and its result was overwritten by that reply (MEASURED 2026-09-24: the app never saw it).
+    waitframe( 1 );
+    level.gf_unlock_dst = level.disablestattracking;
+    level thread unlock_guard( level.disablestattracking );
+    level.disablestattracking = 0;
+    seq = gflog_add( host, "Unlock", what + " x" + targets.size );
+    last = "";
+
+    // Everyone but the host is asked first - all at once - and only those who accept are written.
+    asked = 0;
+
+    foreach ( p in targets )
+    {
+        if ( isdefined( p ) && p != host )
+        {
+            p.gf_unlock_answer = undefined;
+            p thread unlock_ask( what );
+            asked++;
+        }
+    }
+
+    if ( asked > 0 )
+    {
+        if ( isdefined( host ) )
+            host menu_say( "^3Unlock: ^7asking " + asked + " to accept ^8(20 s)" );
+
+        for ( i = 0; i < 88; i++ )
+        {
+            waiting = 0;
+
+            foreach ( p in targets )
+            {
+                if ( isdefined( p ) && p != host && !isdefined( p.gf_unlock_answer ) )
+                    waiting++;
+            }
+
+            if ( waiting == 0 )
+                break;
+
+            wait 0.25;
+        }
+    }
+
+    foreach ( p in targets )
+    {
+        if ( !isdefined( p ) || !isplayer( p ) )
+            continue;
+
+        if ( p != host && !is_true( p.gf_unlock_answer ) )
+        {
+            last = p.name + ": did not accept - nothing written";
+
+            if ( isdefined( host ) )
+                host menu_say( "^3Unlock: ^7" + last );
+
+            continue;
+        }
+
+        last = unlock_one( host, p, what );
+
+        if ( isdefined( host ) )
+            host menu_say( "^3Unlock: ^7" + last );
+    }
+
+    if ( isdefined( seq ) )
+        gflog_result( seq, last );
+
+    level notify( #"gf_unlock_done" );
+}
+
+// A player other than the host must ACCEPT before anything is written to their account: hold Use for 1 s
+// within 20 s. No answer = refused. Sets self.gf_unlock_answer 1 / 0 (undefined if they left).
+function private unlock_ask( what )
+{
+    self endon( #"disconnect" );
+    self iprintlnbold( "^3The host wants to run ^7" + unlock_label( what ) + " ^3on your ACCOUNT - permanent" );
+    self iprintln( "^3To accept, hold ^7" + forge_key( "use" ) + " ^3for 1 second (20 s). Do nothing to refuse." );
+    held = 0;
+
+    for ( i = 0; i < 200; i++ )
+    {
+        // The key the line shows: F on a keyboard (BUTTON_BIT_ACTIVATE - usebuttonpressed reads R there,
+        // so a reload never accepts), the use button on a pad. Per tick, so a device switch still works.
+        down = self gamepadusedlast() ? self usebuttonpressed() : self kb_use();
+        held = down ? held + 1 : 0;
+
+        if ( held >= 10 )
+        {
+            self.gf_unlock_answer = 1;
+            self iprintln( "^2Accepted - the host's unlock runs on your account" );
+            return;
+        }
+
+        wait 0.1;
+    }
+
+    self.gf_unlock_answer = 0;
+    self iprintln( "^3No answer - nothing is written to your account" );
+}
+
+// Puts the stat-tracking flag back and frees the slot, whether the run ended or was stopped (the run itself
+// dies on the stop notify, so it cannot clean up after itself).
+function private unlock_guard( was )
+{
+    level waittill( #"gf_unlock_stop", #"gf_unlock_done" );
+    level.disablestattracking = was;
+    level.gf_unlock_busy = 0;
+    level.gf_unlock_owner = undefined;
+    unlock_next();
+}
+
+// Start the oldest queued press whose asker is still here.
+function private unlock_next()
+{
+    while ( isdefined( level.gf_unlock_queue ) && level.gf_unlock_queue.size > 0 )
+    {
+        q = level.gf_unlock_queue[ 0 ];
+        rest = [];
+
+        for ( i = 1; i < level.gf_unlock_queue.size; i++ )
+            rest[ rest.size ] = level.gf_unlock_queue[ i ];
+
+        level.gf_unlock_queue = rest;
+
+        if ( !isdefined( q.req ) || !isplayer( q.req ) )
+            continue;
+
+        r = unlock_start( q.req, q.what, q.targets );
+        q.req menu_say( "^3" + r );
+        return;
+    }
+}
+
+// Drop every queued press of one asker; returns how many.
+function private unlock_dequeue( req )
+{
+    if ( !isdefined( level.gf_unlock_queue ) )
+        return 0;
+
+    kept = [];
+    gone = 0;
+
+    foreach ( q in level.gf_unlock_queue )
+    {
+        if ( isdefined( q.req ) && q.req == req )
+            gone++;
+        else
+            kept[ kept.size ] = q;
+    }
+
+    level.gf_unlock_queue = kept;
+    return gone;
+}
+
+function private unlock_one( host, p, what )
+{
+    who = p.name + ": ";
+
+    switch ( what )
+    {
+        case "probe":
+            r = p unlock_probe();
+            return who + r;
+
+        case "weapons":
+            r = p unlock_weapons( host );
+            uploadstats( p );
+            return who + r;
+
+        case "challenges":
+            r = p unlock_challenges( host );
+            uploadstats( p );
+            return who + r;
+
+        case "level":
+            r = p unlock_level();
+            uploadstats( p );
+            return who + r;
+
+        case "ach":
+        case "achmp":
+        case "achzm":
+        case "achcp":
+        case "achdoa":
+            r = p unlock_achievements( host, what );
+            uploadstats( p );
+            return who + r;
+
+        case "save":
+            uploadstats( p );
+            return who + "uploaded";
+
+        case "everything":
+            a = p unlock_weapons( host );
+            uploadstats( p );
+            b = p unlock_challenges( host );
+            uploadstats( p );
+            c = p unlock_level();
+            uploadstats( p );
+            d = p unlock_achievements( host, "ach" );
+            uploadstats( p );
+            return who + a + " | " + b + " | " + c + " | " + d;
+    }
+
+    return who + "?";
+}
+
+// No change: two stats' own current values are written back, and the engine's answer is reported.
+function private unlock_probe()
+{
+    xp = self stats::get_stat_global( #"rankxp" );
+    okx = self stats::set_stat_global( #"rankxp", xp );
+    wxp = self stats::get_stat( #"ranked_item_stats", #"ar_standard_t9", #"xp" );
+    okw = self stats::set_stat( #"ranked_item_stats", #"ar_standard_t9", #"xp", wxp );
+    mode = "custom " + ( is_true( level.custommatch ) ? 1 : 0 ) + " ranked " + ( is_true( level.rankedmatch ) ? 1 : 0 ) + " online " + ( is_true( level.onlinegame ) ? 1 : 0 ) + " tracking-off " + ( is_true( level.gf_unlock_dst ) ? 1 : 0 );
+    return mode + " | rankxp " + xp + " (rank " + getrankforxp( xp ) + ") write " + ( okx ? "OK" : "REFUSED" ) + " | XM4 xp " + wxp + " write " + ( okw ? "OK" : "REFUSED" );
+}
+
+// mp_gunlevels.csv once per match: every weapon's top XP, in table order, and the weapons of each class.
+function private unlock_gun_table()
+{
+    if ( isdefined( level.gf_unlock_guns ) )
+        return level.gf_unlock_guns;
+
+    tbl = #"gamedata/weapons/mp/mp_gunlevels.csv";
+    s = spawnstruct();
+    s.order = [];
+    s.top = [];
+    s.byclass = [];
+    n = tablelookuprowcount( tbl );
+
+    for ( r = 0; r < n; r++ )
+    {
+        w = tablelookupcolumnforrow( tbl, r, 2 );
+        xp = int( tablelookupcolumnforrow( tbl, r, 1 ) );
+
+        if ( isdefined( w ) )
+        {
+            if ( !isdefined( s.top[ w ] ) )
+            {
+                s.top[ w ] = xp;
+                s.order[ s.order.size ] = w;
+                cls = util::getweaponclass( getweapon( w ) );
+
+                if ( isdefined( cls ) )
+                {
+                    list = isdefined( s.byclass[ cls ] ) ? s.byclass[ cls ] : [];
+                    list[ list.size ] = w;
+                    s.byclass[ cls ] = list;
+                }
+            }
+            else if ( xp > s.top[ w ] )
+            {
+                s.top[ w ] = xp;
+            }
+        }
+
+        if ( r % 150 == 149 )
+            waitframe( 1 );
+    }
+
+    level.gf_unlock_guns = s;
+    return s;
+}
+
+function private unlock_weapons( host )
+{
+    guns = unlock_gun_table();
+    ok = 0;
+    same = 0;
+    bad = 0;
+
+    for ( i = 0; i < guns.order.size; i++ )
+    {
+        w = guns.order[ i ];
+        want = guns.top[ w ];
+        cur = self stats::get_stat( #"ranked_item_stats", w, #"xp" );
+
+        if ( cur >= want )
+            same++;
+        else if ( self stats::set_stat( #"ranked_item_stats", w, #"xp", want ) )
+            ok++;
+        else
+            bad++;
+
+        if ( i % 8 == 7 )
+            waitframe( 1 );
+    }
+
+    return "weapons " + ok + " maxed, " + same + " already, " + bad + " refused (of " + guns.order.size + ")";
+}
+
+function private unlock_challenges( host )
+{
+    guns = unlock_gun_table();
+    tables = array( #"gamedata/stats/mp/statsmilestones1.csv", #"gamedata/stats/mp/statsmilestones2.csv", #"gamedata/stats/mp/statsmilestones3.csv", #"gamedata/stats/mp/statsmilestones4.csv", #"gamedata/stats/mp/statsmilestones5.csv", #"gamedata/stats/mp/statsmilestones6.csv" );
+    rows = 0;
+    raised = 0;
+    skipped = 0;
+    ops = 0;
+
+    for ( ti = 0; ti < tables.size; ti++ )
+    {
+        tbl = tables[ ti ];
+        n = tablelookuprowcount( tbl );
+
+        for ( r = 0; r < n; r++ )
+        {
+            rows++;
+            target = int( tablelookupcolumnforrow( tbl, r, 2 ) );
+            group = tablelookupcolumnforrow( tbl, r, 3 );
+            stat = tablelookupcolumnforrow( tbl, r, 4 );
+
+            if ( !isdefined( group ) || !isdefined( stat ) || target <= 0 || group == #"attachment" )
+            {
+                skipped++;
+                continue;
+            }
+
+            if ( group == #"global" )
+            {
+                cur = self stats::get_stat_global( stat );
+
+                if ( cur < target )
+                {
+                    self stats::function_dad108fa( stat, target - cur );
+                    raised++;
+                }
+
+                ops++;
+            }
+            else if ( group == #"common" )
+            {
+                cur = self stats::function_927be59d( stat );
+
+                if ( cur < target )
+                {
+                    self stats::function_42277145( stat, target - cur );
+                    raised++;
+                }
+
+                ops++;
+            }
+            else
+            {
+                ws = ( group == #"group" ) ? guns.order : guns.byclass[ group ];
+
+                if ( !isdefined( ws ) )
+                {
+                    skipped++;
+                    continue;
+                }
+
+                foreach ( w in ws )
+                {
+                    cur = self stats::function_b2c11cc( w, stat );
+
+                    if ( cur < target )
+                    {
+                        self stats::function_e24eec31( getweapon( w ), stat, target - cur );
+                        raised++;
+                    }
+
+                    ops++;
+
+                    if ( ops % 24 == 0 )
+                        waitframe( 1 );
+                }
+            }
+
+            if ( ops % 24 == 0 )
+                waitframe( 1 );
+        }
+
+        if ( isdefined( host ) )
+            host menu_say( "^3Unlock: ^7" + self.name + ": challenge table " + ( ti + 1 ) + "/6, " + raised + " raised" );
+
+        waitframe( 1 );
+    }
+
+    return "challenges " + raised + " raised, " + skipped + " skipped (of " + rows + " rows)";
+}
+
+// Player level 55. MEASURED 2026-09-24: getrankforxp() never tops out - searching for "the top rank" up to 1e9
+// found 999,993,315 and wrote that as rankxp (in-match; the next match read it back reset). So the target is
+// the least XP at which getrankforxp() reaches rank index 54 - level 55 if the index is 0-based, as the BO
+// games' ranks always were; the reply prints the rank it read back so the level can be checked in the lobby.
+// A rankxp already at or past it is left alone (never lowered).
+function private unlock_level()
+{
+    want = 54;
+    lo = 0;
+    hi = 100000000;
+
+    if ( getrankforxp( hi ) < want )
+        return "level: the rank table ends below 55 (rank " + getrankforxp( hi ) + ")";
+
+    while ( hi - lo > 1 )
+    {
+        mid = lo + int( ( hi - lo ) / 2 );
+
+        if ( getrankforxp( mid ) >= want )
+            hi = mid;
+        else
+            lo = mid;
+    }
+
+    cur = self stats::get_stat_global( #"rankxp" );
+
+    if ( cur >= hi )
+        return "level already 55+ (rankxp " + cur + ", rank " + getrankforxp( cur ) + ")";
+
+    ok = self stats::set_stat_global( #"rankxp", hi );
+    self stats::set_stat_global( #"rank", want );
+    return "level rankxp " + cur + " -> " + hi + " (rank " + getrankforxp( hi ) + ") " + ( ok ? "written" : "REFUSED" );
+}
+
+// A granted client's own unlock press. Since klaze 2026-09-24 ("for the clients menu, remove the account menu
+// and move achievements to the player menu") the only row left is Player -> Unlock achievements (what = "ach");
+// the Account sub-page (weapons / challenges / level 55 / Stop) is gone, the host keeps all of it in the app.
+// The pressing player's OWN account only - no target, no everyone (client menus are per-player), so no accept
+// prompt either: they pressed it themselves. "stop" drops only this player's own presses.
+function private act_account( item, what )
+{
+    if ( what == "stop" )
+    {
+        // a client's Stop touches only their own presses: their queued ones, and the running one if it is theirs
+        gone = unlock_dequeue( self );
+        mine = is_true( level.gf_unlock_busy ) && isdefined( level.gf_unlock_owner ) && level.gf_unlock_owner == self;
+
+        if ( mine )
+        {
+            level notify( #"gf_unlock_stop" );
+            r = "^3Unlock: ^1stopping ^8(what was written stays)";
+        }
+        else if ( gone == 0 )
+        {
+            r = "^3Unlock: ^7nothing running";
+        }
+        else
+        {
+            r = "^3Unlock: ^7dropped";
+        }
+
+        if ( gone > 0 )
+            r += " ^8(" + gone + " queued dropped)";
+
+        self menu_say( r );
+        return true;
+    }
+
+    targets = [];
+    targets[ 0 ] = self;
+    r = unlock_start( self, what, targets );
+    self menu_say( r );
+    return true;
+}
+
+// The 44 of ddl/pc_achievements.ddl, by mode.
+function private unlock_ach_list( what )
+{
+    mp = array( #"mp_achievement_match_wins", #"mp_achievement_vehicle_kills", #"mp_achievement_squad_wipes", #"mp_achievement_scorestreak_kills", #"mp_achievement_eliminations" );
+    zm = array( #"zm_silver_pap", #"zm_silver_six", #"zm_silver_mega", #"zm_silver_craft", #"zm_silver_upgrade", #"zm_silver_ww", #"zm_silver_pa", #"zm_silver_start", #"zm_silver_wing" );
+    doa = array( #"doa_achievement_dungeondiver", #"doa_achievement_fated", #"doa_achievement_fidolina", #"doa_achievement_escapewild", #"doa_achievement_5_piece" );
+    cp = array( #"cp_achievement_patriot_arrow", #"cp_achievement_cp_sidemission_takedown", #"cp_achievement_scorched_earth", #"cp_achievement_cp_rus_yamantau", #"cp_achievement_combat_recruit", #"cp_achievement_explosive_finiish", #"cp_achievement_cp_nam_armada", #"cp_achievement_cp_rus_duga", #"cp_achievement_red_door", #"cp_achievement_cp_ger_stakeout", #"cp_achievement_old_faithful", #"cp_achievement_mind_trip", #"cp_achievement_scorched_earth2" );
+    cp2 = array( #"cp_achievement_combat_hardened", #"cp_achievement_firing_range", #"cp_achievement_cp_rus_amerika", #"cp_achievement_cp_rus_siege", #"cp_achievement_cp_takedown", #"cp_achievement_cp_nic_revolucion", #"cp_achievement_everyone", #"cp_achievement_jack_all_trades", #"cp_achievement_cp_nam_prisoner", #"cp_achievement_cp_rus_kgb", #"cp_achievement_body_shield", #"cp_achievement_cp_sidemission_tundra" );
+
+    foreach ( id in cp2 )
+        cp[ cp.size ] = id;
+
+    switch ( what )
+    {
+        case "achmp":  return mp;
+        case "achzm":  return zm;
+        case "achcp":  return cp;
+        case "achdoa": return doa;
+    }
+
+    all = mp;
+
+    foreach ( id in zm )
+        all[ all.size ] = id;
+
+    foreach ( id in cp )
+        all[ all.size ] = id;
+
+    foreach ( id in doa )
+        all[ all.size ] = id;
+
+    return all;
+}
+
+function private unlock_achievements( host, what )
+{
+    ids = unlock_ach_list( what );
+    n = 0;
+
+    foreach ( id in ids )
+    {
+        self giveachievement( id );
+        n++;
+
+        if ( isdefined( host ) && n % 10 == 0 )
+            host menu_say( "^3Unlock: ^7" + self.name + ": achievements " + n + "/" + ids.size );
+
+        wait 1;
+    }
+
+    return "achievements " + n + " given";
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AMMO TYPE — klaze 2026-09-24: "give clients a new "Ammo Type" page": Rockets (Cigma missiles), Missiles
+// (jet fighter missiles), Grenades (M79 grenades), Orbs (energy portals), Chickens, Last used prop ("use what
+// was selected in the prop tool"). NEVER RUN.
+// ═════════════════════════════════════════════════════════════════════════════
+// Each player's OWN pick of what their shots fire, held in pers[ "gf_ammo" ] (0 = normal bullets) so it
+// outlives Gunfight's map_restart( 1 ) round boundary the way the slide presets do. Nothing new fires - a
+// pick rides one of the two shot pipelines this file already has:
+//   Rockets / Missiles / Grenades -> PROJECTILES (proj_think / proj_fire) with THIS player's weapon, always
+//     spawn method 0 = AUTO, because each works only through its own class's spawner: the Cigma rocket by
+//     magicbullet (m1), the jet fighter missile by magicmissile (m7, + its scripted impact blast,
+//     proj_impact), the M79 grenade by magicgrenadeplayer (m4 - magicbullet drops it at the shooter's
+//     feet, projectiles.md §9).
+//   Orbs / Chickens / Last used prop -> the MODEL CANNON (cannon_think): the prop flies from the muzzle to
+//     where the shot lands. Last used prop = the last prop this player picked or placed in Props
+//     (forge_cycle / forge_place note it in pers - the forge's own pick is an entity field map_restart( 1 )
+//     frees, so Props opens on the energy portal again every round).
+// A pick beats the match-wide switches for that player (Projectiles host / everyone, Model cannon): one ammo
+// per player. The match-wide extras still apply to it: the projectile rate (default one per 300 ms; the
+// cannon one per 250 ms), homing, trail FX, shots per trigger, the cannon's blast / ride / keep. The page's
+// first row, Normal bullets (0), clears the pick; pressing the lit pick again does too. A pick keeps the menu
+// open and fires with it open (2026-09-24/25: the controller menu is D-pad only, so no device's fire button is a
+// menu key any more; klaze's first try had MEASURED that shots with the old R2 = next fired nothing). App:
+// `fun ammo <0-6>` (gf_cmd_target = the player, none = the host), `fun ammo none` = everyone back to normal.
+
+// 0 = normal bullets, 1-6 = the page's rows.
+function private ammo_type( p )
+{
+    if ( !isdefined( p ) || !isdefined( p.pers ) || !isdefined( p.pers[ #"gf_ammo" ] ) )
+        return 0;
+
+    return p.pers[ #"gf_ammo" ];
+}
+
+// A row: label (the menu row), what (the row detail / the feed), and either w = the projectile weapon or
+// model = the cannon prop ("" = this player's last pick in Props). Anything else = undefined.
+function private ammo_def( i )
+{
+    s = spawnstruct();
+
+    switch ( i )
+    {
+        case 1: s.label = "Rockets";        s.what = "Cigma missiles";          s.w = #"launcher_standard_t9";              break;
+        case 2: s.label = "Missiles";       s.what = "jet fighter missiles";    s.w = #"jetfighter_missile";                break;
+        case 3: s.label = "Grenades";       s.what = "M79 grenades";            s.w = #"special_grenadelauncher_t9";        break;
+        case 4: s.label = "Orbs";           s.what = "energy portals";          s.model = "p8_fxp_zm_energy_portal_alctrz"; break;
+        case 5: s.label = "Chickens";       s.what = "chickens";                s.model = "p8_aml_chicken_female_03";       break;
+        case 6: s.label = "Last used prop"; s.what = "your last pick in Props"; s.model = "";                               break;
+        default: return undefined;
+    }
+
+    return s;
+}
+
+// The weapon p's pick fires; undefined = no pick, or a prop pick.
+function private ammo_weapon( p )
+{
+    d = ammo_def( ammo_type( p ) );
+
+    if ( !isdefined( d ) || !isdefined( d.w ) )
+        return undefined;
+
+    return d.w;
+}
+
+// The prop p's pick launches; undefined = no pick, or a weapon pick.
+function private ammo_model( p )
+{
+    d = ammo_def( ammo_type( p ) );
+
+    if ( !isdefined( d ) || !isdefined( d.model ) )
+        return undefined;
+
+    if ( d.model != "" )
+        return d.model;
+
+    return ammo_last_prop( p );
+}
+
+// Last used prop: the last prop p picked or placed in Props (pers), else the forge's current pick.
+function private ammo_last_prop( p )
+{
+    if ( isdefined( p.pers ) && isdefined( p.pers[ #"gf_last_prop" ] ) )
+        return p.pers[ #"gf_last_prop" ];
+
+    fs = p forge_state();
+    return prop_master()[ fs.idx ].model;
+}
+
+// forge_cycle / forge_place: remember the pick for Last used prop.
+function private ammo_note_prop( model )
+{
+    if ( isdefined( self.pers ) && isdefined( model ) )
+        self.pers[ #"gf_last_prop" ] = model;
+}
+
+// What p's shots fire, for the PROJ line's lastcall: their pick's weapon, else the match-wide Projectile.
+function private proj_wname_for( p )
+{
+    d = ammo_def( ammo_type( p ) );
+
+    if ( isdefined( d ) && isdefined( d.w ) )
+        return d.what;
+
+    return proj_wname();
+}
+
+// Client Menu -> Ammo Type: Normal bullets + the six picks, the lit one = this player's ammo (rebuilt on every
+// entry). klaze 2026-09-24: "add a normal bullets row to the ammo page".
+function private client_ammo_enter( menu )
+{
+    m = "client_ammo";
+    self menu_clear_items( m );
+    cur = ammo_type( self );
+
+    it = self menu_item( m, "Normal bullets", &act_ammo_type, 0 );
+    it.detail = "your gun's own rounds";
+    it.gf_ammo = 0;
+    it.activated = ( cur == 0 );
+
+    for ( i = 1; i <= 6; i++ )
+    {
+        d = ammo_def( i );
+        it = self menu_item( m, d.label, &act_ammo_type, i );
+        it.detail = d.what;
+        it.gf_ammo = i;
+        it.activated = ( cur == i );
+    }
+}
+
+// A row (or `fun ammo`): pick it (i = 0 = Normal bullets), or - a pick pressed while lit - back to normal
+// bullets. Checked against this map first (a weapon: getweapon != level.weaponnone; a prop: isassetloaded),
+// then both pipelines are re-armed - proj_think looks its weapon up once per life. ONE menu_say: it is the
+// saved menu log's result for the row.
+function private act_ammo_type( item, i )
+{
+    p = self menu_target();
+    nxt = ( ammo_type( p ) == i ) ? 0 : i;
+    d = ammo_def( nxt );
+    what = "";
+
+    if ( nxt != 0 )
+    {
+        if ( !isdefined( d ) )
+            return true;
+
+        what = d.what;
+
+        if ( isdefined( d.w ) )
+        {
+            w = getweapon( d.w );
+
+            if ( !isdefined( w ) || ( isdefined( level.weaponnone ) && w == level.weaponnone ) )
+            {
+                self menu_say( "^3Ammo: ^1" + d.label + " not on this map" );
+                return true;
+            }
+        }
+        else
+        {
+            model = ( d.model != "" ) ? d.model : ammo_last_prop( p );
+
+            if ( !isassetloaded( "xmodel", model ) )
+            {
+                self menu_say( "^3Ammo: ^1" + d.label + " not on this map" );
+                return true;
+            }
+
+            if ( d.model == "" )
+                what = prop_short( model );
+        }
+    }
+
+    if ( isdefined( p.pers ) )
+        p.pers[ #"gf_ammo" ] = nxt;
+
+    proj_rearm( p );
+    cannon_rearm( p );
+
+    // Light this page's rows when the pick is the presser's own (the host picking for a client from the app
+    // leaves that client's page alone - it relights on their next entry).
+    page = self.gfmenu.menus[ "client_ammo" ];
+
+    if ( p == self && isdefined( page ) )
+    {
+        foreach ( it in page.items )
+        {
+            if ( isdefined( it.gf_ammo ) )
+                it.activated = ( it.gf_ammo == nxt );
+        }
+    }
+
+    if ( nxt == 0 )
+        self menu_say( "^3Ammo: ^2normal bullets" + self target_tail( p ) );
+    else
+        self menu_say( "^3Ammo: ^2" + d.label + " ^7- " + what + self target_tail( p ) );
+
+    // The pick keeps the menu open and applies at once (klaze 2026-09-24: "is it possible to apply a ammo type
+    // imimidiatly without closing the menu?" - it had closed since his first try, "oh it was becuase the menu
+    // was open"). No menu uses the fire button any more (controller = D-pad only since 2026-09-25), so the
+    // next shot fires the pick with the menu open, on every device.
+    return true;
+}
+
+// `fun ammo none`: every player back to normal bullets (the host's reset; clients only ever set their own).
+function private ammo_reset_all()
+{
+    n = 0;
+
+    foreach ( pl in getplayers() )
+    {
+        if ( ammo_type( pl ) > 0 )
+        {
+            pl.pers[ #"gf_ammo" ] = 0;
+            proj_rearm( pl );
+            cannon_rearm( pl );
+            n++;
+        }
+    }
+
+    return n;
+}
+
+// ============================================================================================
+// VIP LABEL - klaze 2026-09-24: "make an right click player toggle to "Label VIP" so everyone else
+// sees the VIP marker on them in game".
+// The marker is the stock VIP mode's own icon, #"vip_waypoint" (vip.gsc:1154, its carry object's
+// objective). It is in mp_common's asset table (tables/data/assets/mp_common.csv), so it is resident in
+// every MP mode. Pinned to the player the radar markers' way (objective_add on the entity - MEASURED
+// 2026-09-23 with enemy_waypoint), shown to every OTHER human (objective_setinvisibletoall + one
+// setvisibletoplayer per viewer, redone when the player set changes); the VIP does not see their own.
+// The label is pers (survives the round's level rebuild); no marker while dead. Unmeasured: that this
+// icon draws outside VIP mode. App: player right-click -> Label VIP = `fun vip` (toggle; on / off too).
+// ============================================================================================
+function private vip_is( p )
+{
+    return pflag( p, #"gf_vip" );
+}
+
+function private vip_set( p, on )
+{
+    pflag_set( p, #"gf_vip", on );
+    level thread vip_think();          // idempotent: the loop may not be running yet this round
+}
+
+// One level loop, 0.5 s: a marker per living labelled player, visible to everyone else.
+function private vip_think()
+{
+    if ( is_true( level.gf_vip_think ) )
+        return;
+
+    level.gf_vip_think = 1;
+    level endon( #"game_ended" );
+
+    if ( !isdefined( level.gf_vip_ids ) )
+    {
+        level.gf_vip_ids = [];
+        level.gf_vip_ent = [];
+        level.gf_vip_sig = [];
+    }
+
+    for ( ;; )
+    {
+        players = getplayers();
+        seen = [];
+
+        foreach ( t in players )
+        {
+            if ( !isdefined( t ) || !isplayer( t ) || !isalive( t ) || !vip_is( t ) )
+                continue;
+
+            en = t getentitynumber();
+            seen[ en ] = 1;
+            id = level.gf_vip_ids[ en ];
+
+            if ( !isdefined( id ) || level.gf_vip_ent[ en ] !== t )
+            {
+                if ( isdefined( id ) )
+                {
+                    objective_delete( id );
+                    gameobjects::release_obj_id( id );
+                }
+
+                id = gameobjects::get_next_obj_id();
+
+                if ( !isdefined( id ) )
+                {
+                    level.gf_vip_ids[ en ] = undefined;
+                    continue;                                   // out of objective slots: try again next pass
+                }
+
+                objective_add( id, "active", t, #"vip_waypoint" );
+                level.gf_vip_ids[ en ] = id;
+                level.gf_vip_ent[ en ] = t;
+                level.gf_vip_sig[ en ] = undefined;
+            }
+
+            sig = "";
+
+            foreach ( v in players )
+            {
+                if ( isdefined( v ) && isplayer( v ) && v != t && !isbot( v ) )
+                    sig += v getentitynumber() + ",";
+            }
+
+            if ( level.gf_vip_sig[ en ] === sig )
+                continue;
+
+            level.gf_vip_sig[ en ] = sig;
+            objective_setinvisibletoall( id );
+
+            foreach ( v in players )
+            {
+                if ( isdefined( v ) && isplayer( v ) && v != t && !isbot( v ) )
+                    objective_setvisibletoplayer( id, v );
+            }
+        }
+
+        // drop the markers of players gone, dead or unlabelled (keys first, then delete)
+        gone = [];
+
+        foreach ( en, id in level.gf_vip_ids )
+        {
+            if ( !is_true( seen[ en ] ) )
+                gone[ gone.size ] = en;
+        }
+
+        foreach ( en in gone )
+            vip_marker_drop( en );
+
+        wait 0.5;
+    }
+}
+
+function private vip_marker_drop( en )
+{
+    id = level.gf_vip_ids[ en ];
+
+    if ( isdefined( id ) )
+    {
+        objective_delete( id );
+        gameobjects::release_obj_id( id );
+    }
+
+    level.gf_vip_ids[ en ] = undefined;
+    level.gf_vip_ent[ en ] = undefined;
+    level.gf_vip_sig[ en ] = undefined;
+}
+
+// ============================================================================================
+// RESET ALL MODS - klaze 2026-09-25: "add one "Reset all mods" button that puts every setting back to
+// its default and clears all of those live toggles and spawned objects" (switching between a fun
+// lobby and a serious Gunfight match). The panel sends the SETTINGS itself (only the rows that differ
+// from their defaults, the normal paced write); this verb (panel_verb "resetmods") clears the LIVE
+// state, back to a match right after the first inject.
+// Kept on purpose: client-menu grants (and the fly bind that comes with one - client_menu_grant restarts
+// it every spawn), the late-join bookkeeping, bans and the staged team plan, a pause (the host's own match
+// control), and an occupied vehicle (never deleted with a rider - the teardown crash rule).
+// ============================================================================================
+function private mods_reset_all()
+{
+    // everyone switches and their settings (game. = the whole match), before the per-player rearms read them
+    game.gf_disco_all = 0;
+    game.gf_nadeswap_all = 0;
+    game.gf_nadeswap_w = undefined;
+    game.gf_nadeswap_name = undefined;
+    game.gf_proj_all = 0;
+    game.gf_proj_wkey = undefined;
+    game.gf_proj_wname = undefined;
+    game.gf_proj_ms = undefined;
+    game.gf_proj_method = undefined;
+    game.gf_proj_homing = undefined;
+    game.gf_proj_trail = undefined;
+    game.gf_proj_count = undefined;
+    game.gf_cannon_model = undefined;
+    game.gf_cannon_blast = undefined;
+    game.gf_cannon_ride = undefined;
+    game.gf_cannon_keep = undefined;        // a cannon prop still in the air reads it when it lands
+    game.gf_tpgun_all = 0;
+    game.gf_tpnade_all = 0;
+    game.gf_tp_point = undefined;           // the host's Save point
+    game.gf_slide_pct = undefined;          // slide speed / long slide / super slide: back to the match's own
+    game.gf_slide_hold = undefined;
+    game.gf_slide_super = undefined;
+    game.gf_slide_chain = undefined;        // undefined = the chain setting's default ON (never write 0 here)
+    slide_chain_apply();
+    game.gf_ft_spin_secs = undefined;       // the Forge tools
+    game.gf_ft_spin_rev = undefined;
+    game.gf_forge_spray = undefined;
+    game.gf_forge_autolink = undefined;
+    level.gf_forge_link_base = undefined;
+    proj_dbg_set( 0 );
+
+    // disguises before the invisibility reset: all_invisible's show() would also un-ghost a disguised player
+    foreach ( p in getplayers() )
+    {
+        if ( isdefined( p ) && isplayer( p ) )
+            disg_off( p );
+    }
+
+    all_god( 0 );
+    all_thirdperson( 0 );
+    all_invisible( 0 );
+    freeze_all_set( 0 );
+    perks_all_set( "clear" );
+
+    // only what the mod actually changed (a map's own vision set and the engine timescale are left alone)
+    if ( is_true( level.gf_drunk ) )
+        drunk_set( 0 );
+
+    if ( isdefined( level.gf_timescale ) && level.gf_timescale != 100 )
+        slowmo_set( 100 );
+
+    if ( isdefined( level.gf_vision ) && level.gf_vision != "default" )
+        vision_set( "" );
+
+    level notify( #"gf_say_stop" );         // a held or timed broadcast banner (the app's sayclear)
+    broadcast_hint_stop();
+
+    r = race_state();
+
+    if ( r.state != 0 && r.state != 3 )
+        self act_race_stop( spawnstruct() );
+
+    if ( is_true( r.markers_on ) )
+        race_markers_hide();                // the teardown leaves the gate markers and posts up
+
+    n = 0;
+
+    foreach ( p in getplayers() )
+    {
+        if ( !isdefined( p ) || !isplayer( p ) )
+            continue;
+
+        // the per-player fun switches (pers - they survive rounds); each system's rearm below re-reads them
+        foreach ( key in array( #"gf_cannon", #"gf_disco", #"gf_nadeswap", #"gf_proj", #"gf_propgun", #"gf_vip" ) )
+            pflag_set( p, key, 0 );
+
+        if ( isdefined( p.pers ) )
+        {
+            p.pers[ #"gf_ammo" ] = 0;               // Ammo Type -> normal bullets (before cannon_rearm: a prop ammo wants the cannon)
+            p.pers[ #"gf_slide_mode" ] = 0;         // Super / Infinite Slide off (read live)
+            p.pers[ #"gf_tp_point" ] = undefined;   // a client's Save point
+            p.pers[ #"gf_last_prop" ] = undefined;
+        }
+
+        // the fly bind: off, except a client-menu holder keeps it (client_menu_grant restarts it every spawn)
+        pflag_set( p, #"gf_fly_bind", 0 );
+
+        if ( !client_has_grant( p ) )
+            p notify( #"gf_flybind_stop" );
+
+        if ( is_true( p.gf_frozen ) )
+            freeze_set( p, 0 );                   // freeze_all_set skips spectators
+
+        if ( p forge_active() )
+            p forge_exit( p );                    // an open placer / edit session (restores first, then notifies)
+
+        if ( is_true( p.gf_forgemode ) )
+            forgemode_set( p, 0 );
+
+        if ( isdefined( p.gf_forge ) )
+        {
+            p.gf_forge.tilt_p = undefined;
+            p.gf_forge.tilt_r = undefined;
+        }
+
+        p.gf_tpgun = 0;
+        p.gf_tpnade = 0;
+        p.gf_speed_pct = undefined;
+
+        if ( is_true( p.gf_fly ) )
+            p notify( #"gf_fly_stop" );             // fly_cleanup unlinks and restores
+
+        tpgun_rearm( p );
+        tpnade_rearm( p );
+        proj_rearm( p );
+        disco_rearm( p );
+        propgun_rearm( p );
+        nadeswap_rearm( p );
+        cannon_rearm( p );
+
+        // the everyone-perks clear also strips the fall-damage perk the mod gives every spawn
+        if ( isalive( p ) && !cfg_falldamage() )
+            p setperk( #"specialty_fallheight" );
+
+        n++;
+    }
+
+    // world: every placed prop + this map's saved Forge layout + the cannon's kept props + the EMPTY
+    // menu-spawned vehicles (cmd_entclear), then the saved layouts of every OTHER map too
+    w = self cmd_entclear( "all" );
+    game.gf_forge = [];
+
+    // the move speed once the panel's settings have landed (gf_speed is re-read only by speed_apply)
+    level thread mods_reset_late();
+
+    return "Reset all mods: " + n + " player(s) cleared, " + w;
+}
+
+function private mods_reset_late()
+{
+    level endon( #"game_ended" );
+    wait 3;
+    speed_apply_all();
+}
+
+// klaze 2026-09-25: "blank the center line the moment the round ends" - the menu's centre carousel (and any
+// other centre print) would otherwise sit over the round-end HUD until it fades. One empty centre print per
+// human, the shape menu_render_split uses on close. (The hint widget is already dropped at game_ended by
+// menu_hint_cleanup_match.)
+function private round_end_centre_clear()
+{
+    level waittill( #"game_ended" );
+
+    foreach ( p in getplayers() )
+    {
+        if ( isdefined( p ) && isplayer( p ) && !isbot( p ) )
+            p iprintlnbold( "" );
+    }
+}
+
+// ============================================================================================
+// BUTTON PROBE (gf_dbg_buttons) - klaze 2026-09-25: "can we use the ps controller "share" button or home
+// button for anything?". Only what reaches the server can drive a feature, and that is the usercmd's
+// button bits. With the probe on, the HOST's feed prints one line whenever the set of bits held changes:
+//   BTN pad:<gamepadusedlast> mv:<fwd>,<right> (getnormalizedmovement signs: + / - / 0) | <bit> <bit> ...
+// Press Share / Options / the touchpad / PS on the pad and read which bits (if any) light. The names are
+// ONLY the engine's own table (the contiguous BUTTON_BIT_ATTACK .. BUTTON_BIT_TALK_IN_PRIVATE_CHANNEL run at
+// exe+0xd6f4fe8, 112 names, read off the live exe 2026-09-25) - an unknown name could raise a fatal script
+// error. Each literal stays under ACTS's ~255-char literal cap. bocw-12's keyboard questions ride along: the wheel bits, F, 3 / 4, the arrows, the A / D sign.
+// ============================================================================================
+function private btn_probe_names()
+{
+    if ( isdefined( level.gf_btn_names ) )
+        return level.gf_btn_names;
+
+    n = [];
+    groups = array(
+        "ATTACK SPRINT MELEE ACTIVATE RELOAD USE_RELOAD LEANLEFT LEANRIGHT PRONE CROUCH JUMP WALKING TEMPSTANCE BREATH FRAG OFFHANDSECONDARY CONFIRM_LOCATION",
+        "CANCEL_LOCATION GAS REVERSE HANDBRAKE THROW CAMERALOCK GESTURESHIFT SCORESTREAK_WHEEL CHANGE_SEAT TALK WATER INCREMENT_ADS_ZOOM_SELECT",
+        "INCREMENT_SMOOTH_ZOOM DECREMENT_SMOOTH_ZOOM VEHICLE_ATTACK VEHICLE_ATTACK2 VEHICLE_MOVEUP VEHICLE_MOVEDOWN JAM SLIDE FLOURISH SPRAY SPRAYS_BOASTS",
+        "TAUNT ACTIONSLOT_1 ACTIONSLOT_2 ACTIONSLOT_3 ACTIONSLOT_4 OFFHAND_CANCEL USE_DOUBLE_TAP AIRBURST LASING INVENTORY CLIMB FLIGHT_LAUNCH",
+        "ACTIONSLOT_CAROUSEL WEAPON_PICKUP ALT_WEAPON_PICKUP_ENABLED DOUBLETAPJUMP CCP_SHIFTGRENADE STANCE VEHICLE_BOOST ACTION DOUBLEJUMP JUKE SWIM_UP",
+        "SWIM_DOWN PLANT_SHIELD OFFHAND_SPECIAL WEAPON_SWITCH WEAPON_SWITCH_HERO FORWARD BACK MOVELEFT MOVERIGHT LEFT RIGHT VEHICLE_ABILITY",
+        "VEHICLE_LOOK_FORWARD VEHICLE_LOOK_BACK SPECIAL_MELEE VEHICLE_HORN OFFHAND_ACTIVATE VEHICLE_SEAT_1 VEHICLE_SEAT_2 VEHICLE_SEAT_3 VEHICLE_SEAT_4",
+        "VEHICLE_SEAT_5 VEHICLE_ALT_CONTROL FLIGHT_CAN_PARACHUTE FLIGHT_PARACHUTE FLIGHT_LANDING FLIGHT_LAUNCH_CLIENT QUICK_CALLOUT CENTER_VIEW",
+        "ZIPLINE_PREDICT_FALL VEHICLE_FREE_LOOK CUT_CHUTE SKYDIVE_CAM_TOGGLE WEAPNEXT WEAPPREV ANY_DOWN ARMORREPAIR DROP_ITEM VEHICLE_DRIVER_SHOOTING",
+        "DONATE_LIFE FLASHLIGHT CAMERA_SIDE MAP RAPPEL ZIPLINE ANY_WEAP_CHANGE BATTLETRACK_NEXT BATTLETRACK_TOGGLE TALK_IN_PRIVATE_CHANNEL" );
+
+    foreach ( g in groups )
+    {
+        foreach ( s in strtok( g, " " ) )
+            n[ n.size ] = s;
+    }
+
+    level.gf_btn_names = n;
+    return n;
+}
+
+// a stick's exact value changes every frame; only its sign is printed (dead zone 0.3), so the line changes
+// at human speed and still answers "which sign does D / stick-right give"
+function private btn_probe_sign( v )
+{
+    if ( v > 0.3 )
+        return "+";
+
+    if ( v < -0.3 )
+        return "-";
+
+    return "0";
+}
+
+function private btn_probe_think()
+{
+    if ( is_true( level.gf_btn_probe_on ) )
+        return;
+
+    level.gf_btn_probe_on = 1;
+    level endon( #"game_ended" );
+    last = "";
+
+    for ( ;; )
+    {
+        waitframe( 1 );
+
+        if ( !cfg_dbg_buttons() )
+        {
+            last = "";
+            wait 0.5;
+            continue;
+        }
+
+        host = util::gethostplayer();
+
+        if ( !isdefined( host ) || !isplayer( host ) )
+            continue;
+
+        s = "";
+
+        foreach ( nm in btn_probe_names() )
+        {
+            if ( host buttonbitstate( "BUTTON_BIT_" + nm ) )
+            {
+                s += " " + nm;
+
+                if ( s.size > 700 )                 // < 1024 per string (CLAUDE.md crash rules)
+                    break;
+            }
+        }
+
+        mv = host getnormalizedmovement();
+        mvs = isdefined( mv ) ? ( btn_probe_sign( mv[ 0 ] ) + "," + btn_probe_sign( mv[ 1 ] ) ) : "?";
+        line = "^3BTN ^7pad:" + ( host gamepadusedlast() ? 1 : 0 ) + " mv:" + mvs + " ^8|^7" + ( ( s == "" ) ? " none" : s );
+
+        if ( line != last )
+        {
+            last = line;
+            host iprintln( line );
+        }
+    }
+}
+
+// ============================================================================================
+// WRAITH PILOT - klaze 2026-09-25: "could we fly it somehow? noclip? attach to invisible helicopter?" ->
+// "try 1 with 3 as fallback". The Wraith (heli_ai_mp: BO3's AI attack helicopter, left in core_common) has no
+// player seat; stock only ever flies helicopters like it through their autopilot (setgoal / setspeed /
+// setyawspeed / setmaxpitchroll, killstreaks/helicopter_shared.gsc). So the pilot rides a CHASE CAMERA - a
+// script_origin kept behind and above the Wraith, the player linked to it like fly mode - and steers:
+//   1. AUTOPILOT: every frame the Wraith's goal is set ahead of it along the view + stick (jump / crouch =
+//      up / down, sprint = fast) and its yaw follows the view, so the engine's own helicopter movement flies it.
+//   3. DIRECT (the fallback): the Wraith is linked to an invisible mover driven exactly like fly mode.
+// gf_wraith_mode: 0 = autopilot, switching to direct when it does not respond (under 40 u moved in 1.5 s of
+// held stick, and only before the autopilot has moved it 250 u that flight); 1 = autopilot only; 2 = direct only. Enter: walk up and hold interact (the vehicle prompt's
+// "Hold to fly") or Vehicles > Enter vehicle. Leave: hold interact again or Vehicles > Leave vehicle. While
+// flying the pilot is hidden, has no weapon and takes no damage (the camera sits outside the Wraith).
+// MEASURED 2026-09-25 (klaze): setgoal moves a spawned heli_ai_mp. Since "yes make it automatic" the same pilot
+// serves ANY menu-spawned aircraft without a seat (pilot_is) - planes / streak helicopters unmeasured one by one.
+// ============================================================================================
+function private wraith_is( v )
+{
+    return isdefined( v ) && v.gf_key === "heli_ai_mp";
+}
+
+// klaze 2026-09-25 "yes make it automatic": the pilot can fly ANY menu-spawned aircraft the engine will not seat
+// you in (the Wraith, and whichever planes / streak helicopters turn out the same - stock flies those through the
+// same setgoal / setspeed autopilot: ac130_shared.gsc, straferun.gsc). Which ones, is decided by TRYING: the
+// engine's own hold-to-enter / usevehicle goes first, and still on foot after it = no seat for a player.
+// ⚠ Not a seat-table test: the first version asked veh_free_seat's "seat exists" test, and klaze measured it
+// ("now pressing F doesnt do anything. on the wraith either") - the Wraith reports a seat a player cannot use.
+function private pilot_is( v )
+{
+    return isdefined( v ) && is_true( v.gf_spawned ) && isdefined( v.gf_key ) && veh_is_air_key( v.gf_key );
+}
+
+// Enter vehicle tried a seat: still outside half a second later = none for a player -> the pilot.
+function private pilot_if_not_seated( veh )
+{
+    self endon( #"death", #"disconnect" );
+    wait 0.5;
+
+    if ( isdefined( veh ) && !( self isinvehicle() ) && !is_true( self.gf_wraith_on ) )
+        self wraith_pilot_start( veh );
+}
+
+function private pilot_label( veh )
+{
+    return isdefined( veh.gf_label ) ? veh.gf_label : "Aircraft";
+}
+
+// interact on either device: the pad's use (usebuttonpressed) or the keyboard's F (kb_use) - bocw-12
+function private wraith_use_held()
+{
+    return self usebuttonpressed() || self kb_use();
+}
+
+function private wraith_pilot_start( veh )
+{
+    if ( !isalive( self ) || self isinvehicle() || is_true( self.gf_wraith_on ) || !isdefined( veh ) )
+        return;
+
+    if ( isdefined( veh.gf_pilot ) && isplayer( veh.gf_pilot ) && isalive( veh.gf_pilot ) )
+    {
+        self iprintln( "^3" + pilot_label( veh ) + ": ^1" + veh.gf_pilot.name + " is flying it" );
+        return;
+    }
+
+    if ( is_true( self.gf_fly ) )
+        self notify( #"gf_fly_stop" );          // one link at a time (fly_cleanup unlinks)
+
+    self.gf_wraith_on = 1;
+    veh.gf_pilot = self;
+    self thread wraith_pilot_think( veh );
+}
+
+// Behind and above the aircraft, along its own heading, scaled by its size class (veh_air_radius: 320 = the
+// Wraith's 480 back / 192 up, 600 = the AC-130 / transports' 900 / 360).
+function private wraith_cam_spot( veh )
+{
+    if ( !isdefined( veh.gf_cam_r ) )
+        veh.gf_cam_r = isdefined( veh.gf_key ) ? veh_air_radius( veh.gf_key ) : 320;
+
+    back = anglestoforward( ( 0, veh.angles[ 1 ], 0 ) );
+    return veh.origin - back * ( veh.gf_cam_r * 1.5 ) + ( 0, 0, veh.gf_cam_r * 0.6 );
+}
+
+function private wraith_autopilot_setup( veh )
+{
+    veh setspeed( 60, 25, 25 );
+    veh setyawspeed( 90, 45, 45 );
+    veh setmaxpitchroll( 25, 35 );
+}
+
+// The fallback: an invisible mover the Wraith is linked to, driven like fly mode.
+function private wraith_go_direct( veh, cam )
+{
+    mover = spawn( "script_origin", veh.origin );
+    mover.angles = ( 0, veh.angles[ 1 ], 0 );
+    veh linkto( mover );
+    cam.gf_mover = mover;
+    return mover;
+}
+
+function private wraith_pilot_think( veh )
+{
+    self endon( #"death", #"disconnect", #"gf_wraith_stop" );
+    waitframe( 1 );                              // a stopped fly mode has unlinked by now
+
+    cam = spawn( "script_origin", wraith_cam_spot( veh ) );
+    self thread wraith_pilot_cleanup( veh, cam );
+    self thread wraith_end_watch();
+    self playerlinkto( cam );
+    self hide();
+    self val::set( #"gf_wraith", "disable_weapons", 1 );
+    self val::set( #"gf_wraith", "disable_oob", 1 );
+    self val::set( #"gf_wraith", "takedamage", 0 );
+
+    mode = cfg_wraith_mode();
+    mover = undefined;
+
+    if ( mode == 2 )
+        mover = wraith_go_direct( veh, cam );
+    else
+        wraith_autopilot_setup( veh );
+
+    self iprintln( "^3" + pilot_label( veh ) + ": ^2flying ^8(hold interact to leave - jump / crouch = up / down, sprint = fast)" );
+
+    armed = 0;                                   // the hold that started it must be let go first
+    held = 0;
+    idle = 0;
+    t_check = gettime();
+    p_check = veh.origin;
+    steered = 1;
+    start = veh.origin;
+    proven = 0;                                  // the autopilot has moved it this flight: never fall back
+
+    for ( ;; )
+    {
+        waitframe( 1 );
+
+        if ( !isdefined( veh ) || !isalive( veh ) || is_true( self.gf_fly ) )
+            break;
+
+        if ( self wraith_use_held() )
+        {
+            if ( armed )
+                held++;
+
+            if ( held >= 10 )                    // ~0.5 s
+                break;
+        }
+        else
+        {
+            armed = 1;
+            held = 0;
+        }
+
+        ang = self getplayerangles();
+        fwd = anglestoforward( ang );
+        right = anglestoright( ang );
+        mv = self getnormalizedmovement();
+        dir = ( 0, 0, 0 );
+
+        // A keyboard player's open menu reads W / A / S / D (menu_kb_lock_sync) - do not fly with them too.
+        if ( isdefined( mv ) && !is_true( self.gf_kblock ) )
+            dir = fwd * mv[ 0 ] + ( right[ 0 ], right[ 1 ], 0 ) * mv[ 1 ];
+
+        if ( self jumpbuttonpressed() )
+            dir += ( 0, 0, 1 );
+        else if ( self stancebuttonpressed() )
+            dir += ( 0, 0, -1 );
+
+        fast = self sprintbuttonpressed();
+        moving = length( dir ) > 0.1;
+
+        if ( isdefined( mover ) )
+        {
+            if ( moving )
+                mover.origin += dir * ( fast ? cfg_fly_fast() : cfg_fly_speed() );
+
+            mover.angles = ( 0, ang[ 1 ], 0 );
+        }
+        else
+        {
+            if ( moving )
+            {
+                veh setspeed( fast ? 110 : 60, 25, 25 );
+                veh setgoal( veh.origin + vectornormalize( dir ) * ( fast ? 1200 : 600 ), 0 );
+                idle = 0;
+            }
+            else if ( !idle )
+            {
+                veh setgoal( veh.origin, 1 );    // let go = hover where it is
+                idle = 1;
+            }
+
+            veh settargetyaw( ang[ 1 ] );
+
+            // mode 0: the autopilot did not move it -> the direct fallback, once. Only until it HAS moved it:
+            // klaze 2026-09-25 "it started on autopilot but then it switched later" - a wall, the ground or the
+            // height limit stalls a working autopilot too, and that is no reason to switch.
+            if ( mode == 0 && !proven && distancesquared( veh.origin, start ) > 250 * 250 )
+                proven = 1;
+
+            if ( mode == 0 && !proven )
+            {
+                if ( !moving )
+                    steered = 0;
+
+                if ( gettime() - t_check >= 1500 )
+                {
+                    if ( steered && distancesquared( veh.origin, p_check ) < 40 * 40 )
+                    {
+                        mover = wraith_go_direct( veh, cam );
+                        self iprintln( "^3" + pilot_label( veh ) + ": ^1autopilot is not moving it ^8- switched to direct control" );
+                    }
+
+                    t_check = gettime();
+                    p_check = veh.origin;
+                    steered = 1;
+                }
+            }
+        }
+
+        cam.origin = wraith_cam_spot( veh );
+    }
+
+    self notify( #"gf_wraith_stop" );             // last statement: this thread ends on it, the cleanup runs
+}
+
+// The round / match end also lands the pilot.
+function private wraith_end_watch()
+{
+    self endon( #"disconnect", #"gf_wraith_stop" );
+    level waittill( #"game_ended" );
+    self notify( #"gf_wraith_stop" );
+}
+
+function private wraith_pilot_cleanup( veh, cam )
+{
+    self waittill( #"gf_wraith_stop", #"death", #"disconnect" );
+
+    if ( isdefined( self ) )
+    {
+        self unlink();
+
+        if ( !is_true( level.gf_invis_all ) )
+            self show();
+
+        self val::reset( #"gf_wraith", "disable_weapons" );
+        self val::reset( #"gf_wraith", "disable_oob" );
+        self val::reset( #"gf_wraith", "takedamage" );
+        self.gf_wraith_on = 0;
+        self.gf_wraith_hold = 0;
+
+        if ( isalive( self ) )
+        {
+            base = ( isdefined( veh ) ) ? veh.origin : self.origin;
+            ang = self getplayerangles();
+            tp_place( self, tp_floor( base + ( 0, 0, 40 ) ), ( 0, ang[ 1 ], 0 ) );
+        }
+    }
+
+    if ( isdefined( veh ) )
+    {
+        veh.gf_pilot = undefined;
+
+        if ( isdefined( cam ) && isdefined( cam.gf_mover ) )
+            veh unlink();
+
+        if ( isalive( veh ) )
+            veh setgoal( veh.origin, 1 );       // hover where it was left
+    }
+
+    if ( isdefined( cam ) )
+    {
+        if ( isdefined( cam.gf_mover ) )
+            cam.gf_mover delete();
+
+        cam delete();
+    }
 }

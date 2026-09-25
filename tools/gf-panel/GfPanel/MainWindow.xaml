@@ -92,6 +92,9 @@
         <TabItem Header="FORGE" Tag="forge">
           <v:ForgeView />
         </TabItem>
+        <TabItem Header="UNLOCKS" Tag="unlocks">
+          <v:UnlocksView />
+        </TabItem>
         <TabItem Header="DIAGNOSTICS" Tag="diagnostics">
           <v:DiagnosticsView />
         </TabItem>

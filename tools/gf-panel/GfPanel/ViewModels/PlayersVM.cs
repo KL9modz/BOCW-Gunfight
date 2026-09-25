@@ -70,7 +70,7 @@ public sealed class PlayerRowVM : ObservableObject
     public RelayCommand TakeWeapon => new(() => Do("Take weapon", "takeone"));
     public RelayCommand Strip => new(() => Do("Strip weapons", "stripone"));
     // forge session 2026-09-20 (klaze: a FULL personal client menu, not just forge): a granted player opens
-    // their own mini mod-menu with ADS + Melee - Forge (props + vehicles), Teleport, God / Ammo / 3rd person /
+    // their own mini mod-menu with F + E (controller: D-pad Up) - Forge (props + vehicles), Teleport, God / Ammo / 3rd person /
     // Fly, personal speed + jump, Weapons / Camo / Operator / Skin, soft Unlock-all, Display - NOT host admin
     // (kick / team / match) and NOT the globals (gravity / vision). Verb unchanged: forgegrant on|off + target.
     public RelayCommand StreakRcxd => new(() => Do("Give RC-XD", "streak", "recon_car"));
@@ -101,7 +101,7 @@ public sealed class PlayerRowVM : ObservableObject
     /// <summary>★ on the roster row (klaze 2026-09-24: giving menu access is one of the most-used jobs): one click gives /
     /// takes the client menu. The host has the full menu already and bots cannot hold one.</summary>
     public string MenuGlyph => P.HasMenu ? "★" : "☆";
-    public string MenuTip => P.HasMenu ? $"{Name} has a client mod menu - click to take it back" : $"Give {Name} their own client mod menu (hold ADS + Melee in game)";
+    public string MenuTip => P.HasMenu ? $"{Name} has a client mod menu - click to take it back" : $"Give {Name} their own client mod menu (F + E in game, controller D-pad Up)";
     /// <summary>Open this player on the PLAYERS page (every action as a button).</summary>
     public RelayCommand Inspect => new(() => { _main.Players.Selected = this; _main.SelectTab("players"); });
     /// <summary>Right-click → Show their menu log: the ACTIVITY list filtered to this player's menu actions.</summary>

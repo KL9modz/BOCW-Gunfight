@@ -395,6 +395,13 @@ setting), the first-round forfeit clock (`function_67ed6c46` `:875`, reads the l
   `gf_dbg_barrier` = the BARRIER feed line: census + the host inside-a-hurt-volume/alive/god/z + the last death of
   any player (MOD / attacker classname / god) — the one screenshot that names what killed someone. Menu: Movement
   → Death barriers; app: Movement row. Plain dvars. → `death-barriers.md`
+- **Invisible walls OFF** (2026-09-24, `gf_invwall`, default 1 = OFF on klaze's call; MEASURED on Diesel: the ceiling
+  passes, some edge walls that also carry utility clip still block). The third map-edge system, and the
+  only one that physically blocks: the map's **player clip** (the ceiling in the sky, the walls at the edge). Read
+  off the exe: a living player's movement mask carries playerClip 0x10000 but not sky 0x800. The mask builder swaps
+  playerClip for utilityClip when the player holds perk index 0xa2 (`#"hash_3a09b1d7eaa88087"`, unnamed), whose
+  only two engine checks are those mask lines. The switch grants that perk every spawn and every second. Menu:
+  Movement → Invisible walls; app: Movement row. Plain dvar. → `invisible-walls.md`
 - **Speed** = `setmovespeedscale()` per player, re-applied on `on_spawned` because `give_loadout` resets it
   (`player_loadout.gsc:1883-1887`; spawn order `globallogic_spawn.gsc:637` loadout → `:758` callback). `g_speed`
   has zero references in the dump and cannot be verified from script — not used.

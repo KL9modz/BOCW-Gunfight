@@ -70,7 +70,7 @@
             <Expander.Header>
               <StackPanel Orientation="Horizontal">
                 <TextBlock Text="MENU BACKDROP" Style="{StaticResource BlockTitle}" />
-                <TextBlock Text="boxes behind the menu while it is open - open your menu in game, then move the sliders" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" />
+                <TextBlock Text="boxes behind the HOST menu while it is open - both OFF for now (on the hint row one covered the hint bar); raise Opacity to try one (client menus: off)" Style="{StaticResource Dim}" FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center" />
               </StackPanel>
             </Expander.Header>
             <StackPanel>

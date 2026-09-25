@@ -231,7 +231,7 @@
             <Button Content="Give menu" Style="{StaticResource SmallAccent}" Command="{Binding Forge.GrantOn}" Margin="0,0,4,0" ToolTip="forgegrant on" />
             <Button Content="Take back" Style="{StaticResource SmallBtn}" Command="{Binding Forge.GrantOff}" ToolTip="forgegrant off" />
           </WrapPanel>
-          <TextBlock Style="{StaticResource ActionNote}">Or click ☆ / ★ on a player in the sidebar. A granted player opens their own menu with ADS + Melee (controller: D-pad up): props, vehicles, god / ammo / fly, teleport, weapons, camo - no admin. It survives rounds and a rejoin.</TextBlock>
+          <TextBlock Style="{StaticResource ActionNote}">Or click ☆ / ★ on a player in the sidebar. A granted player opens their own menu with F + E (controller: D-pad Up): props, vehicles, god / ammo / fly, teleport, weapons, camo - no admin. It survives rounds and a rejoin.</TextBlock>
         </StackPanel>
       </Expander>
 

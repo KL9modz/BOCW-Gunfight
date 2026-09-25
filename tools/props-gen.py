@@ -71,6 +71,37 @@ EXCLUDE_RE = re.compile(r"debris|fluid|dogtag|heart_name|gib_chunk|decal_scratch
 # (Adler). Lowercase - matched against the lowercased model name.
 EXCLUDE_KEEP = {"p9_dogtags_adler_enemy", "p9_dogtags_adler_friendly"}
 
+# Dropped by name (klaze 2026-09-25, by their Forge counter numbers on the 423-prop list: "remove these props:
+# 99, 104, 118-120, ... 56-60") - lids, wheels, parts, decals and test models. Names, not numbers, so a
+# later regeneration cannot drop the wrong props. Lowercase.
+EXCLUDE_MODELS = {
+    "p7_emergency_flare", "p7_jun_barrel_wood_lid", "p7_meat_chicken_wing", "p7_ris_welding_arc_cart_wheel",
+    "p8_bench_garden_divider", "p8_bench_garden_endcap_lt", "p8_bench_garden_endcap_rt", "p8_big_cylinder",
+    "p8_col_nitrogen_tank_worn_welded_01_decals", "p8_cos_tool_chest_rolling_lrg_sml",
+    "p8_cos_tool_chest_rolling_lrg_wheel", "p8_fxanim_test_concertina_wire_mod_spawn_1",
+    "p8_fxanim_test_concertina_wire_mod_spawn_2", "p8_fxanim_test_concertina_wire_mod_spawn_3",
+    "p8_fxanim_test_concertina_wire_mod_spawn_4", "p8_fxanim_test_concertina_wire_mod_spawn_5",
+    "p8_spa_trashcan_lid", "p8_usa_wheelbarrow_tire", "p8_wz_perk_pickups_deadsilence",
+    "p8_wz_perk_pickups_engineer", "p8_wz_perk_pickups_gungho", "p8_zm_esc_piano_sheets", "p8_zm_red_coin_gold",
+    "p8_zm_zod_coffee_table_rectangle_door", "p9_dun_drying_rack_01_only",
+    "p9_ech_duct_metal_square_elbow_right_90_dark_clean_wet", "p9_ger_tank_barrel_metal_01_btm",
+    "p9_ger_tank_barrel_metal_01_lid", "p9_lat_barrel_barrel_drum_metal_snow_cap",
+    "p9_lat_storage_tool_cart_drawer_lrg", "p9_lat_storage_tool_cart_drawer_lrg_clean",
+    "p9_lat_storage_tool_cart_drawer_sml_clean", "p9_lat_storage_tool_cart_wheel_lrg_clean",
+    "p9_lat_storage_tool_cart_wheel_sml_clean", "p9_mal_vending_machine_soda_02_exp",
+    "p9_nic_bale_cocaine_leaves_01_top", "p9_nt6_mannequin_clothes_male_02_head_dirty",
+    "p9_nt6_mannequin_clothes_male_02_torso_dmg", "p9_nt6_refrigerator_vintage_door_01",
+    "p9_nt6_refrigerator_vintage_door_02", "p9_rm_dwn_chair_office_cushion_seat", "p9_rm_exp_turnstile_turn",
+    "p9_rm_rai_water_cooler_metal_cup", "p9_rm_rai_water_cooler_metal_cup_holder",
+    "p9_rm_rai_water_cooler_metal_line", "p9_rm_rai_water_cooler_metal_water_jug",
+    "p9_rus_appliance_refrigeration_retail_freezer_door_left",
+    "p9_rus_appliance_refrigeration_retail_freezer_door_right",
+    "p9_rus_appliance_refrigeration_retail_freezer_tray", "p9_rus_concrete_bench_01_decal",
+    "p9_rus_tank_welding_guage", "p9_rus_tank_welding_valve", "p9_rus_trashcan_lid", "p9_ship_zipline_post_a_light",
+    "p9_territory_cylinder", "p9_usa_dumpster_01_lid_lt", "p9_usa_dumpster_01_lid_rt",
+    "p9_usa_streetlamp_tall_cap_01",
+}
+
 # Region/theme tokens that lead a prop name and carry no meaning for a human label.
 REGION = {
     "usa", "rus", "ger", "lat", "nic", "cli", "ang", "mal", "nt6", "nt6x", "ship", "kgb", "amk",
@@ -156,7 +187,7 @@ def zone_props(dump: str, zone: str) -> set[str]:
                 continue
             name = row[c + 1:].lstrip("#").strip()
             low = name.lower()
-            if low.startswith(FAMILIES) and (not EXCLUDE_RE.search(low) or low in EXCLUDE_KEEP):
+            if low.startswith(FAMILIES) and (not EXCLUDE_RE.search(low) or low in EXCLUDE_KEEP) and low not in EXCLUDE_MODELS:
                 out.add(name)
     return out
 

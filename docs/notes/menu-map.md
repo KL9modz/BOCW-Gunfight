@@ -112,18 +112,31 @@ self.next_item   = "attack";
 self.select_item = "use";
 ```
 
-| Action | Game action | Default PC key |
-|---|---|---|
-| Open | ADS + Melee | RMB + V |
-| Up (`last_item`) | ADS | RMB |
-| Down (`next_item`) | Attack | LMB |
-| **Select** (`select_item`) | Use | **R** |
-| Back (`parent_page`) | Melee | V |
+That was the Atian Menu's table. **gunfight_menu's keyboard & mouse keys since 2026-09-24** (klaze:
+"refactor all menu controls for mouse and keyboard", then "since the menu is horizontal, make A/D
+back/next and W/S select/back"; the KEYBOARD & MOUSE block in gunfight_menu.gsc):
 
-⚠ **`select_item = "use"` does NOT mean F.** On BOCW PC the `use` action resolves to **R (Reload)**.
-Confirmed in-game 2026-09-08 after F, E and Space all failed. This one fact is what made the menu
-look broken: it opened and scrolled but appeared to select nothing. `select_item` reads like F to
-anyone who knows CoD's default Interact key — hence the time it cost, and hence recording it.
+| Action | One-line menu (default, `gf_menu_region 2`) | List layouts | Script reads |
+|---|---|---|---|
+| Open | F + E | F + E | `BUTTON_BIT_ACTIVATE` + melee |
+| Previous / next item | A / D, wheel up / down | W / S, wheel up / down | `getnormalizedmovement()`, `BUTTON_BIT_WEAPPREV` / `WEAPNEXT` |
+| Select | W or F | D or F | movement, `BUTTON_BIT_ACTIVATE` |
+| Back (on the first page: close) | S or E | A or E | movement, melee |
+
+While a keyboard player has the menu open, walking stops (move speed 0), E does not knife, F does not
+use or pick up and the wheel does not swap weapons; look, aim, fire and reload stay live. A controller
+keeps the D-pad scheme (`keys_nav_refresh`, D-pad Up opens); a CoD Caster keeps its keyset.
+
+**Why these keys:** the script never sees keys, only the per-frame input a BOUND game action produces
+(the movement vector and the named `BUTTON_BIT_*` flags, table read off the exe). The D-pad action
+slots do not arrive from a keyboard (klaze: 3 / 4 never cycled Forge; PC binds them as scorestreak
+slots, and the arrow keys only as the UI's "Navigate" binds). ⚠ Unmeasured as of 2026-09-24: the wheel
+bits and their direction, F while usability is off, W / A / S / D at move speed 0, the A / D sign.
+
+⚠ **`usebuttonpressed()` does NOT mean F.** On BOCW PC the `use` action resolves to **R (Reload)**.
+Confirmed in-game 2026-09-08 after F, E and Space all failed (the Atian `select_item = "use"`). The
+keyboard's F is `buttonbitstate( "BUTTON_BIT_ACTIVATE" )`, which stock `spy.gsc` reads for its
+keyboard players.
 
 ---
 

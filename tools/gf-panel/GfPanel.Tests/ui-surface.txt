@@ -1,7 +1,7 @@
 # Everything a user can do from the panel's views - kept reachable through the redesign (UiSurfaceTests).
 # cmd:<Command> [<literal parameter>|{<bound parameter>}]  ·  set:<two-way input property>  ·  click:<handler>
 # Regenerate after an INTENDED change:  dotnet run --project tools/gf-panel/GfPanel.Tests -- --write-ui-surface
-# 485 keys.
+# 517 keys.
 click:Cancel_Click
 click:Fit_Click
 click:Ok_Click
@@ -80,6 +80,13 @@ cmd:ForgeModeOff
 cmd:ForgeModeOn
 cmd:Freeze
 cmd:FreezeAll
+cmd:Fun ammo 0
+cmd:Fun ammo 1
+cmd:Fun ammo 2
+cmd:Fun ammo 3
+cmd:Fun ammo 4
+cmd:Fun ammo 5
+cmd:Fun ammo 6
 cmd:Fun camorandom
 cmd:Fun cannon off
 cmd:Fun cannon on
@@ -124,6 +131,7 @@ cmd:InvisOn
 cmd:Kick
 cmd:Kill
 cmd:LoadCustomArt
+cmd:Local
 cmd:MakeStart
 cmd:MatchInfo
 cmd:MaxAmmo
@@ -197,12 +205,31 @@ cmd:RestartRound
 cmd:ResumeCmd
 cmd:ReverseTrack
 cmd:Rotate
+cmd:Run ach
+cmd:Run achcp
+cmd:Run achdoa
+cmd:Run achmp
+cmd:Run achzm
+cmd:Run challenges
+cmd:Run everything
+cmd:Run level
+cmd:Run probe
+cmd:Run save
+cmd:Run weapons
 cmd:Run {Binding}
 cmd:SavePreset
 cmd:SaveProfile
 cmd:Scan
 cmd:Select {Binding}
 cmd:Send
+cmd:Send ammo 0
+cmd:Send ammo 1
+cmd:Send ammo 2
+cmd:Send ammo 3
+cmd:Send ammo 4
+cmd:Send ammo 5
+cmd:Send ammo 6
+cmd:Send ammo none
 cmd:Send camorandom
 cmd:Send cannon off
 cmd:Send cannon on
@@ -320,6 +347,7 @@ cmd:StageX
 cmd:StartTour
 cmd:StepDown
 cmd:StepUp
+cmd:Stop
 cmd:StopTour
 cmd:StreakBow
 cmd:StreakGive
@@ -435,6 +463,9 @@ set:Preview
 set:ProjMethod
 set:ProjRate
 set:Scale
+set:ScopeAll
+set:ScopeMe
+set:ScopePlayer
 set:Search
 set:SelW
 set:SelX
@@ -476,6 +507,7 @@ set:ShowProps
 set:ShowUniversal
 set:ShowVehicles
 set:StreakTarget
+set:Target
 set:Text
 set:Timescale
 set:TourGametype

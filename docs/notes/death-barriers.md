@@ -6,6 +6,9 @@
 > unmeasured fallbacks. With barriers off a fall off the map never ends on its own — Teleport →
 > *me to centre* is the way back. The original 2026-09-19 build notes and the test sheet (§5) are
 > kept below as written.
+>
+> The third map-edge system, the **invisible walls** (player clip: the ceiling in the sky, the walls at
+> the edge), has its own switch: `gf_invwall` in [invisible-walls.md](invisible-walls.md) (2026-09-24).
 
 klaze, 2026-09-19: *"we already have a toggle for oob but not for the real death barriers. god mode
 doesn't prevent them."* Two facts in one line: [[game-systems]] §14d's `gf_oob` (the restricted-area

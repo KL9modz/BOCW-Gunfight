@@ -54,6 +54,8 @@
           <StackPanel>
             <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,0,0,6">A snapshot of every setting (every page's rows) under a name - the rcon tool's "Save to cfg". Applying sends only the fields that differ from the live values.</TextBlock>
             <Button Content="💾 Save current settings as preset…" Command="{Binding SavePreset}" HorizontalAlignment="Left" Margin="0,0,0,6" />
+            <Button Content="↺ Reset all mods…" Command="{Binding ResetAllMods}" Style="{StaticResource NgBtn}" HorizontalAlignment="Left" Margin="0,0,0,6"
+                    ToolTip="Back to how it was at the first inject: every setting to its default (only the ones that differ are sent) and every live mod cleared in the game - god / fly / third person / speed, freeze, invisibility, ammo types, disco, slide presets, prop gun / cannon / projectiles, teleport gun, VIP labels, the everyone-perks set, drunk / slow-mo / vision, all placed props + the saved Forge layouts, all menu-spawned vehicles. Client menu grants are kept." />
             <ItemsControl ItemsSource="{Binding ConfigPresets}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate>

@@ -42,6 +42,20 @@ rules-row edit does not (`core_ui_1455:2490-2523`). Lobby UI side rules: bot-add
   slots* (on); SETUP → *Lobby slots* status row (GFLOBBY), *Inject lobby payload*, and *Set up all* injects it too
   (toggle in PANEL). `tools/inject.sh gunfight_lobby` does the same pair by hand.
 
+### ✅ MEASURED 2026-09-24 18:08–18:13 (klaze; saved log `activity-2026-09-24.log`)
+
+| Time | Event | Reading |
+|---|---|---|
+| 18:08:02–03 | Set up all: menu (bb.gsc / clientids_shared) + lobby payload (load_shared / **containers_shared**) injected | both `injected at` |
+| 18:08:17–53 | match on ICBM (`4v4 · budget 8` in the panel - no recount yet), then **back to the lobby: no hang** | the new replace-target pair survives a lobby return |
+| 18:08:48 | GFLOBBY from the lobby | `maxplayers 12 (asked 12), spectating 1`, `gt=frontend` (g_gametype in the lobby VM reads `frontend`, not the mode) |
+| — | Custom Game Rules → change a row → back → YES | klaze: **"it works"** |
+| 18:12:00–13:12 | match on Nuketown '84; menu *Fill with bots* → `0 bots added: 6v6` | **12 players seated** - more than a stock Gunfight lobby's 8 clients |
+| 18:12:23 → 18:13:44 | app set *Lobby max players* 16 in-match → back in the lobby | GFLOBBY `maxplayers 16 (asked 16)` - the payload re-applies on every lobby visit |
+
+Not recorded: the lobby's N/M number itself, `com_maxclients` in the Nuketown match, and casters seated. The
+`n=` field (`getlobbyclientcount()`) read 0 in both lobby lines - not a usable count.
+
 ### Test sheet — first run (klaze)
 
 1. Set up all (menu + lobby payload) → play/restart a match → **leave to the lobby. Does the lobby come up?** (a hang on

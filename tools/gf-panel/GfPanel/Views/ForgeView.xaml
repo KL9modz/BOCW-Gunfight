@@ -81,7 +81,7 @@
             <StackPanel>
               <TextBlock Text="PLACE MODE" Style="{StaticResource SubTitle}" />
               <WrapPanel>
-                <Button Content="▶ Enter forge" Style="{StaticResource Accent}" Command="{Binding Forge.Enter}" Margin="0,0,6,4" ToolTip="forge enter - a ghost of the current model rides your crosshair onto surfaces while you walk normally (WASD / stick). D-pad or Action Slots 1-4: distance up/down, rotate left/right · ADS + up/down: scale · weapon switch: cycle model · FIRE: place · FRAG: exit - same on controller and keyboard. Weapons off while active." />
+                <Button Content="▶ Enter forge" Style="{StaticResource Accent}" Command="{Binding Forge.Enter}" Margin="0,0,6,4" ToolTip="forge enter - a ghost of the current model rides your crosshair onto surfaces while you walk normally (WASD / stick). Controller: D-pad left/right cycle, up/down turn · bumpers scale · FIRE place · R3 exit. Keyboard/mouse: wheel cycle · right-click + wheel turn · tactical/lethal scale · left-click place · E exit. Weapons off while active." />
                 <Button Content="■ Exit" Command="{Binding Forge.Exit}" Margin="0,0,6,4" ToolTip="forge exit - drop the preview, weapons back" />
                 <Button Content="Place" Command="{Binding Forge.Place}" Margin="0,0,6,4" ToolTip="forge place - drop the preview where it is (same as FIRE in place mode)" />
                 <Button Content="◀ Prev" Command="{Binding Forge.Prev}" Margin="0,0,6,4" ToolTip="forge prev - previous model in the universal list" />

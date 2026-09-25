@@ -6,6 +6,11 @@ c# app... and maybe the app can let me choose favorites for the menu?"*
 So: the **app (tools/gf-panel)** browses the WHOLE catalog and spawns any of it; the **in-game menu**
 shows only a favourites subset the app chooses. This note is the contract between the two.
 
+> **2026-09-25:** klaze removed 58 props by their Forge counter numbers (lids, wheels, parts, decals, test
+> models). `tools/props-gen.py` now has `EXCLUDE_MODELS`, which drops them by NAME so a later regeneration
+> can't drop the wrong ones. The universal list went 423 → 365, and every later index shifted. The panel
+> embeds `map-props.json`, so it was republished with the new build. The counts below are the older state.
+
 ## The catalog — `docs/data/map-props.json` (generated, READ-ONLY)
 
 `tools/props-gen.py` reads the T9 dump's per-zone manifests (`tables/data/assets/<zone>.csv`,

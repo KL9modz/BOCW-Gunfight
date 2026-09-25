@@ -123,7 +123,10 @@ crash with [[crash-decode]] (`docs/notes/crash-decode.md`, `tools/sre-decode.py`
   hundred items — never nested scans over a map's entities in one resumption.
 - **Every payload goes through `tools/strip-strhdr.ps1`** after `acts gscc` (an unstripped build garbles
   every string literal: map names, targetnames), then `check-gsc` PASS, then a count of entries still
-  carrying the `0x8B` header (must be 0) before it is promoted to the live slot.
+  carrying the `0x8B` header (must be 0) before it is promoted to the live slot. For the menu,
+  **`tools/build-menu.ps1`** does all of it in one command: check, strip, verify (headers, bytes < 0x20,
+  `-Expect` strings), then back up and promote, stopping at the first failure. It takes about 3 minutes;
+  ACTS needs ~130 s to compile the 26,500-line file.
 
 ## Anti-cheat reality
 

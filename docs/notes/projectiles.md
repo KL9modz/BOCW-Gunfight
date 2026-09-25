@@ -433,3 +433,53 @@ gets PHA's `radiusdamage` 500/500/25 at impact (stock's only detonates on a lock
 stock's land-fire `spawntimedfx` + our burn ticks. ⚠ Read the PROJ line's `lastcall` for `m7(auto)` when
 testing. *Stun grenade* joins the Projectile list; `gf-panel` offers method 7. [[fun-pack]] → fun pack 2.
 
+## 12. 2026-09-24 — Ammo Type: each player's own pick (client page + app, never run)
+klaze asked *"can projectiles and ammo type be set per player?"*: they could not. The on / off switch was host or
+everyone, and the projectile, rate, method, homing and trail were one `game.` setting for all. Then he asked
+*"give clients a new "Ammo Type" page"* with Rockets (Cigma missiles), Missiles (jet fighter missiles), Grenades
+(M79 grenades), Orbs (energy portals), Chickens, and Last used prop (*"use what was selected in the prop tool"*).
+
+- **Where:** Client Menu → *Ammo Type* (`client_ammo_enter` / `act_ammo_type`, the AMMO TYPE block at the end of
+  `gunfight_menu.gsc`). The first row, *Normal bullets*, clears the pick (klaze: *"add a normal bullets row to the
+  ammo page"*); pressing the lit pick again does too. **A pick closes the menu.** MEASURED on klaze's first try
+  (2026-09-24, Miami, client KL9: Rockets / Missiles / Grenades / Chickens all accepted, nothing fired): *"it was
+  becuase the menu was open"*. Both shot pipelines skip every shot while the shooter's menu is open (ATTACK is the
+  menu's next-item key). The app sends `fun ammo <0-6>`
+  (`gf_cmd_target` = the player, none = the host), or `fun ammo none` to put everyone back on normal bullets.
+  It is on PLAYERS (a player's fun-pack row), on the player right-click menu → Fun pack → *Ammo type*, and on
+  SANDBOX → PROJECTILES & MAP TOYS → *My ammo type* / *Everyone → normal*.
+- **State:** `pers[ "gf_ammo" ]` (0 = none, 1-6). It survives Gunfight's `map_restart( 1 )` round boundary, the
+  same way the slide presets do.
+- **Nothing new fires.**
+  - *Rockets / Missiles / Grenades* use the projectile pipeline with the player's own weapon
+    (`launcher_standard_t9` / `jetfighter_missile` / `special_grenadelauncher_t9`). They always use method 0 =
+    AUTO: m1 `magicbullet` / m7 `magicmissile` (plus the jet missile's scripted 500-unit blast) / m4
+    `magicgrenadeplayer`. A host-set method 1-7 would send some of them down a spawner that does not suit them:
+    the M79 through `magicbullet` drops at the feet (§9), and the jet missile has only `magicmissile` callers in
+    stock (§11).
+  - *Orbs / Chickens / Last used prop* use the model cannon with the player's own prop
+    (`p8_fxp_zm_energy_portal_alctrz`, `p8_aml_chicken_female_03`, or the last prop the player picked or placed in
+    Props). `forge_cycle` / `forge_place` record that last prop in `pers[ "gf_last_prop" ]`, because the forge's
+    own pick is an entity field and resets every round.
+- **Precedence:** a pick overrides *Projectiles host / everyone* and *Model cannon* for that player, so a player
+  fires only their pick. The match-wide extras still apply: rate (default one per 300 ms; the cannon one per
+  250 ms), homing, trail, shots per trigger, and the cannon's blast / ride / keep. *Projectiles OFF* does not
+  clear the picks; *Everyone → normal* does.
+- **Also changed:** *Projectiles – host* was the entity field `player.gf_proj`. The fun pack's `pflag` note says
+  `map_restart( 1 )` frees entity fields, which would limit that switch to one round (unmeasured). It is now
+  `pers` (`pflag gf_proj`). The PROJ line gains `ammo:N` (players with a pick) and names the shooter's own weapon in
+  `lastcall`.
+
+### Test sheet — one match, a granted client
+| # | do | read |
+|---|---|---|
+| 1 | client: Ammo Type → *Rockets*, one shot at a far wall | a Cigma missile; the row lit; the menu log's result `Ammo: Rockets - Cigma missiles` |
+| 2 | *Missiles*, one shot | a jet missile, then a big blast where it ends (500 units — not near yourself) |
+| 3 | *Grenades*, one shot | an M79 grenade launches and arcs (not at the feet) |
+| 4 | *Orbs*, then *Chickens*, one shot each | the prop flies to the aim point and is gone after 5 s |
+| 5 | Props: cycle to a couch, leave Props, *Last used prop*, one shot | a couch |
+| 6 | next round, one shot | the same pick still fires (and the page shows it lit) |
+| 7 | *Normal bullets* (then pick one and press its lit row again) | normal bullets both times; *Normal bullets* lit |
+
+Record: `______`
+

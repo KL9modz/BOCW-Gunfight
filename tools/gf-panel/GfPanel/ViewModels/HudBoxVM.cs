@@ -8,7 +8,8 @@ namespace GfPanel.ViewModels;
 /// in 15-px units, w in 8-px units, h in 4-px units (the widget's Lua, core_ui_0685 - the stock px helper's
 /// width / 4 is wrong for it), alpha / colour 0..15, alpha 0 = that box off. With Live on, a change is
 /// sent 350 ms after the last slider move (one short `set`, well under the 47-byte slot) and the GSC re-applies it
-/// on its next 0.1 s tick while the menu is open - tune it while looking at the game. Defaults = the GSC's guesses.</summary>
+/// on its next 0.1 s tick while the menu is open - tune it while looking at the game. Defaults = the GSC's fallbacks
+/// (measured on klaze's screen 2026-09-24: box 0 off, box 1 on the hint row).</summary>
 public sealed class HudBoxVM : ObservableObject
 {
     private readonly MainViewModel _m;

@@ -130,7 +130,20 @@ It sets no draw priority. (`#luielemimage`'s image is `LUI.UIElement.createFake(
 nothing.) Transport: `lui_shared` sends ONE queued field event per server frame (`function_1c4c4975`, a
 global queue — no stock MP user) and skips a value it already sent (`function_bed1b789`'s per-player cache),
 so clear that cache before a RE-open as well as on close, or the reopened element never gets its fields.
-Used by the menu backdrop (`gunfight_menu.gsc` MENU BACKDROP, gf_hb0 / gf_hb1, 2026-09-24).
+Used by the menu backdrop (`gunfight_menu.gsc` MENU BACKDROP, gf_hb0 / gf_hb1, 2026-09-24). Host menu only
+for now (klaze, same day: *"for now on the client menu, turn off the background boxes we made"*); the gate is
+the `!is_true( self.gf_client_menu )` term in `hudbox_think`. **MEASURED on screen 2026-09-24, from a klaze
+screenshot of the host menu:** the boxes draw. The unit model holds: w×8, h×4 and y×15 give one scale
+within 3%. A 1024-px box at x 30 is centred on the same line as the centre line and the hint row, within 3 px.
+Measured positions in the 1920-wide space:
+- the hint-row text sits at y ≈793-822 (x ≈528-1392);
+- the centre line's own stock backdrop sits at y ≈203-237.
+
+New defaults: the hint-row box is 30,52,128,14 (y 780-836). The centre-line box is off, since that line
+already has a backdrop. Then, with box 1 on the hint row, klaze reported on screen: *"it replaced the hint
+bar. disable boxes for now"*. Both boxes now default to alpha 0. Read: an LUIelemBar laid over the hint
+prompt covers it instead of backing it. It is a `LUI.createMenu` menu with no priority, so it probably stacks
+above the HUD. A box BEHIND the hint text needs a different widget or a draw-order lever; none is known yet.
 
 **The call shape** — host GSC, no client payload, no `#using` of the element script (nothing in MP links
 `luielembar.gsc`; the builtins and `lui_shared` are enough):

@@ -1,0 +1,55 @@
+<UserControl x:Class="GfPanel.Views.UnlocksView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- klaze 2026-09-24: "proceed incorperating the full entire unlock system and all features into the app".
+       The GSC `unlock` verb (gunfight_menu.gsc ACCOUNT UNLOCKS); docs/notes/unlocks.md. NEVER RUN. -->
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="14,12" MaxWidth="980" HorizontalAlignment="Left">
+
+      <Border Background="{StaticResource Sf}" BorderBrush="{StaticResource Bd}" BorderThickness="1" CornerRadius="7" Padding="12,9" Margin="0,0,0,10">
+        <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="11.5">These write the Activision ACCOUNT's saved stats - permanent, and the "manipulation of game data" Activision bans for. Custom games give no XP, so whether a custom match can save these at all is untested: run the Write check first (it writes each stat's own value back and changes nothing). Anyone but you is asked on their own screen first - they must hold Use for 1 second within 20 s, or nothing is written to their account.</TextBlock>
+      </Border>
+
+      <TextBlock Text="WHO" Style="{StaticResource SubTitle}" />
+      <WrapPanel Margin="0,2,0,10">
+        <RadioButton Content="Me (host)" IsChecked="{Binding Unlocks.ScopeMe}" Margin="0,0,16,0" VerticalAlignment="Center" />
+        <RadioButton Content="One player:" IsChecked="{Binding Unlocks.ScopePlayer}" Margin="0,0,6,0" VerticalAlignment="Center" />
+        <ComboBox ItemsSource="{Binding Unlocks.Humans}" DisplayMemberPath="Name" SelectedItem="{Binding Unlocks.Target}" Width="200" Margin="0,0,16,0" />
+        <RadioButton Content="Everyone else (asked on their screen)" IsChecked="{Binding Unlocks.ScopeAll}" VerticalAlignment="Center" />
+      </WrapPanel>
+
+      <TextBlock Text="CHECK FIRST" Style="{StaticResource SubTitle}" />
+      <WrapPanel Margin="0,2,0,10">
+        <Button Content="Write check (changes nothing)" Style="{StaticResource SmallAccent}" Command="{Binding Unlocks.Run}" CommandParameter="probe" Margin="0,2,6,2" ToolTip="unlock probe - reads your rank XP and your XM4's XP, writes each value back unchanged, and reports whether the game accepted each write (plus: custom / ranked / online match flags)" />
+      </WrapPanel>
+
+      <TextBlock Text="ACCOUNT UNLOCKS" Style="{StaticResource SubTitle}" />
+      <WrapPanel Margin="0,2,0,4">
+        <Button Content="Max weapon levels" Style="{StaticResource Chip}" Command="{Binding Unlocks.Run}" CommandParameter="weapons" Margin="0,2,6,2" ToolTip="unlock weapons - every weapon in mp_gunlevels.csv set to its top level's XP" />
+        <Button Content="Complete all challenges" Style="{StaticResource Chip}" Command="{Binding Unlocks.Run}" CommandParameter="challenges" Margin="0,2,6,2" ToolTip="unlock challenges - every challenge stat in statsmilestones1-6 raised to its top target (camos, calling cards). Attachment (reticle) challenges are skipped. Takes a minute or two." />
+        <Button Content="Max player level" Style="{StaticResource Chip}" Command="{Binding Unlocks.Run}" CommandParameter="level" Margin="0,2,6,2" ToolTip="unlock level - rank XP set to the least XP of the top rank in the game's own rank table" />
+        <Button Content="Everything" Style="{StaticResource SmallAccent}" Command="{Binding Unlocks.Run}" CommandParameter="everything" Margin="0,2,6,2" ToolTip="unlock everything - weapons, challenges, level, then all 44 achievements, saving after each" />
+      </WrapPanel>
+
+      <TextBlock Text="ACHIEVEMENTS (1 s apart)" Style="{StaticResource SubTitle}" />
+      <WrapPanel Margin="0,2,0,10">
+        <Button Content="All 44" Style="{StaticResource Chip}" Command="{Binding Unlocks.Run}" CommandParameter="ach" Margin="0,2,6,2" ToolTip="the 44 ids of ddl/pc_achievements.ddl" />
+        <Button Content="Multiplayer (5)" Style="{StaticResource Chip}" Command="{Binding Unlocks.Run}" CommandParameter="achmp" Margin="0,2,6,2" />
+        <Button Content="Zombies (9)" Style="{StaticResource Chip}" Command="{Binding Unlocks.Run}" CommandParameter="achzm" Margin="0,2,6,2" />
+        <Button Content="Campaign (25)" Style="{StaticResource Chip}" Command="{Binding Unlocks.Run}" CommandParameter="achcp" Margin="0,2,6,2" />
+        <Button Content="Dead Ops (5)" Style="{StaticResource Chip}" Command="{Binding Unlocks.Run}" CommandParameter="achdoa" Margin="0,2,6,2" />
+      </WrapPanel>
+
+      <TextBlock Text="CONTROL" Style="{StaticResource SubTitle}" />
+      <WrapPanel Margin="0,2,0,10">
+        <Button Content="Save now" Style="{StaticResource SmallBtn}" Command="{Binding Unlocks.Run}" CommandParameter="save" Margin="0,2,6,2" ToolTip="unlock save - uploadstats for the chosen target (each part already saves when it finishes)" />
+        <Button Content="Stop" Style="{StaticResource NgBtn}" Command="{Binding Unlocks.Stop}" Margin="0,2,6,2" ToolTip="unlock stop - halts the running part before its next step and drops everything queued; what was already written stays" />
+        <Button Content="Local unlock (this PC only, not saved)" Style="{StaticResource SmallBtn}" Command="{Binding Unlocks.Local}" Margin="16,2,6,2" ToolTip="unlock local - loot_fakeall 1, the same as TOOLS → Unlock all" />
+      </WrapPanel>
+
+      <TextBlock Text="LATEST FROM THE GAME" Style="{StaticResource SubTitle}" />
+      <TextBlock Text="{Binding Unlocks.LastSay}" TextWrapping="Wrap" FontSize="12" Margin="0,2,0,6" />
+      <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5">Every line also lands in ACTIVITY and the saved log. One part runs at a time; press several in a row and they queue and run in order. Stop does not undo anything already written. Granted clients can unlock only the achievements, on their own account, under Client Menu → Player → Unlock Achievements.</TextBlock>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

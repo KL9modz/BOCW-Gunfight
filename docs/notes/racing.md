@@ -265,6 +265,11 @@ Offline checks: `tools/check-dump.py` and `tools/check-args.py` — no new findi
 fatal false positives from string text, 0 arity mismatches); braces / parens balanced; GfPanel.Tests' RaceTests pin
 the line formats, the gate order, the limit and the packing to what the panel parses (each mutation-tested).
 ⚠ Not compiled here — `acts gscc` is Windows-only.
+✅ Compiled on the Windows box 2026-09-24 (bocw-e0, after the cherry-pick onto main 15cbf23): `tools/check-gsc.ps1`
+PASS on the committed file and on the working tree with bocw-84's uncommitted unlock block merged in. Read for the crash
+rules: GFTRACK chunks ≤ 800 chars + a < 100-char header, GFRACE capped at 1000 by length, no `\n` literals, at most 16
+`gf_gp<k>` dvars set one per call, `rtv=` adds ≤ 15 chars to GFSTATE (far under 1024). It reaches the game only
+with the next promote of the live slot; the app sends the new `raceg*` verbs to an older payload as unknown commands.
 
 **The panel side:** the RACING page (`tools/gf-panel/README.md` → *Pages*): the track live on the map over the atlas's
 map picture, every player on it (Follow me keeps the host centred while you drive), the editor, the race, the saved

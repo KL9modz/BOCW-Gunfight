@@ -93,8 +93,8 @@
         </Expander.Header>
         <StackPanel>
           <WrapPanel Style="{StaticResource Row}">
-            <TextBlock Text="Fly bind (Tac + Melee)" Style="{StaticResource RowLabel}" />
-            <Button Content="On" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="flybind on" Margin="0,2,4,2" ToolTip="fun flybind on - Tactical + Melee toggles fly with the menu closed (the host; a player: PLAYERS → Fun)" />
+            <TextBlock Text="Fly bind (ADS+Sprint / Tac+Melee)" Style="{StaticResource RowLabel}" />
+            <Button Content="On" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="flybind on" Margin="0,2,4,2" ToolTip="fun flybind on - toggles fly: on a controller hold ADS and click Sprint, or press both together (works with the menu open too), Tactical + Melee on keyboard / mouse with the menu closed (the host; a player: PLAYERS → Fun)" />
             <Button Content="Off" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="flybind off" Margin="0,2,4,2" />
           </WrapPanel>
           <WrapPanel Style="{StaticResource Row}">
@@ -242,6 +242,20 @@
             <Button Content="Set" Style="{StaticResource SmallBtn}" Command="{Binding Tools.ProjMethodSet}" Margin="4,0,0,0" />
           </WrapPanel>
           <TextBlock Text="props + explosive barrels: FORGE → PROPS · the PROJ debug line: DIAGNOSTICS" Style="{StaticResource Dim}" FontSize="10.5" Margin="110,2,0,0" />
+          <!-- klaze 2026-09-24: the client "Ammo Type" page - each player's own pick (fun ammo, pers); the host's here -->
+          <TextBlock Text="AMMO TYPE (per player)" Style="{StaticResource SubTitle}" />
+          <WrapPanel Style="{StaticResource Row}">
+            <TextBlock Text="My ammo type" Style="{StaticResource RowLabel}" />
+            <Button Content="Rockets" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ammo 1" Margin="0,2,4,2" ToolTip="fun ammo 1 - the HOST's own pick: Cigma missiles (a player: right-click → Fun pack → Ammo type; granted clients: Client Menu → Ammo Type)" />
+            <Button Content="Missiles" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ammo 2" Margin="0,2,4,2" ToolTip="jet fighter missiles" />
+            <Button Content="Grenades" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ammo 3" Margin="0,2,4,2" ToolTip="M79 grenades" />
+            <Button Content="Orbs" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ammo 4" Margin="0,2,4,2" ToolTip="energy portals" />
+            <Button Content="Chickens" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ammo 5" Margin="0,2,4,2" />
+            <Button Content="Last used prop" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ammo 6" Margin="0,2,4,2" ToolTip="the last prop you picked or placed in Props" />
+            <Button Content="Normal" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ammo 0" Margin="0,2,12,2" ToolTip="back to normal bullets" />
+            <Button Content="Everyone → normal" Style="{StaticResource Chip}" Command="{Binding Fun.Send}" CommandParameter="ammo none" Margin="0,2,4,2" ToolTip="fun ammo none - every player's own pick cleared (Projectiles OFF leaves the picks alone)" />
+          </WrapPanel>
+          <TextBlock TextWrapping="Wrap" Style="{StaticResource Dim}" FontSize="10.5" Margin="0,2,0,6">A pick beats Projectiles host / everyone and Model cannon for that player. Rockets / Missiles / Grenades ride the projectile pipeline (AUTO method, the rate above); Orbs / Chickens / Last used prop ride the model cannon (its blast / ride / keep switches below apply).</TextBlock>
           <TextBlock Text="PROJECTILE EXTRAS" Style="{StaticResource SubTitle}" />
           <WrapPanel Style="{StaticResource Row}">
             <TextBlock Text="Shots per trigger" Style="{StaticResource RowLabel}" />

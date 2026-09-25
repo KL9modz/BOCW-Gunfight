@@ -6,7 +6,15 @@ public sealed record MapDef(string Name, string Id, string Group, string? Gamety
 }
 
 public sealed record Named(string Label, string Value, string Note = "") { public override string ToString() => Label; }
-public sealed record VehicleDef(int Index, string Label, int Kind) { public bool Drivable => Kind == 0; public override string ToString() => Label; }
+/// <summary>A veh_master() row. Maps = the maps any of its copies loads on (docs/data/vehicle-assets.json, the zone
+/// tables); null = every map (core_common / mp_common) or unknown - never hidden.</summary>
+public sealed record VehicleDef(int Index, string Label, int Kind, string[]? Maps = null)
+{
+    public bool Drivable => Kind == 0;
+    /// <summary>Loaded on this map? An empty map name (no match running) shows everything.</summary>
+    public bool On(string map) => Maps == null || map.Length == 0 || Array.IndexOf(Maps, map) >= 0;
+    public override string ToString() => Label;
+}
 public sealed record PerkDef(string Key, string Label, string Note = "") { public override string ToString() => Label; }
 public sealed record ColorDef(string Code, string Name, string Hex);
 public sealed record DurDef(string Label, int Value) { public override string ToString() => Label; }
@@ -104,28 +112,52 @@ public static class Catalog
     };
 
     // veh_master() in gunfight_menu.gsc: the app names a vehicle by its INDEX (an asset name does not fit the slot).
-    /// <summary>Mirror of the GSC veh_master() order (vehspawn is BY MASTER INDEX): regenerate from the .gsc whenever a row is added or removed (last sync 2026-09-24, 73 rows - the fun pack appended 67-75, then its RC-XD streak became 37 "RC-XD alt" and its two turrets were removed).</summary>
+    /// <summary>Mirror of the GSC veh_master() order (vehspawn is BY MASTER INDEX): regenerate from the .gsc whenever a row is added or removed (last sync 2026-09-25 11th pass, 43 rows + each row's maps from docs/data/vehicle-assets.json; null = every map), 51 rows + each row's maps from docs/data/vehicle-assets.json; null = every map).</summary>
     public static readonly VehicleDef[] Vehicles =
     {
-        new(0, "Light buggy (FAV)", 0), new(1, "Light buggy (FAV) alt", 0), new(2, "Heavy buggy (FAV)", 0), new(3, "Motorcycle", 0), new(4, "Motorcycle alt", 0),
-        new(5, "Motorcycle (slow)", 0), new(6, "Quad / ATV", 0), new(7, "Snowmobile", 0), new(8, "Snowmobile alt", 0), new(9, "Snowmobile (single seat)", 0),
-        new(10, "Sedan", 0), new(11, "Sedan alt", 0), new(12, "Sedan (BO4 midsize)", 0), new(13, "Light truck", 0), new(14, "Light truck alt", 0),
-        new(15, "Light truck (base)", 0), new(16, "Transport truck", 0), new(17, "Transport truck alt", 0), new(18, "Transport truck (objective)", 0), new(19, "Tank T-72", 0),
-        new(20, "Tank T-72 alt", 0), new(21, "Tank T-72 (base)", 0), new(22, "APC (heavy)", 0), new(23, "APC (heavy, open turret)", 0), new(24, "Hind gunship", 0),
-        new(25, "Armada heli (campaign)", 0), new(26, "Jetski", 0), new(27, "Jetski alt", 0), new(28, "Tactical raft", 0), new(29, "Tactical raft alt", 0),
-        new(30, "Tactical raft (grey)", 0), new(31, "PBR gunboat", 0), new(32, "PBR gunboat alt", 0), new(33, "Chopper Gunner", 1), new(34, "Care package heli", 0),
-        new(35, "Vehicle-drop heli", 1), new(36, "RC-XD", 1), new(37, "RC-XD alt", 1), new(38, "Exfil helicopter (Fireteam)", 1), new(39, "AC-130 gunship", 1),
-        new(40, "Attack helicopter", 1), new(41, "Attack helicopter guard", 1), new(42, "VTOL Forger", 1), new(43, "Strafe run plane", 1), new(44, "Air transport (intro)", 1),
-        new(45, "Air transport (infiltration, BO4)", 1), new(46, "Mounted MG tripod", 1), new(47, "Express train", 1), new(48, "Intro cinematic vehicle (Checkmate / Satellite)", 1), new(49, "Intro cinematic tank (Garrison / Amerika)", 1),
-        new(50, "Intro cinematic vehicle (Garrison)", 1), new(51, "Intro cinematic vehicle (Miami)", 1), new(52, "Intro cinematic vehicle (Moscow cia)", 1), new(53, "Intro cinematic vehicle (Moscow kgb)", 1), new(54, "Intro cinematic helicopter (The Pines)", 1),
-        new(55, "Intro cinematic APC (The Pines)", 1), new(56, "Intro cinematic APC (Amerika)", 1), new(57, "Intro cinematic vehicle (Echelon)", 1), new(58, "Intro cinematic vehicle (Yamantau)", 1), new(59, "Intro cinematic vehicle (Apocalypse)", 1),
-        new(60, "Intro cinematic vehicle (Cartel)", 1), new(61, "Intro cinematic vehicle (Collateral cia)", 1), new(62, "Intro cinematic vehicle (Collateral kgb)", 1), new(63, "Intro cinematic vehicle (Crossroads kgb)", 1), new(64, "Intro cinematic vehicle (Crossroads)", 1),
-        new(65, "Intro cinematic vehicle (Crossroads kgb 2)", 1), new(66, "Intro cinematic vehicle (Crossroads cia)", 1),
-        // fun pack 2026-09-23: appended in the GSC too - resident on MP maps, missing until PHA V1.00's list showed them
-        // (klaze 2026-09-24: the RC-XD streak row moved up to 37 "RC-XD alt" - the old alt looked like the RC-XD - and
-        //  the two turrets are out, "remove the 2 turrets from vehicles menu"; the rows after them moved up)
-        new(67, "AI helicopter", 1), new(68, "Drone squad - PHA's name", 1),
-        new(69, "Helicopter (Sanatorium)", 1), new(70, "Fireteam reinsertion vehicle", 1), new(71, "Napalm strike plane, hpc intro", 1), new(72, "Outro helicopter (hpc/sl)", 1),
+        new(0, "Light Buggy (FAV)", 0, new[] { "mp_dune", "wz_duga", "wz_forest", "wz_golova", "wz_sanatorium", "wz_ski_slopes", "wz_zoo" }),
+        new(1, "Dirt Bike", 0, new[] { "mp_cartel", "mp_dune", "mp_sm_gas_station", "wz_duga", "wz_forest", "wz_golova", "wz_sanatorium", "wz_zoo" }),
+        new(2, "Dirt Bike (Slow)", 0, new[] { "mp_cartel" }),
+        new(3, "Quad / ATV", 0, new[] { "mp_dune" }),
+        new(4, "Snowmobile", 0, new[] { "mp_tundra", "wz_ski_slopes" }),
+        new(5, "Sedan", 0, new[] { "wz_duga", "wz_forest", "wz_golova", "wz_sanatorium", "wz_ski_slopes", "wz_zoo" }),
+        new(6, "Light Truck", 0, new[] { "mp_cartel", "wz_duga", "wz_forest", "wz_golova", "wz_sanatorium", "wz_ski_slopes", "wz_zoo" }),
+        new(7, "Cargo Truck", 0, new[] { "mp_dune", "wz_duga", "wz_forest", "wz_golova", "wz_sanatorium", "wz_ski_slopes", "wz_zoo" }),
+        new(8, "T-72 Tank", 0, new[] { "mp_tundra", "wz_duga", "wz_forest", "wz_golova", "wz_ski_slopes", "wz_zoo" }),
+        new(9, "APC (Heavy)", 0, new[] { "mp_kgb", "mp_sm_gas_station" }),
+        new(10, "APC (Heavy, Open Turret)", 0, new[] { "mp_kgb", "mp_sm_gas_station" }),
+        new(11, "Mi-24 Hind", 0, new[] { "mp_dune", "wz_duga", "wz_forest", "wz_golova", "wz_sanatorium", "wz_ski_slopes" }),
+        new(12, "Wakerunner", 0, new[] { "mp_black_sea", "wz_sanatorium" }),
+        new(13, "Tactical Raft", 0, new[] { "mp_black_sea", "mp_miami", "mp_tank", "wz_sanatorium" }),
+        new(14, "PBR Gunboat", 0, new[] { "mp_black_sea", "wz_sanatorium" }),
+        new(15, "Chopper Gunner", 1),
+        new(16, "CH-47 Chinook", 0),
+        new(17, "Transport Helicopter", 1),
+        new(18, "RC-XD", 1),
+        new(19, "RC-XD ALT", 1),
+        new(20, "Little Bird Exfil", 1, new[] { "mp_black_sea", "mp_dune", "mp_tundra", "wz_duga", "wz_forest", "wz_golova", "wz_sanatorium", "wz_ski_slopes", "wz_zoo" }),
+        new(21, "AC-130 Gunship", 1),
+        new(22, "Attack Helicopter", 1),
+        new(23, "Heavy Attack Chopper", 1),
+        new(24, "VTOL Escort", 1),
+        new(25, "Strafe Run", 1),
+        new(26, "Cargo Plane", 1, new[] { "wz_duga", "wz_forest", "wz_golova", "wz_sanatorium", "wz_ski_slopes" }),
+        new(27, "Mounted MG Tripod", 1, new[] { "mp_black_sea", "mp_cartel", "mp_tundra" }),
+        new(28, "Express Train", 1, new[] { "mp_express_rm" }),
+        new(29, "Buggy", 1, new[] { "mp_kgb", "mp_satellite" }),
+        new(30, "M1A1 Abrams", 1, new[] { "mp_amerika", "mp_tank" }),
+        new(31, "Van", 1, new[] { "mp_miami", "mp_moscow" }),
+        new(32, "APC", 1, new[] { "mp_amerika", "mp_mall" }),
+        new(33, "Gunship Helicopter", 1, new[] { "mp_cartel" }),
+        new(34, "8x8 Truck", 1, new[] { "mp_dune" }),
+        new(35, "ATVs", 1, new[] { "mp_dune" }),
+        new(36, "ICBM Launcher", 1, new[] { "mp_tundra" }),
+        new(37, "Convoy Vehicle", 1, new[] { "mp_tundra" }),
+        new(38, "Light Truck, Snow", 1, new[] { "mp_tundra" }),
+        new(39, "ICBM Launcher, Snow", 1, new[] { "mp_tundra" }),
+        new(40, "Wraith", 1),
+        new(41, "Camera Drone", 1),
+        new(42, "Little Bird", 1, new[] { "mp_apocalypse", "mp_moscow", "wz_sanatorium" })
     };
 
     public static readonly Named[] Camos =

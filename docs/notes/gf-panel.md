@@ -196,7 +196,8 @@ previous = `gunfight_menu.safe-67FECA4B.bak.gscc`). **Nothing below has run in g
   the app keeps it as "pilot view only". The app's older *Spy plane* row is Gunfight's own
   `gunfightspyplane` rule (gunfight.gsc:112, Gunfight matches only) — relabeled *Gunfight spy plane*.
 - **PARACHUTES** (TOOLS + Movement → Parachutes in-game; `gf_parachute` 0 off / 1 everyone / 2 host
-  only; app verb `parachute n`). A Fireteam mode's hidden setting `hash_2966662989c3484c` makes
+  only; app verb `parachute n`). **Default 1 = everyone** since klaze 2026-09-24 ("Make parashoots on by
+  default"; GSC `cfg_parachute` + Schema.cs, build AF1B8963). A Fireteam mode's hidden setting `hash_2966662989c3484c` makes
   globallogic_spawn.gsc:674-678 call `function_8a945c0e( 1 )` + `function_8b8a321a( 1 )` at spawn; the
   mod calls that pair itself per player per spawn — no gametype write, so no reload. ⚠ The height a
   free-fall starts at is unmeasured.
@@ -277,8 +278,16 @@ previous = `gunfight_menu.safe-67FECA4B.bak.gscc`). **Nothing below has run in g
   Off / Live. The dvar is `"x,y,w,h,alpha,r,g,b"` — ONE short `set` (under the 47-byte slot), sent 350 ms after
   the last slider move when Live is on; the GSC (`hudbox_think`, one thread per menu owner) re-reads it every
   0.1 s while that player's menu is open. Units from the widget's Lua: x / y 15 px, **w 8 px**, h 4 px (the
-  Pixels readout shows them). Defaults 30,18 / 30,46, 128×12, opacity 8, black = guesses to tune in game.
-  Widget facts and the queue / cache trap: [hud-channels](hud-channels.md) §1.
+  Pixels readout shows them). Widget facts and the queue / cache trap: [hud-channels](hud-channels.md) §1.
+  Later the same day, klaze asked for no boxes on client menus for now, so they show on the host menu only.
+  The first defaults were guesses: 30,18 / 30,46, 128×12, opacity 8, black. klaze's screenshot (09-24 ~21:10)
+  showed both boxes centred right but at the wrong heights: *"the menu boxes dont align. but the top row
+  already has its own anyway"*. The defaults were re-measured from it. *Behind the centre line* is now **off**
+  (opacity 0), because the centre line draws its own backdrop. *Behind the hint row* is **30,52, 128×14,
+  opacity 8** (live 809EC9D6). On screen there (klaze, the same night): *"it replaced the hint bar. disable
+  boxes for now"*. So **both boxes now default OFF** (opacity 0) in the GSC and in the app, and the header
+  says so. The sliders still work, so raising a box's Opacity brings it back to try again. The widget sets no
+  draw priority; klaze's words suggest it draws OVER the hint text, not behind it.
 - **Text tests** — the Host page's four rows moved onto a **Host → *Text tests*** sub-page (host-only: a
   granted client starts at `start_client` and cannot back out into the host tree) with six new LOCALIZED
   line-break tests; app TOOLS → PLAYER STATE → *Line breaks from stock text* 1-6 (`nltest loca..locf`).
@@ -402,9 +411,62 @@ that left are those above and the three old section lists (`AdvancedSections`, `
 `ToolsSections`), whose replacements the section-tab check proves are bound. The old MATCH page's LIVE readouts
 (scores, alive counts, timer, phase, round, map, teams) are all in the sidebar.
 
-**Untested — not ruled out:** none of the new pages has been on screen. The build compiles and every binding and
-resource key checks out offline, but WPF layout (column flow, sub-tab strip, the pinned block's height) can
-only be judged from a screenshot: `GfPanel.exe --dry --fake` fills the roster and entity list without a game.
+**On screen 2026-09-24 (bocw-e0, after the cherry-pick onto main):** every page and sub-tab (MATCH, PLAYERS,
+RULES, MAPS, SPAWN ATLAS, SANDBOX, RACING, FORGE, DIAGNOSTICS, SETUP) rendered in `GfPanel.exe --dry --fake` at
+2520×1575, no `crash.log`; the published `dist` exe (sha F9C11C34) starts and finds the live slot. Nits seen:
+MATCH's *RESTART ROUND* label clips at that width; SETUP's *Lobby slots* status dot sits a row low when its text
+wraps. **Untested — not ruled out:** no command has been sent from the new pages to a live game yet (the
+screenshots are a dry run); the pinned block's height with many pins.
 **Untried — not ruled out:** pinning *actions* (a Fill-bots button on MATCH was a hard-coded choice; a pin
 would make it the host's), state-aware *everyone* toggles (GFSTATE already carries god / invisible / 3rd person
 / drunk / perks), remembering which blocks are collapsed.
+
+## 12. UNLOCKS page and Ammo Type (2026-09-24, bocw-84)
+
+- **UNLOCKS** (the page between FORGE and DIAGNOSTICS): account unlocks through the GSC `unlock` verb, plus the
+  granted client's Client Menu → *Account*. See [unlocks](unlocks.md) for the reference and the two measured runs.
+- **Ammo Type** (klaze: *"give clients a new "Ammo Type" page"*) is each player's own pick of what their shots
+  fire: Rockets, Missiles, Grenades, Orbs, Chickens, Last used prop. The app sends `fun ammo <0-6>` for one
+  player or `fun ammo none` for everyone. The controls are on PLAYERS (the player's fun-pack row), the
+  right-click Fun pack menu → *Ammo type*, and SANDBOX → PROJECTILES & MAP TOYS → *My ammo type* /
+  *Everyone → normal*. How it works: [projectiles](projectiles.md) §12. **Ammo Type has not run in game.**
+
+## 13. Match time limit, other modes (2026-09-24, bocw-e0)
+
+klaze asked: *"do we have a match timer control? its different from round timer"*. We didn't have one, and they
+chose *"Match time limit for TDM, Free-for-all, etc."*.
+
+**Why there was nothing to expose.** The game has one time-limit setting, `timelimit` (the lobby's *Time Limit*
+row), and each mode reads it differently. Gunfight reads it as the round clock in seconds (`gunfight.gsc:1139`).
+The mod owns that clock: *Round timer*, `gf_timer_seconds`. Gunfight has no match clock at all. Every mode that
+uses the stock reader (`globallogic_defaults.gsc:296`) reads it in minutes. In TDM, Free-for-all, Kill
+Confirmed and Hardpoint that covers the whole match; in a mode with rounds, such as Search & Destroy, it covers
+one round.
+
+**The row.** It is RULES → GUNFIGHT MATCH → *Rounds & match length* → **Match time limit (other modes)**,
+dvar `gf_match_minutes`. It is plain (not packed) and sits at the end of the `misc=` readback list.
+- The choices are *Lobby's value* (-1), 3 to 60 min, and *Unlimited* (0).
+- The row is LIVE with scope `mtime`: the app's pulse is `apply mtime`.
+
+**How the mod does it.** It does not write the setting. The engine fast-restarts a match on some setting changes
+(maxplayers and the round limits, measured 2026-09-15), and nobody has measured an in-match `timelimit` write.
+So the mod replaces the clock reader instead, the same method the round timer uses: `mod_apply` calls
+`mtl_install()` in every non-Gunfight mode. The stock loop calls the reader every 0.25 s and moves the HUD
+clock (`globallogic.gsc:3439` / `:3276`).
+- It hooks only the **stock** reader (`level.gettimelimit == &globallogic_defaults::default_gettimelimit`,
+  needs the new `#using`). Control, Demolition, Infected and Spy install their own reader in `main()` (overtime,
+  extra time, infection extensions), so they keep the lobby's row. When the app applies the row in one of those
+  modes, the host's feed says `runs its own clock - set Time Limit in the lobby`.
+- The value is **cached**. It is re-read at each match start (or round start) and when an app apply changes
+  it, never on every tick. A pure *Apply all live* does not move it.
+- A **new** limit at or under the time already played becomes one more minute from now, and the feed says
+  `... already played - the match ends in 1:00`. This way a dropdown scrolled through low values cannot end the
+  match. *End match* is still the instant end.
+- A race swaps in its own clock and puts this one back when it finishes (`race_teardown` restores what it
+  saved).
+
+**Built:** LIVE slot (see memory gf-panel-native-app) + dist exe 4D680020; GfPanel.Tests 76/76.
+**Untested, not ruled out:**
+- Whether the HUD clock and the panel sidebar's Timer follow a live change in TDM.
+- What an in-match `setgametypesetting( #"timelimit" )` would do: restart the match, or apply live.
+- Prop Hunt's end-of-round stats still read the lobby's row (`prop.gsc:2480`).

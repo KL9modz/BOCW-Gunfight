@@ -138,6 +138,11 @@ alive NOW*) → *Vehicle mode options* (lock, HP 25–400 %, height 150–1000, 
 1. **Does `disable_usability` stop the hold-to-exit?** If not, layer (b) shows up as `exits` /
    `reseat` climbing in the debug line and the rider flickering out and back in; if the engine refuses
    the re-seat 20 times the watcher lets him go and says so.
+   **Observed by klaze 2026-09-24 on the menu-spawned "Other" (kind-1) rides:** *"most still let u hold
+   interact to leave"*, so the layer does NOT stop that exit there. The rider's "no exit on this ride" line
+   is gone. Only a VTOL Forger rider is warned now; its hold-Use exit is the measured 2026-09-20 crash
+   (`veh_noexit_rider`, build AF1B8963). The same batch closes the mod menu the moment its owner steps
+   into any seat (`menu_think`; reopening it while seated still works).
 2. **Can the bike's driver fire his own weapon?** Asset-defined (no script gate exists — `player_vehicle`
    never touches the rider's weapons). `shots:` in the debug line counts `weapon_fired` from seated
    riders. If drivers cannot fire, "gunfight on bikes" needs a different seat model (passenger +

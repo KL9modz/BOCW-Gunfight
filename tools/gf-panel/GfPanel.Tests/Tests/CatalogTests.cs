@@ -11,7 +11,8 @@ public static class CatalogTests
     public static void Vehicles_match_veh_master_row_for_row()
     {
         var gsc = Gsc.VehicleRows();
-        Check.True(gsc.Count > 50, $"veh_master parse found only {gsc.Count} rows");
+        // a parse sanity floor, not a size rule: the list is 43 rows since klaze's 2026-09-25 cleanup
+        Check.True(gsc.Count > 30, $"veh_master parse found only {gsc.Count} rows");
         var p = new Problems();
         for (var i = 0; i < Math.Max(gsc.Count, Catalog.Vehicles.Length); i++)
         {

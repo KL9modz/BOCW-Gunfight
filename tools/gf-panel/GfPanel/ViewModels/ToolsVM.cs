@@ -133,11 +133,16 @@ public sealed class ToolsVM : ObservableObject
     public RelayCommand TpNadeAll => new(() => Do("Teleport grenade (everyone)", "tpnade", "all"));
 
     // ── vehicles ──
-    public VehicleDef[] DrivableVehicles => Catalog.Vehicles.Where(v => v.Drivable).ToArray();
-    public VehicleDef[] OtherVehicles => Catalog.Vehicles.Where(v => !v.Drivable).ToArray();
+    // klaze 2026-09-25: the lists show what the CURRENT map loads (VehicleDef.Maps, from the zone tables), the way the
+    // in-game spawner does; no match running = everything. The GSC still resolves each row to the copy the map ships.
+    private string VehMap => _m.Link.State?.Map ?? "";
+    public VehicleDef[] DrivableVehicles => Catalog.Vehicles.Where(v => v.Drivable && v.On(VehMap)).ToArray();
+    public VehicleDef[] OtherVehicles => Catalog.Vehicles.Where(v => !v.Drivable && v.On(VehMap)).ToArray();
     private VehicleDef _veh = null!, _vehOther = null!;
-    public VehicleDef SelectedVehicle { get => _veh; set => Set(ref _veh, value); }
-    public VehicleDef SelectedOtherVehicle { get => _vehOther; set => Set(ref _vehOther, value); }
+    // a null from the ComboBox (its list just changed under it) is ignored: the spawn buttons always have a row
+    public VehicleDef SelectedVehicle { get => _veh; set { if (value != null) Set(ref _veh, value); } }
+    public VehicleDef SelectedOtherVehicle { get => _vehOther; set { if (value != null) Set(ref _vehOther, value); } }
+    private string _vehListMap = "";
     // ── streaks (bocw-1c 2026-09-21): `streak <kstype>` = killstreaks::give (the care-package inventory path);
     //    target = a named player via gf_cmd_target, else the host. Host + client pages in-game; not the client menu.
     private PlayerRowVM? _streakTarget;
@@ -162,9 +167,22 @@ public sealed class ToolsVM : ObservableObject
     public RelayCommand VehLiveryPrev => new(() => Do("Vehicle livery: previous", "vehlivery", "prev"));
     public RelayCommand VehLiveryNext => new(() => Do("Vehicle livery: next", "vehlivery", "next"));
     public string VehicleNote => _m.Link.State is { } s && _m.Link.MapVeh.TryGetValue(s.Map, out var d)
-        ? "resident here: " + string.Join(", ", d.VehiclesDrive) : "spawns ahead of you (aircraft above); a class this map lacks just says so";
-    /// <summary>A new state line (map / census may have changed): VehicleNote is computed, so it has to be told.</summary>
-    public void NotifyMap() => OnPropertyChanged(nameof(VehicleNote));
+        ? "resident here: " + string.Join(", ", d.VehiclesDrive)
+        : VehMap.Length > 0 ? $"{DrivableVehicles.Length + OtherVehicles.Length} on {Catalog.MapName(VehMap)} · spawns ahead of you (aircraft above)"
+        : "no match running: every vehicle listed · spawns ahead of you (aircraft above)";
+    /// <summary>A new state line (map / census may have changed): VehicleNote is computed, so it has to be told.
+    /// The vehicle lists are re-read only when the map itself changed (every state line would reset the pickers).</summary>
+    public void NotifyMap()
+    {
+        OnPropertyChanged(nameof(VehicleNote));
+        var map = VehMap;
+        if (map == _vehListMap) return;
+        _vehListMap = map;
+        OnPropertyChanged(nameof(DrivableVehicles));
+        OnPropertyChanged(nameof(OtherVehicles));
+        if (!_veh.On(map) && DrivableVehicles.FirstOrDefault() is { } d) SelectedVehicle = d;
+        if (!_vehOther.On(map) && OtherVehicles.FirstOrDefault() is { } o) SelectedOtherVehicle = o;
+    }
 
     // ── map toys ──
     public RelayCommand DestructAim => new(() => Do("Break aimed", "destruct", "aim"));

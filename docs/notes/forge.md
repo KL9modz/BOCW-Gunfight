@@ -95,3 +95,20 @@ spinning the base turns the whole build and deleting a rider breaks nothing), **
 turn + **Reverse spin** (PHA's 18 modes = 3 axes × 2 directions × 3 speeds). Links, like motion, are not
 saved across rounds.
 
+## Keyboard & mouse controls (2026-09-24, klaze; built into 747473AD, not run yet)
+The keyboard scheme no longer uses the D-pad action slots (they never reach the script from a keyboard -
+klaze's 3 / 4 did nothing). Walking stays on WASD; the placer reads:
+
+| Action | Key | Script reads |
+|---|---|---|
+| Place (hold = spray) | Left-click | attack |
+| Previous / next prop | Wheel up / down | `BUTTON_BIT_WEAPPREV` / `BUTTON_BIT_WEAPNEXT` |
+| Turn | Right-click (ADS) + wheel, Shift = 45 degree steps | ADS + the wheel bits |
+| Scale | Tactical / lethal (hold = repeat) | secondaryoffhand / frag |
+| Undo / delete grabbed | R | reload |
+| Grab / drop (forge mode) | F | `BUTTON_BIT_ACTIVATE` (`usebuttonpressed` is R on PC) |
+| Exit / cancel | E | melee |
+
+The controller scheme is unchanged. The hint bar shows the wheel as the word "Wheel" (its keyboard
+command has no glyph). Unmeasured: whether the wheel bits arrive while Forge has the weapon lowered,
+and their direction.
